@@ -17,6 +17,9 @@ func (f fakePublisher) PublishBatch(context.Context, []byte) (hosted.BatchAck, e
 	return f.ack, f.err
 }
 func (f fakePublisher) Heartbeat(context.Context, string, string) error { return f.err }
+func (f fakePublisher) CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error) {
+	return hosted.CoordinationBrief{}, f.err
+}
 
 func TestHostedSenderRequiresEveryAcknowledgement(t *testing.T) {
 	batch := []byte(`{"events":[{"eventId":"evt_a"},{"eventId":"evt_b"}]}`)

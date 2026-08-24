@@ -9,6 +9,7 @@ import (
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	gitobs "github.com/stickguy/stickguy/internal/git"
+	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/store"
 	"os"
 	"os/exec"
@@ -24,6 +25,101 @@ type fakeSender struct {
 	mu      sync.Mutex
 	events  int
 	batches map[string][][]byte
+}
+
+type lifecycleFixtureSender struct{ briefs int }
+
+func (*lifecycleFixtureSender) Send(context.Context, string, []byte) error { return nil }
+func (s *lifecycleFixtureSender) CreateBrief(_ context.Context, workstreamID, trigger, _ string, budget int) (hosted.CoordinationBrief, error) {
+	s.briefs++
+	return hosted.CoordinationBrief{BriefID: "brf_fixture", ProjectID: "prj_fixture", RepositoryID: "rep_fixture", WorkstreamID: workstreamID, Trigger: trigger, RequestedBudget: budget, Items: []hosted.BriefItem{{ID: "itm_fixture", Kind: "decision", Text: "Synthetic coordination item"}}}, nil
+}
+
+func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: "/fixture", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &lifecycleFixtureSender{}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	begin := daemon.Request{Method: "begin_work", WorkspaceID: workspace.ID, IdempotencyKey: "begin_1", Title: "Bounded lifecycle", IntendedOutcome: "Preserve coordination evidence"}
+	response := service.handle(ctx, begin)
+	result, ok := response.Data.(lifecycleResult)
+	if !response.OK || !ok || result.IntentRevision != 1 || result.Duplicate || result.Brief == nil {
+		t.Fatalf("begin response=%#v", response)
+	}
+	response = service.handle(ctx, begin)
+	result, _ = response.Data.(lifecycleResult)
+	if !response.OK || !result.Duplicate || result.IntentRevision != 1 {
+		t.Fatalf("begin retry response=%#v", response)
+	}
+	changed := begin
+	changed.Title = "Changed under reused key"
+	if response = service.handle(ctx, changed); response.OK || !strings.Contains(response.Error, "different input") {
+		t.Fatalf("changed retry response=%#v", response)
+	}
+	update := begin
+	update.Method, update.IdempotencyKey, update.Revision, update.Title = "update_intent", "intent_2", 1, "Refined lifecycle"
+	response = service.handle(ctx, update)
+	result, _ = response.Data.(lifecycleResult)
+	if !response.OK || result.IntentRevision != 2 {
+		t.Fatalf("update response=%#v", response)
+	}
+	stale := update
+	stale.IdempotencyKey = "intent_stale"
+	if response = service.handle(ctx, stale); response.OK || !strings.Contains(response.Error, "revision conflict") {
+		t.Fatalf("stale update response=%#v", response)
+	}
+	if response = service.handle(ctx, daemon.Request{Method: "check_coordination", WorkspaceID: workspace.ID, Trigger: "before_broad_edit", ApproximateTokenBudget: 400}); !response.OK {
+		t.Fatalf("check response=%#v", response)
+	}
+	checkpoint := daemon.Request{Method: "report_checkpoint", WorkspaceID: workspace.ID, CheckpointID: "chk_fixture", Summary: "Behavior verified", Verification: []daemon.VerificationSummary{{State: "passed", CheckKind: "test", Label: "Lifecycle suite", Summary: "Bounded checks passed"}}}
+	if response = service.handle(ctx, checkpoint); !response.OK {
+		t.Fatalf("checkpoint response=%#v", response)
+	}
+	if response = service.handle(ctx, checkpoint); !response.OK || !response.Data.(lifecycleResult).Duplicate {
+		t.Fatalf("checkpoint retry response=%#v", response)
+	}
+	if response = service.handle(ctx, daemon.Request{Method: "acknowledge_context", WorkspaceID: workspace.ID, IdempotencyKey: "ack_1", BriefID: "brf_fixture", ConsideredItemIDs: []string{"itm_fixture"}}); !response.OK {
+		t.Fatalf("acknowledge response=%#v", response)
+	}
+	finish := daemon.Request{Method: "finish_work", WorkspaceID: workspace.ID, IdempotencyKey: "finish_1", Outcome: "Lifecycle delivered", Summary: "Final bounded verification", Verification: []daemon.VerificationSummary{{State: "passed", CheckKind: "test", Label: "Final suite", Summary: "Passed"}}}
+	if response = service.handle(ctx, finish); !response.OK || response.Data.(lifecycleResult).Brief == nil {
+		t.Fatalf("finish response=%#v", response)
+	}
+	if response = service.handle(ctx, daemon.Request{Method: "report_event", WorkspaceID: workspace.ID, IdempotencyKey: "event_1", Kind: "decision", Summary: "Retain MCP-only lifecycle"}); !response.OK {
+		t.Fatalf("event response=%#v", response)
+	}
+	queue, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, event := range queue {
+		kinds = append(kinds, event.Kind)
+	}
+	want := []string{"workspace.registered", "workstream.intent_reported", "workstream.intent_reported", "workstream.checkpoint_reported", "context.acknowledged", "workstream.checkpoint_reported", "activity.reported", "workstream.status_changed", "activity.reported"}
+	if strings.Join(kinds, ",") != strings.Join(want, ",") {
+		t.Fatalf("durable lifecycle kinds=%v", kinds)
+	}
+	var finishCheckpoint eventEnvelopeForTest
+	if err = json.Unmarshal(queue[5].Payload, &finishCheckpoint); err != nil {
+		t.Fatal(err)
+	}
+	verification, ok := finishCheckpoint.Payload["verification"].([]any)
+	if !ok || len(verification) != 1 {
+		t.Fatalf("finish verification not preserved: %#v", finishCheckpoint.Payload)
+	}
+}
+
+type eventEnvelopeForTest struct {
+	Payload map[string]any `json:"payload"`
 }
 
 func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {

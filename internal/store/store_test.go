@@ -54,6 +54,57 @@ func TestRegistrationEventIDIncludesDeviceScope(t *testing.T) {
 	}
 }
 
+func TestLifecyclePublicationIsAtomicRevisionedAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.UpsertWorkspace(ctx, Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", DeviceID: "dev_fixture", SessionID: "ses_fixture", Root: "/fixture", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}); err != nil {
+		t.Fatal(err)
+	}
+	publication := LifecyclePublication{
+		WorkspaceID: "wsp_fixture", Method: "finish_work", IdempotencyKey: "finish_1", Source: "mcp",
+		Kind: "workstream.checkpoint_reported", Payload: map[string]any{"checkpointId": "chk_finish_fixture", "workstreamId": "wrk_fixture", "summary": "verified", "verification": []map[string]any{{"state": "passed", "checkKind": "test", "label": "Lifecycle suite", "summary": "Passed", "source": "mcp", "observedAt": ""}}},
+		Additional: []LifecycleEvent{
+			{Kind: "activity.reported", Payload: map[string]any{"kind": "completion", "summary": "complete"}},
+			{Kind: "workstream.status_changed", Payload: map[string]any{"workstreamId": "wrk_fixture", "status": "done"}},
+		},
+	}
+	revision, duplicate, err := s.PublishLifecycle(ctx, publication)
+	if err != nil || duplicate || revision != 0 {
+		t.Fatalf("first publication revision=%d duplicate=%t err=%v", revision, duplicate, err)
+	}
+	queue, err := s.Pending(ctx)
+	if err != nil || len(queue) != 4 {
+		t.Fatalf("queue=%#v err=%v", queue, err)
+	}
+	if queue[1].Kind != "workstream.checkpoint_reported" || queue[2].Kind != "activity.reported" || queue[3].Kind != "workstream.status_changed" || queue[1].Sequence+1 != queue[2].Sequence || queue[2].Sequence+1 != queue[3].Sequence {
+		t.Fatalf("lifecycle events are not an ordered atomic group: %#v", queue)
+	}
+	assertEnvelopeSchema(t, queue[1:])
+	revision, duplicate, err = s.PublishLifecycle(ctx, publication)
+	if err != nil || !duplicate || revision != 0 {
+		t.Fatalf("retry revision=%d duplicate=%t err=%v", revision, duplicate, err)
+	}
+	publication.Additional[0].Payload = map[string]any{"kind": "completion", "summary": "changed"}
+	if _, _, err = s.PublishLifecycle(ctx, publication); err == nil || !strings.Contains(err.Error(), "different input") {
+		t.Fatalf("changed retry error=%v", err)
+	}
+
+	intent := LifecyclePublication{WorkspaceID: "wsp_fixture", Method: "begin_work", IdempotencyKey: "begin_1", Source: "mcp", Kind: "workstream.intent_reported", Payload: map[string]any{"workstreamId": "wrk_fixture", "title": "bounded", "intendedOutcome": "coordinate"}, IncrementIntentRevision: true}
+	revision, duplicate, err = s.PublishLifecycle(ctx, intent)
+	if err != nil || duplicate || revision != 1 {
+		t.Fatalf("intent revision=%d duplicate=%t err=%v", revision, duplicate, err)
+	}
+	stale := int64(0)
+	intent.Method, intent.IdempotencyKey, intent.ExpectedIntentRevision = "update_intent", "intent_2", &stale
+	if revision, _, err = s.PublishLifecycle(ctx, intent); err == nil || revision != 1 || !strings.Contains(err.Error(), "revision conflict") {
+		t.Fatalf("stale update revision=%d err=%v", revision, err)
+	}
+}
+
 func TestRestartManifestQueueCursor(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "state.db")
 	ctx := context.Background()

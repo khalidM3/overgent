@@ -29,6 +29,17 @@ type ManifestPublication struct {
 	Baseline, Head, Hash, EventID string
 	Entries                       any
 }
+type LifecyclePublication struct {
+	WorkspaceID, Method, IdempotencyKey, Source, Kind string
+	Payload                                           any
+	Additional                                        []LifecycleEvent
+	ExpectedIntentRevision                            *int64
+	IncrementIntentRevision                           bool
+}
+type LifecycleEvent struct {
+	Kind    string
+	Payload any
+}
 type eventEnvelope struct {
 	SchemaVersion int       `json:"schemaVersion"`
 	EventID       string    `json:"eventId"`
@@ -64,6 +75,7 @@ CREATE TABLE IF NOT EXISTS event_queue(id TEXT PRIMARY KEY,workspace_id TEXT NOT
 CREATE UNIQUE INDEX IF NOT EXISTS event_sequence ON event_queue(workspace_id,sequence);
 CREATE TABLE IF NOT EXISTS cursors(workspace_id TEXT PRIMARY KEY,last_acked_sequence INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS service_state(id INTEGER PRIMARY KEY CHECK(id=1),boot_count INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS idempotency_keys(workspace_id TEXT NOT NULL,method TEXT NOT NULL,key TEXT NOT NULL,request_hash TEXT NOT NULL,response_revision INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,method,key));
 INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
@@ -86,6 +98,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		{"device_id", `ALTER TABLE workspaces ADD COLUMN device_id TEXT NOT NULL DEFAULT ''`},
 		{"session_id", `ALTER TABLE workspaces ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`},
 		{"registration_enqueued", `ALTER TABLE workspaces ADD COLUMN registration_enqueued INTEGER NOT NULL DEFAULT 0`},
+		{"intent_revision", `ALTER TABLE workspaces ADD COLUMN intent_revision INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, migration := range workspaceIdentityMigrations {
 		has, inspectErr := hasWorkspaceColumn(db, migration.column)
@@ -121,7 +134,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 			}
 		}
 	}
-	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3)`); err != nil {
+	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record sqlite migration: %w", err)
 	}
@@ -132,6 +145,96 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		}
 	}
 	return s, nil
+}
+
+func (s *Store) PublishLifecycle(ctx context.Context, publication LifecyclePublication) (revision int64, duplicate bool, err error) {
+	if publication.WorkspaceID == "" || publication.Method == "" || publication.IdempotencyKey == "" || publication.Kind == "" {
+		return 0, false, fmt.Errorf("lifecycle publication identifiers are required")
+	}
+	events := append([]LifecycleEvent{{Kind: publication.Kind, Payload: publication.Payload}}, publication.Additional...)
+	for _, event := range events {
+		if event.Kind == "" {
+			return 0, false, fmt.Errorf("lifecycle event kind is required")
+		}
+	}
+	request, err := json.Marshal(events)
+	if err != nil {
+		return 0, false, fmt.Errorf("encode lifecycle events: %w", err)
+	}
+	requestSum := sha256.Sum256(request)
+	requestHash := fmt.Sprintf("%x", requestSum[:])
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	var storedHash string
+	if queryErr := tx.QueryRowContext(ctx, `SELECT request_hash,response_revision FROM idempotency_keys WHERE workspace_id=? AND method=? AND key=?`, publication.WorkspaceID, publication.Method, publication.IdempotencyKey).Scan(&storedHash, &revision); queryErr == nil {
+		if storedHash != requestHash {
+			return 0, false, fmt.Errorf("idempotency key reused with different input")
+		}
+		return revision, true, nil
+	} else if queryErr != sql.ErrNoRows {
+		return 0, false, queryErr
+	}
+	var sequence, currentIntentRevision int64
+	var projectID, memberID, deviceID, sessionID string
+	if err = tx.QueryRowContext(ctx, `SELECT sequence,intent_revision,project_id,member_id,device_id,session_id FROM workspaces WHERE id=?`, publication.WorkspaceID).Scan(&sequence, &currentIntentRevision, &projectID, &memberID, &deviceID, &sessionID); err != nil {
+		return 0, false, err
+	}
+	revision = currentIntentRevision
+	if publication.IncrementIntentRevision {
+		if publication.ExpectedIntentRevision != nil && *publication.ExpectedIntentRevision != currentIntentRevision {
+			return currentIntentRevision, false, fmt.Errorf("intent revision conflict: current revision is %d", currentIntentRevision)
+		}
+		revision++
+	}
+	queuedAt := time.Now().UTC()
+	for i, event := range events {
+		eventSum := sha256.Sum256([]byte(fmt.Sprintf("stickguy.lifecycle-event.v1\x00%s\x00%s\x00%s\x00%d", publication.WorkspaceID, publication.Method, publication.IdempotencyKey, i)))
+		eventID := fmt.Sprintf("evt_%x", eventSum[:16])
+		encodedPayload, encodeErr := json.Marshal(event.Payload)
+		if encodeErr != nil {
+			return 0, false, encodeErr
+		}
+		var payload any
+		if encodeErr = json.Unmarshal(encodedPayload, &payload); encodeErr != nil {
+			return 0, false, encodeErr
+		}
+		payload = fillObservedAt(payload, queuedAt.Format(time.RFC3339Nano))
+		body, encodeErr := json.Marshal(eventEnvelope{SchemaVersion: 1, EventID: eventID, ProjectID: projectID, MemberID: memberID, DeviceID: deviceID, WorkspaceID: publication.WorkspaceID, SessionID: sessionID, Sequence: sequence + int64(i) + 1, ObservedAt: queuedAt, SentAt: queuedAt, Source: publication.Source, Type: event.Kind, Payload: payload})
+		if encodeErr != nil {
+			return 0, false, encodeErr
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO event_queue(id,workspace_id,sequence,kind,payload,created_at) VALUES(?,?,?,?,?,?)`, eventID, publication.WorkspaceID, sequence+int64(i)+1, event.Kind, body, queuedAt.Unix()); err != nil {
+			return 0, false, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE workspaces SET sequence=?,intent_revision=? WHERE id=?`, sequence+int64(len(events)), revision, publication.WorkspaceID); err != nil {
+		return 0, false, err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO idempotency_keys(workspace_id,method,key,request_hash,response_revision,created_at) VALUES(?,?,?,?,?,?)`, publication.WorkspaceID, publication.Method, publication.IdempotencyKey, requestHash, revision, queuedAt.Unix()); err != nil {
+		return 0, false, err
+	}
+	return revision, false, tx.Commit()
+}
+
+func fillObservedAt(value any, timestamp string) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			if key == "observedAt" && item == "" {
+				typed[key] = timestamp
+			} else {
+				typed[key] = fillObservedAt(item, timestamp)
+			}
+		}
+	case []any:
+		for i, item := range typed {
+			typed[i] = fillObservedAt(item, timestamp)
+		}
+	}
+	return value
 }
 
 func hasWorkspaceColumn(db *sql.DB, column string) (bool, error) {

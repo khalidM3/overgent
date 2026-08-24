@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"github.com/stickguy/stickguy/internal/activation"
 	"github.com/stickguy/stickguy/internal/app"
+	"github.com/stickguy/stickguy/internal/claudesetup"
+	"github.com/stickguy/stickguy/internal/codexsetup"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/credential"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"github.com/stickguy/stickguy/internal/hosted"
+	coordinationmcp "github.com/stickguy/stickguy/internal/mcp"
 	"github.com/stickguy/stickguy/internal/onboarding"
 	"os"
 	"os/signal"
@@ -50,8 +53,9 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: stickguy [--config-root <dir>] service run|status | workspace add | pause|resume | doctor | scan")
+		return errors.New("usage: stickguy [--config-root <dir>] create|join|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|scan")
 	}
+	customConfigRoot := *root != ""
 	if *root == "" {
 		var err error
 		*root, err = config.DefaultRoot()
@@ -132,6 +136,62 @@ func run(args []string) error {
 			return ticketErr
 		}
 		return activation.Open(ctx, cfg.APIBaseURL, ticket.Ticket)
+	case "mcp":
+		if len(rest) != 1 {
+			return errors.New("mcp accepts no arguments")
+		}
+		return coordinationmcp.Run(ctx, *root)
+	case "setup":
+		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true}[rest[1]] {
+			return errors.New("setup requires codex, claude, status, or remove")
+		}
+		setupFlags := flag.NewFlagSet("setup "+rest[1], flag.ContinueOnError)
+		projectRoot := setupFlags.String("project-root", ".", "trusted coding-agent project root")
+		agent := setupFlags.String("agent", "codex", "coding agent for status/remove: codex or claude")
+		if e = setupFlags.Parse(rest[2:]); e != nil {
+			return e
+		}
+		if rest[1] == "codex" || rest[1] == "claude" {
+			return errors.New("coding-agent setup is withheld: L5 real-client validation narrowed; use Git/manual coordination fallback")
+		}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return executableErr
+		}
+		selected := rest[1]
+		if selected == "status" || selected == "remove" {
+			selected = *agent
+		}
+		if selected != "codex" && selected != "claude" {
+			return errors.New("setup agent must be codex or claude")
+		}
+		var status any
+		var setupErr error
+		if selected == "codex" {
+			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot}
+			switch rest[1] {
+			case "status":
+				status, setupErr = manager.Status()
+			case "remove":
+				status, setupErr = manager.Remove()
+			default:
+				return errors.New("setup command and agent do not match")
+			}
+		} else {
+			manager := claudesetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot}
+			switch rest[1] {
+			case "status":
+				status, setupErr = manager.Status()
+			case "remove":
+				status, setupErr = manager.Remove()
+			default:
+				return errors.New("setup command and agent do not match")
+			}
+		}
+		if setupErr != nil {
+			return setupErr
+		}
+		return json.NewEncoder(os.Stdout).Encode(status)
 	case "service":
 		if len(rest) != 2 {
 			return errors.New("service requires run or status")

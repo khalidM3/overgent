@@ -48,6 +48,30 @@ type ChangePage struct {
 	Items  []map[string]any
 	Cursor string
 }
+type CoordinationBrief struct {
+	BriefID         string      `json:"briefId"`
+	ProjectID       string      `json:"projectId"`
+	RepositoryID    string      `json:"repositoryId"`
+	WorkstreamID    string      `json:"workstreamId"`
+	GeneratedAt     string      `json:"generatedAt"`
+	Trigger         string      `json:"trigger"`
+	NextCursor      string      `json:"nextCursor,omitempty"`
+	ContextRevision int         `json:"contextRevision"`
+	RequestedBudget int         `json:"requestedBudget"`
+	RenderedSize    int         `json:"renderedSize"`
+	Truncated       bool        `json:"truncated"`
+	Items           []BriefItem `json:"items"`
+}
+type BriefItem struct {
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Text            string `json:"text"`
+	RelevanceReason string `json:"relevanceReason"`
+	Fidelity        string `json:"fidelity"`
+	AdvisoryAction  string `json:"advisoryAction"`
+	Revision        int    `json:"revision"`
+	Priority        int    `json:"priority"`
+}
 type APIError struct {
 	Status    int
 	Code      string
@@ -144,6 +168,39 @@ func (c *Client) ProjectChanges(ctx context.Context, projectID string) (ChangePa
 	}
 	err := c.request(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/changes", nil, &out, http.StatusOK)
 	return ChangePage(out), err
+}
+
+func (c *Client) CreateBrief(ctx context.Context, workstreamID, trigger, sinceCursor string, approximateTokenBudget int) (CoordinationBrief, error) {
+	if approximateTokenBudget == 0 {
+		approximateTokenBudget = 400
+	}
+	body := protocoltypes.CreateCoordinationBriefJSONBody{Trigger: trigger, ApproximateTokenBudget: approximateTokenBudget}
+	if sinceCursor != "" {
+		body.SinceCursor = &sinceCursor
+	}
+	var raw struct {
+		BriefId, ProjectId, RepositoryId, WorkstreamId, GeneratedAt, Trigger string
+		ContextRevision, RequestedBudget, RenderedSize                       int
+		Truncated                                                            bool
+		NextCursor                                                           *string
+		Items                                                                []struct {
+			Id, Kind, Text, RelevanceReason, Fidelity, AdvisoryAction string
+			Revision, Priority                                        int
+		}
+	}
+	err := c.request(ctx, http.MethodPost, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/briefs", body, &raw, http.StatusOK)
+	if err != nil {
+		return CoordinationBrief{}, err
+	}
+	brief := CoordinationBrief{BriefID: raw.BriefId, ProjectID: raw.ProjectId, RepositoryID: raw.RepositoryId, WorkstreamID: raw.WorkstreamId, GeneratedAt: raw.GeneratedAt, Trigger: raw.Trigger, ContextRevision: raw.ContextRevision, RequestedBudget: raw.RequestedBudget, RenderedSize: raw.RenderedSize, Truncated: raw.Truncated}
+	if raw.NextCursor != nil {
+		brief.NextCursor = *raw.NextCursor
+	}
+	brief.Items = make([]BriefItem, len(raw.Items))
+	for i, item := range raw.Items {
+		brief.Items[i] = BriefItem{ID: item.Id, Kind: item.Kind, Text: item.Text, RelevanceReason: item.RelevanceReason, Fidelity: item.Fidelity, AdvisoryAction: item.AdvisoryAction, Revision: item.Revision, Priority: item.Priority}
+	}
+	return brief, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body, out any, want int) error {

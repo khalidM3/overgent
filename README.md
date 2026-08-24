@@ -2,11 +2,26 @@
 
 Stickguy is a persistent coordination harness for teams building software with coding agents. It acts as air traffic control around existing Codex, Claude, Cursor, and other coding harnesses: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time.
 
-The repository has completed its L-1 architecture validation and is building the L0 contract scaffold. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
+The repository has completed L-1 validation and the deterministic L0–L4 vertical slice. L5 coding-agent lifecycle adapters are under validation. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
 
 Core decisions: persistent Projects; standalone Go local core; one service per user; React dashboard and Convex backend; deterministic evidence plus V1 semantic coordination over bounded summaries; no raw transcript, system-prompt, diff, or source-content collection in V1. The intended trust model publishes all installed/collection code and core hosted coordination code while isolating private cloud operations in a separate repository.
 
 Implementation follows [`docs/implementation-plan.md`](docs/implementation-plan.md).
+
+## Coding-agent MCP status
+
+The official-SDK lifecycle bridge is implemented and locally conformant, but production Codex and Claude setup is currently withheld. Codex `0.148.0-alpha.15` discovers and correctly invokes the tools but reports a generic MCP failure before requests reach the local service. The installed Claude Code client is not authenticated, so only its project configuration contract was verified. Deterministic Git/manual coordination remains the supported fallback.
+
+Status and cleanup remain available for isolated validation entries:
+
+```bash
+stickguy setup status --agent codex --project-root /path/to/project
+stickguy setup remove --agent codex --project-root /path/to/project
+stickguy setup status --agent claude --project-root /path/to/project
+stickguy setup remove --agent claude --project-root /path/to/project
+```
+
+Stickguy does not bypass either client's trust boundary. Hooks are not installed: L-1 accepted MCP plus Git/manual observation while hook delivery remains unverified. See [L5 evidence](validation/evidence/l5-mcp.md).
 
 ## Development checks
 

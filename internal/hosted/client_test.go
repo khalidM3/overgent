@@ -51,3 +51,26 @@ func TestClientRejectsInsecureRemoteAndReturnsStableAPIError(t *testing.T) {
 		t.Fatalf("API error=%#v", err)
 	}
 }
+
+func TestCreateBriefUsesFrozenAuthenticatedContract(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/workstreams/wrk_fixture/briefs" || r.Header.Get("Authorization") != "Bearer fixture-token" {
+			t.Fatalf("unexpected request: %s %s %#v", r.Method, r.URL.Path, r.Header)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["trigger"] != "checkpoint" || body["sinceCursor"] != "cur_fixture" || body["approximateTokenBudget"] != float64(400) {
+			t.Fatalf("request body=%#v err=%v", body, err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"briefId":"brf_fixture","projectId":"prj_fixture","repositoryId":"rep_fixture","workstreamId":"wrk_fixture","generatedAt":"2026-08-23T00:00:00Z","trigger":"checkpoint","nextCursor":"cur_next","contextRevision":3,"requestedBudget":400,"renderedSize":120,"truncated":false,"items":[{"id":"itm_fixture","kind":"finding","text":"Coordinate the contract","relevanceReason":"same interface","fidelity":"structural","advisoryAction":"inspect","revision":2,"priority":1}]}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, err := client.CreateBrief(context.Background(), "wrk_fixture", "checkpoint", "cur_fixture", 400)
+	if err != nil || brief.BriefID != "brf_fixture" || brief.NextCursor != "cur_next" || len(brief.Items) != 1 || brief.Items[0].ID != "itm_fixture" {
+		t.Fatalf("brief=%#v err=%v", brief, err)
+	}
+}
