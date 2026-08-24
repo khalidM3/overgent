@@ -133,3 +133,23 @@ The required tray API is available in Wails `v3.0.0-beta.12`, not stable Wails v
 Use the public `EmbeddingProvider` boundary with `stickguy-concepts/v1`, a deterministic 32-dimensional normalized concept-vector adapter, and the existing Convex vector index behind the portable `SemanticIndex` contract. This avoids adding a third-party model credential or sending approved summaries to another provider while the public corpus is small. Exact structural and lexical signals remain independently operational; vector similarity is only candidate evidence. Semantic/lexical fusion may create explained findings in the radar and briefs, but L6 adds no proactive semantic interruption channel.
 
 The adapter is deliberately narrow: it recognizes the versioned public coordination vocabulary and does not claim general language understanding. Provider/index failure retries once, persists visible degraded fidelity, and falls back to current structural routing. A later managed or self-hosted provider must pass the expanded public and private precision/cost/privacy gates behind the same interfaces; it does not require a protocol replacement. Accepted 2026-08-24 after the L6 public corpus passed its labeled positive, negative, isolation, routing, budget, stale-state, adversarial-input, and outage cases.
+
+## ADR-031: Add a loopback-only local dogfood profile before L7
+
+Add a development profile that composes the existing public components without
+weakening their production boundaries. Vite supplies React hot reload to a
+separately identified `Stickguy Dev.app`; local Convex remains loopback-only;
+one default-profile Go service may hot-register distinct linked-worktree roots;
+and the development desktop exchanges a one-time dashboard ticket inside its
+own webview. The ticket remains server-side until form POST and never enters a
+URL, JavaScript, or browser storage. Production builds ignore the development
+URL and do not expose local activation.
+
+Permit `setup codex|claude --development` only as an explicit local dogfood
+action. It installs the already-reviewed project MCP configuration with the
+absolute development binary and no hooks, transcript parsing, agent control, or
+optional activity collection. Claude may provide reported lifecycle fidelity;
+Codex remains `mcp_with_git_fallback` because current-client durable delivery is
+still narrowed by ADR-026. Linked worktrees provide distinct workstream
+attribution while retaining one repository fingerprint and one per-user
+service. Accepted by the owner 2026-08-24 before L7.

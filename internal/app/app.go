@@ -40,6 +40,7 @@ type Service struct {
 	sender      Sender
 	mu          sync.Mutex
 	scans, boot int64
+	watch       *watcher.Watcher
 }
 
 func Run(ctx context.Context, root string, sender Sender) error {
@@ -78,6 +79,7 @@ func Run(ctx context.Context, root string, sender Sender) error {
 	if e != nil {
 		return e
 	}
+	s.watch = watch
 	for _, w := range cfg.Workspaces {
 		if e = watch.Add(w.Root); e != nil {
 			return fmt.Errorf("watch %s: %w", w.ID, e)
@@ -286,9 +288,80 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 	case "scan":
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
+	case "add_development_workspace":
+		workspace, err := s.addDevelopmentWorkspace(ctx, q)
+		if err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		return daemon.Response{OK: true, Data: workspace}
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
+}
+
+func (s *Service) addDevelopmentWorkspace(ctx context.Context, q daemon.Request) (config.Workspace, error) {
+	if q.Root == "" || q.ProjectID == "" || q.WorkspaceID == "" || q.WorkstreamID == "" || q.MemberID == "" || q.SessionID == "" {
+		return config.Workspace{}, errors.New("development workspace fields are required")
+	}
+	for label, value := range map[string]struct{ value, pattern string }{
+		"Project": {q.ProjectID, `^prj_[a-z0-9_]{1,80}$`}, "workspace": {q.WorkspaceID, `^wsp_[a-z0-9_]{1,123}$`},
+		"workstream": {q.WorkstreamID, `^wrk_[a-z0-9_]{1,80}$`}, "member": {q.MemberID, `^mem_[a-z0-9_]{1,123}$`},
+		"session": {q.SessionID, `^ses_[a-z0-9_]{1,123}$`},
+	} {
+		if !regexp.MustCompile(value.pattern).MatchString(value.value) {
+			return config.Workspace{}, fmt.Errorf("invalid %s ID", label)
+		}
+	}
+	absRoot, err := filepath.Abs(q.Root)
+	if err != nil {
+		return config.Workspace{}, fmt.Errorf("resolve workspace root: %w", err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return config.Workspace{}, fmt.Errorf("resolve workspace root symlinks: %w", err)
+	}
+	baseline, err := git.CaptureBaseline(ctx, git.Runner{}, canonicalRoot)
+	if err != nil {
+		return config.Workspace{}, err
+	}
+	fingerprint, err := git.Fingerprint(ctx, git.Runner{}, canonicalRoot, q.ProjectID)
+	if err != nil {
+		return config.Workspace{}, fmt.Errorf("fingerprint workspace repository: %w", err)
+	}
+	workspace := config.Workspace{ID: q.WorkspaceID, ProjectID: q.ProjectID, WorkstreamID: q.WorkstreamID, MemberID: q.MemberID, SessionID: q.SessionID, Root: canonicalRoot, Baseline: baseline, Fingerprint: fingerprint}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var projectMemberFound bool
+	for _, existing := range s.cfg.Workspaces {
+		if existing.ID == workspace.ID || existing.Root == workspace.Root {
+			return config.Workspace{}, errors.New("workspace already registered")
+		}
+		if existing.ProjectID == workspace.ProjectID && existing.MemberID == workspace.MemberID {
+			projectMemberFound = true
+		}
+	}
+	if !projectMemberFound {
+		return config.Workspace{}, errors.New("development workspace must reuse an enrolled Project member")
+	}
+	if s.watch == nil {
+		return config.Workspace{}, errors.New("workspace watcher is unavailable")
+	}
+	if err = s.watch.Add(workspace.Root); err != nil {
+		return config.Workspace{}, fmt.Errorf("watch development workspace: %w", err)
+	}
+	previous := s.cfg
+	next := s.cfg
+	next.Workspaces = append(append([]config.Workspace(nil), s.cfg.Workspaces...), workspace)
+	if err = config.Save(s.paths, next); err != nil {
+		return config.Workspace{}, err
+	}
+	if err = s.store.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: s.cfg.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		_ = config.Save(s.paths, previous)
+		return config.Workspace{}, err
+	}
+	s.cfg = next
+	return workspace, nil
 }
 
 type lifecycleResult struct {

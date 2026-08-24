@@ -11,6 +11,7 @@ import (
 
 type Request struct {
 	Method, WorkspaceID                                                                 string
+	ProjectID, WorkstreamID, MemberID, SessionID, Root                                  string
 	Title, IntendedOutcome                                                              string
 	ApproachSummary                                                                     string
 	Components, Contracts                                                               []string

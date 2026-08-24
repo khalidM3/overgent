@@ -253,7 +253,22 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("concurrent registration: %v", e)
 	}
-	wait(t, func() bool { return send.workspaceBatches("wsp_a") > 0 && send.workspaceBatches("wsp_b") > 0 })
+	r3 := makeRepo(t)
+	added, e := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "add_development_workspace", WorkspaceID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: r3})
+	if e != nil || !added.OK {
+		t.Fatalf("hot development registration: %#v %v", added, e)
+	}
+	if scanned, scanErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "scan"}); scanErr != nil || !scanned.OK {
+		t.Fatalf("scan hot development workspace: %#v %v", scanned, scanErr)
+	}
+	wait(t, func() bool {
+		return send.workspaceBatches("wsp_a") > 0 && send.workspaceBatches("wsp_b") > 0 && send.workspaceBatches("wsp_c") > 0
+	})
+	wait(t, func() bool {
+		response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"})
+		data, dataOK := response.Data.(map[string]any)
+		return callErr == nil && response.OK && dataOK && data["pending"] == float64(0)
+	})
 	initial := send.count()
 	_, e = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "pause", WorkspaceID: "wsp_a"})
 	if e != nil {
@@ -264,7 +279,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 		t.Fatal(health, e)
 	}
 	healthData, ok := health.Data.(map[string]any)
-	if !ok || healthData["workspaces"] != float64(2) || healthData["pausedWorkspaces"] != float64(1) {
+	if !ok || healthData["workspaces"] != float64(3) || healthData["pausedWorkspaces"] != float64(1) {
 		t.Fatalf("desktop health summary = %#v", health.Data)
 	}
 	intentResponse, e := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "intent", WorkspaceID: "wsp_a", Title: "Synthetic intent", IntendedOutcome: "Prove paused intent remains durable"})
