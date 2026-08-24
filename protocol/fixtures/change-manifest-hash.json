@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "path": "a.ts",
+      "states": {
+        "baseline": { "status": "modified" },
+        "index": { "status": "renamed", "oldPath": "old-a.ts" },
+        "worktree": { "status": "modified" }
+      }
+    },
+    {
+      "path": "z.ts",
+      "states": {
+        "worktree": { "status": "untracked" }
+      }
+    }
+  ],
+  "contentHash": "cb3fc754d48edb8d7be868df86d249942d8832811e0af83fb2f24f022328ea4d"
+}
