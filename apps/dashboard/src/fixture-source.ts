@@ -1,0 +1,57 @@
+import { snapshotForProject } from "./fixtures";
+import type { FindingState, ProjectSnapshot } from "./model";
+
+export class FixtureProjectSource {
+  private snapshots = new Map<string, ProjectSnapshot>();
+  private listeners = new Map<string, Set<() => void>>();
+
+  get(projectId: string): ProjectSnapshot {
+    const current = this.snapshots.get(projectId);
+    if (current) return current;
+    const snapshot = snapshotForProject(projectId);
+    this.snapshots.set(projectId, snapshot);
+    return snapshot;
+  }
+
+  subscribe(projectId: string, listener: () => void): () => void {
+    const listeners = this.listeners.get(projectId) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(projectId, listeners);
+    return () => listeners.delete(listener);
+  }
+
+  togglePause(projectId: string): void {
+    this.update(projectId, (snapshot) => ({ ...snapshot, workspacePaused: !snapshot.workspacePaused }));
+  }
+
+  setFindingState(projectId: string, findingId: string, state: FindingState): void {
+    this.update(projectId, (snapshot) => ({
+      ...snapshot,
+      findings: snapshot.findings.map((finding) => finding.id === findingId ? { ...finding, state } : finding),
+    }));
+  }
+
+  publishSyntheticUpdate(projectId: string): void {
+    this.update(projectId, (snapshot) => ({
+      ...snapshot,
+      contextRevision: snapshot.contextRevision + 1,
+      synchronizedAt: "just now",
+      workstreams: snapshot.workstreams.map((workstream, index) => index === 0
+        ? { ...workstream, pathCount: workstream.pathCount + 1, updatedLabel: "Now" }
+        : workstream),
+      activity: [{
+        id: `act_fixture_${snapshot.contextRevision + 1}`,
+        at: "Now",
+        actor: "Fixture device",
+        kind: "manifest",
+        summary: "Published one new path-only manifest revision.",
+        fidelity: "git",
+      }, ...snapshot.activity],
+    }));
+  }
+
+  private update(projectId: string, updater: (snapshot: ProjectSnapshot) => ProjectSnapshot): void {
+    this.snapshots.set(projectId, updater(this.get(projectId)));
+    for (const listener of this.listeners.get(projectId) ?? []) listener();
+  }
+}
