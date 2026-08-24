@@ -26,7 +26,7 @@ Protect against token theft/replay, unauthorized project access, hostile website
 - Authorize before semantic retrieval and before loading matched objects; filter by project/repository and test isolation.
 - Treat embedding/adjudication input as untrusted data, require structured outputs, and grant models no tools or authority.
 - Authorize every context item before ranking and again on item fetch; never use semantic relevance as authorization.
-- Agent hooks are event-allowlisted. Ignore transcript paths and prohibit default hooks whose payload exposes prompts, patches, command/test output, or assistant messages; broader processing requires explicit adapter ADR/consent.
+- Agent adapters are event- and field-allowlisted by sharing profile. Ignore transcript paths; reject protected paths and secret-bearing candidates as whole events; discard disallowed vendor fields before durable local storage or enqueue. Optional activity/conversation processing requires the versioned owner/member consent and controls in `agent-activity-sharing.md`.
 - Opaque public IDs; separate dev/preview/prod data and credentials.
 - Audit security events without secrets; implement retention and deletion jobs.
 
@@ -44,13 +44,14 @@ Protect against token theft/replay, unauthorized project access, hostile website
 | Sensitive metadata | repo identity, paths/symbols/dependencies, intent/change/verification summaries, embeddings, findings, context deliveries/acknowledgements | Project-authorized, disclosed processing, bounded retention/deletion. |
 | Durable | plans, decisions, resolved sync cards | Project lifetime or deletion. |
 | Ephemeral | heartbeat/local health | Compact and expire quickly. |
-| Prohibited V1 | source/diff content, Git objects, raw transcript, system prompt, env values, raw command/test output | Never collect/transmit. |
+| Opt-in conversation | bounded user-authored prompt and visible assistant-message events | Owner-enabled plus member opt-in; locally classified; Project-authorized; inspectable/deletable; bounded retention. |
+| Prohibited V1 | source/diff/file/tool-result content, Git objects, transcript files, system/developer prompts, hidden reasoning, env values, `.env` variants, credentials/tokens, raw commands/output/test logs | Never persist/transmit; reject the whole candidate event. |
 
 Secret scanning is defense in depth and never justifies prohibited collection.
 
 ## 4. Privacy UX
 
-Enrollment explains metadata leaving the device, including summaries being embedded by the configured provider. UI always shows sharing/fidelity and semantic-processing degradation. Pause is immediate from CLI/dashboard. Members can inspect their recent events, semantic objects/findings, revoke devices, and clear local state. Owners can remove members/revoke invites. Retention/deletion is visible.
+Enrollment explains default coordination metadata leaving the device, including summaries being embedded by the configured provider. Optional agent activity remains off until the Project owner enables a profile and the member separately opts in with a representative local preview. UI always shows the effective profile, audience, sharing/fidelity, and semantic-processing degradation. Pause/downgrade is immediate from CLI/dashboard. Members can inspect and delete exactly what they shared, inspect recent events and semantic objects/findings, revoke devices, and clear local state. Owners can remove members/revoke invites. Retention/deletion is visible.
 
 ## 5. Required security tests
 
@@ -65,3 +66,4 @@ Enrollment explains metadata leaving the device, including summaries being embed
 - cross-project/repository vector retrieval and deleted/superseded embeddings;
 - prompt-injection summaries, code/secret-like summary rejection, malformed model output, and provider outage.
 - unauthorized/unrelated context omission, critical-item truncation references, forged/stale brief IDs, and acknowledgement replay.
+- agent-profile default-off/consent-version tests; Project/member narrower-setting precedence; `.env` variants, protected paths, inline tokens, transcript/system/reasoning/source/diff/raw-output rejection before storage and enqueue; preview/pause/downgrade/deletion/retention; unknown vendor events fail closed; cross-Project activity isolation.

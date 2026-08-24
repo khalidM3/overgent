@@ -32,7 +32,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 }
 ```
 
-`eventId` survives retries; sequence is per workspace; server stores receipt time separately; source is `git`, `manual`, `mcp`, `hook`, or versioned adapter. Payload is selected by type. Secrets, file contents, diffs, prompts, transcripts, environment values, and raw command/test output are forbidden.
+`eventId` survives retries; sequence is per workspace; server stores receipt time separately; source is `git`, `manual`, `mcp`, `hook`, or versioned adapter. Payload is selected by type. Secrets, file contents, diffs, prompts, transcripts, environment values, and raw command/test output are forbidden by this initial contract. ADR-027 authorizes an isolated L5A validation only; any later bounded visible-conversation event requires a separately reviewed versioned schema/generated-code change after that gate.
 
 ## 3. Initial event types
 

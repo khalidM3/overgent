@@ -77,7 +77,7 @@ Median target: under 60 seconds from command to mutual visibility.
 
 ### Return or join later
 
-Authorized members see current/completed plan items, recent workstream summaries, durable decisions, resolved sync cards, retained significant activity, membership, and fidelity. Raw transcripts and system prompts are not part of V1.
+Authorized members see current/completed plan items, recent workstream summaries, durable decisions, resolved sync cards, retained significant activity, membership, and fidelity. Members who explicitly enable an owner-allowed activity profile may also share bounded agent progress or visible conversation events under `agent-activity-sharing.md`. Transcript files, system prompts, hidden reasoning, source/diffs, and secrets are never Project content.
 
 ## 5. Alpha scope (P0)
 
@@ -116,6 +116,7 @@ The first dogfooded alpha establishes the deterministic coordination loop. V1 is
 | P1.12 | Stale assumptions | A checkpoint based on an older brief produces a stale-assumption finding only when a relevant decision/contract/dependency changed afterward. |
 | P1.13 | Harness checkpoints | Begin, preflight, checkpoint, acknowledgement, and finish calls are idempotent, revisioned, and available through the official MCP adapter. |
 | P1.14 | Verification metadata | Agents can report bounded pass/fail/unknown verification summaries tied to a manifest without raw command output/source upload. |
+| P1.15 | Opt-in agent activity | An owner-enabled, member-opted-in supported adapter shares only the selected coordination/activity/conversation profile; exact disclosure is previewable, attributable, pausable, revocable, deletable, and proven not to retain or transmit prohibited fields. |
 
 See `coordination-intelligence.md` for the canonical inputs, pipeline, finding contract, and evaluation model.
 
@@ -127,6 +128,7 @@ Build in observed-demand order:
 - path/glob claims;
 - sync cards, discussion, resolution, and decision delivery;
 - Codex and Claude Code setup adapters;
+- opt-in Codex and Claude Code activity adapters after the L5A privacy/capability gate;
 - while-you-were-away digest from structured events;
 - auto-update and robust OS service lifecycle;
 - explicitly authorized hosted read-only view;
@@ -136,7 +138,7 @@ Build in observed-demand order:
 
 ## 8. Non-goals
 
-- No raw transcript/system-prompt upload in V1.
+- No transcript-file, system/developer-prompt, hidden-reasoning, source/diff, secret, environment-value, raw command/output, or tool-result upload in V1. Bounded visible user/assistant messages are allowed only under the explicit `conversation` profile.
 - No automatic merge, rebase, cherry-pick, patch, checkout, reset, or worktree mutation.
 - No source/diff upload to embedding or adjudication models and no AI dependency for deterministic findings.
 - No assignment authority or blocking locks.
