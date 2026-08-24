@@ -24,12 +24,14 @@ shell require restarting `pnpm desktop:dev`; Go core changes require restarting
 `pnpm dev:service` or the full `pnpm dev` stack. Convex functions reload while
 `pnpm dev:backend` is running.
 
-The development desktop initially shows fixtures. After enrollment, choose
-**Open local live Project** from its menu-bar menu and press **Open secure
-dashboard**. The app mints and exchanges a one-time ticket inside its webview,
-then shows live local Project state. The development app refuses non-loopback
-API origins. Production builds ignore the Vite URL and have no development
-activation action.
+The development desktop opens a native first-run screen. Choose a Git
+repository, create a Project or join with an invite, select the detected
+coding-agent adapters to install, and press **Open live Project**. No terminal
+command is required for this normal path. The app exchanges a one-time ticket
+through the loopback Vite proxy so the development session cookie remains
+same-origin while the Wails bridge stays attached during hot reload. The
+development app refuses non-loopback API/dashboard origins. Production builds
+ignore Vite and retain the separately gated preview behavior.
 
 ## First local Project
 
@@ -40,7 +42,8 @@ the stack:
 pnpm dev
 ```
 
-After Convex reports that the local deployment is ready, use another terminal:
+After Convex reports that the local deployment is ready, finish setup in the
+desktop window. The equivalent fallback command is:
 
 ```bash
 ./bin/stickguy --api http://127.0.0.1:3211 create \
@@ -53,11 +56,20 @@ The command prints the Project, workspace, workstream, and invite IDs. `pnpm
 dev` notices the new default profile and starts the service. The macOS Keychain
 may request approval for the device credential.
 
+The desktop detects `codex` and `claude` on `PATH`. Selecting an adapter adds
+only Stickguy's Project-scoped MCP entry and preserves unrelated configuration.
+Restart agent sessions that were already open so they discover the new entry.
+Git observation works even when an adapter is missing or declined. Claude Code
+CLI is the supported Claude surface here; the general Claude Desktop app does
+not expose a repository-bound lifecycle contract to this flow.
+
 ## Codex-versus-Claude collision exercise
 
-Use two distinct linked worktrees of the same repository. Stickguy never
-creates, switches, resets, or removes worktrees on the user's behalf. One
-possible user-run Git setup is:
+Use two distinct linked worktrees of the same repository for honest per-agent
+attribution. A single checkout is observed automatically, but filesystem events
+cannot prove which process made each change, so Codex and Claude activity in one
+checkout is one combined workstream. Stickguy never creates, switches, resets,
+or removes worktrees on the user's behalf. One possible user-run Git setup is:
 
 ```bash
 git worktree add /absolute/path/to/claude-worktree -b dogfood/claude
@@ -77,6 +89,13 @@ workspace/workstream ID. It structurally merges only Stickguy's project MCP
 entry. Restart already-running agent sessions afterward. Claude may show its
 normal one-time project MCP approval. Review the resulting `.codex/config.toml`
 and `.mcp.json` in each worktree like any other project configuration change.
+
+The same registration is available without that command: on the connected
+desktop screen choose **Assign Codex worktree…** and **Assign Claude
+worktree…**. Each selected directory must already be a distinct linked
+worktree. The native boundary validates the shared Git common directory,
+registers it through the running one-service IPC path, and installs only that
+agent's Project MCP entry. Restart sessions opened before assignment.
 
 Ask both agents to call `begin_work` before editing and `check_coordination`
 before broad/shared changes. If a current client does not call MCP reliably,

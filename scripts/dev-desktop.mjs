@@ -1,9 +1,14 @@
+import { mkdirSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const devURL = process.env.STICKGUY_DESKTOP_DEV_URL ?? "http://127.0.0.1:5173/?desktop=preview";
+mkdirSync(path.join(root, "bin"), { recursive: true });
+const cli = path.join(root, "bin", "stickguy");
+const cliBuild = spawnSync("go", ["build", "-o", cli, "./cmd/stickguy"], { cwd: root, stdio: "inherit" });
+if (cliBuild.status !== 0) process.exit(cliBuild.status ?? 1);
+const devURL = process.env.FRONTEND_DEVSERVER_URL ?? "http://127.0.0.1:5173";
 const healthURL = new URL(devURL);
 healthURL.pathname = "/";
 healthURL.search = "";
@@ -32,7 +37,7 @@ if (build.status !== 0) {
 }
 
 const executable = path.join(root, "apps", "desktop", "build", "bin", "Stickguy Dev.app", "Contents", "MacOS", "stickguy-desktop-dev");
-const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, STICKGUY_DESKTOP_DEV_URL: devURL }, stdio: "inherit" });
+const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, FRONTEND_DEVSERVER_URL: devURL, STICKGUY_API_ORIGIN: "http://127.0.0.1:3211", STICKGUY_DASHBOARD_ORIGIN: `${healthURL.origin}/api`, STICKGUY_CLI_BINARY: cli }, stdio: "inherit" });
 const stop = () => {
   desktop.kill("SIGTERM");
   ui?.kill("SIGTERM");
