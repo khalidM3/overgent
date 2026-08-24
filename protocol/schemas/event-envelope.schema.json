@@ -27,7 +27,152 @@
     },
     "payload": { "type": "object", "maxProperties": 24 }
   },
+  "allOf": [
+    { "$ref": "#/$defs/workspaceRegistered" },
+    { "$ref": "#/$defs/manifestStarted" },
+    { "$ref": "#/$defs/manifestChunk" },
+    { "$ref": "#/$defs/manifestCompleted" },
+    { "$ref": "#/$defs/workspacePaused" },
+    { "$ref": "#/$defs/workspaceResumed" },
+    { "$ref": "#/$defs/intentReported" },
+    { "$ref": "#/$defs/checkpointReported" },
+    { "$ref": "#/$defs/workstreamStatusChanged" },
+    { "$ref": "#/$defs/contextAcknowledged" },
+    { "$ref": "#/$defs/activityReported" },
+    { "$ref": "#/$defs/claimCreated" },
+    { "$ref": "#/$defs/claimReleased" }
+  ],
   "$defs": {
-    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" }
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" },
+    "workstreamId": { "type": "string", "pattern": "^wrk_[A-Za-z0-9_-]{1,80}$" },
+    "manifestId": { "type": "string", "pattern": "^mft_[A-Za-z0-9_-]{1,80}$" },
+    "gitRef": { "type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$" },
+    "boundedStringList": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+    "workspaceRegistered": {
+      "if": { "properties": { "type": { "const": "workspace.registered" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["repoFingerprint", "label", "capabilities"],
+        "properties": {
+          "repoFingerprint": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "capabilities": { "type": "object", "maxProperties": 16, "additionalProperties": { "oneOf": [
+            { "type": "boolean" }, { "type": "string", "maxLength": 120 },
+            { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 120 } }
+          ] } }
+        }
+      } } }
+    },
+    "manifestStarted": {
+      "if": { "properties": { "type": { "const": "workspace.manifest_started" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifestId", "revision", "workstreamId", "baselineRef", "headRef", "chunkCount"],
+        "properties": {
+          "manifestId": { "$ref": "#/$defs/manifestId" }, "revision": { "type": "integer", "minimum": 1 },
+          "workstreamId": { "$ref": "#/$defs/workstreamId" }, "baselineRef": { "$ref": "#/$defs/gitRef" },
+          "headRef": { "$ref": "#/$defs/gitRef" }, "chunkCount": { "type": "integer", "minimum": 0, "maximum": 1000 }
+        }
+      } } }
+    },
+    "manifestChunk": {
+      "if": { "properties": { "type": { "const": "workspace.manifest_chunk" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifestId", "chunkIndex", "entries"],
+        "properties": {
+          "manifestId": { "$ref": "#/$defs/manifestId" }, "chunkIndex": { "type": "integer", "minimum": 0, "maximum": 999 },
+          "entries": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "change-manifest.schema.json#/$defs/entry" } }
+        }
+      } } }
+    },
+    "manifestCompleted": {
+      "if": { "properties": { "type": { "const": "workspace.manifest_completed" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["manifestId", "revision", "contentHash"],
+        "properties": {
+          "manifestId": { "$ref": "#/$defs/manifestId" }, "revision": { "type": "integer", "minimum": 1 },
+          "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      } } }
+    },
+    "workspacePaused": {
+      "if": { "properties": { "type": { "const": "workspace.paused" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "type": "object", "additionalProperties": false, "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 300 } } } } }
+    },
+    "workspaceResumed": {
+      "if": { "properties": { "type": { "const": "workspace.resumed" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } }
+    },
+    "intentReported": {
+      "if": { "properties": { "type": { "const": "workstream.intent_reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["workstreamId", "title", "intendedOutcome"],
+        "properties": {
+          "workstreamId": { "$ref": "#/$defs/workstreamId" }, "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "intendedOutcome": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "approachSummary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "components": { "$ref": "#/$defs/boundedStringList" }, "contracts": { "$ref": "#/$defs/boundedStringList" },
+          "anticipatedPaths": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+          "planItemIds": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/id" } }
+        }
+      } } }
+    },
+    "checkpointReported": {
+      "if": { "properties": { "type": { "const": "workstream.checkpoint_reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["checkpointId", "workstreamId", "summary"],
+        "properties": {
+          "checkpointId": { "type": "string", "pattern": "^chk_[A-Za-z0-9_-]{1,80}$" },
+          "workstreamId": { "$ref": "#/$defs/workstreamId" }, "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "discoveries": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+          "verification": { "type": "array", "maxItems": 32, "items": { "$ref": "verification.schema.json" } },
+          "relatedManifestRevision": { "type": "integer", "minimum": 1 }, "basedOnBriefId": { "$ref": "#/$defs/id" }
+        }
+      } } }
+    },
+    "workstreamStatusChanged": {
+      "if": { "properties": { "type": { "const": "workstream.status_changed" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false, "required": ["workstreamId", "status"],
+        "properties": { "workstreamId": { "$ref": "#/$defs/workstreamId" }, "status": { "enum": ["active", "idle", "done", "blocked"] } }
+      } } }
+    },
+    "contextAcknowledged": {
+      "if": { "properties": { "type": { "const": "context.acknowledged" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false, "required": ["briefId", "consideredItemIds"],
+        "properties": { "briefId": { "$ref": "#/$defs/id" }, "consideredItemIds": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/id" } } }
+      } } }
+    },
+    "activityReported": {
+      "if": { "properties": { "type": { "const": "activity.reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "summary"],
+        "properties": { "kind": { "enum": ["decision", "completion", "blocker"] }, "summary": { "type": "string", "minLength": 1, "maxLength": 2000 } }
+      } } }
+    },
+    "claimCreated": {
+      "if": { "properties": { "type": { "const": "claim.created" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false, "required": ["workstreamId", "patterns"],
+        "properties": { "workstreamId": { "$ref": "#/$defs/workstreamId" }, "patterns": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 512 } } }
+      } } }
+    },
+    "claimReleased": {
+      "if": { "properties": { "type": { "const": "claim.released" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false, "required": ["workstreamId"],
+        "anyOf": [ { "required": ["claimIds"] }, { "required": ["patterns"] } ],
+        "properties": {
+          "workstreamId": { "$ref": "#/$defs/workstreamId" },
+          "claimIds": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/id" } },
+          "patterns": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
+      } } }
+    }
   }
 }

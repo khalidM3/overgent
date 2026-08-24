@@ -57,6 +57,12 @@ func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
 	if err := schema.Validate(value); err != nil {
 		t.Fatalf("schema validation: %v", err)
 	}
+	invalid := value.(map[string]any)
+	invalid["payload"].(map[string]any)["pathCount"] = float64(1)
+	if err := schema.Validate(invalid); err == nil {
+		t.Fatal("type-specific payload accepted an undeclared field")
+	}
+	delete(invalid["payload"].(map[string]any), "pathCount")
 
 	batchJSON := append([]byte(`{"events":[`), fixture...)
 	batchJSON = append(batchJSON, []byte(`]}`)...)

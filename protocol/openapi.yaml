@@ -133,6 +133,7 @@ components:
     EventEnvelope: { $ref: './schemas/event-envelope.schema.json' }
     EventBatch:
       type: object
+      description: A bounded batch from exactly one workspace; sequence and the returned cursor are workspace-scoped.
       additionalProperties: false
       required: [events]
       properties: { events: { type: array, minItems: 1, maxItems: 100, items: { $ref: '#/components/schemas/EventEnvelope' } } }

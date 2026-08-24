@@ -255,10 +255,28 @@ export interface components {
             payload: Record<string, never>;
             $defs: {
                 id: string;
+                workstreamId: string;
+                manifestId: string;
+                gitRef: string;
+                boundedStringList: string[];
+                workspaceRegistered: unknown;
+                manifestStarted: unknown;
+                manifestChunk: unknown;
+                manifestCompleted: unknown;
+                workspacePaused: unknown;
+                workspaceResumed: unknown;
+                intentReported: unknown;
+                checkpointReported: unknown;
+                workstreamStatusChanged: unknown;
+                contextAcknowledged: unknown;
+                activityReported: unknown;
+                claimCreated: unknown;
+                claimReleased: unknown;
             };
-        };
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        /** @description A bounded batch from exactly one workspace; sequence and the returned cursor are workspace-scoped. */
         EventBatch: {
-            events: {
+            events: ({
                 /** @constant */
                 schemaVersion: 1;
                 eventId: string;
@@ -279,8 +297,25 @@ export interface components {
                 payload: Record<string, never>;
                 $defs: {
                     id: string;
+                    workstreamId: string;
+                    manifestId: string;
+                    gitRef: string;
+                    boundedStringList: string[];
+                    workspaceRegistered: unknown;
+                    manifestStarted: unknown;
+                    manifestChunk: unknown;
+                    manifestCompleted: unknown;
+                    workspacePaused: unknown;
+                    workspaceResumed: unknown;
+                    intentReported: unknown;
+                    checkpointReported: unknown;
+                    workstreamStatusChanged: unknown;
+                    contextAcknowledged: unknown;
+                    activityReported: unknown;
+                    claimCreated: unknown;
+                    claimReleased: unknown;
                 };
-            }[];
+            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
         };
         EventBatchAck: {
             acceptedEventIds: string[];
@@ -445,7 +480,65 @@ export interface components {
                 details?: Record<string, never>;
             };
         };
+        manifestId: string;
+        workstreamId: string;
+        gitRef: string;
+        change: {
+            /** @enum {unknown} */
+            status: "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+            oldPath?: string;
+        } & unknown;
+        entry: {
+            path: string;
+            states: {
+                baseline?: {
+                    /** @enum {unknown} */
+                    status: "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+                    oldPath?: string;
+                } & unknown;
+                index?: {
+                    /** @enum {unknown} */
+                    status: "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+                    oldPath?: string;
+                } & unknown;
+                worktree?: {
+                    /** @enum {unknown} */
+                    status: "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+                    oldPath?: string;
+                } & unknown;
+            };
+            symbols?: string[];
+            dependencies?: string[];
+        };
+        boundedStringList: string[];
         id: string;
+        /** VerificationSummary */
+        "verification.schema": {
+            /** @enum {unknown} */
+            state: "not_run" | "running" | "passed" | "failed" | "unknown";
+            checkKind: string;
+            label: string;
+            summary: string;
+            affectedComponent?: string;
+            manifestRevision?: number;
+            /** @enum {unknown} */
+            source: "manual" | "mcp" | "hook";
+            /** Format: date-time */
+            observedAt: string;
+        };
+        workspaceRegistered: unknown;
+        manifestStarted: unknown;
+        manifestChunk: unknown;
+        manifestCompleted: unknown;
+        workspacePaused: unknown;
+        workspaceResumed: unknown;
+        intentReported: unknown;
+        checkpointReported: unknown;
+        workstreamStatusChanged: unknown;
+        contextAcknowledged: unknown;
+        activityReported: unknown;
+        claimCreated: unknown;
+        claimReleased: unknown;
         /** EventEnvelope */
         "event-envelope.schema": {
             /** @constant */
@@ -468,8 +561,25 @@ export interface components {
             payload: Record<string, never>;
             $defs: {
                 id: string;
+                workstreamId: string;
+                manifestId: string;
+                gitRef: string;
+                boundedStringList: string[];
+                workspaceRegistered: unknown;
+                manifestStarted: unknown;
+                manifestChunk: unknown;
+                manifestCompleted: unknown;
+                workspacePaused: unknown;
+                workspaceResumed: unknown;
+                intentReported: unknown;
+                checkpointReported: unknown;
+                workstreamStatusChanged: unknown;
+                contextAcknowledged: unknown;
+                activityReported: unknown;
+                claimCreated: unknown;
+                claimReleased: unknown;
             };
-        };
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** SemanticObject */
         "semantic-object.schema": {
             id: string;
@@ -525,20 +635,6 @@ export interface components {
                     fidelity: string;
                 };
             };
-        };
-        /** VerificationSummary */
-        "verification.schema": {
-            /** @enum {unknown} */
-            state: "not_run" | "running" | "passed" | "failed" | "unknown";
-            checkKind: string;
-            label: string;
-            summary: string;
-            affectedComponent?: string;
-            manifestRevision?: number;
-            /** @enum {unknown} */
-            source: "manual" | "mcp" | "hook";
-            /** Format: date-time */
-            observedAt: string;
         };
         /** Checkpoint */
         "checkpoint.schema": {
@@ -897,7 +993,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    events: {
+                    events: ({
                         /** @constant */
                         schemaVersion: 1;
                         eventId: string;
@@ -918,8 +1014,25 @@ export interface operations {
                         payload: Record<string, never>;
                         $defs: {
                             id: string;
+                            workstreamId: string;
+                            manifestId: string;
+                            gitRef: string;
+                            boundedStringList: string[];
+                            workspaceRegistered: unknown;
+                            manifestStarted: unknown;
+                            manifestChunk: unknown;
+                            manifestCompleted: unknown;
+                            workspacePaused: unknown;
+                            workspaceResumed: unknown;
+                            intentReported: unknown;
+                            checkpointReported: unknown;
+                            workstreamStatusChanged: unknown;
+                            contextAcknowledged: unknown;
+                            activityReported: unknown;
+                            claimCreated: unknown;
+                            claimReleased: unknown;
                         };
-                    }[];
+                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
                 };
             };
         };
