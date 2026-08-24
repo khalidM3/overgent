@@ -5,7 +5,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "test:live": "node scripts/live-l2.mjs"
   },
   "dependencies": {
     "@stickguy/coordination": "workspace:*",
