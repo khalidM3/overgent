@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/verification.schema.json",
+  "title": "VerificationSummary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["state", "checkKind", "label", "summary", "source", "observedAt"],
+  "properties": {
+    "state": {"enum": ["not_run", "running", "passed", "failed", "unknown"]},
+    "checkKind": {"type": "string", "minLength": 1, "maxLength": 80},
+    "label": {"type": "string", "minLength": 1, "maxLength": 160},
+    "summary": {"type": "string", "maxLength": 500},
+    "affectedComponent": {"type": "string", "maxLength": 160},
+    "manifestRevision": {"type": "integer", "minimum": 1},
+    "source": {"enum": ["manual", "mcp", "hook"]},
+    "observedAt": {"type": "string", "format": "date-time"}
+  }
+}

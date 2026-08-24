@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/change-manifest.schema.json",
+  "title": "ChangeManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestId", "workstreamId", "revision", "baselineRef", "headRef", "state", "pathCount"],
+  "properties": {
+    "manifestId": {"type": "string", "pattern": "^mft_[A-Za-z0-9_-]{1,80}$"},
+    "workstreamId": {"type": "string", "pattern": "^wrk_[A-Za-z0-9_-]{1,80}$"},
+    "revision": {"type": "integer", "minimum": 1},
+    "baselineRef": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
+    "headRef": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
+    "state": {"enum": ["staging", "active", "superseded"]},
+    "pathCount": {"type": "integer", "minimum": 0, "maximum": 100000},
+    "entries": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 512},
+        "oldPath": {"type": "string", "minLength": 1, "maxLength": 512},
+        "status": {"enum": ["added", "modified", "deleted", "renamed", "untracked"]},
+        "symbols": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}},
+        "dependencies": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}}
+      }
+    }
+  }
+}

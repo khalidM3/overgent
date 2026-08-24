@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/semantic-object.schema.json",
+  "title": "SemanticObject",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "projectId", "repositoryId", "workstreamId", "kind", "text", "source", "fidelity", "revision", "active"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^sem_[A-Za-z0-9_-]{1,80}$"},
+    "projectId": {"type": "string", "pattern": "^prj_[A-Za-z0-9_-]{1,80}$"},
+    "repositoryId": {"type": "string", "pattern": "^repo_[A-Za-z0-9_-]{1,80}$"},
+    "workstreamId": {"type": "string", "pattern": "^wrk_[A-Za-z0-9_-]{1,80}$"},
+    "kind": {"enum": ["intent", "change", "plan", "decision"]},
+    "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "source": {"enum": ["git", "manual", "mcp", "hook"]},
+    "fidelity": {"enum": ["structural", "reported", "semantic_degraded", "semantic"]},
+    "revision": {"type": "integer", "minimum": 1},
+    "active": {"type": "boolean"},
+    "manifestRevision": {"type": "integer", "minimum": 1},
+    "tags": {"type": "array", "maxItems": 32, "items": {"type": "string", "maxLength": 80}}
+  }
+}

@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - convex
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@types/react-dom@19.2.5'
