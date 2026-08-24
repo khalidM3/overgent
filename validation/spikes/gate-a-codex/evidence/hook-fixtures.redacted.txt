@@ -1,0 +1,28 @@
+Direct command-hook fixture assertions:
+
+SessionStart -> hookEventName=SessionStart, bounded additionalContext emitted
+SubagentStart -> hookEventName=SubagentStart, bounded additionalContext emitted
+additionalContext bytes: under 512
+transcript_path: accepted as an ignored common Codex field; never dereferenced
+unknown/content-bearing fields: rejected with a visible systemMessage
+unsupported event: rejected with a visible systemMessage
+
+Visible degraded fixture:
+
+workspace cwd absent -> fixed `Stickguy context unavailable` system message;
+boolean assertion `visible_degradation=true` passed.
+
+Real Codex end-to-end attempts:
+
+- disposable Git project MCP config discovery: passed with a one-invocation
+  inline-table trust override; no user config was changed;
+- project `hooks.json` SessionStart marker: not observed;
+- equivalent inline SessionStart hook marker: not observed;
+- synthetic SubagentStart: Codex attempted the subagent flow, but the ephemeral
+  parent had no stored rollout for resolving the parent hook transcript path;
+  no marker was observed;
+- non-ephemeral retry: deliberately not attempted because it would persist a
+  session transcript, contrary to this gate's evidence/privacy constraint.
+
+No prompts, messages, transcript contents, raw JSONL, session IDs, or hook inputs
+were retained. Gate remains NARROW; see ADR.

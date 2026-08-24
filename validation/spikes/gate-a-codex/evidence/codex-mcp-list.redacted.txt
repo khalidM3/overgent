@@ -1,0 +1,20 @@
+Command: codex mcp list
+Working directory: validation/spikes/gate-a-codex
+Observed project entry (other user entries omitted):
+
+name: stickguy_gate_a
+transport: stdio
+command: /private/tmp/stickguy-gate-a/bin/gate-a-sdk-mcp
+args: <gate-dir>/fixtures/registry.json
+environment: none
+cwd override: none (inherits client cwd for workspace resolution)
+status: enabled
+authentication: unsupported/not applicable for stdio fixture
+
+Disposable-project trust override (one invocation, not persisted):
+
+  -c 'projects={ "/private/tmp/stickguy-gate-a/project" = { trust_level = "trusted" } }'
+
+The dotted-path form did not activate project config. The inline-table form did,
+as proved by the SDK server appearing in `codex mcp list` from the disposable
+project root.

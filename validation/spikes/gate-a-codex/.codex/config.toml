@@ -1,0 +1,6 @@
+[mcp_servers.stickguy_gate_a]
+command = "/private/tmp/stickguy-gate-a/bin/gate-a-sdk-mcp"
+args = ["fixtures/registry.json"]
+startup_timeout_sec = 5
+tool_timeout_sec = 5
+enabled = true

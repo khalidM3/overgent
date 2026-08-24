@@ -1,0 +1,19 @@
+{"type":"thread.started"}
+{"type":"turn.started"}
+{"type":"item.started","item_type":"mcp_tool_call","tool":"begin_work","server":"stickguy_gate_a"}
+{"type":"item.completed","item_type":"mcp_tool_call","tool":"begin_work","server":"stickguy_gate_a"}
+{"type":"item.started","item_type":"mcp_tool_call","tool":"check_coordination","server":"stickguy_gate_a"}
+{"type":"item.completed","item_type":"mcp_tool_call","tool":"check_coordination","server":"stickguy_gate_a"}
+{"type":"item.started","item_type":"mcp_tool_call","tool":"report_checkpoint","server":"stickguy_gate_a"}
+{"type":"item.completed","item_type":"mcp_tool_call","tool":"report_checkpoint","server":"stickguy_gate_a"}
+{"type":"item.started","item_type":"mcp_tool_call","tool":"finish_work","server":"stickguy_gate_a"}
+{"type":"item.completed","item_type":"mcp_tool_call","tool":"finish_work","server":"stickguy_gate_a"}
+{"type":"turn.completed"}
+
+Server implementation for the retained run: official MCP Go SDK v1.7.0,
+`mcp.NewServer`, typed `mcp.AddTool`, and `mcp.StdioTransport`.
+
+Redaction: the test harness discarded prompt text, agent messages, MCP arguments,
+MCP results, error text, session IDs, paths, transcripts, and token/account data
+before this evidence was written. Two bypass-hook-trust notices and unrelated
+local plugin warnings were omitted.
