@@ -1,0 +1,94 @@
+{
+  "fixtureVersion": 1,
+  "project": {
+    "id": "prj_l1_alpha",
+    "name": "Synthetic L-1 Project"
+  },
+  "repositories": [
+    {
+      "id": "repo_primary",
+      "fingerprint": "repo_fp_primary"
+    },
+    {
+      "id": "repo_isolation",
+      "fingerprint": "repo_fp_isolation"
+    }
+  ],
+  "devices": [
+    { "id": "dev_alpha", "memberId": "mem_alpha" },
+    { "id": "dev_beta", "memberId": "mem_beta" }
+  ],
+  "workstreams": [
+    {
+      "id": "wrk_auth_cookie",
+      "repositoryId": "repo_primary",
+      "title": "Rotate browser session cookies",
+      "summary": "Rotate browser sessions after privilege changes and revoke prior credentials.",
+      "anticipatedPaths": ["convex/auth/sessions.ts"]
+    },
+    {
+      "id": "wrk_login_token",
+      "repositoryId": "repo_primary",
+      "title": "Replace login bearer tokens",
+      "summary": "Issue new web login credentials after a member role changes and invalidate old credentials.",
+      "anticipatedPaths": ["apps/dashboard/src/auth/token.ts"]
+    },
+    {
+      "id": "wrk_schema_migration",
+      "repositoryId": "repo_primary",
+      "title": "Change membership role schema",
+      "summary": "Add a membership role revision consumed by authorization and dashboard clients.",
+      "anticipatedPaths": ["convex/schema.ts", "protocol/schemas/member.json"]
+    },
+    {
+      "id": "wrk_unrelated_search",
+      "repositoryId": "repo_primary",
+      "title": "Improve documentation search",
+      "summary": "Tune documentation search ranking without changing authentication or membership data.",
+      "anticipatedPaths": ["apps/dashboard/src/search/rank.ts"]
+    },
+    {
+      "id": "wrk_other_repository",
+      "repositoryId": "repo_isolation",
+      "title": "Rotate browser session cookies elsewhere",
+      "summary": "Text intentionally resembles authentication work but belongs to a different repository.",
+      "anticipatedPaths": ["auth/sessions.ts"]
+    }
+  ],
+  "manifestEntryShape": {
+    "required": ["path", "status"],
+    "optional": ["oldPath", "symbols", "dependencies", "routes", "schemas"],
+    "pathSeparator": "/",
+    "contentForbidden": true
+  },
+  "expectedRelationships": [
+    {
+      "left": "wrk_auth_cookie",
+      "right": "wrk_login_token",
+      "candidate": true,
+      "expectedKinds": ["redundant_work", "assumption_conflict"]
+    },
+    {
+      "left": "wrk_auth_cookie",
+      "right": "wrk_schema_migration",
+      "candidate": true,
+      "expectedKinds": ["shared_dependency", "downstream_impact"]
+    },
+    {
+      "left": "wrk_login_token",
+      "right": "wrk_unrelated_search",
+      "candidate": false,
+      "expectedKinds": []
+    },
+    {
+      "left": "wrk_auth_cookie",
+      "right": "wrk_other_repository",
+      "candidate": false,
+      "expectedKinds": []
+    }
+  ],
+  "routingExpectations": {
+    "affected": ["wrk_auth_cookie", "wrk_login_token", "wrk_schema_migration"],
+    "mustReceiveNoItem": ["wrk_unrelated_search", "wrk_other_repository"]
+  }
+}
