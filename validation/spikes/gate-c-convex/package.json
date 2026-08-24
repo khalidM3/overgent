@@ -1,0 +1,15 @@
+{
+  "name": "stickguy-l1-gate-c",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:live": "node scripts/live-test.mjs"
+  },
+  "dependencies": {
+    "convex": "1.45.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
