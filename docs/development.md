@@ -38,8 +38,8 @@ shell require restarting `pnpm desktop:dev`; Go core changes require restarting
 `pnpm dev:backend` is running.
 
 The development desktop opens a native first-run screen. Choose a Git
-repository, create a Project or join with an invite, select the detected
-coding-agent adapters to install, and press **Open live Project**. No terminal
+repository, create a Project or join with an invite, select the coding-agent
+adapters to install, and press **Open live Project**. No terminal
 command is required for this normal path. The app exchanges a one-time ticket
 through the loopback Vite proxy so the development session cookie remains
 same-origin while the Wails bridge stays attached during hot reload. The
@@ -69,8 +69,10 @@ The command prints the Project, workspace, workstream, and invite IDs. `pnpm
 dev` notices the new default profile and starts the service. The macOS Keychain
 may request approval for the device credential.
 
-The desktop detects `codex` and `claude` on `PATH`. Selecting an adapter adds
-only Stickguy's Project-scoped MCP entry and preserves unrelated configuration.
+The desktop detects `codex` and `claude` on `PATH` plus standard macOS app,
+user-local, and NVM install locations. Detection is advisory: either adapter can
+still be selected when a GUI-launched app has a narrower process environment.
+Selecting an adapter adds only Stickguy's Project-scoped MCP entry and preserves unrelated configuration.
 Restart agent sessions that were already open so they discover the new entry.
 Git observation works even when an adapter is missing or declined. Claude Code
 CLI is the supported Claude surface here; the general Claude Desktop app does

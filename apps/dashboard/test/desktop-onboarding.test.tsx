@@ -24,10 +24,29 @@ describe("desktop onboarding", () => {
     render(<DesktopOnboarding api={api} />);
     await screen.findByRole("heading", { name: /Connect the Project/ });
     await user.click(screen.getByRole("button", { name: "Choose…" }));
+    await user.click(screen.getByRole("checkbox", { name: /Codex/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Claude Code/ }));
     await user.click(screen.getByRole("button", { name: "Create and connect" }));
     expect(await screen.findByRole("heading", { name: "atlas" })).toBeTruthy();
     expect(screen.getByText("inv_test.secret")).toBeTruthy();
     expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({ repositoryRoot: "/tmp/atlas", projectLabel: "atlas", enableCodex: true, enableClaude: true }));
+  });
+
+  it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<DesktopOnboarding api={api} />);
+    const codex = await screen.findByRole("checkbox", { name: /Codex/ });
+    const claude = screen.getByRole("checkbox", { name: /Claude Code/ });
+    expect((codex as HTMLInputElement).disabled).toBe(false);
+    expect((claude as HTMLInputElement).disabled).toBe(false);
+    await user.click(codex);
+    await user.click(claude);
+    expect((codex as HTMLInputElement).checked).toBe(true);
+    expect((claude as HTMLInputElement).checked).toBe(true);
   });
 
   it("opens the authenticated live Project through a native one-time handoff", async () => {

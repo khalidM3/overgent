@@ -311,7 +311,7 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 		{Name: "Claude Code", Fidelity: "MCP intent + Git observation", Detail: "Project-scoped MCP; source, diffs, prompts, and transcripts are not uploaded."},
 	}
 	for index, command := range []string{"codex", "claude"} {
-		_, states[index].Installed = lookPath(command)
+		_, states[index].Installed = agentExecutable(command)
 	}
 	if len(roots) == 0 || cliErr != nil {
 		return states
@@ -377,9 +377,46 @@ func (service *OnboardingService) resolveCLI() (string, error) {
 	return filepath.Abs(value)
 }
 
-func lookPath(command string) (string, bool) {
-	value, err := exec.LookPath(command)
-	return value, err == nil
+func agentExecutable(command string) (string, bool) {
+	if value, err := exec.LookPath(command); err == nil && executableFile(value) {
+		return value, true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", false
+	}
+	var candidates []string
+	switch command {
+	case "codex":
+		candidates = []string{
+			filepath.Join(home, ".local", "bin", "codex"),
+			filepath.Join(home, ".codex", "bin", "codex"),
+			filepath.Join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
+			filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+			"/Applications/Codex.app/Contents/Resources/codex",
+			"/Applications/ChatGPT.app/Contents/Resources/codex",
+		}
+	case "claude":
+		candidates = []string{
+			filepath.Join(home, ".local", "bin", "claude"),
+			filepath.Join(home, ".npm-global", "bin", "claude"),
+		}
+		nvmCandidates, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "claude"))
+		candidates = append(candidates, nvmCandidates...)
+	default:
+		return "", false
+	}
+	for _, candidate := range candidates {
+		if executableFile(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func executableFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 func canonicalRepository(value string) (string, error) {
