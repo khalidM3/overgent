@@ -112,6 +112,12 @@ Deliver bounded semantic-object validation; embedding-provider and semantic-inde
 
 Exit: two devices with different paths but duplicate behavior produce a justified `redundant_work` finding; incompatible intent is surfaced before either edits; shared schema/package impact reaches only affected workstreams; an unrelated fourth workstream gets no item; a relevant decision change marks an old dependent brief stale; briefs honor budget/truncation rules; independent large changes stay non-interruptive; cross-project retrieval fails; provider outage preserves structural routing. This is the first V1-complete coordination-harness loop.
 
+Current outcome: complete under ADR-030. The public labeled corpus and anonymous
+loopback two-device suite pass every exit case. The initial deterministic
+concept provider is intentionally vocabulary-bounded; semantic findings remain
+quiet radar/brief evidence, and a broader provider or proactive interruption
+requires the later precision/cost/privacy gate.
+
 ## L7 — Plan, claims, sync, decisions
 
 Deliver revisioned plan items; ownership/status; normalized path/glob claims; sync-card create/comment/resolve; durable affected-member decisions; remaining MCP tools; optional untracked local context; structured while-away digest.

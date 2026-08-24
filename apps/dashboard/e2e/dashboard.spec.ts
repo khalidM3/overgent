@@ -21,6 +21,8 @@ test("pause, finding lifecycle, and devices are accessible entry points", async 
   await expect(page.getByText("Workspace sharing is paused", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Resume sharing" }).click();
   await expect(page.getByText("Workspace sharing is paused", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Useful" }).click();
+  await expect(page.getByText("Feedback recorded")).toBeVisible();
   await page.getByRole("button", { name: "Acknowledge", exact: true }).click();
   await expect(page.getByLabel("Selected finding detail")).toContainText("acknowledged");
   await page.getByRole("button", { name: "Mark resolved" }).click();

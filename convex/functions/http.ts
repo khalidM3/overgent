@@ -247,6 +247,19 @@ http.route({ pathPrefix: "/v1/context-items/", method: "GET", handler: httpActio
   return json(result);
 })) });
 
+http.route({ pathPrefix: "/v1/findings/", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const match = new URL(request.url).pathname.match(/^\/v1\/findings\/([^/]+)\/feedback$/);
+  if (!match) throw new HttpFailure("not_found", 404);
+  const body = expectObject(await readJson(request));
+  expectExactKeys(body, ["value"]);
+  const value = expectString(body.value, 6, 32);
+  if (!["useful", "not_related", "already_coordinated", "missed_severity"].includes(value)) throw new ValidationError("validation_failed");
+  const sessionHash = sha256Hex(browserSession(request));
+  await consumeEdgeRate(ctx, sessionHash, "findings.feedback", 60);
+  await ctx.runMutation(internal.service.recordFindingFeedback, { sessionHash, findingPublicId: expectId(match[1]), value, feedbackPublicId: publicId("fbk"), now: Date.now() });
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+})) });
+
 http.route({ pathPrefix: "/v1/devices/", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
   await assertEmptyBody(request);
   const match = new URL(request.url).pathname.match(/^\/v1\/devices\/([^/]+)\/revoke$/);
@@ -271,12 +284,20 @@ async function createBrief(ctx: ActionCtx, request: Request, workstreamId: strin
   if (body.sinceCursor !== undefined) expectString(body.sinceCursor, 1, 512);
   const tokenHash = sha256Hex(bearer(request));
   await consumeEdgeRate(ctx, requestRateKey(request, "workstreams.briefs"), "workstreams.briefs", 60);
+  const semantic = await ctx.runAction(internal.intelligence.searchSemantic, {
+    tokenHash,
+    workstreamPublicId: expectId(workstreamId),
+    limit: 16,
+  });
   const result = await ctx.runMutation(internal.service.createBrief, {
     tokenHash,
     workstreamPublicId: expectId(workstreamId),
     trigger,
     requestedBudget: expectInteger(body.approximateTokenBudget, 128, 800),
     briefPublicId: publicId("brf"),
+    semanticObjectIds: semantic.objectIds,
+    semanticDegraded: semantic.degraded,
+    semanticContextRevision: semantic.contextRevision,
     now: Date.now(),
   });
   return json(result);

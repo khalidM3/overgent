@@ -21,12 +21,17 @@ const ids = {
   sessionC: `ses_c_${suffix}`,
   workstreamA: `wrk_a_${suffix}`,
   workstreamB: `wrk_b_${suffix}`,
+  workstreamAssumption: `wrk_assumption_${suffix}`,
+  workstreamSchema: `wrk_schema_${suffix}`,
+  workstreamUnrelated: `wrk_unrelated_${suffix}`,
+  workstreamC: `wrk_c_${suffix}`,
 };
 const timings = {};
 
-async function request(method, path, { token, body, expected = 200 } = {}) {
+async function request(method, path, { token, cookie, body, expected = 200 } = {}) {
   const headers = {};
   if (token) headers.authorization = `Bearer ${token}`;
+  if (cookie) headers.cookie = cookie;
   let payload;
   if (body !== undefined) {
     headers["content-type"] = "application/json";
@@ -92,6 +97,7 @@ const creatorExchange = await request("POST", "/v1/dashboard-tickets/exchange", 
   body: { ticket: creatorTicket.ticket },
   expected: 204,
 });
+const creatorCookie = (creatorExchange.headers.get("set-cookie") ?? "").split(";", 1)[0];
 assert((creatorExchange.headers.get("set-cookie") ?? "").includes("HttpOnly"));
 const creatorTicketReuse = await request("POST", "/v1/dashboard-tickets/exchange", {
   body: { ticket: creatorTicket.ticket },
@@ -186,7 +192,9 @@ function manifestEvents({ side, projectId, deviceId, workspaceId, sessionId, wor
     event({
       eventId: `evt_intent_${side}_${suffix}`, projectId, deviceId, workspaceId, sessionId, sequence: 2,
       type: "workstream.intent_reported",
-      payload: { workstreamId, title: `Synthetic ${side}`, intendedOutcome: "Exercise deterministic hosted overlap." },
+      payload: side === "a"
+        ? { workstreamId, title: "Rotate browser sessions", intendedOutcome: "Rotate browser sessions after privilege changes and revoke prior credentials.", contracts: ["membership-role-schema"] }
+        : { workstreamId, title: "Issue fresh login credentials", intendedOutcome: "Issue new web login credentials after a member role changes and invalidate old credentials." },
     }),
     event({
       eventId: `evt_start_${side}_${suffix}`, projectId, deviceId, workspaceId, sessionId, sequence: 3,
@@ -321,16 +329,43 @@ const unordered = await request("POST", "/v1/events/batch", { token: tokenA, exp
 ] } });
 assert.equal(unordered.body.error.code, "manifest_path_order_invalid");
 
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({ eventId: `evt_assumption_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 6, type: "workstream.intent_reported", payload: { workstreamId: ids.workstreamAssumption, title: "Preserve existing sessions", intendedOutcome: "Treat role changes as immediate while existing sessions remain valid until expiry." } }),
+  event({ eventId: `evt_schema_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 7, type: "workstream.intent_reported", payload: { workstreamId: ids.workstreamSchema, title: "Revise membership schema", intendedOutcome: "Add a membership role schema revision consumed by authorization clients.", contracts: ["membership-role-schema"] } }),
+  event({ eventId: `evt_unrelated_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 8, type: "workstream.intent_reported", payload: { workstreamId: ids.workstreamUnrelated, title: "Tune documentation search", intendedOutcome: "Tune documentation search ranking without changing authentication or membership behavior." } }),
+] } });
+
+await request("POST", "/v1/events/batch", { token: tokenC, body: { events: [
+  event({ eventId: `evt_intent_c_${suffix}`, projectId: projectC.id, deviceId: bootstrapC.deviceId, workspaceId: ids.workspaceC, sessionId: ids.sessionC, sequence: 2, type: "workstream.intent_reported", payload: { workstreamId: ids.workstreamC, title: "Cross Project session work", intendedOutcome: "Rotate browser sessions after privilege changes and revoke prior credentials." } }),
+] } });
+
 const briefA = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
   token: tokenA,
   body: { trigger: "before_broad_edit", approximateTokenBudget: 800 },
 })).body;
-assert.equal(briefA.items.length, 1);
-assert.equal(briefA.items[0].kind, "finding");
-assert.equal(briefA.items[0].fidelity, "structural");
-const findingId = briefA.items[0].id;
+assert(briefA.items.some((item) => item.kind === "finding" && item.text.includes("overlap")));
+assert(briefA.items.some((item) => item.kind === "finding" && item.text.includes("incompatible session-validity")));
+assert(briefA.items.some((item) => item.kind === "finding" && item.text.includes("membership-role-schema")));
+const findingId = briefA.items.find((item) => item.kind === "finding" && item.text.includes("overlap")).id;
 const itemA = (await request("GET", `/v1/context-items/${findingId}`, { token: tokenA })).body;
 assert.equal(itemA.kind, "direct_collision");
+
+const unrelatedBrief = (await request("POST", `/v1/workstreams/${ids.workstreamUnrelated}/briefs`, { token: tokenB, body: { trigger: "manual", approximateTokenBudget: 400 } })).body;
+assert.equal(unrelatedBrief.items.length, 0);
+const crossProjectBrief = (await request("POST", `/v1/workstreams/${ids.workstreamC}/briefs`, { token: tokenC, body: { trigger: "manual", approximateTokenBudget: 400 } })).body;
+assert.equal(crossProjectBrief.items.length, 0);
+
+await request("POST", `/v1/findings/${findingId}/feedback`, { cookie: creatorCookie, body: { value: "useful" }, expected: 204 });
+
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({ eventId: `evt_assumption_update_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 9, type: "workstream.intent_reported", payload: { workstreamId: ids.workstreamAssumption, title: "Preserve existing sessions", intendedOutcome: "Treat permission changes as immediate and incompatible with rotation while existing sessions remain valid until expiry." } }),
+] } });
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_checkpoint_stale_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 26, type: "workstream.checkpoint_reported", payload: { checkpointId: `chk_stale_${suffix}`, workstreamId: ids.workstreamA, summary: "Implemented session rotation boundary.", basedOnBriefId: briefA.briefId } }),
+] } });
+const afterStale = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+assert(afterStale.items.some((item) => item.kind === "stale_assumption"));
+const briefAfterStale = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, { token: tokenA, body: { trigger: "checkpoint", approximateTokenBudget: 800 } })).body;
 
 const duplicateEvent = event({
   eventId: `evt_activity_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
@@ -349,20 +384,20 @@ await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [outO
 const briefAfterNonMaterial = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
   token: tokenA, body: { trigger: "manual", approximateTokenBudget: 800 },
 })).body;
-assert.equal(briefAfterNonMaterial.contextRevision, briefA.contextRevision);
+assert.equal(briefAfterNonMaterial.contextRevision, briefAfterStale.contextRevision);
 
 const pause = event({
   eventId: `evt_pause_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
-  workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 10, type: "workspace.paused", payload: {},
+  workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 27, type: "workspace.paused", payload: {},
 });
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [pause] } });
 const briefAfterPause = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
   token: tokenA, body: { trigger: "manual", approximateTokenBudget: 800 },
 })).body;
-assert.equal(briefAfterPause.contextRevision, briefA.contextRevision + 1);
+assert.equal(briefAfterPause.contextRevision, briefAfterStale.contextRevision + 1);
 const repeatedPause = event({
   eventId: `evt_pause_repeat_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
-  workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 11, type: "workspace.paused", payload: {},
+  workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 28, type: "workspace.paused", payload: {},
 });
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [repeatedPause] } });
 const briefAfterRepeatedPause = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
@@ -371,8 +406,7 @@ const briefAfterRepeatedPause = (await request("POST", `/v1/workstreams/${ids.wo
 assert.equal(briefAfterRepeatedPause.contextRevision, briefAfterPause.contextRevision);
 
 const changes = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
-assert.equal(changes.items.length, 1);
-assert.equal(changes.items[0].id, findingId);
+assert(changes.items.some((item) => item.id === findingId));
 
 const crossProjectItem = await request("GET", `/v1/context-items/${findingId}`, { token: tokenC, expected: 403 });
 assert.equal(crossProjectItem.body.error.code, "forbidden");
@@ -426,7 +460,7 @@ const revokedBootstrap = await request("GET", "/v1/device/bootstrap", { token: t
 assert.equal(revokedBootstrap.body.error.code, "credential_revoked");
 
 console.log(JSON.stringify({
-  level: "L2 hosted Project service",
+  level: "L2 hosted Project service with L6 intelligence",
   result: "PASS",
   deployment: "anonymous-local-loopback-redacted",
   assertions: {
@@ -450,7 +484,13 @@ console.log(JSON.stringify({
     batchSizeGuard: true,
     requestByteGuard: true,
     failedAttemptRateGuard: true,
-    semanticProvidersAbsent: true
+    semanticDuplicateBehavior: true,
+    semanticAssumptionConflictBeforeEdits: true,
+    scopedSharedDependencyRouting: true,
+    unrelatedBriefEmpty: true,
+    staleAssumptionDetected: true,
+    crossProjectSemanticIsolation: true,
+    radarFeedbackRecorded: true
   },
   timings,
 }, null, 2));

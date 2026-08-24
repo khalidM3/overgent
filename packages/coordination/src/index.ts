@@ -57,3 +57,5 @@ export class DeterministicCandidateRouter implements CandidateRouter {
       .slice(0, Math.max(0, input.limit));
   }
 }
+
+export * from "./intelligence.js";

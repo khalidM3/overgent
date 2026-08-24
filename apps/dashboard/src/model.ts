@@ -11,6 +11,7 @@ export type Presence = "online" | "idle" | "offline" | "paused";
 export type Fidelity = "mcp" | "git" | "manual" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
+export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
 export type Severity = "critical" | "high" | "medium" | "low";
 
 export interface ProjectSummary {
@@ -52,7 +53,8 @@ export interface Finding {
     | "redundant_work"
     | "shared_dependency"
     | "assumption_conflict"
-    | "downstream_impact";
+    | "downstream_impact"
+    | "stale_assumption";
   severity: Severity;
   confidence: "deterministic" | "high" | "medium" | "low";
   state: FindingState;

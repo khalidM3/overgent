@@ -228,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/findings/{id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordFindingFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devices/{id}/revoke": {
         parameters: {
             query?: never;
@@ -475,6 +491,10 @@ export interface components {
             /** @default 400 */
             approximateTokenBudget: number;
         };
+        FindingFeedbackRequest: {
+            /** @enum {unknown} */
+            value: "useful" | "not_related" | "already_coordinated" | "missed_severity";
+        };
         ContextItem: {
             id: string;
             projectId: string;
@@ -592,7 +612,7 @@ export interface components {
         finding: {
             id: string;
             /** @enum {unknown} */
-            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
             /** @enum {unknown} */
             severity: "critical" | "high" | "medium" | "low";
             /** @enum {unknown} */
@@ -663,7 +683,7 @@ export interface components {
             findings: {
                 id: string;
                 /** @enum {unknown} */
-                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
                 /** @enum {unknown} */
                 severity: "critical" | "high" | "medium" | "low";
                 /** @enum {unknown} */
@@ -1344,7 +1364,7 @@ export interface operations {
                         findings: {
                             id: string;
                             /** @enum {unknown} */
-                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
                             /** @enum {unknown} */
                             severity: "critical" | "high" | "medium" | "low";
                             /** @enum {unknown} */
@@ -1865,6 +1885,50 @@ export interface operations {
                         }[];
                     };
                 };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    recordFindingFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {unknown} */
+                    value: "useful" | "not_related" | "already_coordinated" | "missed_severity";
+                };
+            };
+        };
+        responses: {
+            /** @description Feedback recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Stable error envelope */
             default: {

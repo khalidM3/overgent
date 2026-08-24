@@ -60,6 +60,13 @@ describe("dashboard component behavior", () => {
     expect(screen.getByLabelText("Selected finding detail").textContent).toContain("resolved");
   });
 
+  it("records explicit finding usefulness feedback", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Useful" }));
+    expect(await screen.findByText("Feedback recorded")).toBeTruthy();
+  });
+
   it("activates a browser session without asking for a ticket value", async () => {
     const user = userEvent.setup();
     render(<App initialState="activation" source={new FixtureProjectSource()} />);

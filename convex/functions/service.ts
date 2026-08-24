@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { conceptVector, evaluateWorkstreams, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, SemanticPolicyError, type WorkstreamRecord } from "@stickguy/coordination";
 import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
@@ -182,9 +183,10 @@ export const dashboardSession = internalQuery({
   args: { sessionHash: v.string(), now: v.number() },
   handler: async (ctx, args) => {
     const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    const semanticStatus = await projectSemanticStatus(ctx, auth.project._id);
     return {
       memberName: auth.member.displayName,
-      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: "disabled" }],
+      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus }],
       selectedProjectId: auth.project.publicId,
     };
   },
@@ -203,12 +205,14 @@ export const dashboardSnapshot = internalQuery({
     const workstreams = [];
     const devices = [];
     let contextRevision = 0;
+    let semanticStatus: "enabled" | "degraded" = "enabled";
     for (const workspace of workspaces) {
       const stream = projectWorkstreams.find((candidate) => candidate.workspaceId === workspace._id);
       const member = memberById.get(workspace.memberId);
       const device = await ctx.db.get(workspace.deviceId);
       const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).unique();
       contextRevision = Math.max(contextRevision, scope?.contextRevision ?? 0);
+      if ((scope?.semanticDegradedAt ?? 0) > (scope?.semanticHealthyAt ?? 0)) semanticStatus = "degraded";
       let pathCount = 0;
       let paths: string[] = [];
       let manifestRevision = 0;
@@ -239,7 +243,21 @@ export const dashboardSnapshot = internalQuery({
     }));
     const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(20);
     const activity = activityDocs.map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
-    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: "disabled" }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
+    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
+  },
+});
+
+export const recordSemanticHealth = internalMutation({
+  args: { tokenHash: v.string(), workstreamPublicId: v.string(), degraded: v.boolean(), now: v.number() },
+  handler: async (ctx, args) => {
+    const device = await requireDevice(ctx, args.tokenHash);
+    const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
+    if (!workstream) fail("not_found");
+    await requireMembership(ctx, device._id, workstream.projectId);
+    const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).unique();
+    if (!scope) fail("not_found");
+    await ctx.db.patch(scope._id, args.degraded ? { semanticDegradedAt: args.now } : { semanticHealthyAt: args.now });
+    return true;
   },
 });
 
@@ -359,7 +377,7 @@ export const projectChanges = internalQuery({
 export const createBrief = internalMutation({
   args: {
     tokenHash: v.string(), workstreamPublicId: v.string(), trigger: v.string(), requestedBudget: v.number(),
-    briefPublicId: v.string(), now: v.number(),
+    briefPublicId: v.string(), semanticObjectIds: v.array(v.string()), semanticDegraded: v.boolean(), semanticContextRevision: v.number(), now: v.number(),
   },
   handler: async (ctx, args) => {
     const device = await requireDevice(ctx, args.tokenHash);
@@ -370,30 +388,38 @@ export const createBrief = internalMutation({
     const workspace = await ctx.db.get(workstream.workspaceId);
     const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).unique();
     if (!project || !workspace || !scope) fail("not_found");
-    const findings = (await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).collect())
+    const scopedFindings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).take(257);
+    if (scopedFindings.length > 256) fail("finding_scope_too_large");
+    const findings = scopedFindings
       .filter((finding) => finding.state === "open" && finding.workstreamPublicIds.includes(workstream.publicId))
       .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.publicId.localeCompare(b.publicId));
-    const items = [];
-    let renderedSize = 0;
-    let truncated = false;
-    for (const finding of findings) {
-      const item = {
-        id: finding.publicId,
-        revision: finding.revision,
-        kind: "finding" as const,
-        text: finding.reason,
-        relevanceReason: "The finding directly names this workstream.",
-        fidelity: finding.confidenceBand === "deterministic" ? "structural" : "semantic_degraded",
-        advisoryAction: severityRank(finding.severity) >= 3 ? "coordination_required" as const : "review_recommended" as const,
-        priority: severityRank(finding.severity) * 25,
-      };
+    const rendered = renderBrief(workstream.publicId, findings.map((finding) => ({
+      projectId: project.publicId,
+      repositoryId: workspace.repoFingerprint,
+      id: finding.publicId,
+      kind: finding.kind as "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption",
+      severity: finding.severity as "low" | "medium" | "high" | "critical",
+      confidenceBand: finding.confidenceBand as "deterministic" | "high" | "medium" | "low",
+      workstreamIds: finding.workstreamPublicIds,
+      evidence: finding.evidence,
+      reason: finding.reason,
+      revision: finding.revision,
+      priority: severityRank(finding.severity) * 25,
+    })), args.requestedBudget);
+    const items = [...rendered.items];
+    let renderedSize = rendered.renderedSize;
+    let truncated = rendered.truncated;
+    const semanticCurrent = !args.semanticDegraded && args.semanticContextRevision === scope.contextRevision;
+    for (const objectPublicId of semanticCurrent ? args.semanticObjectIds : []) {
+      if (items.length >= 64) { truncated = true; break; }
+      const object = await ctx.db.query("semanticObjects").withIndex("by_public_id", (q) => q.eq("publicId", objectPublicId)).unique();
+      if (!object || !object.active || object.scopeKey !== workstream.scopeKey || object.projectId !== project._id) continue;
+      const peer = await ctx.db.get(object.workstreamId);
+      if (!peer || peer._id === workstream._id || peer.status === "done") continue;
+      const item = { id: object.publicId, revision: object.revision, kind: "workstream" as const, text: `Potentially related active work: ${peer.title}.`, relevanceReason: "A scoped semantic candidate shares behavior concepts; similarity is not proof of a collision.", fidelity: "semantic", advisoryAction: "informational" as const, priority: 35 };
       const estimated = Math.ceil(JSON.stringify(item).length / 4);
-      if (items.length >= 64 || renderedSize + estimated > args.requestedBudget) {
-        truncated = true;
-        break;
-      }
-      items.push(item);
-      renderedSize += estimated;
+      if (renderedSize + estimated > args.requestedBudget) { truncated = true; continue; }
+      items.push(item); renderedSize += estimated;
     }
     await ctx.db.insert("contextDeliveries", {
       publicId: args.briefPublicId,
@@ -402,6 +428,7 @@ export const createBrief = internalMutation({
       contextRevision: scope.contextRevision,
       trigger: args.trigger,
       itemRefs: items.map((item) => item.id),
+      itemRevisions: Object.fromEntries(items.map((item) => [item.id, item.revision])),
       requestedBudget: args.requestedBudget,
       renderedSize,
       deliveredAt: args.now,
@@ -432,6 +459,22 @@ export const contextItem = internalQuery({
     if (!finding) fail("not_found");
     await requireMembership(ctx, device._id, finding.projectId);
     return findingContract(finding);
+  },
+});
+
+export const recordFindingFeedback = internalMutation({
+  args: { sessionHash: v.string(), findingPublicId: v.string(), value: v.string(), feedbackPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
+    if (!finding || finding.projectId !== auth.project._id) fail("not_found");
+    const member = auth.member;
+    if (!["useful", "not_related", "already_coordinated", "missed_severity"].includes(args.value)) fail("validation_failed");
+    const existing = await ctx.db.query("findingFeedback").withIndex("by_finding_member", (q) => q.eq("findingId", finding._id).eq("memberId", member._id)).unique();
+    const record = { value: args.value as "useful" | "not_related" | "already_coordinated" | "missed_severity", engineVersion: finding.engineVersion, createdAt: args.now, expiresAt: args.now + DEFAULT_RETENTION_DAYS * DAY };
+    if (existing) await ctx.db.patch(existing._id, record);
+    else await ctx.db.insert("findingFeedback", { publicId: args.feedbackPublicId, projectId: finding.projectId, findingId: finding._id, memberId: member._id, ...record });
+    return true;
   },
 });
 
@@ -527,6 +570,7 @@ async function applyProjection(
       return;
     }
     case "workstream.intent_reported": {
+      if (event.sequence <= workspace.lastProjectedSequence) return;
       const workstreamPublicId = String(payload.workstreamId);
       const current = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       const summary = String(payload.intendedOutcome);
@@ -538,7 +582,6 @@ async function applyProjection(
         await bumpScope(ctx, workspace.scopeKey, now);
       } else {
         if (current.projectId !== project._id || current.workspaceId !== workspace._id) fail("forbidden");
-        if (event.sequence <= workspace.lastProjectedSequence) return;
         const material = current.title !== String(payload.title) || current.summary !== summary;
         await ctx.db.patch(current._id, {
           title: String(payload.title), summary, revision: current.revision + 1, status: "active", updatedAt: now,
@@ -546,6 +589,14 @@ async function applyProjection(
         if (material) await bumpScope(ctx, workspace.scopeKey, now);
       }
       await ctx.db.patch(workspace._id, { lastProjectedSequence: Math.max(workspace.lastProjectedSequence, event.sequence), updatedAt: now });
+      const projected = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
+      if (!projected) fail("workstream_not_found");
+      const tags = [
+        ...stringValues(payload.components).map((value) => `component:${value}`),
+        ...stringValues(payload.contracts).map((value) => `contract:${value}`),
+        ...stringValues(payload.anticipatedPaths).map((value) => `path:${value}`),
+      ];
+      await upsertSemanticIntelligence(ctx, project, projected, boundedSemanticText([summary, String(payload.approachSummary ?? "")]), "intent", tags, event.source, now);
       return;
     }
     case "workstream.status_changed": {
@@ -555,6 +606,35 @@ async function applyProjection(
       await ctx.db.patch(workstream._id, { status, revision: workstream.revision + 1, updatedAt: now });
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       if (status !== workstream.status) await bumpScope(ctx, workspace.scopeKey, now);
+      if (status === "done") {
+        await deactivateWorkstreamSemantics(ctx, workstream._id);
+        await recomputeSemanticFindings(ctx, project, workspace.scopeKey, now);
+      }
+      return;
+    }
+    case "context.acknowledged": {
+      const delivery = await ctx.db.query("contextDeliveries").withIndex("by_public_id", (q) => q.eq("publicId", String(payload.briefId))).unique();
+      if (!delivery || delivery.projectId !== project._id) fail("brief_not_found");
+      const deliveryWorkstream = await ctx.db.get(delivery.workstreamId);
+      if (!deliveryWorkstream || deliveryWorkstream.workspaceId !== workspace._id) fail("forbidden");
+      const considered = new Set(stringValues(payload.consideredItemIds));
+      if ([...considered].some((id) => !delivery.itemRefs.includes(id))) fail("brief_item_invalid");
+      await ctx.db.patch(delivery._id, { acknowledgedAt: now });
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: Math.max(workspace.lastProjectedSequence, event.sequence), updatedAt: now });
+      return;
+    }
+    case "workstream.checkpoint_reported": {
+      const checkpointWorkstream = await requireWorkstream(ctx, String(payload.workstreamId), project._id, workspace._id);
+      if (event.sequence <= workspace.lastProjectedSequence) return;
+      const checkpointTags = [
+        ...stringValues(payload.affectedInterfaces).map((value) => `changes:${value}`),
+        ...stringValues(payload.dependencies).map((value) => `dependency:${value}`),
+      ];
+      await upsertSemanticIntelligence(ctx, project, checkpointWorkstream, boundedSemanticText([String(payload.summary), ...stringValues(payload.discoveries)]), "change", checkpointTags, event.source, now);
+      const basedOnBriefId = typeof payload.basedOnBriefId === "string" ? payload.basedOnBriefId : "";
+      if (basedOnBriefId) await upsertStaleAssumption(ctx, project, checkpointWorkstream, basedOnBriefId, now);
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
+      await bumpScope(ctx, workspace.scopeKey, now);
       return;
     }
     case "workspace.manifest_started": {
@@ -681,6 +761,127 @@ async function upsertPathFindings(
   }
 }
 
+async function upsertSemanticIntelligence(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  workstream: Doc<"workstreams">,
+  rawText: string,
+  kind: "intent" | "change",
+  rawTags: string[],
+  source: string,
+  now: number,
+): Promise<void> {
+  let text: string;
+  let tags: string[];
+  try {
+    text = validateSemanticText(rawText);
+    tags = validateSemanticTags(rawTags);
+  } catch (error) {
+    if (error instanceof SemanticPolicyError) fail(error.code);
+    throw error;
+  }
+  const publicId = `sem_${sha256Hex(`${workstream.publicId}\0${kind}`).slice(0, 32)}`;
+  let object = await ctx.db.query("semanticObjects").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique();
+  if (object && (object.projectId !== project._id || object.workstreamId !== workstream._id)) fail("semantic_object_conflict");
+  const changed = !object || object.text !== text || object.source !== source || !object.active || JSON.stringify(object.tags ?? []) !== JSON.stringify(tags);
+  if (object) {
+    await ctx.db.patch(object._id, { text, source, fidelity: "semantic", tags, revision: object.revision + (changed ? 1 : 0), active: true, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+    object = await ctx.db.get(object._id);
+  } else {
+    const id = await ctx.db.insert("semanticObjects", { publicId, projectId: project._id, scopeKey: workstream.scopeKey, workstreamId: workstream._id, kind, text, source, fidelity: "semantic", tags, revision: 1, active: true, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+    object = await ctx.db.get(id);
+  }
+  if (!object) fail("semantic_object_missing");
+  const existingEmbedding = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object!._id)).unique();
+  const embedding = { scopeKey: workstream.scopeKey, providerName: "stickguy", modelVersion: "stickguy-concepts/v1", contentRevision: object.revision, vector: conceptVector(text), expiresAt: now + DEFAULT_RETENTION_DAYS * DAY };
+  if (existingEmbedding) await ctx.db.patch(existingEmbedding._id, embedding);
+  else await ctx.db.insert("semanticEmbeddings", { objectId: object._id, ...embedding });
+
+  if (changed) {
+    await bumpScope(ctx, workstream.scopeKey, now);
+    await recomputeSemanticFindings(ctx, project, workstream.scopeKey, now);
+  }
+}
+
+async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"projects">, key: string, now: number): Promise<void> {
+  const objects = await ctx.db.query("semanticObjects").withIndex("by_scope_active", (q) => q.eq("scopeKey", key).eq("active", true)).take(65);
+  if (objects.length > 64) fail("semantic_scope_too_large");
+  const grouped = new Map<Id<"workstreams">, Array<Doc<"semanticObjects">>>();
+  for (const object of objects) grouped.set(object.workstreamId, [...(grouped.get(object.workstreamId) ?? []), object]);
+  const records: WorkstreamRecord[] = [];
+  for (const [workstreamId, group] of grouped) {
+    const current = await ctx.db.get(workstreamId);
+    if (!current || current.status === "done") continue;
+    records.push(semanticRecord(project.publicId, current, group));
+  }
+  const activeFingerprints = new Set<string>();
+  const revisionByWorkstream = new Map(records.map((record) => [record.id, record.revision]));
+  for (const finding of evaluateWorkstreams(records)) {
+    const fingerprint = sha256Hex(`${key}\0${finding.workstreamIds.join("\0")}\0${finding.kind}`);
+    activeFingerprints.add(fingerprint);
+    const inputRevisions = Object.fromEntries(finding.workstreamIds.map((id) => [id, revisionByWorkstream.get(id) ?? 0]));
+    const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+    if (existing) {
+      const material = existing.kind !== finding.kind || existing.severity !== finding.severity || existing.confidenceBand !== finding.confidenceBand || existing.reason !== finding.reason || existing.state !== "open" || JSON.stringify(existing.evidence) !== JSON.stringify(finding.evidence) || JSON.stringify(existing.inputRevisions ?? {}) !== JSON.stringify(inputRevisions);
+      await ctx.db.patch(existing._id, { kind: finding.kind, severity: finding.severity, confidenceBand: finding.confidenceBand, evidence: finding.evidence, reason: finding.reason, state: "open", inputRevisions, revision: existing.revision + (material ? 1 : 0), lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY, engineVersion: INTELLIGENCE_ENGINE_VERSION });
+    }
+    else await ctx.db.insert("findings", { publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: key, kind: finding.kind, severity: finding.severity, confidenceBand: finding.confidenceBand, workstreamPublicIds: [...finding.workstreamIds], evidence: finding.evidence, reason: finding.reason, state: "open", fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, inputRevisions, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+  }
+  const previous = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", key)).take(513);
+  if (previous.length > 512) fail("finding_scope_too_large");
+  for (const finding of previous) {
+    if (finding.engineVersion === INTELLIGENCE_ENGINE_VERSION && finding.state === "open" && !activeFingerprints.has(finding.fingerprint)) {
+      await ctx.db.patch(finding._id, { state: "resolved", revision: finding.revision + 1, lastSeenAt: now });
+    }
+  }
+}
+
+function semanticRecord(projectId: string, workstream: Doc<"workstreams">, objects: Array<Doc<"semanticObjects">>): WorkstreamRecord {
+  const tags = objects.flatMap((object) => object.tags ?? []);
+  const values = (prefix: string) => tags.filter((tag) => tag.startsWith(prefix)).map((tag) => tag.slice(prefix.length));
+  const summary = objects.sort((left, right) => left.kind === "intent" ? -1 : right.kind === "intent" ? 1 : right.revision - left.revision).map((object) => object.text).join(" ").slice(0, 2_000);
+  return { projectId, repositoryId: objects[0]!.scopeKey, id: workstream.publicId, revision: Math.max(...objects.map((object) => object.revision)), status: workstream.status, summary, paths: values("path:"), dependencies: values("dependency:"), contracts: values("contract:"), schemas: values("schema:"), routes: values("route:"), components: values("component:"), changes: values("changes:"), assumptions: values("assumption:") };
+}
+
+async function deactivateWorkstreamSemantics(ctx: MutationCtx, workstreamId: Id<"workstreams">): Promise<void> {
+  const objects = await ctx.db.query("semanticObjects").withIndex("by_workstream_active", (q) => q.eq("workstreamId", workstreamId).eq("active", true)).collect();
+  for (const object of objects) {
+    await ctx.db.patch(object._id, { active: false });
+    const embedding = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object._id)).unique();
+    if (embedding) await ctx.db.delete(embedding._id);
+  }
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function boundedSemanticText(parts: string[]): string {
+  try {
+    const normalized = parts.filter((part) => part.trim()).map(validateSemanticText);
+    return validateSemanticText([...normalized.join(". ")].slice(0, 2_000).join(""));
+  } catch (error) {
+    if (error instanceof SemanticPolicyError) fail(error.code);
+    throw error;
+  }
+}
+
+async function upsertStaleAssumption(ctx: MutationCtx, project: Doc<"projects">, workstream: Doc<"workstreams">, briefPublicId: string, now: number): Promise<void> {
+  const delivery = await ctx.db.query("contextDeliveries").withIndex("by_public_id", (q) => q.eq("publicId", briefPublicId)).unique();
+  if (!delivery || delivery.projectId !== project._id || delivery.workstreamId !== workstream._id) fail("brief_not_found");
+  const previous = delivery.itemRevisions && typeof delivery.itemRevisions === "object" ? delivery.itemRevisions as Record<string, number> : {};
+  const scopedFindings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).take(257);
+  if (scopedFindings.length > 256) fail("finding_scope_too_large");
+  const findings = scopedFindings.filter((finding) => finding.state === "open" && finding.kind !== "stale_assumption" && finding.workstreamPublicIds.includes(workstream.publicId));
+  const changed = findings.find((finding) => severityRank(finding.severity) >= 3 && (previous[finding.publicId] ?? 0) < finding.revision);
+  if (!changed) return;
+  const fingerprint = sha256Hex(`${workstream.scopeKey}\0${workstream.publicId}\0stale\0${changed.publicId}`);
+  const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+  const evidence = [{ kind: "decision", summary: `${changed.publicId} materially changed after ${briefPublicId}.`, source: "context_delivery", fidelity: "structural" }];
+  if (existing) await ctx.db.patch(existing._id, { lastSeenAt: now, revision: existing.revision + 1, state: "open", evidence, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+  else await ctx.db.insert("findings", { publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey, kind: "stale_assumption", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: [workstream.publicId], evidence, reason: "This checkpoint relied on a brief that was materially superseded for this workstream.", state: "open", fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+}
+
 async function requireDevice(ctx: QueryCtx | MutationCtx, tokenHash: string): Promise<Doc<"devices">> {
   const device = await ctx.db.query("devices").withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash)).unique();
   if (!device) fail("unauthorized");
@@ -775,7 +976,7 @@ function severityRank(severity: string): number {
   return ({ low: 1, medium: 2, high: 3, critical: 4 } as Record<string, number>)[severity] ?? 0;
 }
 
-async function requireBrowserSession(ctx: QueryCtx, sessionHash: string, now: number) {
+async function requireBrowserSession(ctx: QueryCtx | MutationCtx, sessionHash: string, now: number) {
   const session = await ctx.db.query("browserSessions").withIndex("by_secret_hash", (q) => q.eq("secretHash", sessionHash)).unique();
   if (!session || session.revokedAt !== undefined || session.expiresAt <= now) fail("unauthorized");
   const project = await ctx.db.get(session.projectId);
@@ -783,6 +984,12 @@ async function requireBrowserSession(ctx: QueryCtx, sessionHash: string, now: nu
   const device = session.deviceId ? await ctx.db.get(session.deviceId) : null;
   if (!project || project.status !== "active" || !member || member.removedAt !== undefined || member.projectId !== project._id || !device || device.revokedAt !== undefined || member.deviceId !== device._id) fail("unauthorized");
   return { session, project, member, device };
+}
+
+async function projectSemanticStatus(ctx: QueryCtx, projectId: Id<"projects">): Promise<"enabled" | "degraded"> {
+  const scopes = await ctx.db.query("repositoryScopes").withIndex("by_project", (q) => q.eq("projectId", projectId)).take(101);
+  if (scopes.length > 100) fail("page_too_large");
+  return scopes.some((scope) => (scope.semanticDegradedAt ?? 0) > (scope.semanticHealthyAt ?? 0)) ? "degraded" : "enabled";
 }
 
 function initials(name: string): string {
@@ -813,8 +1020,8 @@ function activitySummary(type: string, payload: unknown): string {
   return type.replaceAll(".", " ").replaceAll("_", " ");
 }
 
-function dashboardFindingKind(kind: string): "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" {
-  if (["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact"].includes(kind)) return kind as ReturnType<typeof dashboardFindingKind>;
+function dashboardFindingKind(kind: string): "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" {
+  if (["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption"].includes(kind)) return kind as ReturnType<typeof dashboardFindingKind>;
   return "likely_collision";
 }
 

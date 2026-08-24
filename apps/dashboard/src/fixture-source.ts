@@ -1,5 +1,5 @@
 import { snapshotForProject } from "./fixtures";
-import type { FindingState, ProjectSnapshot } from "./model";
+import type { FindingFeedback, FindingState, ProjectSnapshot } from "./model";
 
 export class FixtureProjectSource {
   readonly live: boolean = false;
@@ -34,6 +34,10 @@ export class FixtureProjectSource {
       ...snapshot,
       findings: snapshot.findings.map((finding) => finding.id === findingId ? { ...finding, state } : finding),
     }));
+  }
+
+  async recordFindingFeedback(_findingId: string, _value: FindingFeedback): Promise<void> {
+    return Promise.resolve();
   }
 
   publishSyntheticUpdate(projectId: string): void {

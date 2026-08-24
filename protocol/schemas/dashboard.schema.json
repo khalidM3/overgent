@@ -48,7 +48,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["id", "kind", "severity", "confidence", "state", "title", "reason", "workstreamIds", "evidence", "firstSeen", "lastSeen"],
       "properties": {
-        "id": {"type": "string"}, "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact"]},
+        "id": {"type": "string"}, "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption"]},
         "severity": {"enum": ["critical", "high", "medium", "low"]}, "confidence": {"enum": ["deterministic", "high", "medium", "low"]},
         "state": {"enum": ["open", "acknowledged", "resolved", "dismissed"]}, "title": {"type": "string", "maxLength": 160}, "reason": {"type": "string", "maxLength": 500},
         "workstreamIds": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
