@@ -33,6 +33,8 @@ The Go protocol test also compiles every JSON Schema before validating the fixtu
 
 A deliberate comment was inserted into the generated Go type as a negative probe. `pnpm protocol:check` exited nonzero and named that file as drift. `pnpm protocol:generate` restored it, after which the check passed.
 
+Commit `844cd86` was cloned with `--no-local` into `/private/tmp/stickguy-l0-clean-844cd86`. A frozen pnpm install and the documented Go, protocol, typecheck, test, and build commands all passed there, and the clone remained Git-clean after ignored build output was produced.
+
 ## Security and privacy review
 
 All fixtures are synthetic. No production credentials or example secret values are committed, and no source/diff/Git-object/transcript/prompt/environment/raw-command payload appears in a public event. Semantic interfaces require both Project and repository scope; hosted fidelity is structural when providers are absent. Release permissions exist only in the tag/manual release job and the job refuses to run without `LICENSE` and `NOTICE`.
