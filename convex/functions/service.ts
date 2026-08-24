@@ -203,11 +203,12 @@ export const dashboardSnapshot = internalQuery({
     const memberById = new Map(members.map((member) => [member._id, member]));
     const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
     const workstreams = [];
-    const devices = [];
+    const devices: Array<{ id: string; label: string; platform: string; status: string; lastSeen: string }> = [];
     let contextRevision = 0;
     let semanticStatus: "enabled" | "degraded" = "enabled";
-    for (const workspace of workspaces) {
-      const stream = projectWorkstreams.find((candidate) => candidate.workspaceId === workspace._id);
+    for (const stream of projectWorkstreams) {
+      const workspace = workspaces.find((candidate) => candidate._id === stream.workspaceId);
+      if (!workspace) continue;
       const member = memberById.get(workspace.memberId);
       const device = await ctx.db.get(workspace.deviceId);
       const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).unique();
@@ -225,14 +226,19 @@ export const dashboardSnapshot = internalQuery({
           paths = chunks.flatMap((chunk) => chunk.entries.map((entry) => entry.path)).slice(0, 3);
         }
       }
-      const lastSeenAt = device?.lastSeenAt ?? 0;
-      const presence = workspace.paused ? "paused" : args.now - lastSeenAt <= 35_000 ? "online" : args.now - lastSeenAt <= 120_000 ? "idle" : "offline";
-      if (stream) workstreams.push({
+      if (stream.safePaths) {
+        paths = stream.safePaths.slice(0, 3);
+        pathCount = stream.safePaths.length;
+      }
+      const lastSeenAt = stream.vendor ? stream.updatedAt : device?.lastSeenAt ?? 0;
+      const presence = workspace.paused ? "paused" : stream.agentStatus === "done" ? "offline" : stream.agentStatus === "waiting" || stream.agentStatus === "idle" ? "idle" : args.now - lastSeenAt <= 35_000 ? "online" : args.now - lastSeenAt <= 120_000 ? "idle" : "offline";
+      workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
-        title: stream.title, outcome: stream.summary, presence, fidelity: "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
+        title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, subagents: stream.subagents ?? [] } } : {}),
         pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
-      if (device) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, lastSeenAt) });
+      if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
     }
     const findingDocs = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(100);
     const findings = findingDocs.map((finding) => ({
@@ -637,6 +643,47 @@ async function applyProjection(
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
     }
+    case "agent.activity_reported": {
+      if (event.sequence <= workspace.lastProjectedSequence) return;
+      const workstreamPublicId = String(payload.workstreamId);
+      const vendor = String(payload.vendor) as "codex" | "claude";
+      const agentStatus = String(payload.status) as "active" | "waiting" | "idle" | "done" | "error";
+      const activityKind = String(payload.kind);
+      const currentAction = String(payload.action);
+      let workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
+      if (workstream && (workstream.projectId !== project._id || workstream.workspaceId !== workspace._id || workstream.vendor !== vendor)) fail("forbidden");
+      const incomingPaths = stringValues(payload.paths);
+      const safePaths = activityKind === "SessionStart" ? [] : [...new Set([...(workstream?.safePaths ?? []), ...incomingPaths])].sort().slice(0, 100);
+      const subagents = [...(workstream?.subagents ?? [])];
+      const subagentAlias = typeof payload.subagentAlias === "string" ? payload.subagentAlias : "";
+      if (subagentAlias) {
+        const current = subagents.find((candidate) => candidate.alias === subagentAlias);
+        const next = { alias: subagentAlias, agentType: String(payload.agentType ?? "subagent"), status: activityKind === "SubagentStop" ? "done" : "active" };
+        if (current) Object.assign(current, next); else subagents.push(next);
+      }
+      const record = {
+        title: `${vendor === "codex" ? "Codex" : "Claude Code"} · ${String(payload.sessionAlias)}`,
+        summary: currentAction, status: agentStatus === "done" ? "done" as const : agentStatus === "error" ? "blocked" as const : agentStatus === "idle" ? "idle" as const : "active" as const,
+        vendor, sessionAlias: String(payload.sessionAlias), agentStatus, activityKind, currentAction,
+        toolName: typeof payload.tool === "string" ? payload.tool : undefined,
+        safePaths, subagents: subagents.slice(0, 32), updatedAt: now,
+      };
+      if (workstream) {
+        await ctx.db.patch(workstream._id, { ...record, revision: workstream.revision + 1 });
+        workstream = await ctx.db.get(workstream._id);
+      } else {
+        const id = await ctx.db.insert("workstreams", {
+          publicId: workstreamPublicId, projectId: project._id, memberId: member._id, workspaceId: workspace._id,
+          scopeKey: workspace.scopeKey, revision: 1, ...record,
+        });
+        workstream = await ctx.db.get(id);
+      }
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
+      if (workstream && incomingPaths.length > 0) await upsertAgentPathFindings(ctx, project, workstream, incomingPaths, now);
+      if (workstream && agentStatus === "done") await resolveAgentPathFindings(ctx, workstream, now);
+      await bumpScope(ctx, workspace.scopeKey, now);
+      return;
+    }
     case "workspace.manifest_started": {
       const publicId = String(payload.manifestId);
       if (await ctx.db.query("changeManifests").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique()) fail("manifest_exists");
@@ -757,6 +804,48 @@ async function upsertPathFindings(
           expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
         });
       }
+    }
+  }
+}
+
+async function upsertAgentPathFindings(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  workstream: Doc<"workstreams">,
+  incomingPaths: string[],
+  now: number,
+): Promise<void> {
+  const ownPaths = new Set(incomingPaths);
+  const peers = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).collect();
+  for (const peer of peers) {
+    if (peer._id === workstream._id || !peer.vendor || peer.status === "done" || now - peer.updatedAt > 120_000) continue;
+    const overlaps = [...new Set((peer.safePaths ?? []).filter((path) => ownPaths.has(path)))].sort();
+    for (const path of overlaps) {
+      const workstreamIds = [workstream.publicId, peer.publicId].sort();
+      const fingerprint = sha256Hex(`${workstream.scopeKey}\0agent-hook\0${workstreamIds.join("\0")}\0${path}`);
+      const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+      const evidence = [{ kind: "path", summary: `Both active agent sessions reported work on ${path}.`, source: "hook", fidelity: "structural" }];
+      if (existing) {
+        await ctx.db.patch(existing._id, { lastSeenAt: now, evidence, state: "open", expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+      } else {
+        await ctx.db.insert("findings", {
+          publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey,
+          kind: "direct_collision", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: workstreamIds,
+          evidence, reason: `Active ${workstream.vendor} and ${peer.vendor} sessions overlap on ${path}.`, state: "open",
+          fingerprint, engineVersion: "agent-path/v1", revision: 1, firstSeenAt: now, lastSeenAt: now,
+          expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+        });
+      }
+    }
+  }
+}
+
+async function resolveAgentPathFindings(ctx: MutationCtx, workstream: Doc<"workstreams">, now: number): Promise<void> {
+  const findings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).take(513);
+  if (findings.length > 512) fail("finding_scope_too_large");
+  for (const finding of findings) {
+    if (finding.engineVersion === "agent-path/v1" && finding.state === "open" && finding.workstreamPublicIds.includes(workstream.publicId)) {
+      await ctx.db.patch(finding._id, { state: "resolved", revision: finding.revision + 1, lastSeenAt: now });
     }
   }
 }
@@ -1005,7 +1094,8 @@ function relativeLabel(now: number, then: number): string {
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr`;
 }
 
-function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" {
+function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" | "agent" {
+  if (type === "agent.activity_reported") return "agent";
   if (type === "workstream.intent_reported") return "intent";
   if (type === "workstream.checkpoint_reported") return "checkpoint";
   if (type === "workspace.paused" || type === "workspace.resumed") return "pause";
@@ -1017,6 +1107,7 @@ function activitySummary(type: string, payload: unknown): string {
   if (type === "workstream.intent_reported") return `reported intent: ${String(object.title ?? "untitled work")}`;
   if (type === "workspace.manifest_completed") return `published manifest revision ${String(object.revision ?? "")}`.trim();
   if (type === "workspace.registered") return "registered a workspace";
+  if (type === "agent.activity_reported") return String(object.action ?? "reported agent activity");
   return type.replaceAll(".", " ").replaceAll("_", " ");
 }
 
@@ -1037,13 +1128,13 @@ function dashboardEvidenceKind(kind: string): "path" | "contract" | "dependency"
   return "intent";
 }
 
-function dashboardEvidenceSource(source: string): "git" | "mcp" | "manual" | "semantic_candidate" {
-  if (["git", "mcp", "manual", "semantic_candidate"].includes(source)) return source as ReturnType<typeof dashboardEvidenceSource>;
+function dashboardEvidenceSource(source: string): "git" | "mcp" | "manual" | "hook" | "semantic_candidate" {
+  if (["git", "mcp", "manual", "hook", "semantic_candidate"].includes(source)) return source as ReturnType<typeof dashboardEvidenceSource>;
   return "manual";
 }
 
-function dashboardFidelity(source: string): "mcp" | "git" | "manual" | "hook_unverified" {
-  if (["mcp", "git", "manual", "hook_unverified"].includes(source)) return source as ReturnType<typeof dashboardFidelity>;
+function dashboardFidelity(source: string): "mcp" | "git" | "manual" | "hook" | "hook_unverified" {
+  if (["mcp", "git", "manual", "hook", "hook_unverified"].includes(source)) return source as ReturnType<typeof dashboardFidelity>;
   return "manual";
 }
 

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "eventId": "evt_agent_fixture",
+  "projectId": "prj_fixture",
+  "memberId": "mem_fixture",
+  "deviceId": "dev_fixture",
+  "workspaceId": "wsp_fixture",
+  "sessionId": "ses_fixture",
+  "sequence": 9,
+  "observedAt": "2026-08-24T23:00:00Z",
+  "sentAt": "2026-08-24T23:00:01Z",
+  "source": "hook",
+  "type": "agent.activity_reported",
+  "payload": {
+    "workstreamId": "wrk_agent_0123456789abcdef0123456789abcdef",
+    "vendor": "codex",
+    "sessionAlias": "codex-a1b2c3",
+    "kind": "PreToolUse",
+    "status": "active",
+    "action": "editing src/navigation.tsx",
+    "tool": "apply_patch",
+    "paths": ["src/navigation.tsx"]
+  }
+}

@@ -14,6 +14,7 @@ export const fidelityLabel = (fidelity: Fidelity): string => ({
   mcp: "MCP reported",
   git: "Git observed",
   manual: "Manual intent",
+  hook: "Live agent",
   hook_unverified: "Hook unverified",
 })[fidelity];
 

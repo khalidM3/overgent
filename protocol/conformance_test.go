@@ -73,6 +73,17 @@ func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
 	if len(batch.Events) != 1 || !batch.Events[0].Source.Valid() || !batch.Events[0].Type.Valid() {
 		t.Fatalf("generated Go type lost required enum semantics: %#v", batch.Events)
 	}
+	agentFixture, err := os.ReadFile("fixtures/agent-activity-reported.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agentValue any
+	if err := json.Unmarshal(agentFixture, &agentValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(agentValue); err != nil {
+		t.Fatalf("agent activity schema validation: %v", err)
+	}
 }
 
 func TestManifestFixtureRetainsSimultaneousGitStates(t *testing.T) {

@@ -55,6 +55,7 @@ const EVENT_TYPES = new Set<EventType>([
   "workstream.status_changed",
   "context.acknowledged",
   "activity.reported",
+  "agent.activity_reported",
   "claim.created",
   "claim.released",
 ]);
@@ -240,6 +241,23 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       if (!["decision", "completion", "blocker"].includes(String(payload.kind))) throw new ValidationError("validation_failed");
       expectString(payload.summary, 1, LIMITS.summaryLength);
       return;
+    case "agent.activity_reported": {
+      expectExactKeys(payload, ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"], ["tool", "agentType", "subagentAlias", "paths"]);
+      expectWorkstreamId(payload.workstreamId);
+      if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
+      const alias = expectString(payload.sessionAlias, 12, 13);
+      if (!/^(codex|claude)-[0-9a-f]{6}$/.test(alias)) throw new ValidationError("validation_failed");
+      if (!["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"].includes(expectString(payload.kind, 1, 32))) throw new ValidationError("validation_failed");
+      if (!["active", "waiting", "idle", "done", "error"].includes(expectString(payload.status, 1, 16))) throw new ValidationError("validation_failed");
+      expectString(payload.action, 1, 300);
+      for (const key of ["tool", "agentType"] as const) {
+        if (payload[key] !== undefined && !/^[A-Za-z][A-Za-z0-9._:-]{0,63}$/.test(expectString(payload[key], 1, 64))) throw new ValidationError("validation_failed");
+      }
+      if (payload.subagentAlias !== undefined && !/^sub-[0-9a-f]{6}$/.test(expectString(payload.subagentAlias, 10, 10))) throw new ValidationError("validation_failed");
+      validateBoundedStrings(payload.paths, 100, LIMITS.pathLength);
+      for (const path of Array.isArray(payload.paths) ? payload.paths : []) validateAgentPath(String(path));
+      return;
+    }
     case "claim.created":
       expectExactKeys(payload, ["workstreamId", "patterns"]);
       expectWorkstreamId(payload.workstreamId);
@@ -251,6 +269,14 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       validateBoundedStrings(payload.claimIds, 32, 128);
       validateBoundedStrings(payload.patterns, 32, LIMITS.pathLength);
   }
+}
+
+function validateAgentPath(value: string): void {
+  if (!value || value.startsWith("/") || value.includes("\\") || value.includes("\0") || value.split("/").includes("..")) throw new ValidationError("protected_path");
+  const segments = value.toLowerCase().split("/");
+  const protectedNames = new Set([".ssh", ".aws", ".azure", ".kube", ".npmrc", ".pypirc", ".git-credentials", "credentials", "secrets", "id_rsa", "id_ed25519"]);
+  if (segments.some((segment) => segment === ".env" || segment.startsWith(".env.") || protectedNames.has(segment) || segment.endsWith(".pem") || segment.endsWith(".key"))) throw new ValidationError("protected_path");
+  if (value.toLowerCase().includes(".config/gcloud")) throw new ValidationError("protected_path");
 }
 
 function validateManifestEntry(value: unknown): void {

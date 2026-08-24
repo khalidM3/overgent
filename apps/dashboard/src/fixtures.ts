@@ -28,6 +28,19 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
     workspacePaused: false,
     workstreams: [
       {
+        id: "wrk_agent_fixture_codex",
+        memberName: "Khalid",
+        initials: "KM",
+        title: "Codex · codex-a1b2c3",
+        outcome: "editing apps/dashboard/src/session.ts",
+        presence: "online",
+        fidelity: "hook",
+        updatedLabel: "Now",
+        pathCount: 1,
+        paths: ["apps/dashboard/src/session.ts"],
+        agent: { vendor: "codex", sessionAlias: "codex-a1b2c3", status: "active", tool: "apply_patch", subagents: [{ alias: "sub-a1b2c3", agentType: "reviewer", status: "active" }] },
+      },
+      {
         id: "wst_atlas_session",
         memberName: "Mina",
         initials: "MN",

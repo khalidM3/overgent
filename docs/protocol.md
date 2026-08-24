@@ -48,6 +48,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `workstream.status_changed` | active/idle/done/blocked |
 | `context.acknowledged` | briefId, consideredItemIds |
 | `activity.reported` | decision/completion/blocker and summary |
+| `agent.activity_reported` | hashed session workstream, vendor, lifecycle/status, bounded action label, safe paths, optional tool/subagent metadata |
 | `claim.created` / `claim.released` | patterns / claim IDs or patterns |
 
 Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. `chunkCount: 0` followed directly by completion is the canonical empty snapshot and clears a prior active manifest without inventing an empty chunk. Entries are strictly ordered by normalized path and paths are unique. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches.

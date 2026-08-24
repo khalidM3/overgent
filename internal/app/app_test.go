@@ -118,6 +118,54 @@ func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T)
 	}
 }
 
+func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+	response := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: filepath.Join(root, "src"), AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "codex-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "apply_patch", AgentPaths: []string{filepath.Join(root, "src", "nav.tsx")}})
+	if !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+	queue, err := db.Pending(ctx)
+	if err != nil || len(queue) != 2 {
+		t.Fatalf("queue=%d err=%v", len(queue), err)
+	}
+	if queue[1].Kind != "agent.activity_reported" {
+		t.Fatalf("kind=%s", queue[1].Kind)
+	}
+	text := string(queue[1].Payload)
+	for _, prohibited := range []string{"session-raw", "sourceContent", "\"diff\"", "\"prompt\"", root} {
+		if strings.Contains(text, prohibited) {
+			t.Fatalf("queued prohibited value %q: %s", prohibited, text)
+		}
+	}
+	if !strings.Contains(text, "src/nav.tsx") {
+		t.Fatalf("safe relative path missing: %s", text)
+	}
+
+	rejected := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_abcdef0123456789abcdef0123456789", AgentSessionAlias: "claude-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "Edit", AgentPaths: []string{filepath.Join(root, ".env.local")}})
+	if !rejected.OK || rejected.Data.(map[string]any)["accepted"] != false {
+		t.Fatalf("protected response=%#v", rejected)
+	}
+	queue, _ = db.Pending(ctx)
+	if len(queue) != 2 {
+		t.Fatalf("protected event was queued: %d", len(queue))
+	}
+}
+
 type eventEnvelopeForTest struct {
 	Payload map[string]any `json:"payload"`
 }

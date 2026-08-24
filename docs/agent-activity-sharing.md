@@ -1,6 +1,6 @@
 # Stickguy — Agent Activity Sharing
 
-Status: approved direction; L5A narrowed by ADR-028; production collection disabled
+Status: activity/v1 enabled by explicit adapter opt-in under ADR-033; conversation collection disabled
 Last updated: 2026-08-24
 
 ## 1. Purpose and boundary
@@ -24,7 +24,7 @@ continuously with adapter/fidelity provenance.
 | Profile | Default | May reach the Project | Never included |
 |---|---|---|---|
 | `coordination` | yes | presence, workstream intent/checkpoints, safe path/status manifests, findings, bounded verification state, adapter health | prompt/message content, raw commands/output, source/diffs |
-| `activity` | no; explicit member opt-in after owner enables the capability | session/turn/subagent lifecycle, visible plan/progress, tool name/category/status/duration, permission-needed state, safe affected paths, bounded command/test category and outcome | tool payload content, raw argv/stdout/stderr, source/diffs |
+| `activity` | no; explicitly selected per member/repository | session/turn/subagent lifecycle, Stickguy-generated current-action label, allowlisted tool name/category/status, permission-needed state, safe affected paths | prompt/message text, tool payload content, raw argv/stdout/stderr, source/diffs |
 | `conversation` | no; explicit per-workspace or per-session opt-in with preview | bounded user-authored prompt text and visible assistant messages, each as an independently classified event | transcript files, system/developer prompts, hidden reasoning, source/diffs/tool-result content |
 
 An adapter may capture a vendor event transiently in memory only long enough to
@@ -70,9 +70,9 @@ are not a production sharing type without another owner-approved ADR.
 
 ## 5. Adapter contract
 
-Use supported, documented surfaces only. Codex App Server/SDK evaluation applies
-to sessions connected through that surface; Claude hooks may cover independently
-started supported Claude Code sessions. Arbitrary process scanning, memory
+Use supported, documented surfaces only. Project-local Codex and Claude Code
+hooks cover independently started supported sessions after the configuration is
+loaded. Arbitrary process scanning, memory
 inspection, or undocumented session-store parsing is not a production adapter.
 
 All adapters normalize vendor events into a vendor-neutral local candidate before
@@ -102,6 +102,8 @@ counts, hashes, and pass/fail evidence. It must prove:
 7. no production collection/upload until shared schemas, generated code, UI copy,
    and security tests are reviewed after the spike.
 
-If a vendor surface requires Stickguy to own the coding loop, the gate narrows to
+ADR-033 concludes this gate for the bounded `activity/v1` projection. Conversation
+sharing, raw prompt/message handling, and broader content collection remain
+disabled. If a vendor surface requires Stickguy to own the coding loop, it narrows to
 hooks/MCP/Git/manual observation or proposes a separate architecture ADR. It does
 not silently supersede the coordination-harness boundary.

@@ -178,3 +178,42 @@ reload. Dashboard activation POSTs through the loopback Vite `/api` proxy so
 the HttpOnly development cookie is same-origin with the live UI. Production
 onboarding, multiple Projects/devices in one local profile, distribution, and
 updating remain L8 gates. Accepted by the owner 2026-08-24 before L7.
+
+## ADR-033: Make supported agent sessions first-class repo-scoped workstreams
+
+The owner-demonstrated product requirement is seamless session awareness: after
+a member selects a repository and explicitly connects Codex or Claude Code, new
+supported sessions opened anywhere under that repository appear automatically.
+They do not need to call a Stickguy tool, create a branch, or use a distinct
+worktree. A linked worktree remains an optional Git-isolation technique, not an
+attribution prerequisite.
+
+Use current documented project-local lifecycle hooks as passive observation
+surfaces. Codex and Claude Code both expose session, prompt-boundary, tool,
+permission, subagent, stop, and session-end events. Install exact managed hook
+groups alongside the existing Project MCP entry, preserve unrelated settings,
+refuse drift, run observation asynchronously where the vendor permits, and
+never return a decision that controls agent execution. Map each vendor session
+to a stable hashed Stickguy workstream scoped by the registered repository;
+vendor session and transcript identifiers remain local and are never sent.
+
+The initial `activity/v1` projection shares lifecycle/status, a bounded
+Stickguy-generated action label, allowlisted tool name, hashed subagent alias
+and type, and safe repository-relative affected paths. It rejects protected or
+escaping paths as whole events and discards tool input/output, prompt text,
+source/diffs, raw commands/output, transcript paths, system/developer prompts,
+reasoning, and environment values before durable storage. Selecting an adapter
+during Project enrollment is the member's explicit activity opt-in; later
+multi-member controls must retain owner availability plus member consent and
+the narrower setting wins.
+
+Agent safe-path sets are independent even in one checkout. Overlap between two
+active agent-session workstreams creates a deterministic, evidence-backed
+finding. Git remains the authoritative combined repository observation and the
+fallback when a vendor event does not expose a path. Existing sessions must be
+restarted once after hook installation; unsupported hosted/vendor tool paths
+degrade visibly rather than being inferred from process memory or transcript
+files. This supersedes ADR-028's Codex hook narrowing and ADR-032's linked-
+worktree requirement for local agent attribution while preserving the
+coordination-harness and always-prohibited-data boundaries. Accepted by the
+owner 2026-08-24 after current official surface review and loopback live proof.

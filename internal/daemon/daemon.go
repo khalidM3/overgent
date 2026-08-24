@@ -20,6 +20,9 @@ type Request struct {
 	Revision, ManifestRevision, ApproximateTokenBudget                                  int64
 	Discoveries, ConsideredItemIDs                                                      []string
 	Verification                                                                        []VerificationSummary
+	AgentVendor, AgentCWD, AgentWorkstreamID, AgentSessionAlias                         string
+	AgentEvent, AgentStatus, AgentAction, AgentTool, AgentType, AgentSubagentAlias      string
+	AgentPaths                                                                          []string
 }
 type VerificationSummary struct {
 	State, CheckKind, Label, Summary, AffectedComponent, Source, ObservedAt string

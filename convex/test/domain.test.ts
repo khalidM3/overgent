@@ -56,6 +56,20 @@ describe("hosted boundary validation", () => {
     })).toThrowError(ValidationError);
   });
 
+  it("accepts bounded agent activity and rejects raw or protected candidates", () => {
+    const valid = {
+      ...baseEvent, source: "hook", type: "agent.activity_reported",
+      payload: {
+        workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "PreToolUse",
+        status: "active", action: "editing src/nav.tsx", tool: "apply_patch", paths: ["src/nav.tsx"],
+      },
+    };
+    expect(validateEventBatch({ events: [valid] })).toHaveLength(1);
+    expect(() => validateEventBatch({ events: [{ ...valid, payload: { ...valid.payload, prompt: "raw" } }] })).toThrow(ValidationError);
+    expect(() => validateEventBatch({ events: [{ ...valid, payload: { ...valid.payload, paths: [".env.local"] } }] })).toThrow(ValidationError);
+  });
+
   it("rejects oversized batches and manifest chunks", () => {
     expect(() => validateEventBatch({ events: [] })).toThrow("batch_count_out_of_range");
     expect(() => validateEventBatch({

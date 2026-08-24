@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+
+	"github.com/stickguy/stickguy/internal/hookconfig"
 )
 
 type Status struct {
@@ -33,11 +35,18 @@ func (m Manager) Setup() (Status, error) {
 		if !reflect.DeepEqual(current, expected) {
 			return Status{}, errors.New("Claude stickguy MCP entry exists but differs; refusing to overwrite it")
 		}
-		return status(path, true), nil
+	} else {
+		servers["stickguy"] = expected
+		if err := writeJSON(path, document); err != nil {
+			return Status{}, err
+		}
 	}
-	servers["stickguy"] = expected
-	if err := writeJSON(path, document); err != nil {
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
 		return Status{}, err
+	}
+	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
+		return Status{}, fmt.Errorf("install Claude activity hooks: %w", err)
 	}
 	return status(path, true), nil
 }
@@ -55,7 +64,15 @@ func (m Manager) Status() (Status, error) {
 	if exists && !reflect.DeepEqual(current, expected) {
 		return Status{}, errors.New("Claude stickguy MCP entry drifted")
 	}
-	return status(path, exists), nil
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
+		return Status{}, err
+	}
+	hooks, err := hookconfig.Status(hookPath, hookCommand)
+	if err != nil {
+		return Status{}, err
+	}
+	return status(path, exists && hooks), nil
 }
 
 func (m Manager) Remove() (Status, error) {
@@ -69,16 +86,46 @@ func (m Manager) Remove() (Status, error) {
 	}
 	current, exists := servers["stickguy"]
 	if !exists {
-		return status(path, false), nil
+		// Continue so a hooks-only partial install can still be removed safely.
+	} else {
+		if !reflect.DeepEqual(current, expected) {
+			return Status{}, errors.New("Claude stickguy MCP entry drifted; refusing to remove it")
+		}
+		delete(servers, "stickguy")
+		if err := writeJSON(path, document); err != nil {
+			return Status{}, err
+		}
 	}
-	if !reflect.DeepEqual(current, expected) {
-		return Status{}, errors.New("Claude stickguy MCP entry drifted; refusing to remove it")
-	}
-	delete(servers, "stickguy")
-	if err := writeJSON(path, document); err != nil {
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
 		return Status{}, err
 	}
+	if hooks, hookErr := hookconfig.Status(hookPath, hookCommand); hookErr != nil {
+		return Status{}, hookErr
+	} else if hooks {
+		if hookErr = hookconfig.Remove(hookPath, hookCommand); hookErr != nil {
+			return Status{}, hookErr
+		}
+	}
 	return status(path, false), nil
+}
+
+func (m Manager) hookDetails() (string, string, error) {
+	project, err := filepath.Abs(m.ProjectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	project, err = filepath.EvalSymlinks(project)
+	if err != nil {
+		return "", "", err
+	}
+	var command string
+	if m.Portable {
+		command, err = hookconfig.PortableCommand("claude")
+	} else {
+		command, err = hookconfig.Command(m.Executable, m.ConfigRoot, "claude")
+	}
+	return filepath.Join(project, ".claude", "settings.local.json"), command, err
 }
 
 func (m Manager) resolve() (string, map[string]any, map[string]any, error) {
