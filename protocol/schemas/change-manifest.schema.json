@@ -23,14 +23,37 @@
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "status"],
+      "required": ["path", "states"],
       "properties": {
         "path": {"type": "string", "minLength": 1, "maxLength": 512},
-        "oldPath": {"type": "string", "minLength": 1, "maxLength": 512},
-        "status": {"enum": ["added", "modified", "deleted", "renamed", "untracked"]},
+        "states": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "baseline": {"$ref": "#/$defs/change"},
+            "index": {"$ref": "#/$defs/change"},
+            "worktree": {"$ref": "#/$defs/change"}
+          }
+        },
         "symbols": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}},
         "dependencies": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 160}}
       }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["added", "modified", "deleted", "renamed", "copied", "untracked"]},
+        "oldPath": {"type": "string", "minLength": 1, "maxLength": 512}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["oldPath"]},
+          "then": {"properties": {"status": {"enum": ["renamed", "copied"]}}}
+        }
+      ]
     }
   }
 }

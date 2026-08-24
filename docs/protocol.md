@@ -50,7 +50,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `activity.reported` | decision/completion/blocker and summary |
 | `claim.created` / `claim.released` | patterns / claim IDs or patterns |
 
-Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. Entries contain bounded metadata, never content or patches.
+Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches.
 
 ## 4. Initial HTTP API
 

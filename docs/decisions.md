@@ -66,7 +66,7 @@ Codex CLI `0.148.0-alpha.15` discovers a project-scoped stdio server built with 
 
 ## ADR-017: Accept the baseline-to-current Git manifest model
 
-Real Git fixtures prove that a captured workstream baseline plus current committed, staged, unstaged, renamed, deleted, ignored, and untracked path state represents local work before push without uploading content, diffs, or Git objects. Non-ancestor, missing, detached, remote-ambiguous, malicious-path, symlink, overflow, and 1,000-path atomic chunk states have explicit outcomes. L0 must encode simultaneous index/worktree state; L1 must add real watcher/platform coverage and a SHA-256 repository fixture. Accepted 2026-08-23.
+Real Git fixtures prove that a captured workstream baseline plus current committed, staged, unstaged, renamed, deleted, ignored, and untracked path state represents local work before push without uploading content, diffs, or Git objects. Non-ancestor, missing, detached, remote-ambiguous, malicious-path, symlink, overflow, and 1,000-path atomic chunk states have explicit outcomes. L0 encodes independent `baseline`, `index`, and `worktree` change states per path so simultaneous evidence is not collapsed; L1 must add real watcher/platform coverage and a SHA-256 repository fixture. Accepted 2026-08-23; L0 encoding settled 2026-08-23.
 
 ## ADR-018: Retain Convex shared state and scoped vector search
 
