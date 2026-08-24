@@ -324,6 +324,23 @@ export function manifestContentHash(entries: readonly ManifestEntry[]): string {
   }).join(""));
 }
 
+export function assertCanonicalManifestOrder(entries: readonly ManifestEntry[]): void {
+  for (let index = 1; index < entries.length; index++) {
+    if (compareUtf8(entries[index - 1].path, entries[index].path) >= 0) {
+      throw new ValidationError("manifest_path_order_invalid");
+    }
+  }
+}
+
+function compareUtf8(left: string, right: string): number {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  for (let index = 0; index < Math.min(leftBytes.length, rightBytes.length); index++) {
+    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index] - rightBytes[index];
+  }
+  return leftBytes.length - rightBytes.length;
+}
+
 export function scopeKey(projectId: string, repositoryId: string): string {
   return `scp_${sha256Hex(`${projectId}\0${repositoryId}`).slice(0, 48)}`;
 }

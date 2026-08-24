@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex } from "../src/domain";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
 const DAY = 86_400_000;
@@ -513,6 +513,12 @@ async function applyProjection(
       chunks.sort((left, right) => left.chunkIndex - right.chunkIndex);
       if (chunks.length !== manifest.expectedChunks || chunks.some((chunk, index) => chunk.chunkIndex !== index)) fail("manifest_incomplete");
       const entries = chunks.flatMap((chunk) => chunk.entries) as ManifestEntry[];
+      try {
+        assertCanonicalManifestOrder(entries);
+      } catch (error) {
+        if (error instanceof ValidationError) fail(error.code);
+        throw error;
+      }
       const hash = manifestContentHash(entries);
       if (hash !== String(payload.contentHash)) fail("manifest_hash_mismatch");
       const workstream = await ctx.db.get(manifest.workstreamId);
