@@ -19,7 +19,7 @@ func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy"}
-	if status, err := manager.Setup(); err != nil || !status.Configured || status.Hooks != "disabled_unverified" {
+	if status, err := manager.Setup(); err != nil || !status.Configured || status.Hooks != "active" {
 		t.Fatal(status, err)
 	}
 	first, _ := os.ReadFile(path)

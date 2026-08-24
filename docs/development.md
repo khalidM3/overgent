@@ -30,7 +30,7 @@ Node 22 is the supported fix. Then run commands from the repository root:
 | `pnpm dev:service` | Build `bin/stickguy` and run the enrolled default-profile Go service in the foreground. |
 | `pnpm desktop:dev` | Start Vite if needed, compile `Stickguy Dev.app` once, and keep the native Dock/menu-bar app attached to Vite hot reload. |
 | `pnpm dev:install` | Atomically install or replace `~/Applications/Stickguy Dev.app`. Run `pnpm dev:ui` while using the installed app. |
-| `pnpm dev:agents -- --codex-root A --claude-root B` | Register two linked worktree roots as separate workstreams and install explicit development MCP configuration. |
+| `pnpm dev:agents -- --codex-root A --claude-root B` | Optional advanced setup for two linked worktrees; normal same-checkout session attribution does not require this. |
 
 React/CSS changes hot reload without a native rebuild. Changes to the Wails
 shell require restarting `pnpm desktop:dev`; Go core changes require restarting
@@ -62,7 +62,7 @@ desktop window. The equivalent fallback command is:
 ./bin/stickguy --api http://127.0.0.1:3211 create \
   --label "Local dogfood" \
   --device-label "My Mac" \
-  --root /absolute/path/to/codex-worktree
+  --root /absolute/path/to/repository
 ```
 
 The command prints the Project, workspace, workstream, and invite IDs. `pnpm
@@ -72,19 +72,26 @@ may request approval for the device credential.
 The desktop detects `codex` and `claude` on `PATH` plus standard macOS app,
 user-local, and NVM install locations. Detection is advisory: either adapter can
 still be selected when a GUI-launched app has a narrower process environment.
-Selecting an adapter adds only Stickguy's Project-scoped MCP entry and preserves unrelated configuration.
-Restart agent sessions that were already open so they discover the new entry.
+Selecting an adapter structurally adds Stickguy's Project-scoped MCP entry and
+passive activity hooks while preserving unrelated configuration. Restart agent
+sessions that were already open so they load the new Project configuration.
 Git observation works even when an adapter is missing or declined. Claude Code
-CLI is the supported Claude surface here; the general Claude Desktop app does
-not expose a repository-bound lifecycle contract to this flow.
+sessions in the CLI, IDE, or Desktop app use the same documented hook events;
+an ordinary Claude chat that is not a Claude Code repository session is outside
+this repository-scoped flow.
 
 ## Codex-versus-Claude collision exercise
 
-Use two distinct linked worktrees of the same repository for honest per-agent
-attribution. A single checkout is observed automatically, but filesystem events
-cannot prove which process made each change, so Codex and Claude activity in one
-checkout is one combined workstream. Stickguy never creates, switches, resets,
-or removes worktrees on the user's behalf. One possible user-run Git setup is:
+Use the same registered checkout for the normal exercise. Start a new Codex
+session and a new Claude Code session anywhere under that repository. Each
+supported session automatically appears as a separate hashed workstream; no
+Stickguy command, branch, or worktree is required. Ask each agent to edit the
+same safe relative path. Their edit-tool hooks report only the path, and the
+dashboard should show both sessions plus a deterministic `direct_collision`
+finding after its next two-second refresh.
+
+Linked worktrees remain an optional advanced Git-isolation technique. Stickguy
+never creates, switches, resets, or removes them. One possible user-run setup is:
 
 ```bash
 git worktree add /absolute/path/to/claude-worktree -b dogfood/claude
@@ -99,22 +106,13 @@ pnpm dev:agents -- \
 ```
 
 The command verifies both roots share one Git common directory, hot-registers
-any missing root through the running one-service core, and prints each
-workspace/workstream ID. It structurally merges only Stickguy's project MCP
-entry. Restart already-running agent sessions afterward. Claude may show its
-normal one-time project MCP approval. Review the resulting `.codex/config.toml`
-and `.mcp.json` in each worktree like any other project configuration change.
+missing roots, and installs that root's managed MCP plus passive activity hooks.
+Review `.codex/config.toml`, `.codex/hooks.json`, `.mcp.json`, and
+`.claude/settings.local.json` like any other local Project configuration.
 
-The same registration is available without that command: on the connected
-desktop screen choose **Assign Codex worktree…** and **Assign Claude
-worktree…**. Each selected directory must already be a distinct linked
-worktree. The native boundary validates the shared Git common directory,
-registers it through the running one-service IPC path, and installs only that
-agent's Project MCP entry. Restart sessions opened before assignment.
-
-Ask both agents to call `begin_work` before editing and `check_coordination`
-before broad/shared changes. If a current client does not call MCP reliably,
-report its intent manually with the printed workspace ID:
+MCP `begin_work` and `check_coordination` calls add richer intent and context but
+are no longer required for session presence or path attribution. Manual intent
+remains available with the printed workspace ID:
 
 ```bash
 ./bin/stickguy intent --workspace WORKSPACE_ID \
@@ -122,10 +120,8 @@ report its intent manually with the printed workspace ID:
   --outcome "Rotate browser sessions after privilege changes and revoke prior credentials"
 ```
 
-For a deterministic structural proof, change the same relative file path in
-both worktrees. The service observes path/status metadata only, publishes two
-atomic manifests, and the live dashboard should show a `direct_collision`
-finding after its next two-second refresh.
+Git observation continues to publish the combined checkout manifest. Hook path
+evidence supplies the per-session attribution that Git alone cannot provide.
 
 For a semantic proof without overlapping paths, report these bounded outcomes
 on the two different workspace IDs, then edit different files:
@@ -142,14 +138,15 @@ or environment values.
 
 ## Honest adapter fidelity
 
-- Git observation is the deterministic realtime fallback for both roots.
-- Claude can use the project MCP lifecycle; optional hook/activity collection is
-  still disabled in production.
-- Codex discovers the MCP tools, but its installed version previously failed to
-  deliver calls durably in the real-client gate. The development setup is
-  therefore labeled `mcp_with_git_fallback`, not full live session observation.
-- Stickguy does not subscribe to arbitrary independently running Codex process
-  streams, tail transcripts, display hidden reasoning, or collect source/diffs.
+- Current documented Codex and Claude Code hooks report supported sessions,
+  lifecycle, tools, permission waits, subagents, and safe affected paths.
+- Git observation remains the deterministic combined-checkout fallback when a
+  vendor tool does not expose path metadata or an adapter is disconnected.
+- Existing sessions must restart once after adapter installation. Hook coverage
+  is honest: unsupported hosted or specialized tool paths are not inferred.
+- Stickguy does not scan process memory, tail transcripts, display hidden
+  reasoning, or collect source/diffs, raw commands/output, environment values,
+  `.env` variants, credentials, or system/developer prompts.
 
 This single-Mac exercise validates attribution, live Git collisions, bounded
 semantic findings, briefs, and the dashboard. Inviting another member reuses

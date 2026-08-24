@@ -8,7 +8,7 @@ export type ShellState =
   | "version_mismatch";
 
 export type Presence = "online" | "idle" | "offline" | "paused";
-export type Fidelity = "mcp" | "git" | "manual" | "hook_unverified";
+export type Fidelity = "mcp" | "git" | "manual" | "hook" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
 export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
@@ -32,6 +32,13 @@ export interface Workstream {
   updatedLabel: string;
   pathCount: number;
   paths: string[];
+  agent?: {
+    vendor: "codex" | "claude";
+    sessionAlias?: string;
+    status?: "active" | "waiting" | "idle" | "done" | "error";
+    tool?: string;
+    subagents: Array<{ alias: string; agentType: string; status: string }>;
+  };
   largeChange?: {
     pathCount: number;
     summary: string;
@@ -42,7 +49,7 @@ export interface Workstream {
 export interface FindingEvidence {
   kind: "path" | "contract" | "dependency" | "intent";
   label: string;
-  source: "git" | "mcp" | "manual" | "semantic_candidate";
+  source: "git" | "mcp" | "manual" | "hook" | "semantic_candidate";
 }
 
 export interface Finding {
@@ -70,7 +77,7 @@ export interface ActivityItem {
   id: string;
   at: string;
   actor: string;
-  kind: "intent" | "manifest" | "finding" | "checkpoint" | "pause";
+  kind: "intent" | "manifest" | "finding" | "checkpoint" | "pause" | "agent";
   summary: string;
   fidelity: Fidelity | "structural";
 }

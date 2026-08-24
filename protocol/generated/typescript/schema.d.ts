@@ -339,7 +339,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "claim.created" | "claim.released";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -358,10 +358,11 @@ export interface components {
                 workstreamStatusChanged: unknown;
                 contextAcknowledged: unknown;
                 activityReported: unknown;
+                agentActivityReported: unknown;
                 claimCreated: unknown;
                 claimReleased: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** @description A bounded batch from exactly one workspace; sequence and the returned cursor are workspace-scoped. */
         EventBatch: {
             events: ({
@@ -381,7 +382,7 @@ export interface components {
                 /** @enum {string} */
                 source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                 /** @enum {string} */
-                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "claim.created" | "claim.released";
+                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
                 payload: Record<string, never>;
                 $defs: {
                     id: string;
@@ -400,10 +401,11 @@ export interface components {
                     workstreamStatusChanged: unknown;
                     contextAcknowledged: unknown;
                     activityReported: unknown;
+                    agentActivityReported: unknown;
                     claimCreated: unknown;
                     claimReleased: unknown;
                 };
-            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
         };
         EventBatchAck: {
             acceptedEventIds: string[];
@@ -779,6 +781,7 @@ export interface components {
         workstreamStatusChanged: unknown;
         contextAcknowledged: unknown;
         activityReported: unknown;
+        agentActivityReported: unknown;
         claimCreated: unknown;
         claimReleased: unknown;
         /** EventEnvelope */
@@ -799,7 +802,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "claim.created" | "claim.released";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -818,10 +821,11 @@ export interface components {
                 workstreamStatusChanged: unknown;
                 contextAcknowledged: unknown;
                 activityReported: unknown;
+                agentActivityReported: unknown;
                 claimCreated: unknown;
                 claimReleased: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** SemanticObject */
         "semantic-object.schema": {
             id: string;
@@ -1499,7 +1503,7 @@ export interface operations {
                         /** @enum {string} */
                         source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                         /** @enum {string} */
-                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "claim.created" | "claim.released";
+                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
                         payload: Record<string, never>;
                         $defs: {
                             id: string;
@@ -1518,10 +1522,11 @@ export interface operations {
                             workstreamStatusChanged: unknown;
                             contextAcknowledged: unknown;
                             activityReported: unknown;
+                            agentActivityReported: unknown;
                             claimCreated: unknown;
                             claimReleased: unknown;
                         };
-                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
                 };
             };
         };

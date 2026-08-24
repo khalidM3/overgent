@@ -117,6 +117,14 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("idle"), v.literal("done"), v.literal("blocked")),
     revision: v.number(),
     currentManifestId: v.optional(v.id("changeManifests")),
+    vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"))),
+    sessionAlias: v.optional(v.string()),
+    agentStatus: v.optional(v.union(v.literal("active"), v.literal("waiting"), v.literal("idle"), v.literal("done"), v.literal("error"))),
+    activityKind: v.optional(v.string()),
+    currentAction: v.optional(v.string()),
+    toolName: v.optional(v.string()),
+    safePaths: v.optional(v.array(v.string())),
+    subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
     updatedAt: v.number(),
   })
     .index("by_public_id", ["publicId"])

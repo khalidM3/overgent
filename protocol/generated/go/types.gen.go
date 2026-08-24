@@ -40,6 +40,7 @@ func (e PublishEventBatchJSONBodyEventsSource) Valid() bool {
 // Defines values for PublishEventBatchJSONBodyEventsType.
 const (
 	ActivityReported             PublishEventBatchJSONBodyEventsType = "activity.reported"
+	AgentActivityReported        PublishEventBatchJSONBodyEventsType = "agent.activity_reported"
 	ClaimCreated                 PublishEventBatchJSONBodyEventsType = "claim.created"
 	ClaimReleased                PublishEventBatchJSONBodyEventsType = "claim.released"
 	ContextAcknowledged          PublishEventBatchJSONBodyEventsType = "context.acknowledged"
@@ -58,6 +59,8 @@ const (
 func (e PublishEventBatchJSONBodyEventsType) Valid() bool {
 	switch e {
 	case ActivityReported:
+		return true
+	case AgentActivityReported:
 		return true
 	case ClaimCreated:
 		return true

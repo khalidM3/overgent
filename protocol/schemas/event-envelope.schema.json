@@ -22,7 +22,7 @@
       "enum": [
         "workspace.registered", "workspace.manifest_started", "workspace.manifest_chunk", "workspace.manifest_completed",
         "workspace.paused", "workspace.resumed", "workstream.intent_reported", "workstream.checkpoint_reported",
-        "workstream.status_changed", "context.acknowledged", "activity.reported", "claim.created", "claim.released"
+        "workstream.status_changed", "context.acknowledged", "activity.reported", "agent.activity_reported", "claim.created", "claim.released"
       ]
     },
     "payload": { "type": "object", "maxProperties": 24 }
@@ -39,6 +39,7 @@
     { "$ref": "#/$defs/workstreamStatusChanged" },
     { "$ref": "#/$defs/contextAcknowledged" },
     { "$ref": "#/$defs/activityReported" },
+    { "$ref": "#/$defs/agentActivityReported" },
     { "$ref": "#/$defs/claimCreated" },
     { "$ref": "#/$defs/claimReleased" }
   ],
@@ -155,6 +156,25 @@
       "then": { "properties": { "payload": {
         "type": "object", "additionalProperties": false, "required": ["kind", "summary"],
         "properties": { "kind": { "enum": ["decision", "completion", "blocker"] }, "summary": { "type": "string", "minLength": 1, "maxLength": 2000 } }
+      } } }
+    },
+    "agentActivityReported": {
+      "if": { "properties": { "type": { "const": "agent.activity_reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"],
+        "properties": {
+          "workstreamId": { "$ref": "#/$defs/workstreamId" },
+          "vendor": { "enum": ["codex", "claude"] },
+          "sessionAlias": { "type": "string", "pattern": "^(codex|claude)-[0-9a-f]{6}$" },
+          "kind": { "enum": ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"] },
+          "status": { "enum": ["active", "waiting", "idle", "done", "error"] },
+          "action": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "tool": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,63}$" },
+          "agentType": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,63}$" },
+          "subagentAlias": { "type": "string", "pattern": "^sub-[0-9a-f]{6}$" },
+          "paths": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
       } } }
     },
     "claimCreated": {

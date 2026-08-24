@@ -61,15 +61,14 @@ describe("desktop onboarding", () => {
     expect(navigate).toHaveBeenCalledWith("http://127.0.0.1:49152/activate/nonce");
   });
 
-  it("assigns an existing linked worktree without asking Stickguy to mutate Git", async () => {
+  it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
       connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(),
     };
-    const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Assign Claude worktree…" }));
-    expect(api.connectAgentWorktree).toHaveBeenCalledWith("/tmp/atlas-claude", "claude");
-    expect(await screen.findByText(/Restart sessions that were already open/)).toBeTruthy();
+    expect(await screen.findByText(/New Codex and Claude Code sessions opened in this repository appear automatically/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Assign .* worktree/ })).toBeNull();
+    expect(api.connectAgentWorktree).not.toHaveBeenCalled();
   });
 });

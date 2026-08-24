@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/stickguy/stickguy/internal/hookconfig"
 )
 
 const (
@@ -38,26 +40,32 @@ func (m Manager) Setup() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if state.Configured {
-		return state, nil
+	if !state.Configured {
+		if strings.Contains(current, "[mcp_servers.stickguy]") {
+			return Status{}, errors.New("unmanaged Codex stickguy MCP table already exists")
+		}
+		if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+			return Status{}, fmt.Errorf("create project Codex config directory: %w", err)
+		}
+		separator := ""
+		if len(current) > 0 && !strings.HasSuffix(current, "\n") {
+			separator = "\n"
+		}
+		if len(current) > 0 {
+			separator += "\n"
+		}
+		if err := atomicWrite(resolved, []byte(current+separator+expected), 0o644); err != nil {
+			return Status{}, err
+		}
 	}
-	if strings.Contains(current, "[mcp_servers.stickguy]") {
-		return Status{}, errors.New("unmanaged Codex stickguy MCP table already exists")
-	}
-	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
-		return Status{}, fmt.Errorf("create project Codex config directory: %w", err)
-	}
-	separator := ""
-	if len(current) > 0 && !strings.HasSuffix(current, "\n") {
-		separator = "\n"
-	}
-	if len(current) > 0 {
-		separator += "\n"
-	}
-	if err := atomicWrite(resolved, []byte(current+separator+expected), 0o644); err != nil {
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
 		return Status{}, err
 	}
-	return Status{Configured: true, ConfigPath: resolved, Hooks: "disabled_unverified"}, nil
+	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
+		return Status{}, fmt.Errorf("install Codex activity hooks: %w", err)
+	}
+	return Status{Configured: true, ConfigPath: resolved, Hooks: "active"}, nil
 }
 
 func (m Manager) Status() (Status, error) {
@@ -70,8 +78,25 @@ func (m Manager) Status() (Status, error) {
 		return Status{}, err
 	}
 	status, err := inspect(current, expected)
-	status.ConfigPath, status.Hooks = resolved, "disabled_unverified"
-	return status, err
+	if err != nil {
+		return Status{}, err
+	}
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
+		return Status{}, err
+	}
+	hooks, err := hookconfig.Status(hookPath, hookCommand)
+	if err != nil {
+		return Status{}, err
+	}
+	status.Configured = status.Configured && hooks
+	status.ConfigPath = resolved
+	if hooks {
+		status.Hooks = "active"
+	} else {
+		status.Hooks = "not_configured"
+	}
+	return status, nil
 }
 
 func (m Manager) Remove() (Status, error) {
@@ -87,18 +112,46 @@ func (m Manager) Remove() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if !status.Configured {
-		return Status{ConfigPath: resolved, Hooks: "disabled_unverified"}, nil
+	if status.Configured {
+		start := strings.Index(current, expected)
+		remaining := current[:start] + current[start+len(expected):]
+		if start >= 2 && current[start-2:start] == "\n\n" {
+			remaining = current[:start-1] + current[start+len(expected):]
+		}
+		if err := atomicWrite(resolved, []byte(remaining), 0o644); err != nil {
+			return Status{}, err
+		}
 	}
-	start := strings.Index(current, expected)
-	remaining := current[:start] + current[start+len(expected):]
-	if start >= 2 && current[start-2:start] == "\n\n" {
-		remaining = current[:start-1] + current[start+len(expected):]
-	}
-	if err := atomicWrite(resolved, []byte(remaining), 0o644); err != nil {
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
 		return Status{}, err
 	}
-	return Status{ConfigPath: resolved, Hooks: "disabled_unverified"}, nil
+	if hooks, hookErr := hookconfig.Status(hookPath, hookCommand); hookErr != nil {
+		return Status{}, hookErr
+	} else if hooks {
+		if hookErr = hookconfig.Remove(hookPath, hookCommand); hookErr != nil {
+			return Status{}, hookErr
+		}
+	}
+	return Status{ConfigPath: resolved, Hooks: "not_configured"}, nil
+}
+
+func (m Manager) hookDetails() (string, string, error) {
+	project, err := filepath.Abs(m.ProjectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	project, err = filepath.EvalSymlinks(project)
+	if err != nil {
+		return "", "", err
+	}
+	var command string
+	if m.Portable {
+		command, err = hookconfig.PortableCommand("codex")
+	} else {
+		command, err = hookconfig.Command(m.Executable, m.ConfigRoot, "codex")
+	}
+	return filepath.Join(project, ".codex", "hooks.json"), command, err
 }
 
 func (m Manager) resolve() (string, string, error) {

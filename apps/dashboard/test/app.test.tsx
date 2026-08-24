@@ -25,6 +25,9 @@ describe("dashboard component behavior", () => {
     expect(screen.getByText("MCP reported")).toBeTruthy();
     expect(screen.getByText("Git observed")).toBeTruthy();
     expect(screen.getByText("Manual intent")).toBeTruthy();
+    expect(screen.getByText("Live agent")).toBeTruthy();
+    expect(screen.getByText("Codex · codex-a1b2c3")).toBeTruthy();
+    expect(screen.getByText("1 active subagents")).toBeTruthy();
     expect(screen.getByText(/Structural findings remain live/)).toBeTruthy();
     expect(screen.getByText("Large change · 1,000 paths")).toBeTruthy();
     expect(screen.getByLabelText("Selected finding detail").textContent).toContain("Advisory only");
@@ -50,9 +53,9 @@ describe("dashboard component behavior", () => {
     expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
     const observedPaths = screen.getByText("Observed paths").closest("article");
     expect(observedPaths).not.toBeNull();
-    expect(within(observedPaths!).getByText("1,009")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Publish fixture update" }));
     expect(within(observedPaths!).getByText("1,010")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Publish fixture update" }));
+    expect(within(observedPaths!).getByText("1,011")).toBeTruthy();
     expect(screen.getByText(/Published one new path-only manifest revision/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Acknowledge" }));
     expect(screen.getByLabelText("Selected finding detail").textContent).toContain("acknowledged");

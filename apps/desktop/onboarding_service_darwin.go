@@ -81,7 +81,7 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 }
 
 func (service *OnboardingService) State() (OnboardingState, error) {
-	state := OnboardingState{Available: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "This milestone enrolls the first Project in a local profile. Adding another Project while the service is running remains gated."}
+	state := OnboardingState{Available: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
 	if service.configRoot == "" {
 		return state, errors.New("local Stickguy configuration is unavailable")
 	}
@@ -307,8 +307,8 @@ func (service *OnboardingService) configureAdapters(root string, codex, claude b
 func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	executable, cliErr := service.resolveCLI()
 	states := []AdapterState{
-		{Name: "Codex", Fidelity: "MCP intent + Git observation", Detail: "Project-scoped MCP; system prompts and transcripts stay private."},
-		{Name: "Claude Code", Fidelity: "MCP intent + Git observation", Detail: "Project-scoped MCP; source, diffs, prompts, and transcripts are not uploaded."},
+		{Name: "Codex", Fidelity: "Live sessions + tools + subagents + safe paths", Detail: "Project-scoped activity hooks and MCP; no per-chat command or separate branch."},
+		{Name: "Claude Code", Fidelity: "Live sessions + tools + subagents + safe paths", Detail: "Project-scoped activity hooks and MCP; no per-chat command or separate branch."},
 	}
 	for index, command := range []string{"codex", "claude"} {
 		_, states[index].Installed = agentExecutable(command)

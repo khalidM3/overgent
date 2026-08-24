@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/stickguy/stickguy/internal/activation"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/app"
 	"github.com/stickguy/stickguy/internal/claudesetup"
 	"github.com/stickguy/stickguy/internal/codexsetup"
@@ -18,6 +19,7 @@ import (
 	"github.com/stickguy/stickguy/internal/hosted"
 	coordinationmcp "github.com/stickguy/stickguy/internal/mcp"
 	"github.com/stickguy/stickguy/internal/onboarding"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -143,6 +145,31 @@ func run(args []string) error {
 			return errors.New("mcp accepts no arguments")
 		}
 		return coordinationmcp.Run(ctx, *root)
+	case "agent-hook":
+		hookFlags := flag.NewFlagSet("agent-hook", flag.ContinueOnError)
+		vendor := hookFlags.String("vendor", "", "supported coding-agent vendor")
+		if e = hookFlags.Parse(rest[1:]); e != nil {
+			return e
+		}
+		input, readErr := io.ReadAll(io.LimitReader(os.Stdin, agentactivity.MaxInputBytes+1))
+		if readErr != nil {
+			return nil
+		}
+		event, parseErr := agentactivity.Parse(*vendor, input)
+		if parseErr != nil {
+			return nil
+		}
+		response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{
+			Method: "agent_event", AgentVendor: event.Vendor, AgentCWD: event.CWD,
+			AgentWorkstreamID: event.WorkstreamID, AgentSessionAlias: event.SessionAlias,
+			AgentEvent: event.Kind, AgentStatus: event.Status, AgentAction: event.Action,
+			AgentTool: event.Tool, AgentType: event.AgentType, AgentSubagentAlias: event.SubagentAlias,
+			AgentPaths: event.CandidatePaths,
+		})
+		if callErr != nil || !response.OK {
+			return nil
+		}
+		return nil
 	case "setup":
 		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true}[rest[1]] {
 			return errors.New("setup requires codex, claude, status, or remove")

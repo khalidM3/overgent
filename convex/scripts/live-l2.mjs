@@ -59,7 +59,7 @@ function manifestHash(entries) {
   return hash.digest("hex");
 }
 
-function event({ eventId, projectId, deviceId, workspaceId, sessionId, sequence, type, payload }) {
+function event({ eventId, projectId, deviceId, workspaceId, sessionId, sequence, type, payload, source = "git" }) {
   return {
     schemaVersion: 1,
     eventId,
@@ -71,7 +71,7 @@ function event({ eventId, projectId, deviceId, workspaceId, sessionId, sequence,
     sequence,
     observedAt: "2026-08-23T19:00:00Z",
     sentAt: "2026-08-23T19:00:01Z",
-    source: "git",
+    source,
     type,
     payload,
   };
@@ -408,6 +408,21 @@ assert.equal(briefAfterRepeatedPause.contextRevision, briefAfterPause.contextRev
 const changes = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
 assert(changes.items.some((item) => item.id === findingId));
 
+const codexAgentId = `wrk_agent_${suffix.padEnd(32, "a")}`;
+const claudeAgentId = `wrk_agent_${suffix.padEnd(32, "b")}`;
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_agent_codex_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 29, source: "hook", type: "agent.activity_reported", payload: { workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "SessionStart", status: "active", action: "Session started" } }),
+  event({ eventId: `evt_agent_codex_path_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 30, source: "hook", type: "agent.activity_reported", payload: { workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "PreToolUse", status: "active", action: "editing synthetic/agent-shared.ts", tool: "apply_patch", paths: ["synthetic/agent-shared.ts"] } }),
+] } });
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({ eventId: `evt_agent_claude_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 10, source: "hook", type: "agent.activity_reported", payload: { workstreamId: claudeAgentId, vendor: "claude", sessionAlias: "claude-d4e5f6", kind: "SessionStart", status: "active", action: "Session started" } }),
+  event({ eventId: `evt_agent_claude_path_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId, workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 11, source: "hook", type: "agent.activity_reported", payload: { workstreamId: claudeAgentId, vendor: "claude", sessionAlias: "claude-d4e5f6", kind: "PreToolUse", status: "active", action: "editing synthetic/agent-shared.ts", tool: "Edit", paths: ["synthetic/agent-shared.ts"] } }),
+] } });
+const agentSnapshot = (await request("GET", `/v1/dashboard/projects/${projectA.id}`, { cookie: creatorCookie })).body;
+assert(agentSnapshot.workstreams.some((workstream) => workstream.agent?.vendor === "codex" && workstream.paths.includes("synthetic/agent-shared.ts")));
+assert(agentSnapshot.workstreams.some((workstream) => workstream.agent?.vendor === "claude" && workstream.paths.includes("synthetic/agent-shared.ts")));
+assert(agentSnapshot.findings.some((finding) => finding.workstreamIds.includes(codexAgentId) && finding.workstreamIds.includes(claudeAgentId)));
+
 const crossProjectItem = await request("GET", `/v1/context-items/${findingId}`, { token: tokenC, expected: 403 });
 assert.equal(crossProjectItem.body.error.code, "forbidden");
 const crossProjectChanges = await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenC, expected: 403 });
@@ -491,6 +506,8 @@ console.log(JSON.stringify({
     staleAssumptionDetected: true,
     crossProjectSemanticIsolation: true,
     radarFeedbackRecorded: true
+    ,automaticAgentSessionsVisible: true
+    ,sameCheckoutAgentPathCollision: true
   },
   timings,
 }, null, 2));

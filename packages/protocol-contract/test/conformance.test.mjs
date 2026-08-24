@@ -29,4 +29,6 @@ test("fixture conforms to the event envelope schema", async () => {
     chunkCount: 0,
   };
   assert.equal(validate(emptyStart), true, JSON.stringify(validate.errors));
+  const agentFixture = JSON.parse(await readFile(new URL("../../../protocol/fixtures/agent-activity-reported.json", import.meta.url)));
+  assert.equal(validate(agentFixture), true, JSON.stringify(validate.errors));
 });

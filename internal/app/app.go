@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	git "github.com/stickguy/stickguy/internal/git"
@@ -285,6 +286,8 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return daemon.Response{OK: true}
 	case "begin_work", "update_intent", "check_coordination", "report_checkpoint", "acknowledge_context", "finish_work", "report_event":
 		return s.handleLifecycle(ctx, q)
+	case "agent_event":
+		return s.handleAgentEvent(ctx, q)
 	case "scan":
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
@@ -297,6 +300,66 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
+}
+
+func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon.Response {
+	workspace, ok := workspaceForCWD(s.cfg, q.AgentCWD)
+	if !ok {
+		return daemon.Response{Error: "agent session is not inside a registered repository"}
+	}
+	event, err := agentactivity.NormalizePaths(agentactivity.Event{
+		Vendor: q.AgentVendor, CWD: q.AgentCWD, WorkstreamID: q.AgentWorkstreamID,
+		SessionAlias: q.AgentSessionAlias, Kind: q.AgentEvent, Status: q.AgentStatus,
+		Action: q.AgentAction, Tool: q.AgentTool, AgentType: q.AgentType,
+		SubagentAlias: q.AgentSubagentAlias, CandidatePaths: q.AgentPaths,
+	}, workspace.Root)
+	if err != nil {
+		// Passive observation fails closed. The coding-agent operation is never
+		// blocked or modified because an activity candidate was rejected.
+		return daemon.Response{OK: true, Data: map[string]any{"accepted": false}}
+	}
+	payload := map[string]any{
+		"workstreamId": event.WorkstreamID, "vendor": event.Vendor,
+		"sessionAlias": event.SessionAlias, "kind": event.Kind,
+		"status": event.Status, "action": event.Action,
+	}
+	if event.Tool != "" {
+		payload["tool"] = event.Tool
+	}
+	if event.AgentType != "" {
+		payload["agentType"] = event.AgentType
+	}
+	if event.SubagentAlias != "" {
+		payload["subagentAlias"] = event.SubagentAlias
+	}
+	if len(event.CandidatePaths) > 0 {
+		payload["paths"] = event.CandidatePaths
+	}
+	if err := s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "hook", "agent.activity_reported", payload); err != nil {
+		return daemon.Response{Error: err.Error()}
+	}
+	return daemon.Response{OK: true, Data: map[string]any{"accepted": true}}
+}
+
+func workspaceForCWD(cfg config.Config, cwd string) (config.Workspace, bool) {
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return config.Workspace{}, false
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		abs = resolved
+	}
+	var selected config.Workspace
+	for _, candidate := range cfg.Workspaces {
+		relative, relErr := filepath.Rel(candidate.Root, abs)
+		if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if selected.Root == "" || len(candidate.Root) > len(selected.Root) {
+			selected = candidate
+		}
+	}
+	return selected, selected.Root != ""
 }
 
 func (s *Service) addDevelopmentWorkspace(ctx context.Context, q daemon.Request) (config.Workspace, error) {
