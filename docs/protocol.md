@@ -40,7 +40,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 |---|---|
 | `workspace.registered` | repoFingerprint, label, capabilities |
 | `workspace.manifest_started` | manifestId, revision, workstreamId, baselineRef, headRef, chunkCount |
-| `workspace.manifest_chunk` | manifestId, chunkIndex, bounded path/status plus optional symbol/dependency metadata |
+| `workspace.manifest_chunk` | manifestId, chunkIndex, bounded paths with independent baseline/index/worktree states plus optional symbol/dependency metadata |
 | `workspace.manifest_completed` | manifestId, revision, contentHash |
 | `workspace.paused` / `workspace.resumed` | optional reason / empty |
 | `workstream.intent_reported` | title, intendedOutcome, approachSummary, components/contracts, anticipatedPaths, optional planItemIds |
@@ -50,7 +50,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `activity.reported` | decision/completion/blocker and summary |
 | `claim.created` / `claim.released` | patterns / claim IDs or patterns |
 
-Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches.
+Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. `chunkCount: 0` followed directly by completion is the canonical empty snapshot and clears a prior active manifest without inventing an empty chunk. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches. The event-envelope JSON Schema selects an exact, closed payload shape for every event type; language generators may represent conditional payloads generically, but producers and consumers must validate against the schema rather than extend them by hand.
 
 ## 4. Initial HTTP API
 
