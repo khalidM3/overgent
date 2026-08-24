@@ -190,12 +190,12 @@ function manifestEvents({ side, projectId, deviceId, workspaceId, sessionId, wor
 }
 
 const entriesA = [
-  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, index: { status: "modified" }, worktree: { status: "modified" } } },
   { path: "synthetic/a-only.ts", states: { worktree: { status: "added" } } },
+  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, index: { status: "modified" }, worktree: { status: "modified" } } },
 ];
 const entriesB = [
-  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, worktree: { status: "modified" } } },
   { path: "synthetic/b-only.ts", states: { index: { status: "added" } } },
+  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, worktree: { status: "modified" } } },
 ];
 await request("POST", "/v1/events/batch", {
   token: tokenA,
@@ -219,7 +219,7 @@ const largeEntries = Array.from({ length: 1_000 }, (_, index) => ({
   states: index === 0
     ? { baseline: { status: "modified" }, index: { status: "modified" }, worktree: { status: "modified" } }
     : { worktree: { status: "added" } },
-}));
+})).sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
 const largeManifestId = `mft_large_${suffix}`;
 const largeEvents = [
   event({
@@ -279,6 +279,30 @@ const staleAck = (await request("POST", "/v1/events/batch", { token: tokenA, bod
   }),
 ] } })).body;
 assert(staleAck.acceptedEventIds.includes(`evt_stale_complete_${suffix}`));
+
+const unorderedManifestId = `mft_unordered_${suffix}`;
+const unorderedEntries = [
+  { path: "synthetic/z.ts", states: { worktree: { status: "modified" } } },
+  { path: "synthetic/a.ts", states: { worktree: { status: "modified" } } },
+];
+const unordered = await request("POST", "/v1/events/batch", { token: tokenA, expected: 409, body: { events: [
+  event({
+    eventId: `evt_unordered_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 23, type: "workspace.manifest_started",
+    payload: { manifestId: unorderedManifestId, revision: 4, workstreamId: ids.workstreamA, baselineRef: "a".repeat(40), headRef: "f".repeat(40), chunkCount: 1 },
+  }),
+  event({
+    eventId: `evt_unordered_chunk_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 24, type: "workspace.manifest_chunk",
+    payload: { manifestId: unorderedManifestId, chunkIndex: 0, entries: unorderedEntries },
+  }),
+  event({
+    eventId: `evt_unordered_complete_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 25, type: "workspace.manifest_completed",
+    payload: { manifestId: unorderedManifestId, revision: 4, contentHash: manifestHash(unorderedEntries) },
+  }),
+] } });
+assert.equal(unordered.body.error.code, "manifest_path_order_invalid");
 
 const briefA = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
   token: tokenA,
@@ -400,6 +424,7 @@ console.log(JSON.stringify({
     layeredManifestStatesPreserved: true,
     emptyManifestSnapshotActivated: true,
     staleManifestCompletionAcknowledgedWithoutRollback: true,
+    nonCanonicalManifestPathOrderRejected: true,
     authorizedBriefAndItem: true,
     materialContextRevisionsOnly: true,
     crossProjectDenied: true,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ValidationError,
+  assertCanonicalManifestOrder,
   canActivateManifestRevision,
   RETENTION_TABLES,
   expiredRecordIds,
@@ -106,6 +107,24 @@ describe("hosted deterministic helpers", () => {
     expect(baseline).toHaveLength(64);
     expect(baseline).not.toBe(manifestContentHash([{ path: "a.ts", states: { worktree: { status: "modified" } } }]));
     expect(baseline).toBe(manifestContentHash([{ path: "a.ts", states: { baseline: { status: "modified" } } }]));
+  });
+
+  it("matches the fixed layered manifest hash vector", () => {
+    expect(manifestContentHash([
+      { path: "a.ts", states: {
+        baseline: { status: "modified" },
+        index: { status: "renamed", oldPath: "old-a.ts" },
+        worktree: { status: "modified" },
+      } },
+      { path: "z.ts", states: { worktree: { status: "untracked" } } },
+    ])).toBe("cb3fc754d48edb8d7be868df86d249942d8832811e0af83fb2f24f022328ea4d");
+  });
+
+  it("requires strictly increasing unique paths at completion", () => {
+    const entry = (path: string) => ({ path, states: { worktree: { status: "modified" as const } } });
+    expect(() => assertCanonicalManifestOrder([entry("b.ts"), entry("a.ts")])).toThrow("manifest_path_order_invalid");
+    expect(() => assertCanonicalManifestOrder([entry("a.ts"), entry("a.ts")])).toThrow("manifest_path_order_invalid");
+    expect(() => assertCanonicalManifestOrder([entry("a.ts"), entry("b.ts")])).not.toThrow();
   });
 
   it("allows only monotonically newer manifest activation", () => {
