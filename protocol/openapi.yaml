@@ -83,6 +83,13 @@ paths:
       operationId: getContextItem
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses: { '200': { description: Current authorized item, content: { application/json: { schema: { $ref: '#/components/schemas/ContextItem' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /findings/{id}/feedback:
+    post:
+      operationId: recordFindingFeedback
+      security: [ { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FindingFeedbackRequest' } } } }
+      responses: { '204': { description: Feedback recorded }, default: { $ref: '#/components/responses/Error' } }
   /devices/{id}/revoke:
     post:
       operationId: revokeDevice
@@ -190,6 +197,11 @@ components:
       additionalProperties: false
       required: [trigger, approximateTokenBudget]
       properties: { trigger: { type: string, maxLength: 80 }, sinceCursor: { type: string, maxLength: 512 }, approximateTokenBudget: { type: integer, minimum: 128, maximum: 800, default: 400 } }
+    FindingFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required: [value]
+      properties: { value: { enum: [useful, not_related, already_coordinated, missed_severity] } }
     ContextItem:
       oneOf:
         - { $ref: './schemas/semantic-object.schema.json' }

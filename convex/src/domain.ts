@@ -33,6 +33,7 @@ export const RETENTION_TABLES = [
   "changeManifestChunks",
   "changeManifests",
   "activityEvents",
+  "findingFeedback",
   "findings",
   "semanticEmbeddings",
   "semanticObjects",

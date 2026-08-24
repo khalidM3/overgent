@@ -149,7 +149,7 @@ describe("hosted deterministic helpers", () => {
     expect(RETENTION_TABLES.indexOf("changeManifestChunks")).toBeLessThan(RETENTION_TABLES.indexOf("changeManifests"));
     expect(RETENTION_TABLES.indexOf("semanticEmbeddings")).toBeLessThan(RETENTION_TABLES.indexOf("semanticObjects"));
     expect(RETENTION_TABLES).toEqual(expect.arrayContaining([
-      "activityEvents", "findings", "contextDeliveries", "semanticObjects", "semanticEmbeddings",
+      "activityEvents", "findings", "findingFeedback", "contextDeliveries", "semanticObjects", "semanticEmbeddings",
     ]));
   });
 });

@@ -1,5 +1,5 @@
 import { FixtureProjectSource } from "./fixture-source";
-import type { DashboardSession, ProjectSnapshot } from "./model";
+import type { DashboardSession, FindingFeedback, ProjectSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
 
@@ -43,5 +43,9 @@ export class LiveProjectSource extends FixtureProjectSource {
       if (timer !== undefined) window.clearInterval(timer);
       this.timers.delete(projectId);
     };
+  }
+
+  override async recordFindingFeedback(findingId: string, value: FindingFeedback): Promise<void> {
+    await request<void>(`/findings/${encodeURIComponent(findingId)}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
   }
 }

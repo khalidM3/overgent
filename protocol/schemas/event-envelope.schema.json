@@ -129,6 +129,8 @@
           "checkpointId": { "type": "string", "pattern": "^chk_[A-Za-z0-9_-]{1,80}$" },
           "workstreamId": { "$ref": "#/$defs/workstreamId" }, "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "discoveries": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+          "affectedInterfaces": { "$ref": "#/$defs/boundedStringList" },
+          "dependencies": { "$ref": "#/$defs/boundedStringList" },
           "verification": { "type": "array", "maxItems": 32, "items": { "$ref": "verification.schema.json" } },
           "relatedManifestRevision": { "type": "integer", "minimum": 1 }, "basedOnBriefId": { "$ref": "#/$defs/id" }
         }

@@ -219,6 +219,11 @@ type PublishEventBatchJSONBodyEventsSource string
 // PublishEventBatchJSONBodyEventsType defines parameters for PublishEventBatch.
 type PublishEventBatchJSONBodyEventsType string
 
+// RecordFindingFeedbackJSONBody defines parameters for RecordFindingFeedback.
+type RecordFindingFeedbackJSONBody struct {
+	Value interface{} `json:"value"`
+}
+
 // HeartbeatJSONBody defines parameters for Heartbeat.
 type HeartbeatJSONBody struct {
 	State       HeartbeatJSONBodyState `json:"state"`
@@ -326,6 +331,9 @@ type CreateEnrollmentJSONRequestBody CreateEnrollmentJSONBody
 
 // PublishEventBatchJSONRequestBody defines body for PublishEventBatch for application/json ContentType.
 type PublishEventBatchJSONRequestBody PublishEventBatchJSONBody
+
+// RecordFindingFeedbackJSONRequestBody defines body for RecordFindingFeedback for application/json ContentType.
+type RecordFindingFeedbackJSONRequestBody RecordFindingFeedbackJSONBody
 
 // HeartbeatJSONRequestBody defines body for Heartbeat for application/json ContentType.
 type HeartbeatJSONRequestBody HeartbeatJSONBody

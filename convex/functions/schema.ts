@@ -98,9 +98,12 @@ export default defineSchema({
     projectId: v.id("projects"),
     repoFingerprint: v.string(),
     contextRevision: v.number(),
+    semanticHealthyAt: v.optional(v.number()),
+    semanticDegradedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_scope", ["scopeKey"])
+    .index("by_project", ["projectId"])
     .index("by_project_repo", ["projectId", "repoFingerprint"]),
 
   workstreams: defineTable({
@@ -189,6 +192,7 @@ export default defineSchema({
     state: v.string(),
     fingerprint: v.string(),
     engineVersion: v.string(),
+    inputRevisions: v.optional(v.any()),
     revision: v.number(),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
@@ -209,17 +213,21 @@ export default defineSchema({
     text: v.string(),
     source: v.string(),
     fidelity: v.string(),
+    tags: v.optional(v.array(v.string())),
+    manifestRevision: v.optional(v.number()),
     revision: v.number(),
     active: v.boolean(),
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
     .index("by_scope_active", ["scopeKey", "active"])
+    .index("by_workstream_active", ["workstreamId", "active"])
     .index("by_expiry", ["expiresAt"]),
 
   semanticEmbeddings: defineTable({
     objectId: v.id("semanticObjects"),
     scopeKey: v.string(),
+    providerName: v.string(),
     modelVersion: v.string(),
     contentRevision: v.number(),
     vector: v.array(v.float64()),
@@ -227,7 +235,8 @@ export default defineSchema({
   })
     .index("by_object", ["objectId"])
     .index("by_scope_model", ["scopeKey", "modelVersion"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 32, filterFields: ["scopeKey"] }),
 
   contextDeliveries: defineTable({
     publicId: v.string(),
@@ -236,13 +245,28 @@ export default defineSchema({
     contextRevision: v.number(),
     trigger: v.string(),
     itemRefs: v.array(v.string()),
+    itemRevisions: v.optional(v.any()),
     requestedBudget: v.number(),
     renderedSize: v.number(),
     deliveredAt: v.number(),
+    acknowledgedAt: v.optional(v.number()),
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
     .index("by_workstream", ["workstreamId"])
+    .index("by_expiry", ["expiresAt"]),
+
+  findingFeedback: defineTable({
+    publicId: v.string(),
+    projectId: v.id("projects"),
+    findingId: v.id("findings"),
+    memberId: v.id("members"),
+    value: v.union(v.literal("useful"), v.literal("not_related"), v.literal("already_coordinated"), v.literal("missed_severity")),
+    engineVersion: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_finding_member", ["findingId", "memberId"])
     .index("by_expiry", ["expiresAt"]),
 
   deviceCursors: defineTable({

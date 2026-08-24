@@ -169,6 +169,7 @@ code { font: .78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .evidence-list code { overflow: hidden; color: #4d5b56; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-list small { color: #8a928e; font-size: .58rem; }
 .advisory-note { padding: .65rem; background: #f4f5f3; border-radius: .5rem; font-size: .68rem !important; }
+.finding-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .55rem 0; color: var(--muted); font-size: .7rem; }
 .finding-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: 1rem; }
 .finding-actions button { min-width: 0; font-size: .75rem; }
 .panel-empty { display: grid; justify-items: center; padding: 3rem 1.3rem; text-align: center; }
