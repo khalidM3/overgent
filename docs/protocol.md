@@ -50,7 +50,11 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `activity.reported` | decision/completion/blocker and summary |
 | `claim.created` / `claim.released` | patterns / claim IDs or patterns |
 
-Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. `chunkCount: 0` followed directly by completion is the canonical empty snapshot and clears a prior active manifest without inventing an empty chunk. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches. The event-envelope JSON Schema selects an exact, closed payload shape for every event type; language generators may represent conditional payloads generically, but producers and consumers must validate against the schema rather than extend them by hand.
+Manifest revisions represent complete current state, not unreliable filesystem deltas. The server stages chunks and exposes a revision only after completion/hash/count validation. `chunkCount: 0` followed directly by completion is the canonical empty snapshot and clears a prior active manifest without inventing an empty chunk. Entries are strictly ordered by normalized path and paths are unique. Each entry has independent optional `baseline`, `index`, and `worktree` change states so a path can retain simultaneous committed, staged, and unstaged evidence; each layer carries its own status and optional rename/copy source path. Entries contain bounded metadata, never content or patches.
+
+The manifest content hash is SHA-256 over the ordered entry stream. For every entry, serialize these fields in order: `path`, then for each of `baseline`, `index`, and `worktree`, the literal layer name, its status or the empty string, and its old path or the empty string. Separate every field with one NUL byte and include the trailing NUL. The empty manifest hashes the empty byte string. This encoding is shared by Go and TypeScript and must not be inferred from ordinary JSON serialization.
+
+The event-envelope JSON Schema selects an exact, closed payload shape for every event type; language generators may represent conditional payloads generically, but producers and consumers must validate against the schema rather than extend them by hand.
 
 ## 4. Initial HTTP API
 
