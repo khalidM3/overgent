@@ -12,5 +12,7 @@ is complete only when its evidence supports `pass`, `narrow`, `replace`, or
 | D — install/local service | pass on macOS arm64; narrowed elsewhere | `validation/spikes/gate-d-service/` | Linux/Windows compile only; native service, credential, and IPC validation required before advertising support |
 | E — intelligence seed | pass | `validation/spikes/gate-e-intelligence/evidence.md` | Production provider/threshold selection remains L6; proactive semantic alerts stay disabled |
 
-Production L0 is prohibited until every `pending` cell is replaced by an honest
-terminal outcome and the combined exit rule is reviewed.
+All cells now have an honest terminal outcome. The combined exit rule passes:
+no result requires replacement of Go, the Stickguy protocol, the manifest model,
+Project isolation, or the coordination-harness lifecycle. This completes L-1;
+it does not start production L0.
