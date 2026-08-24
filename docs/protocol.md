@@ -63,6 +63,7 @@ The event-envelope JSON Schema selects an exact, closed payload shape for every 
 | POST | `/v1/projects` | Create project and enroll creator device. |
 | POST | `/v1/projects/{id}/invites` | Create expiring invite. |
 | POST | `/v1/enrollments` | Exchange invite for device credential/dashboard ticket. |
+| POST | `/v1/dashboard-tickets` | Authenticated device mints a short-lived, single-use ticket for one authorized Project. |
 | POST | `/v1/dashboard-tickets/exchange` | Exchange single-use browser ticket. |
 | GET | `/v1/device/bootstrap` | Memberships, workspaces, compatibility, cursors. |
 | POST | `/v1/events/batch` | Validate/deduplicate bounded batch and acknowledge. |

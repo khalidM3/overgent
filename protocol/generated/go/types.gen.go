@@ -169,6 +169,11 @@ type GetContextItem200JSONResponseBody struct {
 	union json.RawMessage
 }
 
+// CreateDashboardTicketJSONBody defines parameters for CreateDashboardTicket.
+type CreateDashboardTicketJSONBody struct {
+	ProjectId string `json:"projectId"`
+}
+
 // ExchangeDashboardTicketJSONBody defines parameters for ExchangeDashboardTicket.
 type ExchangeDashboardTicketJSONBody struct {
 	Ticket string `json:"ticket"`
@@ -301,6 +306,9 @@ type CreateCoordinationBriefJSONBody struct {
 	SinceCursor            *string `json:"sinceCursor,omitempty"`
 	Trigger                string  `json:"trigger"`
 }
+
+// CreateDashboardTicketJSONRequestBody defines body for CreateDashboardTicket for application/json ContentType.
+type CreateDashboardTicketJSONRequestBody CreateDashboardTicketJSONBody
 
 // ExchangeDashboardTicketJSONRequestBody defines body for ExchangeDashboardTicket for application/json ContentType.
 type ExchangeDashboardTicketJSONRequestBody ExchangeDashboardTicketJSONBody

@@ -105,6 +105,25 @@ http.route({ path: "/v1/enrollments", method: "POST", handler: httpAction(async 
   return json({ deviceId, deviceToken, dashboardTicket }, 201);
 })) });
 
+http.route({ path: "/v1/dashboard-tickets", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const token = bearer(request);
+  const body = expectObject(await readJson(request));
+  expectExactKeys(body, ["projectId"]);
+  const projectId = expectId(body.projectId);
+  await consumeEdgeRate(ctx, authenticatedRateKey("dashboard.issue", token), "dashboard.issue", 20);
+  const ticket = randomHex(24);
+  const now = Date.now();
+  const expiresAt = now + 5 * 60_000;
+  await ctx.runMutation(internal.service.issueDashboardTicket, {
+    tokenHash: sha256Hex(token),
+    projectPublicId: projectId,
+    ticketHash: sha256Hex(ticket),
+    now,
+    ticketExpiresAt: expiresAt,
+  });
+  return json({ ticket, expiresAt: new Date(expiresAt).toISOString() }, 201);
+})) });
+
 http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const body = expectObject(await readJson(request));
   expectExactKeys(body, ["ticket"]);
@@ -264,6 +283,10 @@ function requestRateKey(_request: Request, scope: string): string {
   // Convex does not document a trustworthy client-IP header at this boundary.
   // A shared bucket cannot be bypassed with caller-controlled forwarding data.
   return sha256Hex(`${scope}\0shared-unauthenticated`);
+}
+
+function authenticatedRateKey(scope: string, token: string): string {
+  return sha256Hex(`${scope}\0credential\0${sha256Hex(token)}`);
 }
 
 async function assertEmptyBody(request: Request): Promise<void> {
