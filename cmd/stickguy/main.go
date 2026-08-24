@@ -80,14 +80,17 @@ func run(args []string) error {
 		id := wf.String("id", "", "")
 		project := wf.String("project", "", "")
 		workstream := wf.String("workstream", "", "")
+		member := wf.String("member", "", "")
+		device := wf.String("device", "", "")
+		session := wf.String("session", "", "")
 		repo := wf.String("root", "", "")
 		if e = wf.Parse(rest[2:]); e != nil {
 			return e
 		}
-		if *id == "" || *project == "" || *workstream == "" || *repo == "" {
-			return errors.New("workspace add requires id, project, workstream, root")
+		if *id == "" || *project == "" || *workstream == "" || *member == "" || *device == "" || *session == "" || *repo == "" {
+			return errors.New("workspace add requires id, project, workstream, member, device, session, root")
 		}
-		return app.Register(ctx, *root, config.Workspace{ID: *id, ProjectID: *project, WorkstreamID: *workstream, Root: *repo})
+		return app.Register(ctx, *root, *device, config.Workspace{ID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo})
 	case "pause", "resume":
 		pf := flag.NewFlagSet(rest[0], flag.ContinueOnError)
 		id := pf.String("workspace", "", "")

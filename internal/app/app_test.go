@@ -15,20 +15,22 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type fakeSender struct {
-	mu     sync.Mutex
-	events []store.QueueEvent
+	mu      sync.Mutex
+	events  int
+	batches map[string][][]byte
 }
 
 func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 	state := t.TempDir()
 	repo := makeRepo(t)
 	ctx := context.Background()
-	if e := Register(ctx, state, config.Workspace{ID: "w", ProjectID: "p", WorkstreamID: "s", Root: repo}); e != nil {
+	if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: repo}); e != nil {
 		t.Fatal(e)
 	}
 	for i := range 1000 {
@@ -49,12 +51,15 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 	}
 	cfg, _ := config.Load(paths)
 	w := cfg.Workspaces[0]
-	if e = db.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, Root: w.Root, Baseline: w.Baseline}); e != nil {
+	if len(w.Fingerprint) != 64 {
+		t.Fatalf("repository fingerprint=%q", w.Fingerprint)
+	}
+	if e = db.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, Root: w.Root, Baseline: w.Baseline, Fingerprint: w.Fingerprint}); e != nil {
 		t.Fatal(e)
 	}
 	s := &Service{store: db, cfg: cfg}
 	s.scanAll(ctx)
-	rev, _, raw, e := db.ActiveManifest(ctx, "w")
+	rev, _, raw, e := db.ActiveManifest(ctx, "wsp_fixture")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -66,14 +71,14 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 		t.Fatalf("revision=%d paths=%d", rev, len(entries))
 	}
 	pending, _ := db.Pending(ctx)
-	if len(pending) != 12 {
+	if len(pending) != 13 {
 		t.Fatalf("atomic queue events=%d", len(pending))
 	}
-	if pending[0].Kind != "workspace.manifest_started" || pending[len(pending)-1].Kind != "workspace.manifest_completed" {
+	if pending[0].Kind != "workspace.registered" || pending[1].Kind != "workspace.manifest_started" || pending[len(pending)-1].Kind != "workspace.manifest_completed" {
 		t.Fatalf("publication ordering: first=%s last=%s", pending[0].Kind, pending[len(pending)-1].Kind)
 	}
-	for i, event := range pending[1 : len(pending)-1] {
-		if event.Kind != "workspace.manifest_chunk" || event.Sequence != int64(i+2) {
+	for i, event := range pending[2 : len(pending)-1] {
+		if event.Kind != "workspace.manifest_chunk" || event.Sequence != int64(i+3) {
 			t.Fatalf("chunk %d: %#v", i, event)
 		}
 	}
@@ -83,7 +88,7 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer db.Close()
-	rev, _, raw, e = db.ActiveManifest(ctx, "w")
+	rev, _, raw, e = db.ActiveManifest(ctx, "wsp_fixture")
 	if e != nil || rev != 1 {
 		t.Fatal(rev, e)
 	}
@@ -94,13 +99,28 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 	}
 }
 
-func (f *fakeSender) Send(_ context.Context, e []store.QueueEvent) error {
+func (f *fakeSender) Send(_ context.Context, workspaceID string, batch []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.events = append(f.events, e...)
+	var body struct {
+		Events []json.RawMessage `json:"events"`
+	}
+	if json.Unmarshal(batch, &body) != nil {
+		return fmt.Errorf("invalid batch")
+	}
+	f.events += len(body.Events)
+	if f.batches == nil {
+		f.batches = map[string][][]byte{}
+	}
+	f.batches[workspaceID] = append(f.batches[workspaceID], append([]byte(nil), batch...))
 	return nil
 }
-func (f *fakeSender) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.events) }
+func (f *fakeSender) count() int { f.mu.Lock(); defer f.mu.Unlock(); return f.events }
+func (f *fakeSender) workspaceBatches(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.batches[id])
+}
 func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	state, e := os.MkdirTemp("/private/tmp", "sg-l1-")
 	if e != nil {
@@ -112,7 +132,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	ctx := context.Background()
 	for i, r := range []string{r1, r2} {
 		id := string(rune('a' + i))
-		if e := Register(ctx, state, config.Workspace{ID: "w" + id, ProjectID: "p", WorkstreamID: "s" + id, Root: r}); e != nil {
+		if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: r}); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -134,12 +154,12 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	if e := Run(context.Background(), state, nil); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("second instance: %v", e)
 	}
-	if e := Register(ctx, state, config.Workspace{ID: "wc", ProjectID: "p", WorkstreamID: "sc", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
+	if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("concurrent registration: %v", e)
 	}
-	wait(t, func() bool { return send.count() >= 2 })
+	wait(t, func() bool { return send.workspaceBatches("wsp_a") > 0 && send.workspaceBatches("wsp_b") > 0 })
 	initial := send.count()
-	_, e = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "pause", WorkspaceID: "wa"})
+	_, e = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "pause", WorkspaceID: "wsp_a"})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -198,10 +218,35 @@ func makeRepo(t *testing.T) string {
 	gitcmd(t, r, "init", "-q")
 	gitcmd(t, r, "config", "user.email", "fixture@example.invalid")
 	gitcmd(t, r, "config", "user.name", "Fixture")
+	gitcmd(t, r, "remote", "add", "origin", fmt.Sprintf("https://example.invalid/fixture/repo-%d.git", repoSerial.Add(1)))
 	writeFile(t, r, "base.txt")
 	gitcmd(t, r, "add", ".")
 	gitcmd(t, r, "commit", "-q", "-m", "base")
 	return r
+}
+
+var repoSerial atomic.Uint64
+
+func TestRegisterRejectsExternalIdentifiersAndRoot(t *testing.T) {
+	state := t.TempDir()
+	valid := config.Workspace{ID: "wsp_valid", ProjectID: "prj_valid", WorkstreamID: "wrk_valid", MemberID: "mem_valid", SessionID: "ses_valid", Root: makeRepo(t)}
+	for name, mutate := range map[string]func(*config.Workspace){
+		"workspace":  func(w *config.Workspace) { w.ID = "../bad" },
+		"Project":    func(w *config.Workspace) { w.ProjectID = "bad" },
+		"workstream": func(w *config.Workspace) { w.WorkstreamID = "bad" },
+		"root":       func(w *config.Workspace) { w.Root = filepath.Join(t.TempDir(), "missing") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := valid
+			mutate(&w)
+			if e := Register(context.Background(), state, "dev_valid", w); e == nil {
+				t.Fatal("invalid registration accepted")
+			}
+		})
+	}
+	if e := Register(context.Background(), state, "BAD", valid); e == nil {
+		t.Fatal("invalid device ID accepted")
+	}
 }
 func writeFile(t *testing.T, r, p string) {
 	t.Helper()

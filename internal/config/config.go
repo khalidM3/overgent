@@ -14,10 +14,14 @@ type Workspace struct {
 	WorkstreamID string `json:"workstreamId"`
 	Root         string `json:"root"`
 	Baseline     string `json:"baseline"`
+	Fingerprint  string `json:"repositoryFingerprint"`
+	MemberID     string `json:"memberId"`
+	SessionID    string `json:"sessionId"`
 }
 
 type Config struct {
 	Version    int         `json:"version"`
+	DeviceID   string      `json:"deviceId"`
 	Workspaces []Workspace `json:"workspaces"`
 }
 

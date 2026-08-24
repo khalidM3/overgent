@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,12 @@ func TestRejectsSymlinkEscape(t *testing.T) {
 	if _, e := normalize(r, "escape/secret.txt"); e == nil {
 		t.Fatal("expected symlink escape rejection")
 	}
+	if _, e := normalize(r, string([]byte{0xff})); e == nil {
+		t.Fatal("expected invalid UTF-8 rejection")
+	}
+	if _, e := normalize(r, strings.Repeat("a", 513)); e == nil {
+		t.Fatal("expected oversized path rejection")
+	}
 }
 func TestCommittedThousandPathsAndFingerprint(t *testing.T) {
 	r := repo(t)
@@ -74,13 +81,94 @@ func TestCommittedThousandPathsAndFingerprint(t *testing.T) {
 	if len(m.Entries) != 1000 {
 		t.Fatalf("got %d", len(m.Entries))
 	}
-	if len(Hash(m.Entries)) != 64 {
+	hash, e := Hash(m.Entries)
+	if e != nil || len(hash) != 64 {
 		t.Fatal("expected sha256")
 	}
-	a, _ := Fingerprint(context.Background(), Runner{}, r, "prj_a")
-	b, _ := Fingerprint(context.Background(), Runner{}, r, "prj_b")
-	if a == b {
-		t.Fatal("registration scope missing")
+}
+
+func TestCanonicalCrossLanguageHashAndOrdering(t *testing.T) {
+	entries := []Entry{
+		{Path: "a.ts", States: States{Baseline: &Change{Status: "modified"}, Index: &Change{Status: "renamed", OldPath: "old-a.ts"}, Worktree: &Change{Status: "modified"}}},
+		{Path: "z.ts", States: States{Worktree: &Change{Status: "untracked"}}},
+	}
+	got, e := Hash(entries)
+	if e != nil || got != "cb3fc754d48edb8d7be868df86d249942d8832811e0af83fb2f24f022328ea4d" {
+		t.Fatalf("cross-language hash=%q err=%v", got, e)
+	}
+	if _, e = Hash([]Entry{entries[1], entries[0]}); e == nil {
+		t.Fatal("unordered paths accepted")
+	}
+	if _, e = Hash([]Entry{entries[0], entries[0]}); e == nil {
+		t.Fatal("duplicate paths accepted")
+	}
+}
+
+func TestFingerprintRemoteSemanticsAndLinkedWorktree(t *testing.T) {
+	ctx := context.Background()
+	withoutRemote := repo(t)
+	if _, e := Fingerprint(ctx, Runner{}, withoutRemote, "prj_fixture"); e == nil || !strings.Contains(e.Error(), "found none") {
+		t.Fatalf("no-remote outcome: %v", e)
+	}
+	r1 := repo(t)
+	r2 := repo(t)
+	gitcmd(t, r1, "remote", "add", "origin", "https://github.com/Stickguy/Fixture.git")
+	gitcmd(t, r2, "remote", "add", "origin", "git@github.com:Stickguy/Fixture.git")
+	f1, e := Fingerprint(ctx, Runner{}, r1, "prj_fixture")
+	if e != nil {
+		t.Fatal(e)
+	}
+	f2, e := Fingerprint(ctx, Runner{}, r2, "prj_fixture")
+	if e != nil || f1 != f2 {
+		t.Fatalf("cross-device remote identity mismatch: %q %q %v", f1, f2, e)
+	}
+	otherProject, e := Fingerprint(ctx, Runner{}, r2, "prj_other")
+	if e != nil || otherProject == f2 {
+		t.Fatal("explicit Project registration missing from fingerprint")
+	}
+	linked := filepath.Join(t.TempDir(), "linked")
+	gitcmd(t, r2, "worktree", "add", "-q", "-b", "linked-fixture", linked)
+	linkedFingerprint, e := Fingerprint(ctx, Runner{}, linked, "prj_fixture")
+	if e != nil || linkedFingerprint != f2 {
+		t.Fatalf("linked worktree fingerprint mismatch: %q %q %v", linkedFingerprint, f2, e)
+	}
+	mainCommon, _ := CommonDir(ctx, Runner{}, r2)
+	linkedCommon, _ := CommonDir(ctx, Runner{}, linked)
+	if mainCommon != linkedCommon {
+		t.Fatalf("linked worktree local association mismatch: %q %q", mainCommon, linkedCommon)
+	}
+	gitcmd(t, r2, "remote", "add", "mirror", "https://example.invalid/other/repo.git")
+	if _, e := Fingerprint(ctx, Runner{}, r2, "prj_fixture"); e == nil || !strings.Contains(e.Error(), "multiple distinct remotes") {
+		t.Fatalf("multiple-remote outcome: %v", e)
+	}
+}
+
+func TestSHA256ObjectFormatBaselineAndHead(t *testing.T) {
+	r := filepath.Join(t.TempDir(), "sha256-repo")
+	cmd := exec.Command("git", "init", "--object-format=sha256", "-q", r)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	if b, e := cmd.CombinedOutput(); e != nil {
+		message := strings.ToLower(string(b))
+		if strings.Contains(message, "unknown option") || strings.Contains(message, "unsupported") || strings.Contains(message, "not support") {
+			t.Skipf("installed Git explicitly lacks SHA-256 object format: %v: %s", e, strings.TrimSpace(string(b)))
+		}
+		t.Fatalf("initialize SHA-256 repository: %v: %s", e, b)
+	}
+	gitcmd(t, r, "config", "user.email", "fixture@example.invalid")
+	gitcmd(t, r, "config", "user.name", "Fixture")
+	write(t, r, "base.txt", "base")
+	gitcmd(t, r, "add", ".")
+	gitcmd(t, r, "commit", "-q", "-m", "base")
+	baseline, e := CaptureBaseline(context.Background(), Runner{}, r)
+	if e != nil || len(baseline) != 64 {
+		t.Fatalf("SHA-256 baseline=%q err=%v", baseline, e)
+	}
+	write(t, r, "committed.txt", "fixture")
+	gitcmd(t, r, "add", ".")
+	gitcmd(t, r, "commit", "-q", "-m", "current")
+	m, e := Observe(context.Background(), Runner{}, r, baseline)
+	if e != nil || len(m.Head) != 64 || len(m.Entries) != 1 || m.Entries[0].States.Baseline == nil {
+		t.Fatalf("SHA-256 observation: head=%q entries=%#v err=%v", m.Head, m.Entries, e)
 	}
 }
 func repo(t *testing.T) string {
