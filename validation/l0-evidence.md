@@ -1,6 +1,6 @@
 # L0 scaffold evidence
 
-Status: implementation complete except owner-controlled legal gate  
+Status: PASS
 Observed: 2026-08-23 on macOS arm64
 
 ## Delivered behavior
@@ -39,6 +39,6 @@ Commit `844cd86` was cloned with `--no-local` into `/private/tmp/stickguy-l0-cle
 
 All fixtures are synthetic. No production credentials or example secret values are committed, and no source/diff/Git-object/transcript/prompt/environment/raw-command payload appears in a public event. Semantic interfaces require both Project and repository scope; hosted fidelity is structural when providers are absent. Release permissions exist only in the tag/manual release job and the job refuses to run without `LICENSE` and `NOTICE`.
 
-## Honest limit and next gate
+## Outcome and next gate
 
-ADR-009 still requires owner/legal approval of the recommended Apache-2.0 license and `NOTICE` attribution before public launch. That decision is outside implementation authority. Until it is supplied, L0 cannot claim its complete exit gate and L1 production work remains blocked. The remaining L0 implementation checks pass; no L1 code has started.
+The owner accepted Apache-2.0 and the initial `Copyright 2026 Stickguy contributors` attribution on 2026-08-23. The unmodified license and literal notice are committed, satisfying the remaining L0 implementation gate. A real private security-reporting and conduct-enforcement channel remains mandatory before public launch; no unmonitored address is advertised. L1–L3 are now unblocked under their documented parallel ownership lanes.

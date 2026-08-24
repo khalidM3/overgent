@@ -9,4 +9,4 @@ Private cloud operations belong in a separate access-controlled repository. That
 
 Public examples use synthetic identifiers and data. Production credentials, private customer data, raw source/diffs, Git objects, transcripts, prompts, environment values, raw command output, and internal incident details are prohibited here. Security reports use the private channel documented in `SECURITY.md`.
 
-The repository is not ready for public launch until the owner approves a license and corresponding `NOTICE` content. Until then, external contributions and release publication remain disabled.
+The public repository is licensed under Apache-2.0 with the attribution in `NOTICE`. Public launch still requires an operational private security-reporting and conduct-enforcement channel; do not publish a placeholder mailbox that is not monitored.

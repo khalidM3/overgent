@@ -32,9 +32,9 @@ Use SQLite queue, stable IDs, server dedupe, acknowledgements. Intermittent devi
 
 Deliver via API/MCP and optional untracked context, not a shared tracked append file that creates Git collisions. Accepted 2026-08-23.
 
-## ADR-009: Open-source application with managed cloud
+## ADR-009: Apache-2.0 open-source application with managed cloud
 
-Proposed: publish the installed Go client, adapters, protocols, installers, release workflows, dashboard, and core backend authorization/retention/coordination code. Keep production operations, billing, private admin/abuse systems, runbooks, and private eval data in a separate private repository. Recommend Apache-2.0 for the public repository, subject to owner/legal approval. Proposed 2026-08-23; must be accepted before public launch.
+Publish the installed Go client, adapters, protocols, installers, release workflows, dashboard, and core backend authorization/retention/coordination code under the unmodified Apache License 2.0. Keep production operations, billing, private admin/abuse systems, runbooks, and private eval data in a separate private repository. Use `Copyright 2026 Stickguy contributors` as the initial `NOTICE` attribution; a later legal entity or rights assignment requires an explicit notice review rather than a template substitution. Accepted by the owner 2026-08-23.
 
 ## ADR-010: Coordination intelligence is a V1 capability
 
