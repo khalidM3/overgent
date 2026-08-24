@@ -31,6 +31,11 @@ paths:
       security: []
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TicketExchangeRequest' } } } }
       responses: { '204': { description: Browser session established }, default: { $ref: '#/components/responses/Error' } }
+  /dashboard-tickets:
+    post:
+      operationId: createDashboardTicket
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDashboardTicketRequest' } } } }
+      responses: { '201': { description: One-time browser ticket created, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardTicket' } } } }, default: { $ref: '#/components/responses/Error' } }
   /device/bootstrap:
     get:
       operationId: getDeviceBootstrap
@@ -120,6 +125,16 @@ components:
       additionalProperties: false
       required: [ticket]
       properties: { ticket: { type: string, minLength: 22, maxLength: 512 } }
+    CreateDashboardTicketRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId]
+      properties: { projectId: { $ref: '#/components/schemas/Id' } }
+    DashboardTicket:
+      type: object
+      additionalProperties: false
+      required: [ticket, expiresAt]
+      properties: { ticket: { type: string, minLength: 22, maxLength: 512 }, expiresAt: { $ref: '#/components/schemas/Timestamp' } }
     DeviceBootstrap:
       type: object
       additionalProperties: false

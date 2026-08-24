@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboard-tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createDashboardTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/device/bootstrap": {
         parameters: {
             query?: never;
@@ -220,6 +236,14 @@ export interface components {
         };
         TicketExchangeRequest: {
             ticket: string;
+        };
+        CreateDashboardTicketRequest: {
+            projectId: string;
+        };
+        DashboardTicket: {
+            ticket: string;
+            /** Format: date-time */
+            expiresAt: string;
         };
         DeviceBootstrap: {
             deviceId: string;
@@ -915,6 +939,53 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createDashboardTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    projectId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description One-time browser ticket created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ticket: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
             };
             /** @description Stable error envelope */
             default: {

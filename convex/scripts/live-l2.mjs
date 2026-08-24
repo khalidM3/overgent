@@ -81,6 +81,23 @@ const projectA = (await request("POST", "/v1/projects", {
 const bootstrapA = (await request("GET", "/v1/device/bootstrap", { token: tokenA })).body;
 assert.equal(bootstrapA.projects[0].id, projectA.id);
 assert(bootstrapA.deviceId.startsWith("dev_"));
+const creatorTicket = (await request("POST", "/v1/dashboard-tickets", {
+  token: tokenA,
+  body: { projectId: projectA.id },
+  expected: 201,
+})).body;
+assert(creatorTicket.ticket.length >= 22);
+assert(Number.isFinite(Date.parse(creatorTicket.expiresAt)));
+const creatorExchange = await request("POST", "/v1/dashboard-tickets/exchange", {
+  body: { ticket: creatorTicket.ticket },
+  expected: 204,
+});
+assert((creatorExchange.headers.get("set-cookie") ?? "").includes("HttpOnly"));
+const creatorTicketReuse = await request("POST", "/v1/dashboard-tickets/exchange", {
+  body: { ticket: creatorTicket.ticket },
+  expected: 409,
+});
+assert.equal(creatorTicketReuse.body.error.code, "ticket_consumed");
 timings.creatorEnrollmentMs = Math.round(performance.now() - createStarted);
 
 const invite = (await request("POST", `/v1/projects/${projectA.id}/invites`, {
@@ -414,6 +431,7 @@ console.log(JSON.stringify({
   deployment: "anonymous-local-loopback-redacted",
   assertions: {
     creatorAndInviteEnrollment: true,
+    creatorDashboardTicketIssuance: true,
     twoDevicePublication: true,
     singleUseDashboardTicket: true,
     singleUseInvite: true,

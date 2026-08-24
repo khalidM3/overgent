@@ -136,6 +136,25 @@ export const enroll = internalMutation({
   },
 });
 
+export const issueDashboardTicket = internalMutation({
+  args: {
+    tokenHash: v.string(), projectPublicId: v.string(), ticketHash: v.string(),
+    now: v.number(), ticketExpiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireProjectRole(ctx, args.tokenHash, args.projectPublicId);
+    await enforceRate(ctx, args.tokenHash, "dashboard.issue", args.now, 20, 60_000);
+    await ctx.db.insert("dashboardTickets", {
+      secretHash: args.ticketHash,
+      projectId: auth.project._id,
+      memberId: auth.member._id,
+      deviceId: auth.device._id,
+      expiresAt: args.ticketExpiresAt,
+    });
+    return true;
+  },
+});
+
 export const exchangeDashboardTicket = internalMutation({
   args: { rateKey: v.string(), ticketHash: v.string(), sessionHash: v.string(), now: v.number(), sessionExpiresAt: v.number() },
   handler: async (ctx, args) => {
