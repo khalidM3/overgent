@@ -1,0 +1,11 @@
+{
+  "baselineState": "ancestor",
+  "entries": [
+    {"path": "delete-me.txt", "status": "deleted"},
+    {"path": "renamed.txt", "status": "renamed", "oldPath": "rename-source.txt"},
+    {"path": "staged.txt", "status": "added"},
+    {"path": "tracked.txt", "status": "modified"},
+    {"path": "untracked.txt", "status": "untracked"}
+  ],
+  "ignoredPathsOmitted": ["ignored/secret-shaped.txt"]
+}

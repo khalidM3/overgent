@@ -1,0 +1,8 @@
+{
+  "pathCount": 1000,
+  "chunkSize": 200,
+  "chunkCount": 5,
+  "contentHash": "8411f58a580dccac6d9ac19c4084690f6b8d32b553e21385262667f7ed10a102",
+  "activation": "only_after_all_chunks_and_content_hash_match",
+  "payloadFields": ["path", "status", "oldPath"]
+}
