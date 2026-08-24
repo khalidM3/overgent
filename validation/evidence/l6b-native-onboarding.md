@@ -8,6 +8,10 @@ Outcome: PASS under ADR-032
 - `Stickguy Dev.app` retains its Wails runtime while Vite supplies React/CSS hot
   reload, using the framework's loopback dev-server proxy instead of navigating
   the webview directly away from the native origin.
+- The dashboard explicitly imports `/wails/runtime.js` only on Wails origins;
+  a regression test verifies the fully qualified native service call. Fresh
+  `pnpm dev` runs force Convex's documented anonymous agent mode so a TTY cannot
+  block backend readiness with an account prompt.
 - The first-run screen chooses a directory with the native macOS picker,
   canonicalizes it, and reuses the reviewed Git baseline/fingerprint preflight.
 - A user can create a Project or consume an invite, name the device, explicitly

@@ -26,7 +26,7 @@ Node 22 is the supported fix. Then run commands from the repository root:
 |---|---|
 | `pnpm dev` | Build the CLI, start local Convex, Vite, the development desktop, and the Go service once an enrolled default profile exists. |
 | `pnpm dev:ui` | Start the dashboard at `127.0.0.1:5173` with React hot reload and a proxy to local Convex. |
-| `pnpm dev:backend` | Start the loopback Convex deployment and reload hosted functions on change. |
+| `pnpm dev:backend` | Start the anonymous loopback Convex deployment without an account prompt and reload hosted functions on change. |
 | `pnpm dev:service` | Build `bin/stickguy` and run the enrolled default-profile Go service in the foreground. |
 | `pnpm desktop:dev` | Start Vite if needed, compile `Stickguy Dev.app` once, and keep the native Dock/menu-bar app attached to Vite hot reload. |
 | `pnpm dev:install` | Atomically install or replace `~/Applications/Stickguy Dev.app`. Run `pnpm dev:ui` while using the installed app. |

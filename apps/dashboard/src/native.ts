@@ -42,9 +42,17 @@ declare global {
   var wails: { Call?: WailsCall } | undefined;
 }
 
-function call<T>(method: string, ...args: unknown[]): Promise<T> {
-  if (!globalThis.wails?.Call?.ByName) return Promise.reject(new Error("The native Stickguy bridge is unavailable. Open this flow in Stickguy Dev.app."));
-  return globalThis.wails.Call.ByName<T>(`main.OnboardingService.${method}`, ...args);
+const runtimeModulePath = "/wails/runtime.js";
+let importedCall: WailsCall | undefined;
+const nativeRuntimeReady = window.location.protocol === "wails:" || window.location.hostname === "wails.localhost"
+  ? import(/* @vite-ignore */ runtimeModulePath).then((runtime: { Call?: WailsCall }) => { importedCall = runtime.Call; })
+  : Promise.resolve();
+
+async function call<T>(method: string, ...args: unknown[]): Promise<T> {
+  await nativeRuntimeReady;
+  const bridge = importedCall ?? globalThis.wails?.Call;
+  if (!bridge?.ByName) return Promise.reject(new Error("The native Stickguy bridge is unavailable. Open this flow in Stickguy Dev.app."));
+  return bridge.ByName<T>(`main.OnboardingService.${method}`, ...args);
 }
 
 export const nativeOnboarding = {
