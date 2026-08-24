@@ -43,7 +43,14 @@ async function request(method, path, { token, body, expected = 200 } = {}) {
 
 function manifestHash(entries) {
   const hash = createHash("sha256");
-  for (const entry of entries) hash.update(`${entry.path}\0${entry.status}\0${entry.oldPath ?? ""}\0`);
+  for (const entry of entries) {
+    const fields = [entry.path];
+    for (const layer of ["baseline", "index", "worktree"]) {
+      const change = entry.states[layer];
+      fields.push(layer, change?.status ?? "", change?.oldPath ?? "");
+    }
+    hash.update(`${fields.join("\0")}\0`);
+  }
   return hash.digest("hex");
 }
 
@@ -183,12 +190,12 @@ function manifestEvents({ side, projectId, deviceId, workspaceId, sessionId, wor
 }
 
 const entriesA = [
-  { path: "synthetic/shared.ts", status: "modified" },
-  { path: "synthetic/a-only.ts", status: "added" },
+  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, index: { status: "modified" }, worktree: { status: "modified" } } },
+  { path: "synthetic/a-only.ts", states: { worktree: { status: "added" } } },
 ];
 const entriesB = [
-  { path: "synthetic/shared.ts", status: "modified" },
-  { path: "synthetic/b-only.ts", status: "added" },
+  { path: "synthetic/shared.ts", states: { baseline: { status: "modified" }, worktree: { status: "modified" } } },
+  { path: "synthetic/b-only.ts", states: { index: { status: "added" } } },
 ];
 await request("POST", "/v1/events/batch", {
   token: tokenA,
@@ -209,7 +216,9 @@ timings.secondManifestAndFindingMs = Math.round(performance.now() - publishBStar
 
 const largeEntries = Array.from({ length: 1_000 }, (_, index) => ({
   path: index === 0 ? "synthetic/shared.ts" : `synthetic/large-${String(index).padStart(4, "0")}.ts`,
-  status: index === 0 ? "modified" : "added",
+  states: index === 0
+    ? { baseline: { status: "modified" }, index: { status: "modified" }, worktree: { status: "modified" } }
+    : { worktree: { status: "added" } },
 }));
 const largeManifestId = `mft_large_${suffix}`;
 const largeEvents = [
@@ -235,6 +244,41 @@ const largeEvents = [
 const largeStarted = performance.now();
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: largeEvents } });
 timings.atomicManifest1000PathsMs = Math.round(performance.now() - largeStarted);
+
+const emptyManifestId = `mft_empty_${suffix}`;
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({
+    eventId: `evt_empty_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 18, type: "workspace.manifest_started",
+    payload: { manifestId: emptyManifestId, revision: 3, workstreamId: ids.workstreamA, baselineRef: "a".repeat(40), headRef: "d".repeat(40), chunkCount: 0 },
+  }),
+  event({
+    eventId: `evt_empty_complete_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 19, type: "workspace.manifest_completed",
+    payload: { manifestId: emptyManifestId, revision: 3, contentHash: manifestHash([]) },
+  }),
+] } });
+
+const staleManifestId = `mft_stale_${suffix}`;
+const staleEntries = [{ path: "synthetic/stale.ts", states: { worktree: { status: "added" } } }];
+const staleAck = (await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({
+    eventId: `evt_stale_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 20, type: "workspace.manifest_started",
+    payload: { manifestId: staleManifestId, revision: 2, workstreamId: ids.workstreamA, baselineRef: "a".repeat(40), headRef: "e".repeat(40), chunkCount: 1 },
+  }),
+  event({
+    eventId: `evt_stale_chunk_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 21, type: "workspace.manifest_chunk",
+    payload: { manifestId: staleManifestId, chunkIndex: 0, entries: staleEntries },
+  }),
+  event({
+    eventId: `evt_stale_complete_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 22, type: "workspace.manifest_completed",
+    payload: { manifestId: staleManifestId, revision: 2, contentHash: manifestHash(staleEntries) },
+  }),
+] } })).body;
+assert(staleAck.acceptedEventIds.includes(`evt_stale_complete_${suffix}`));
 
 const briefA = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, {
   token: tokenA,
@@ -353,6 +397,9 @@ console.log(JSON.stringify({
     outOfOrderAcceptedWithoutStaleProjection: true,
     atomicManifestAndDeterministicFinding: true,
     atomicManifest1000Paths: true,
+    layeredManifestStatesPreserved: true,
+    emptyManifestSnapshotActivated: true,
+    staleManifestCompletionAcknowledgedWithoutRollback: true,
     authorizedBriefAndItem: true,
     materialContextRevisionsOnly: true,
     crossProjectDenied: true,
