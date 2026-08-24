@@ -1,0 +1,5 @@
+{
+  "baselineState": "diverged_non_ancestor",
+  "headState": "detached",
+  "action": "publish_current_tree_delta_with_degraded_baseline_fidelity_and_request_new_explicit_baseline"
+}

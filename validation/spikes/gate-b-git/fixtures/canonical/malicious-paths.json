@@ -1,0 +1,16 @@
+{
+  "acceptedAsOpaquePathMetadata": [
+    "-leading-option.txt",
+    "dollar$(touch nope).txt",
+    "line\nbreak.txt",
+    "semi;colon.txt",
+    "space name.txt"
+  ],
+  "rejected": [
+    "../escape",
+    "absolute paths",
+    "NUL-containing paths",
+    "symlink targets outside the registered root",
+    "nonexistent terminals below an escaping symlink parent"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "corpusVersion": 1,
+  "embeddingFixture": "synthetic-concept-vector-v1",
+  "workstreams": [
+    {
+      "id": "wrk_auth_cookie",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Rotate browser sessions after privilege changes and revoke prior credentials.",
+      "paths": ["convex/auth/sessions.ts"],
+      "dependencies": ["membership-role-schema"],
+      "vector": [1.0, 1.0, 0.2, 0.0, 0.0]
+    },
+    {
+      "id": "wrk_login_token",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Issue new web login credentials after a member role changes and invalidate old credentials.",
+      "paths": ["apps/dashboard/src/auth/token.ts"],
+      "vector": [1.0, 0.9, 0.2, 0.0, 0.0]
+    },
+    {
+      "id": "wrk_schema_migration",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Add a membership role revision consumed by authorization and dashboard clients.",
+      "paths": ["convex/schema.ts", "protocol/schemas/member.json"],
+      "dependencies": ["membership-role-schema"],
+      "vector": [0.8, 0.2, 1.0, 0.0, 0.0]
+    },
+    {
+      "id": "wrk_permission_assumption",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Treat role changes as immediately effective while existing sessions remain valid until expiry.",
+      "paths": [],
+      "vector": [0.9, 0.9, 0.7, 0.0, 0.0]
+    },
+    {
+      "id": "wrk_mechanical_generated",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Regenerate one thousand locale catalogs without behavior changes.",
+      "paths": ["generated/locales/0001.json", "generated/locales/1000.json"],
+      "pathCount": 1000,
+      "vector": [0.0, 0.0, 0.0, 1.0, 0.1]
+    },
+    {
+      "id": "wrk_mechanical_icons",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Reformat generated icon metadata across one thousand files.",
+      "paths": ["generated/icons/0001.json", "generated/icons/1000.json"],
+      "pathCount": 1000,
+      "vector": [0.0, 0.0, 0.0, 1.0, 0.2]
+    },
+    {
+      "id": "wrk_auth_documentation",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Document browser session rotation behavior for operators without changing code.",
+      "paths": ["docs/session-rotation.md"],
+      "vector": [0.8, 0.8, 0.1, 0.0, 1.0]
+    },
+    {
+      "id": "wrk_completed_auth",
+      "repositoryId": "repo_primary",
+      "status": "done",
+      "summary": "Rotate browser sessions after privilege changes.",
+      "paths": ["legacy/session.ts"],
+      "vector": [1.0, 1.0, 0.1, 0.0, 0.0]
+    },
+    {
+      "id": "wrk_unrelated_search",
+      "repositoryId": "repo_primary",
+      "status": "active",
+      "summary": "Tune documentation search ranking without changing authentication or membership data.",
+      "paths": ["apps/dashboard/src/search/rank.ts"],
+      "vector": [0.0, 0.0, 0.0, 0.1, 1.0]
+    },
+    {
+      "id": "wrk_other_repository",
+      "repositoryId": "repo_isolation",
+      "status": "active",
+      "summary": "Rotate browser sessions after privilege changes and revoke prior credentials.",
+      "paths": ["convex/auth/sessions.ts"],
+      "vector": [1.0, 1.0, 0.2, 0.0, 0.0]
+    }
+  ],
+  "cases": [
+    {"id":"duplicate_behavior","left":"wrk_auth_cookie","right":"wrk_login_token","expectedCandidate":true,"expectedKind":"redundant_work","routeTo":["wrk_auth_cookie","wrk_login_token"]},
+    {"id":"incompatible_intent","left":"wrk_auth_cookie","right":"wrk_permission_assumption","expectedCandidate":true,"expectedKind":"assumption_conflict","routeTo":["wrk_auth_cookie","wrk_permission_assumption"]},
+    {"id":"shared_schema_impact","left":"wrk_auth_cookie","right":"wrk_schema_migration","expectedCandidate":true,"expectedKind":"shared_dependency","routeTo":["wrk_auth_cookie","wrk_schema_migration"]},
+    {"id":"independent_large_changes","left":"wrk_mechanical_generated","right":"wrk_mechanical_icons","expectedCandidate":false,"expectedKind":"","routeTo":[]},
+    {"id":"related_not_conflicting","left":"wrk_auth_cookie","right":"wrk_auth_documentation","expectedCandidate":false,"expectedKind":"","routeTo":[]},
+    {"id":"completed_is_ineligible","left":"wrk_auth_cookie","right":"wrk_completed_auth","expectedCandidate":false,"expectedKind":"","routeTo":[]},
+    {"id":"unrelated_fourth","left":"wrk_auth_cookie","right":"wrk_unrelated_search","expectedCandidate":false,"expectedKind":"","routeTo":[]},
+    {"id":"repository_isolation","left":"wrk_auth_cookie","right":"wrk_other_repository","expectedCandidate":false,"expectedKind":"","routeTo":[]}
+  ]
+}
