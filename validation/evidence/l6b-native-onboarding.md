@@ -15,8 +15,11 @@ Outcome: PASS under ADR-032
 - The first-run screen chooses a directory with the native macOS picker,
   canonicalizes it, and reuses the reviewed Git baseline/fingerprint preflight.
 - A user can create a Project or consume an invite, name the device, explicitly
-  opt detected Codex/Claude Code adapters in, and receive the creator's one-use
+  opt Codex/Claude Code adapters in, and receive the creator's one-use
   invite without a terminal command.
+- Agent discovery covers `PATH`, standard macOS app/user-local locations, and
+  NVM-managed Claude installs. Discovery is advisory and never disables an
+  explicit adapter choice when the app process cannot see a valid installation.
 - The connected screen shows deterministic Git observation and adapter fidelity,
   opens the Project through a short-lived nonce handoff, and can configure an
   adapter later without overwriting unrelated Project configuration.
@@ -34,7 +37,7 @@ Focused checks passed while implementing:
 GOCACHE=/private/tmp/stickguy-onboarding-go-cache go test ./internal/activation
 GOCACHE=/private/tmp/stickguy-onboarding-desktop-cache go test ./...  # apps/desktop
 CI=true pnpm --dir apps/dashboard typecheck
-CI=true pnpm --dir apps/dashboard test  # 16 tests
+CI=true pnpm --dir apps/dashboard test  # 18 tests after native-bridge and agent-detection regressions
 CI=true pnpm desktop:assets
 GOCACHE=/private/tmp/stickguy-onboarding-desktop-cache node scripts/build-desktop.mjs --development
 ```
