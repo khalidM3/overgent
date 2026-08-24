@@ -145,7 +145,7 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
-	warnings := service.configureAdapters(root, request.EnableCodex, request.EnableClaude)
+	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude)...)
 	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
 }
 
