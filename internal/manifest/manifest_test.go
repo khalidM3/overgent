@@ -23,7 +23,9 @@ func TestChunkPreservesThousandEntries(t *testing.T) {
 		}
 		rebuilt = append(rebuilt, chunk...)
 	}
-	if len(rebuilt) != 1000 || git.Hash(rebuilt) != git.Hash(entries) {
+	rebuiltHash, rebuiltErr := git.Hash(rebuilt)
+	entriesHash, entriesErr := git.Hash(entries)
+	if len(rebuilt) != 1000 || rebuiltErr != nil || entriesErr != nil || rebuiltHash != entriesHash {
 		t.Fatal("chunk reconstruction changed manifest")
 	}
 }

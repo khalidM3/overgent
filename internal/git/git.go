@@ -11,8 +11,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 type Runner struct{}
@@ -192,14 +194,17 @@ func status(c byte) string {
 	}
 }
 func normalize(root, raw string) (string, error) {
-	if raw == "" || filepath.IsAbs(raw) || strings.IndexByte(raw, 0) >= 0 {
+	if raw == "" || !utf8.ValidString(raw) || filepath.IsAbs(raw) || strings.IndexByte(raw, 0) >= 0 {
 		return "", errors.New("invalid relative path")
 	}
 	clean := filepath.Clean(filepath.FromSlash(raw))
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", errors.New("path escape")
 	}
-	abs, _ := filepath.Abs(root)
+	abs, e := filepath.Abs(root)
+	if e != nil {
+		return "", fmt.Errorf("resolve repository root: %w", e)
+	}
 	if resolved, e := filepath.EvalSymlinks(abs); e == nil {
 		abs = resolved
 	}
@@ -208,8 +213,8 @@ func normalize(root, raw string) (string, error) {
 	for {
 		resolved, e := filepath.EvalSymlinks(existing)
 		if e == nil {
-			rel, _ := filepath.Rel(abs, resolved)
-			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			rel, relErr := filepath.Rel(abs, resolved)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				return "", errors.New("symlink escape")
 			}
 			break
@@ -223,7 +228,11 @@ func normalize(root, raw string) (string, error) {
 		}
 		existing = parent
 	}
-	return filepath.ToSlash(clean), nil
+	normalized := filepath.ToSlash(clean)
+	if utf8.RuneCountInString(normalized) > 512 {
+		return "", errors.New("path exceeds manifest limit")
+	}
+	return normalized, nil
 }
 func validOID(s string) bool {
 	if len(s) != 40 && len(s) != 64 {
@@ -236,24 +245,29 @@ func validOID(s string) bool {
 	}
 	return true
 }
-func Hash(entries []Entry) string {
+func Hash(entries []Entry) (string, error) {
 	h := sha256.New()
-	for _, e := range entries {
+	for i, e := range entries {
+		if i > 0 && entries[i-1].Path >= e.Path {
+			return "", errors.New("manifest paths must be strictly ordered and unique")
+		}
 		fmt.Fprintf(h, "%s\x00", e.Path)
-		for _, state := range []*Change{e.States.Baseline, e.States.Index, e.States.Worktree} {
-			if state == nil {
-				fmt.Fprint(h, "\x00\x00")
-				continue
+		for _, layer := range []struct {
+			name  string
+			state *Change
+		}{{"baseline", e.States.Baseline}, {"index", e.States.Index}, {"worktree", e.States.Worktree}} {
+			status, oldPath := "", ""
+			if layer.state != nil {
+				status, oldPath = layer.state.Status, layer.state.OldPath
 			}
-			fmt.Fprintf(h, "%s\x00%s\x00", state.Status, state.OldPath)
+			fmt.Fprintf(h, "%s\x00%s\x00%s\x00", layer.name, status, oldPath)
 		}
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 func Fingerprint(ctx context.Context, r Runner, root, projectID string) (string, error) {
-	common, e := r.run(ctx, root, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if e != nil {
-		return "", e
+	if !regexp.MustCompile(`^prj_[a-z0-9_]{1,80}$`).MatchString(projectID) {
+		return "", errors.New("invalid Project ID")
 	}
 	names, e := r.run(ctx, root, "remote")
 	if e != nil {
@@ -272,9 +286,34 @@ func Fingerprint(ctx context.Context, r Runner, root, projectID string) (string,
 		rem = append(rem, v)
 	}
 	sort.Strings(rem)
-	raw := projectID + "\x00" + filepath.Clean(strings.TrimSpace(string(common))) + "\x00" + strings.Join(rem, "\x00")
+	rem = uniqueStrings(rem)
+	if len(rem) == 0 {
+		return "", errors.New("repository registration requires exactly one distinct normalized remote; found none")
+	}
+	if len(rem) != 1 {
+		return "", errors.New("repository registration requires explicit selection from multiple distinct remotes")
+	}
+	raw := "stickguy.repository-fingerprint.v1\x00" + projectID + "\x00" + rem[0]
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func CommonDir(ctx context.Context, r Runner, root string) (string, error) {
+	b, e := r.run(ctx, root, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if e != nil {
+		return "", e
+	}
+	return filepath.Clean(strings.TrimSpace(string(b))), nil
+}
+
+func uniqueStrings(in []string) []string {
+	out := in[:0]
+	for _, value := range in {
+		if len(out) == 0 || out[len(out)-1] != value {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 func normalizeRemote(raw string) (string, error) {
 	if !strings.Contains(raw, "://") {

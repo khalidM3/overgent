@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +20,7 @@ import (
 )
 
 type Sender interface {
-	Send(context.Context, []store.QueueEvent) error
+	Send(context.Context, string, []byte) error
 }
 type Service struct {
 	paths       config.Paths
@@ -57,7 +59,7 @@ func Run(ctx context.Context, root string, sender Sender) error {
 	s := &Service{paths: paths, store: sdb, cfg: cfg, sender: sender}
 	s.boot, _ = sdb.Boot(ctx)
 	for _, w := range cfg.Workspaces {
-		if e = sdb.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, Root: w.Root, Baseline: w.Baseline}); e != nil {
+		if e = sdb.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, MemberID: w.MemberID, DeviceID: cfg.DeviceID, SessionID: w.SessionID, Root: w.Root, Baseline: w.Baseline, Fingerprint: w.Fingerprint}); e != nil {
 			return e
 		}
 	}
@@ -83,18 +85,21 @@ func (s *Service) scanAll(ctx context.Context) {
 		if e != nil {
 			continue
 		}
-		_, h, b, e := s.store.ActiveManifest(ctx, w.ID)
+		contentHash, e := git.Hash(m.Entries)
+		if e != nil {
+			continue
+		}
+		_, h, _, e := s.store.ActiveManifest(ctx, w.ID)
 		if e == nil {
-			var old []git.Entry
-			_ = json.Unmarshal(b, &old)
-			if h == git.Hash(m.Entries) {
+			if h == contentHash {
 				continue
 			}
 		} else if e != sql.ErrNoRows {
 			continue
 		}
-		_, _ = s.store.PublishManifest(ctx, w.ID, git.Hash(m.Entries), m.Entries, "evt_"+uuid.NewString())
-		s.scans++
+		if _, e = s.store.PublishManifest(ctx, store.ManifestPublication{WorkspaceID: w.ID, ManifestID: newID("mft_"), Baseline: m.Baseline, Head: m.Head, Hash: contentHash, Entries: m.Entries, EventID: newID("evt_")}); e == nil {
+			s.scans++
+		}
 	}
 }
 func (s *Service) flushLoop(ctx context.Context) {
@@ -122,20 +127,35 @@ func (s *Service) flush(ctx context.Context) {
 	for _, w := range ws {
 		paused[w.ID] = w.Paused
 	}
-	var send []store.QueueEvent
+	groups := map[string][]store.QueueEvent{}
+	var order []string
 	for _, e := range pending {
 		if !paused[e.WorkspaceID] {
-			send = append(send, e)
+			if groups[e.WorkspaceID] == nil {
+				order = append(order, e.WorkspaceID)
+			}
+			groups[e.WorkspaceID] = append(groups[e.WorkspaceID], e)
 		}
 	}
-	if len(send) == 0 {
-		return
-	}
-	if s.sender.Send(ctx, send) == nil {
-		for _, e := range send {
-			_ = s.store.Ack(ctx, e.ID)
+	for _, workspaceID := range order {
+		events := groups[workspaceID]
+		for len(events) > 0 {
+			n := min(100, len(events))
+			window := events[:n]
+			batch, e := store.Batch(window)
+			if e != nil || s.sender.Send(ctx, workspaceID, batch) != nil {
+				break
+			}
+			for _, event := range window {
+				_ = s.store.Ack(ctx, event.ID)
+			}
+			events = events[n:]
 		}
 	}
+}
+
+func newID(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response {
 	switch q.Method {
@@ -155,7 +175,21 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return daemon.Response{Error: "unsupported method"}
 	}
 }
-func Register(ctx context.Context, root string, w config.Workspace) error {
+func Register(ctx context.Context, root, deviceID string, w config.Workspace) error {
+	for label, value := range map[string]struct {
+		value, pattern string
+	}{
+		"Project":    {w.ProjectID, `^prj_[a-z0-9_]{1,80}$`},
+		"workspace":  {w.ID, `^wsp_[a-z0-9_]{1,123}$`},
+		"workstream": {w.WorkstreamID, `^wrk_[a-z0-9_]{1,80}$`},
+		"member":     {w.MemberID, `^mem_[a-z0-9_]{1,123}$`},
+		"device":     {deviceID, `^dev_[a-z0-9_]{1,123}$`},
+		"session":    {w.SessionID, `^ses_[a-z0-9_]{1,123}$`},
+	} {
+		if !regexp.MustCompile(value.pattern).MatchString(value.value) {
+			return fmt.Errorf("invalid %s ID", label)
+		}
+	}
 	paths, e := config.Resolve(root)
 	if e != nil {
 		return e
@@ -169,6 +203,22 @@ func Register(ctx context.Context, root string, w config.Workspace) error {
 	if e != nil {
 		return e
 	}
+	if cfg.DeviceID != "" && cfg.DeviceID != deviceID {
+		return fmt.Errorf("device ID does not match registered service device")
+	}
+	cfg.DeviceID = deviceID
+	absRoot, e := filepath.Abs(w.Root)
+	if e != nil {
+		return fmt.Errorf("resolve workspace root: %w", e)
+	}
+	w.Root, e = filepath.EvalSymlinks(absRoot)
+	if e != nil {
+		return fmt.Errorf("resolve workspace root symlinks: %w", e)
+	}
+	info, e := os.Stat(w.Root)
+	if e != nil || !info.IsDir() {
+		return fmt.Errorf("workspace root is not a directory")
+	}
 	for _, v := range cfg.Workspaces {
 		if v.ID == w.ID || v.Root == w.Root {
 			return fmt.Errorf("workspace already registered")
@@ -179,6 +229,10 @@ func Register(ctx context.Context, root string, w config.Workspace) error {
 		return e
 	}
 	w.Baseline = baseline
+	w.Fingerprint, e = git.Fingerprint(ctx, git.Runner{}, w.Root, w.ProjectID)
+	if e != nil {
+		return fmt.Errorf("fingerprint workspace repository: %w", e)
+	}
 	cfg.Workspaces = append(cfg.Workspaces, w)
 	return config.Save(paths, cfg)
 }
