@@ -2,8 +2,13 @@ import { snapshotForProject } from "./fixtures";
 import type { FindingState, ProjectSnapshot } from "./model";
 
 export class FixtureProjectSource {
+  readonly live: boolean = false;
   private snapshots = new Map<string, ProjectSnapshot>();
   private listeners = new Map<string, Set<() => void>>();
+
+  constructor(initial: ProjectSnapshot[] = []) {
+    for (const snapshot of initial) this.snapshots.set(snapshot.project.id, structuredClone(snapshot));
+  }
 
   get(projectId: string): ProjectSnapshot {
     const current = this.snapshots.get(projectId);
@@ -48,6 +53,11 @@ export class FixtureProjectSource {
         fidelity: "git",
       }, ...snapshot.activity],
     }));
+  }
+
+  replace(snapshot: ProjectSnapshot): void {
+    this.snapshots.set(snapshot.project.id, structuredClone(snapshot));
+    for (const listener of this.listeners.get(snapshot.project.id) ?? []) listener();
   }
 
   private update(projectId: string, updater: (snapshot: ProjectSnapshot) => ProjectSnapshot): void {

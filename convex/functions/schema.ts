@@ -69,6 +69,7 @@ export default defineSchema({
     secretHash: v.string(),
     projectId: v.id("projects"),
     memberId: v.id("members"),
+    deviceId: v.optional(v.id("devices")),
     expiresAt: v.number(),
     revokedAt: v.optional(v.number()),
   })

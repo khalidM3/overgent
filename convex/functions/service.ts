@@ -171,9 +171,75 @@ export const exchangeDashboardTicket = internalMutation({
       secretHash: args.sessionHash,
       projectId: ticket.projectId,
       memberId: ticket.memberId,
+      deviceId: ticket.deviceId,
       expiresAt: args.sessionExpiresAt,
     });
     return true;
+  },
+});
+
+export const dashboardSession = internalQuery({
+  args: { sessionHash: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    return {
+      memberName: auth.member.displayName,
+      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: "disabled" }],
+      selectedProjectId: auth.project.publicId,
+    };
+  },
+});
+
+export const dashboardSnapshot = internalQuery({
+  args: { sessionHash: v.string(), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    if (auth.project.publicId !== args.projectPublicId) fail("forbidden");
+    const workspaces = await ctx.db.query("workspaces").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
+    if (workspaces.length > 100) fail("page_too_large");
+    const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
+    const memberById = new Map(members.map((member) => [member._id, member]));
+    const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
+    const workstreams = [];
+    const devices = [];
+    let contextRevision = 0;
+    for (const workspace of workspaces) {
+      const stream = projectWorkstreams.find((candidate) => candidate.workspaceId === workspace._id);
+      const member = memberById.get(workspace.memberId);
+      const device = await ctx.db.get(workspace.deviceId);
+      const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).unique();
+      contextRevision = Math.max(contextRevision, scope?.contextRevision ?? 0);
+      let pathCount = 0;
+      let paths: string[] = [];
+      let manifestRevision = 0;
+      if (stream?.currentManifestId) {
+        const manifest = await ctx.db.get(stream.currentManifestId);
+        if (manifest) {
+          pathCount = manifest.pathCount;
+          manifestRevision = manifest.revision;
+          const chunks = await ctx.db.query("changeManifestChunks").withIndex("by_manifest_chunk", (q) => q.eq("manifestId", manifest._id)).take(2);
+          paths = chunks.flatMap((chunk) => chunk.entries.map((entry) => entry.path)).slice(0, 3);
+        }
+      }
+      const lastSeenAt = device?.lastSeenAt ?? 0;
+      const presence = workspace.paused ? "paused" : args.now - lastSeenAt <= 35_000 ? "online" : args.now - lastSeenAt <= 120_000 ? "idle" : "offline";
+      if (stream) workstreams.push({
+        id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
+        title: stream.title, outcome: stream.summary, presence, fidelity: "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
+        pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
+      });
+      if (device) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, lastSeenAt) });
+    }
+    const findingDocs = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(100);
+    const findings = findingDocs.map((finding) => ({
+      id: finding.publicId, kind: dashboardFindingKind(finding.kind), severity: finding.severity, confidence: finding.confidenceBand, state: dashboardFindingState(finding.state),
+      title: finding.kind.replaceAll("_", " "), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
+      evidence: (finding.evidence as Array<{ kind: string; summary: string; source: string }>).map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
+      firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
+    }));
+    const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(20);
+    const activity = activityDocs.map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
+    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: "disabled" }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
   },
 });
 
@@ -707,6 +773,71 @@ function findingContract(finding: Doc<"findings">) {
 
 function severityRank(severity: string): number {
   return ({ low: 1, medium: 2, high: 3, critical: 4 } as Record<string, number>)[severity] ?? 0;
+}
+
+async function requireBrowserSession(ctx: QueryCtx, sessionHash: string, now: number) {
+  const session = await ctx.db.query("browserSessions").withIndex("by_secret_hash", (q) => q.eq("secretHash", sessionHash)).unique();
+  if (!session || session.revokedAt !== undefined || session.expiresAt <= now) fail("unauthorized");
+  const project = await ctx.db.get(session.projectId);
+  const member = await ctx.db.get(session.memberId);
+  const device = session.deviceId ? await ctx.db.get(session.deviceId) : null;
+  if (!project || project.status !== "active" || !member || member.removedAt !== undefined || member.projectId !== project._id || !device || device.revokedAt !== undefined || member.deviceId !== device._id) fail("unauthorized");
+  return { session, project, member, device };
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "SG";
+}
+
+function relativeLabel(now: number, then: number): string {
+  if (!then) return "never";
+  const seconds = Math.max(0, Math.floor((now - then) / 1000));
+  if (seconds < 5) return "Now";
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr`;
+}
+
+function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" {
+  if (type === "workstream.intent_reported") return "intent";
+  if (type === "workstream.checkpoint_reported") return "checkpoint";
+  if (type === "workspace.paused" || type === "workspace.resumed") return "pause";
+  return "manifest";
+}
+
+function activitySummary(type: string, payload: unknown): string {
+  const object = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  if (type === "workstream.intent_reported") return `reported intent: ${String(object.title ?? "untitled work")}`;
+  if (type === "workspace.manifest_completed") return `published manifest revision ${String(object.revision ?? "")}`.trim();
+  if (type === "workspace.registered") return "registered a workspace";
+  return type.replaceAll(".", " ").replaceAll("_", " ");
+}
+
+function dashboardFindingKind(kind: string): "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" {
+  if (["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact"].includes(kind)) return kind as ReturnType<typeof dashboardFindingKind>;
+  return "likely_collision";
+}
+
+function dashboardFindingState(state: string): "open" | "acknowledged" | "resolved" | "dismissed" {
+  if (["open", "acknowledged", "resolved", "dismissed"].includes(state)) return state as ReturnType<typeof dashboardFindingState>;
+  return "acknowledged";
+}
+
+function dashboardEvidenceKind(kind: string): "path" | "contract" | "dependency" | "intent" {
+  if (kind === "path") return "path";
+  if (kind === "dependency") return "dependency";
+  if (["schema", "route"].includes(kind)) return "contract";
+  return "intent";
+}
+
+function dashboardEvidenceSource(source: string): "git" | "mcp" | "manual" | "semantic_candidate" {
+  if (["git", "mcp", "manual", "semantic_candidate"].includes(source)) return source as ReturnType<typeof dashboardEvidenceSource>;
+  return "manual";
+}
+
+function dashboardFidelity(source: string): "mcp" | "git" | "manual" | "hook_unverified" {
+  if (["mcp", "git", "manual", "hook_unverified"].includes(source)) return source as ReturnType<typeof dashboardFidelity>;
+  return "manual";
 }
 
 function fail(code: string): never {

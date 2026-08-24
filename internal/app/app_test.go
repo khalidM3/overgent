@@ -30,7 +30,7 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 	state := t.TempDir()
 	repo := makeRepo(t)
 	ctx := context.Background()
-	if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: repo}); e != nil {
+	if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: repo}); e != nil {
 		t.Fatal(e)
 	}
 	for i := range 1000 {
@@ -132,7 +132,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	ctx := context.Background()
 	for i, r := range []string{r1, r2} {
 		id := string(rune('a' + i))
-		if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: r}); e != nil {
+		if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: r}); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -154,7 +154,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	if e := Run(context.Background(), state, nil); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("second instance: %v", e)
 	}
-	if e := Register(ctx, state, "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
+	if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("concurrent registration: %v", e)
 	}
 	wait(t, func() bool { return send.workspaceBatches("wsp_a") > 0 && send.workspaceBatches("wsp_b") > 0 })
@@ -162,6 +162,10 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	_, e = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "pause", WorkspaceID: "wsp_a"})
 	if e != nil {
 		t.Fatal(e)
+	}
+	intentResponse, e := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "intent", WorkspaceID: "wsp_a", Title: "Synthetic intent", IntendedOutcome: "Prove paused intent remains durable"})
+	if e != nil || !intentResponse.OK {
+		t.Fatal(intentResponse, e)
 	}
 	writeFile(t, r1, "paused.txt")
 	_, _ = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "scan"})
@@ -182,6 +186,17 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	}
 	cancel2()
 	<-done2
+}
+
+func TestRetryDelayIsBoundedAndJittered(t *testing.T) {
+	if got := retryDelay(0); got != 500*time.Millisecond {
+		t.Fatalf("initial retry delay=%s", got)
+	}
+	for range 100 {
+		if got := retryDelay(20); got < 24*time.Second || got > 36*time.Second {
+			t.Fatalf("capped retry delay=%s", got)
+		}
+	}
 }
 func start(t *testing.T, state string, s Sender) (context.CancelFunc, chan error) {
 	t.Helper()
@@ -239,12 +254,12 @@ func TestRegisterRejectsExternalIdentifiersAndRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := valid
 			mutate(&w)
-			if e := Register(context.Background(), state, "dev_valid", w); e == nil {
+			if e := Register(context.Background(), state, "https://api.stickguy.dev", "dev_valid", w); e == nil {
 				t.Fatal("invalid registration accepted")
 			}
 		})
 	}
-	if e := Register(context.Background(), state, "BAD", valid); e == nil {
+	if e := Register(context.Background(), state, "https://api.stickguy.dev", "BAD", valid); e == nil {
 		t.Fatal("invalid device ID accepted")
 	}
 }

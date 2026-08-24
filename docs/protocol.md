@@ -65,6 +65,9 @@ The event-envelope JSON Schema selects an exact, closed payload shape for every 
 | POST | `/v1/enrollments` | Exchange invite for device credential/dashboard ticket. |
 | POST | `/v1/dashboard-tickets` | Authenticated device mints a short-lived, single-use ticket for one authorized Project. |
 | POST | `/v1/dashboard-tickets/exchange` | Exchange single-use browser ticket. |
+| POST | `/v1/dashboard-activations` | Top-level form activation; exchange ticket, set browser cookie, and redirect without URL disclosure. |
+| GET | `/v1/dashboard/session` | Read the current browser member and authorized Project list. |
+| GET | `/v1/dashboard/projects/{id}` | Read a bounded, browser-authorized live Project snapshot. |
 | GET | `/v1/device/bootstrap` | Memberships, workspaces, compatibility, cursors. |
 | POST | `/v1/events/batch` | Validate/deduplicate bounded batch and acknowledge. |
 | POST | `/v1/presence/heartbeat` | Update server-time presence. |

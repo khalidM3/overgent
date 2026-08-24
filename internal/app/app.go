@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +24,9 @@ import (
 
 type Sender interface {
 	Send(context.Context, string, []byte) error
+}
+type presenceSender interface {
+	Heartbeat(context.Context, string, string) error
 }
 type Service struct {
 	paths       config.Paths
@@ -75,6 +81,7 @@ func Run(ctx context.Context, root string, sender Sender) error {
 	go watch.Run(ctx)
 	s.scanAll(ctx)
 	go s.flushLoop(ctx)
+	go s.heartbeatLoop(ctx)
 	return daemon.Serve(ctx, paths.Socket, s.handle)
 }
 func (s *Service) scanAll(ctx context.Context) {
@@ -106,23 +113,35 @@ func (s *Service) flushLoop(ctx context.Context) {
 	if s.sender == nil {
 		return
 	}
-	t := time.NewTicker(500 * time.Millisecond)
+	failures := 0
+	t := time.NewTimer(500 * time.Millisecond)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.flush(ctx)
+			if s.flush(ctx) {
+				failures = 0
+			} else {
+				failures++
+			}
+			t.Reset(retryDelay(failures))
 		}
 	}
 }
-func (s *Service) flush(ctx context.Context) {
-	pending, _ := s.store.Pending(ctx)
-	if len(pending) == 0 {
-		return
+func (s *Service) flush(ctx context.Context) bool {
+	pending, err := s.store.Pending(ctx)
+	if err != nil {
+		return false
 	}
-	ws, _ := s.store.Workspaces(ctx)
+	if len(pending) == 0 {
+		return true
+	}
+	ws, err := s.store.Workspaces(ctx)
+	if err != nil {
+		return false
+	}
 	paused := map[string]bool{}
 	for _, w := range ws {
 		paused[w.ID] = w.Paused
@@ -144,13 +163,68 @@ func (s *Service) flush(ctx context.Context) {
 			window := events[:n]
 			batch, e := store.Batch(window)
 			if e != nil || s.sender.Send(ctx, workspaceID, batch) != nil {
-				break
+				return false
 			}
 			for _, event := range window {
-				_ = s.store.Ack(ctx, event.ID)
+				if e := s.store.Ack(ctx, event.ID); e != nil {
+					return false
+				}
 			}
 			events = events[n:]
 		}
+	}
+	return true
+}
+
+func retryDelay(failures int) time.Duration {
+	if failures <= 0 {
+		return 500 * time.Millisecond
+	}
+	base := 500 * time.Millisecond
+	for i := 1; i < failures && base < 30*time.Second; i++ {
+		base *= 2
+	}
+	if base > 30*time.Second {
+		base = 30 * time.Second
+	}
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return base
+	}
+	// Jitter within 80-120% prevents synchronized reconnect storms.
+	permille := 800 + binary.BigEndian.Uint64(random[:])%401
+	return time.Duration(int64(base) * int64(permille) / 1000)
+}
+
+func (s *Service) heartbeatLoop(ctx context.Context) {
+	presence, ok := s.sender.(presenceSender)
+	if !ok {
+		return
+	}
+	s.sendHeartbeats(ctx, presence)
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sendHeartbeats(ctx, presence)
+		}
+	}
+}
+
+func (s *Service) sendHeartbeats(ctx context.Context, presence presenceSender) {
+	workspaces, err := s.store.Workspaces(ctx)
+	if err != nil {
+		return
+	}
+	for _, workspace := range workspaces {
+		state := "active"
+		if workspace.Paused {
+			state = "paused"
+		}
+		_ = presence.Heartbeat(ctx, workspace.ID, state)
 	}
 }
 
@@ -168,6 +242,34 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 			return daemon.Response{Error: e.Error()}
 		}
 		return daemon.Response{OK: true}
+	case "intent":
+		if e := validateIntent(q); e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		workstreamID := workspaceWorkstream(s.cfg, q.WorkspaceID)
+		if workstreamID == "" {
+			return daemon.Response{Error: "workspace not found"}
+		}
+		payload := map[string]any{"workstreamId": workstreamID, "title": q.Title, "intendedOutcome": q.IntendedOutcome}
+		if q.ApproachSummary != "" {
+			payload["approachSummary"] = q.ApproachSummary
+		}
+		if len(q.Components) > 0 {
+			payload["components"] = q.Components
+		}
+		if len(q.Contracts) > 0 {
+			payload["contracts"] = q.Contracts
+		}
+		if len(q.AnticipatedPaths) > 0 {
+			payload["anticipatedPaths"] = q.AnticipatedPaths
+		}
+		if len(q.PlanItemIDs) > 0 {
+			payload["planItemIds"] = q.PlanItemIDs
+		}
+		if e := s.store.EnqueueEvent(ctx, q.WorkspaceID, newID("evt_"), "manual", "workstream.intent_reported", payload); e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true}
 	case "scan":
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
@@ -175,7 +277,49 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return daemon.Response{Error: "unsupported method"}
 	}
 }
-func Register(ctx context.Context, root, deviceID string, w config.Workspace) error {
+
+func workspaceWorkstream(cfg config.Config, workspaceID string) string {
+	for _, workspace := range cfg.Workspaces {
+		if workspace.ID == workspaceID {
+			return workspace.WorkstreamID
+		}
+	}
+	return ""
+}
+
+func validateIntent(q daemon.Request) error {
+	if q.WorkspaceID == "" {
+		return errors.New("workspace id required")
+	}
+	if len(q.Title) < 1 || len(q.Title) > 160 {
+		return errors.New("intent title must be 1-160 characters")
+	}
+	if len(q.IntendedOutcome) < 1 || len(q.IntendedOutcome) > 2000 {
+		return errors.New("intended outcome must be 1-2000 characters")
+	}
+	if len(q.ApproachSummary) > 2000 {
+		return errors.New("approach summary exceeds 2000 characters")
+	}
+	if len(q.Components) > 32 || len(q.Contracts) > 32 || len(q.AnticipatedPaths) > 100 || len(q.PlanItemIDs) > 32 {
+		return errors.New("intent list exceeds contract limit")
+	}
+	for _, values := range []struct {
+		name  string
+		items []string
+		max   int
+	}{{"component", q.Components, 160}, {"contract", q.Contracts, 160}, {"anticipated path", q.AnticipatedPaths, 512}, {"plan item id", q.PlanItemIDs, 128}} {
+		for _, item := range values.items {
+			if len(item) < 1 || len(item) > values.max || strings.ContainsAny(item, "\r\n\x00") {
+				return fmt.Errorf("intent %s must be 1-%d safe characters", values.name, values.max)
+			}
+		}
+	}
+	return nil
+}
+func Register(ctx context.Context, root, apiBaseURL, deviceID string, w config.Workspace) error {
+	if apiBaseURL == "" {
+		return fmt.Errorf("hosted API base URL is required")
+	}
 	for label, value := range map[string]struct {
 		value, pattern string
 	}{
@@ -206,6 +350,10 @@ func Register(ctx context.Context, root, deviceID string, w config.Workspace) er
 	if cfg.DeviceID != "" && cfg.DeviceID != deviceID {
 		return fmt.Errorf("device ID does not match registered service device")
 	}
+	if cfg.APIBaseURL != "" && cfg.APIBaseURL != apiBaseURL {
+		return fmt.Errorf("hosted API base URL does not match registered service")
+	}
+	cfg.APIBaseURL = apiBaseURL
 	cfg.DeviceID = deviceID
 	absRoot, e := filepath.Abs(w.Root)
 	if e != nil {

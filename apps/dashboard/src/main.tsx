@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useMemo, useRef, useState, useSyncExternalStore 
 import { createRoot } from "react-dom/client";
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
+import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import type { DashboardSession, Finding, FindingState, ProjectSnapshot, ShellState } from "./model";
 import { fidelityLabel, semanticMessage, stateMessage } from "./state";
 import "./style.css";
@@ -35,6 +36,40 @@ function ActivationView({ onActivate }: { onActivate: () => void }) {
   return <main className="centered-shell"><Brand /><section className="activation-card" aria-labelledby="activation-title"><p className="eyebrow">Browser activation</p><h1 id="activation-title">Bring the live Project view to this browser.</h1><p className="lede">Your one-time dashboard ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What the Project shares</strong><p>Workstream intent, path and dependency metadata, findings, decisions, presence, and fidelity labels. Never source, diffs, prompts, transcripts, environment values, or raw test output.</p></div><button className="primary-button" onClick={onActivate}>Activate secure session</button><p className="microcopy">Session cookies are secure, HTTP-only, same-site, revocable, and rotated after privilege changes.</p></section></main>;
 }
 
+function LiveApp() {
+  const [state, setState] = useState<"activation" | "loading" | "ready" | "unauthorized" | "version_mismatch" | "offline">("loading");
+  const [session, setSession] = useState<DashboardSession | null>(null);
+  const [source, setSource] = useState<LiveProjectSource | null>(null);
+
+  const load = async () => {
+    setState("loading");
+    try {
+      const nextSession = await loadSession();
+      if (nextSession.projects.length === 0) { setSession(nextSession); setState("ready"); return; }
+      const snapshots = await Promise.all(nextSession.projects.map((project) => loadSnapshot(project.id)));
+      setSession(nextSession);
+      setSource(new LiveProjectSource(snapshots, setState));
+      setState("ready");
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      setState(status === 401 || status === 403 ? "activation" : status === 409 ? "version_mismatch" : "offline");
+    }
+  };
+  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!source || !session) return;
+    return source.start(session.selectedProjectId);
+  }, [source, session]);
+
+  if (state === "loading") return <LoadingView />;
+  if (state === "version_mismatch") return <TerminalState state="version_mismatch" />;
+  if (state === "activation") return <ActivationView onActivate={() => void load()} />;
+  if (state === "unauthorized") return <TerminalState state="unauthorized" />;
+  if (!session || session.projects.length === 0) return <EmptyView />;
+  if (!source) return <TerminalState state="unauthorized" />;
+  return <Dashboard session={session} source={source} offline={state === "offline"} />;
+}
+
 function LoadingView() {
   return <main className="centered-shell"><Brand /><section className="state-card" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><p className="eyebrow">Connecting</p><h1>{stateMessage("loading")}</h1><p>Authorizing membership and loading the current Project revision.</p></section></main>;
 }
@@ -60,12 +95,12 @@ function Dashboard({ session, source, offline }: { session: DashboardSession; so
     <aside className="sidebar"><Brand /><nav aria-label="Projects" className="project-nav"><p className="nav-label">Projects</p>{session.projects.map((project) => <button key={project.id} className={project.id === projectId ? "project-link active" : "project-link"} aria-current={project.id === projectId ? "page" : undefined} onClick={() => selectProject(project.id)}><span className="project-dot" aria-hidden="true" /><span><strong>{project.name}</strong><small>{project.repositoryLabel}</small></span></button>)}</nav><div className="sidebar-footer"><button className="profile-button" onClick={() => setDevicesOpen(true)} aria-haspopup="dialog" aria-label="Open devices and privacy"><span className="avatar">KH</span><span><strong>{session.memberName}</strong><small>Devices & privacy</small></span></button></div></aside>
     <main className="dashboard-main">
       {offline && <div className="offline-banner" role="status"><strong>Offline</strong><span>Showing revision {snapshot.contextRevision}, synchronized {snapshot.synchronizedAt}. Actions are unavailable until reconnection.</span></div>}
-      <header className="topbar"><div><p className="eyebrow">Live Project</p><h1>{snapshot.project.name}</h1><p className="repo-label">{snapshot.project.repositoryLabel} · revision {snapshot.contextRevision}</p></div><div className="topbar-actions"><span className={offline ? "sync-status offline" : "sync-status"}><span aria-hidden="true" />{offline ? "Offline" : `Live · ${snapshot.synchronizedAt}`}</span><button className={snapshot.workspacePaused ? "pause-button paused" : "pause-button"} disabled={offline} onClick={() => source.togglePause(projectId)}>{snapshot.workspacePaused ? "Resume sharing" : "Pause sharing"}</button></div></header>
+      <header className="topbar"><div><p className="eyebrow">Live Project</p><h1>{snapshot.project.name}</h1><p className="repo-label">{snapshot.project.repositoryLabel} · revision {snapshot.contextRevision}</p></div><div className="topbar-actions"><span className={offline ? "sync-status offline" : "sync-status"}><span aria-hidden="true" />{offline ? "Offline" : `Live · ${snapshot.synchronizedAt}`}</span><button className={snapshot.workspacePaused ? "pause-button paused" : "pause-button"} disabled={offline || source.live} title={source.live ? "Use the local Stickguy CLI for immediate pause" : undefined} onClick={() => source.togglePause(projectId)}>{source.live ? "Pause from CLI" : snapshot.workspacePaused ? "Resume sharing" : "Pause sharing"}</button></div></header>
       <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
       {snapshot.workspacePaused && <section className="pause-banner" role="status"><span aria-hidden="true">Ⅱ</span><div><strong>Workspace sharing is paused</strong><p>Activity payload transmission stopped before this state was shown. Minimal connection health remains visible.</p></div></section>}
       <SemanticBanner status={snapshot.project.semanticStatus} />
       <section className="summary-grid" aria-label="Project summary"><SummaryStat label="Active workstreams" value={String(snapshot.workstreams.filter((w) => w.presence !== "offline").length)} note={`${snapshot.workstreams.length} total`} /><SummaryStat label="Open findings" value={String(snapshot.findings.filter((f) => f.state === "open").length)} note={`${snapshot.findings.length} in radar`} tone="alert" /><SummaryStat label="Observed paths" value={snapshot.workstreams.reduce((sum, w) => sum + w.pathCount, 0).toLocaleString()} note="metadata only" /><SummaryStat label="Devices" value={String(snapshot.devices.length)} note={`${snapshot.devices.filter((d) => d.status === "online").length} online`} /></section>
-      <section className="content-grid"><div className="primary-column"><section className="panel" aria-labelledby="workstreams-title"><PanelHeader eyebrow="Team now" title="Workstreams" action={<button className="text-button" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}>Publish fixture update</button>} id="workstreams-title" /><div className="workstream-list">{snapshot.workstreams.map((workstream) => <WorkstreamCard key={workstream.id} workstream={workstream} />)}</div></section><section className="panel activity-panel" aria-labelledby="activity-title"><PanelHeader eyebrow="Structured history" title="Recent activity" id="activity-title" /><ol className="activity-list">{snapshot.activity.map((item) => <li key={item.id}><span className={`activity-mark ${item.kind}`} aria-hidden="true" /><div><p><strong>{item.actor}</strong> {item.summary}</p><span>{item.at} · {item.fidelity}</span></div></li>)}</ol></section></div>
+      <section className="content-grid"><div className="primary-column"><section className="panel" aria-labelledby="workstreams-title"><PanelHeader eyebrow="Team now" title="Workstreams" action={source.live ? undefined : <button className="text-button" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}>Publish fixture update</button>} id="workstreams-title" /><div className="workstream-list">{snapshot.workstreams.map((workstream) => <WorkstreamCard key={workstream.id} workstream={workstream} />)}</div></section><section className="panel activity-panel" aria-labelledby="activity-title"><PanelHeader eyebrow="Structured history" title="Recent activity" id="activity-title" /><ol className="activity-list">{snapshot.activity.map((item) => <li key={item.id}><span className={`activity-mark ${item.kind}`} aria-hidden="true" /><div><p><strong>{item.actor}</strong> {item.summary}</p><span>{item.at} · {item.fidelity}</span></div></li>)}</ol></section></div>
         <section className="panel radar-panel" aria-labelledby="radar-title"><PanelHeader eyebrow="Evidence, not alarms" title="Finding radar" id="radar-title" />{snapshot.findings.length === 0 ? <div className="panel-empty"><span aria-hidden="true">✓</span><strong>No findings for this Project</strong><p>Structural observation continues. Semantic processing is {snapshot.project.semanticStatus}.</p></div> : <><ul className="finding-tabs" aria-label="Findings">{snapshot.findings.map((finding) => <FindingButton key={finding.id} finding={finding} selected={finding.id === selectedFinding?.id} onClick={() => setSelectedFindingId(finding.id)} />)}</ul>{selectedFinding && <FindingDetail finding={selectedFinding} workstreams={snapshot.workstreams} disabled={offline} onState={(state) => source.setFindingState(projectId, selectedFinding.id, state)} />}</>}</section>
       </section>
     </main>{devicesOpen && <DeviceDialog snapshot={snapshot} onClose={() => setDevicesOpen(false)} />}
@@ -113,4 +148,4 @@ function DeviceDialog({ snapshot, onClose }: { snapshot: ProjectSnapshot; onClos
 }
 
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<StrictMode><App /></StrictMode>);
+if (root) createRoot(root).render(<StrictMode>{new URLSearchParams(window.location.search).get("live") === "1" ? <LiveApp /> : <App />}</StrictMode>);
