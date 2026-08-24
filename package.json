@@ -1,0 +1,19 @@
+{
+  "name": "stickguy",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm --recursive typecheck",
+    "test": "pnpm --recursive test",
+    "build": "pnpm --recursive build",
+    "protocol:generate": "node scripts/protocol-generate.mjs",
+    "protocol:check": "node scripts/protocol-check.mjs"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.47.0",
+    "openapi-typescript": "7.10.1"
+  }
+}

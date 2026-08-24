@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/event-envelope.schema.json",
+  "title": "EventEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "projectId", "memberId", "deviceId", "workspaceId", "sessionId", "sequence", "observedAt", "sentAt", "source", "type", "payload"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventId": { "$ref": "#/$defs/id" },
+    "projectId": { "$ref": "#/$defs/id" },
+    "memberId": { "$ref": "#/$defs/id" },
+    "deviceId": { "$ref": "#/$defs/id" },
+    "workspaceId": { "$ref": "#/$defs/id" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "sentAt": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["git", "manual", "mcp", "hook", "adapter/v1"] },
+    "type": {
+      "type": "string",
+      "enum": [
+        "workspace.registered", "workspace.manifest_started", "workspace.manifest_chunk", "workspace.manifest_completed",
+        "workspace.paused", "workspace.resumed", "workstream.intent_reported", "workstream.checkpoint_reported",
+        "workstream.status_changed", "context.acknowledged", "activity.reported", "claim.created", "claim.released"
+      ]
+    },
+    "payload": { "type": "object", "maxProperties": 24 }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" }
+  }
+}

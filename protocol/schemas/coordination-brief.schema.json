@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/coordination-brief.schema.json",
+  "title": "CoordinationBrief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["briefId", "projectId", "repositoryId", "workstreamId", "contextRevision", "generatedAt", "trigger", "requestedBudget", "renderedSize", "truncated", "items"],
+  "properties": {
+    "briefId": {"type": "string", "pattern": "^brf_[A-Za-z0-9_-]{1,80}$"},
+    "projectId": {"type": "string"},
+    "repositoryId": {"type": "string"},
+    "workstreamId": {"type": "string"},
+    "contextRevision": {"type": "integer", "minimum": 0},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "trigger": {"enum": ["begin", "before_broad_edit", "checkpoint", "refresh", "finish", "manual"]},
+    "requestedBudget": {"type": "integer", "minimum": 128, "maximum": 800},
+    "renderedSize": {"type": "integer", "minimum": 0},
+    "truncated": {"type": "boolean"},
+    "items": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/item"}},
+    "nextCursor": {"type": "string", "maxLength": 256}
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "kind", "text", "relevanceReason", "fidelity", "advisoryAction", "priority"],
+      "properties": {
+        "id": {"type": "string"},
+        "revision": {"type": "integer", "minimum": 1},
+        "kind": {"enum": ["finding", "decision", "dependency", "workstream", "truncation"]},
+        "text": {"type": "string", "maxLength": 800},
+        "relevanceReason": {"type": "string", "maxLength": 300},
+        "fidelity": {"type": "string", "maxLength": 80},
+        "advisoryAction": {"enum": ["informational", "review_recommended", "coordination_required"]},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "eventId": "evt_01k3dk3y1b7e9m4p6q8r2t5v0w",
+  "projectId": "prj_fixture",
+  "memberId": "mem_fixture",
+  "deviceId": "dev_fixture",
+  "workspaceId": "wsp_fixture",
+  "sessionId": "ses_fixture",
+  "sequence": 42,
+  "observedAt": "2026-08-23T18:30:00Z",
+  "sentAt": "2026-08-23T18:30:02Z",
+  "source": "git",
+  "type": "workspace.manifest_completed",
+  "payload": {
+    "manifestId": "mft_fixture",
+    "revision": 7,
+    "contentHash": "d0f3ccca481c252791adcb0b8b1b4f4c506f33e916bf974bd5de5bcc67fe9fd2"
+  }
+}
