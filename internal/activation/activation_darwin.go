@@ -13,25 +13,35 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
-func Open(ctx context.Context, apiBaseURL, ticket string) error {
+type Handoff struct {
+	url      string
+	listener net.Listener
+	server   *http.Server
+	served   chan struct{}
+	done     chan error
+	once     sync.Once
+}
+
+func Start(apiBaseURL, ticket string) (*Handoff, error) {
 	base, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
 	if err != nil || base.Host == "" || base.Path != "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Scheme != "https" && !(base.Scheme == "http" && isLoopback(base.Hostname()))) {
-		return errors.New("dashboard activation requires an HTTPS API origin or loopback validation origin")
+		return nil, errors.New("dashboard activation requires an HTTPS API origin or loopback validation origin")
 	}
 	if len(ticket) < 22 || len(ticket) > 512 || strings.ContainsAny(ticket, "\r\n") {
-		return errors.New("dashboard activation ticket is invalid")
+		return nil, errors.New("dashboard activation ticket is invalid")
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
-		return fmt.Errorf("listen for dashboard activation handoff: %w", err)
+		return nil, fmt.Errorf("listen for dashboard activation handoff: %w", err)
 	}
-	defer listener.Close()
 	nonceBytes := make([]byte, 16)
 	if _, err = rand.Read(nonceBytes); err != nil {
-		return fmt.Errorf("generate dashboard activation nonce: %w", err)
+		_ = listener.Close()
+		return nil, fmt.Errorf("generate dashboard activation nonce: %w", err)
 	}
 	path := "/activate/" + hex.EncodeToString(nonceBytes)
 	action := strings.TrimRight(apiBaseURL, "/") + "/v1/dashboard-activations"
@@ -57,24 +67,44 @@ func Open(ctx context.Context, apiBaseURL, ticket string) error {
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 3 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	localURL := "http://" + listener.Addr().String() + path
-	if err = exec.CommandContext(ctx, "/usr/bin/open", localURL).Run(); err != nil {
-		_ = server.Close()
-		return fmt.Errorf("open dashboard activation in browser: %w", err)
-	}
+	return &Handoff{url: "http://" + listener.Addr().String() + path, listener: listener, server: server, served: served, done: done}, nil
+}
+
+func (handoff *Handoff) URL() string { return handoff.url }
+
+func (handoff *Handoff) Wait(ctx context.Context) error {
+	defer handoff.close()
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	select {
-	case <-served:
+	case <-handoff.served:
 	case <-waitCtx.Done():
-		_ = server.Close()
 		return fmt.Errorf("wait for browser activation handoff: %w", waitCtx.Err())
 	}
-	_ = server.Shutdown(context.Background())
-	if serveErr := <-done; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+	_ = handoff.server.Shutdown(context.Background())
+	if serveErr := <-handoff.done; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		return fmt.Errorf("serve dashboard activation handoff: %w", serveErr)
 	}
 	return nil
+}
+
+func (handoff *Handoff) close() {
+	handoff.once.Do(func() {
+		_ = handoff.server.Close()
+		_ = handoff.listener.Close()
+	})
+}
+
+func Open(ctx context.Context, apiBaseURL, ticket string) error {
+	handoff, err := Start(apiBaseURL, ticket)
+	if err != nil {
+		return err
+	}
+	if err = exec.CommandContext(ctx, "/usr/bin/open", handoff.URL()).Run(); err != nil {
+		handoff.close()
+		return fmt.Errorf("open dashboard activation in browser: %w", err)
+	}
+	return handoff.Wait(ctx)
 }
 
 func isLoopback(host string) bool {

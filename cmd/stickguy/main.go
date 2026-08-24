@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -148,10 +150,11 @@ func run(args []string) error {
 		setupFlags := flag.NewFlagSet("setup "+rest[1], flag.ContinueOnError)
 		projectRoot := setupFlags.String("project-root", ".", "trusted coding-agent project root")
 		agent := setupFlags.String("agent", "codex", "coding agent for status/remove: codex or claude")
+		development := setupFlags.Bool("development", false, "explicitly install the local development MCP adapter")
 		if e = setupFlags.Parse(rest[2:]); e != nil {
 			return e
 		}
-		if rest[1] == "codex" || rest[1] == "claude" {
+		if (rest[1] == "codex" || rest[1] == "claude") && !*development {
 			return errors.New("coding-agent setup is withheld: L5 real-client validation narrowed; use Git/manual coordination fallback")
 		}
 		executable, executableErr := os.Executable()
@@ -168,8 +171,10 @@ func run(args []string) error {
 		var status any
 		var setupErr error
 		if selected == "codex" {
-			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot}
+			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development}
 			switch rest[1] {
+			case "codex":
+				status, setupErr = manager.Setup()
 			case "status":
 				status, setupErr = manager.Status()
 			case "remove":
@@ -178,8 +183,10 @@ func run(args []string) error {
 				return errors.New("setup command and agent do not match")
 			}
 		} else {
-			manager := claudesetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot}
+			manager := claudesetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development}
 			switch rest[1] {
+			case "claude":
+				status, setupErr = manager.Setup()
 			case "status":
 				status, setupErr = manager.Status()
 			case "remove":
@@ -209,6 +216,13 @@ func run(args []string) error {
 			return printCall(ctx, paths.Socket, daemon.Request{Method: "health"})
 		}
 	case "workspace":
+		if len(rest) >= 2 && rest[1] == "list" {
+			cfg, loadErr := config.Load(paths)
+			if loadErr != nil {
+				return loadErr
+			}
+			return json.NewEncoder(os.Stdout).Encode(cfg.Workspaces)
+		}
 		if len(rest) < 2 || rest[1] != "add" {
 			break
 		}
@@ -221,8 +235,67 @@ func run(args []string) error {
 		session := wf.String("session", "", "")
 		apiBase := wf.String("api", "", "")
 		repo := wf.String("root", "", "")
+		development := wf.Bool("development", false, "derive a second local workstream from the enrolled development profile")
 		if e = wf.Parse(rest[2:]); e != nil {
 			return e
+		}
+		if *development {
+			if *repo == "" {
+				return errors.New("development workspace add requires root")
+			}
+			cfg, loadErr := config.Load(paths)
+			if loadErr != nil {
+				return loadErr
+			}
+			if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
+				return errors.New("development profile is not enrolled; run stickguy create first")
+			}
+			projectIDs := map[string]bool{}
+			for _, existing := range cfg.Workspaces {
+				projectIDs[existing.ProjectID] = true
+			}
+			if *project == "" {
+				if len(projectIDs) != 1 {
+					return errors.New("multiple Projects are enrolled; specify --project")
+				}
+				for value := range projectIDs {
+					*project = value
+				}
+			}
+			var source config.Workspace
+			for _, existing := range cfg.Workspaces {
+				if existing.ProjectID == *project {
+					source = existing
+					break
+				}
+			}
+			if source.ID == "" {
+				return errors.New("selected Project is not enrolled")
+			}
+			var idErr error
+			if *id, idErr = devID("wsp_"); idErr == nil {
+				*workstream, idErr = devID("wrk_")
+			}
+			if idErr == nil {
+				*session, idErr = devID("ses_")
+			}
+			if idErr != nil {
+				return idErr
+			}
+			*member, *device, *apiBase = source.MemberID, cfg.DeviceID, cfg.APIBaseURL
+			request := daemon.Request{Method: "add_development_workspace", WorkspaceID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo}
+			response, callErr := daemon.Call(ctx, paths.Socket, request)
+			if callErr == nil {
+				if !response.OK {
+					return errors.New(response.Error)
+				}
+				return json.NewEncoder(os.Stdout).Encode(response.Data)
+			}
+			workspace := config.Workspace{ID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo}
+			if addErr := app.Register(ctx, *root, *apiBase, *device, workspace); addErr != nil {
+				return fmt.Errorf("add stopped-service development workspace after IPC unavailable: %w", addErr)
+			}
+			return json.NewEncoder(os.Stdout).Encode(workspace)
 		}
 		if *id == "" || *project == "" || *workstream == "" || *member == "" || *device == "" || *session == "" || *apiBase == "" || *repo == "" {
 			return errors.New("workspace add requires id, project, workstream, member, device, session, api, root")
@@ -255,6 +328,14 @@ func run(args []string) error {
 		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0]})
 	}
 	return errors.New("unsupported command")
+}
+
+func devID(prefix string) (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", fmt.Errorf("generate development identifier: %w", err)
+	}
+	return prefix + hex.EncodeToString(value[:]), nil
 }
 func printCall(ctx context.Context, socket string, q daemon.Request) error {
 	r, e := daemon.Call(ctx, socket, q)

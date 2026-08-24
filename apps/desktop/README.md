@@ -15,7 +15,15 @@ Run from the repository root:
 pnpm desktop:test
 pnpm desktop:build
 pnpm desktop:run
+pnpm desktop:dev
+pnpm dev:install
 ```
+
+`desktop:dev` builds the separately identified `Stickguy Dev.app` once and
+loads the loopback Vite server, so React and CSS hot reload in the native
+window. The development menu can perform a one-time local Project activation
+inside the webview after enrollment. Production builds ignore development URLs.
+See `docs/development.md` for the complete local stack and two-agent exercise.
 
 Wails `v3.0.0-beta.12` is exact-pinned in this separate Go module because the
 system-tray API remains beta and requires CGO. The root Go core remains pure-Go

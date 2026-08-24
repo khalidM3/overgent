@@ -15,6 +15,7 @@ Read in order:
 11. [`public-repository-boundary.md`](public-repository-boundary.md) — enforceable placement and prohibited-public-data boundary.
 12. [`prebuild-validation.md`](prebuild-validation.md) — executable architecture/adapter assumptions to prove first.
 13. [`implementation-plan.md`](implementation-plan.md) — continuous order/exit gates.
+14. [`development.md`](development.md) — local desktop, service, backend, and two-agent dogfood workflow.
 
 Use [`external-references.md`](external-references.md) when implementing third-party contracts; it is informational and lower precedence than Stickguy's own contracts.
 

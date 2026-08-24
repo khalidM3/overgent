@@ -118,6 +118,26 @@ concept provider is intentionally vocabulary-bounded; semantic findings remain
 quiet radar/brief evidence, and a broader provider or proactive interruption
 requires the later precision/cost/privacy gate.
 
+## L6A — Local dogfood developer loop
+
+Deliver one-command loopback Convex, Vite, Go service, and macOS development
+desktop orchestration; React hot reload in the native shell; an atomically
+installable `Stickguy Dev.app`; development-only in-webview dashboard ticket
+activation; hot registration of a second linked-worktree workstream; and
+explicit development-only Codex/Claude MCP configuration with Git/manual
+fallback fidelity.
+
+Exit: one member can run two distinct linked worktrees through one per-user
+service, attribute Codex and Claude to separate workstreams, see same-path Git
+overlap in the live native dashboard, and exercise L6 semantic findings using
+bounded reported intents. Production adapter setup, transcript monitoring, and
+non-loopback development origins remain disabled.
+
+Current outcome: complete under ADR-031. Frozen Go/TypeScript/protocol and both
+desktop build modes pass; the real development bundle launches against Vite;
+and the anonymous loopback L6 live suite passes all structural, semantic,
+authorization, and dashboard assertions.
+
 ## L7 — Plan, claims, sync, decisions
 
 Deliver revisioned plan items; ownership/status; normalized path/glob claims; sync-card create/comment/resolve; durable affected-member decisions; remaining MCP tools; optional untracked local context; structured while-away digest.

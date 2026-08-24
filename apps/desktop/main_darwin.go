@@ -28,7 +28,7 @@ func main() {
 	}
 
 	app := application.New(application.Options{
-		Name:        "Stickguy",
+		Name:        desktopProductName(),
 		Description: "Persistent coordination for teams working with coding agents",
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -46,7 +46,7 @@ func main() {
 		Height:           900,
 		MinWidth:         920,
 		MinHeight:        680,
-		URL:              "/",
+		URL:              desktopStartURL(),
 		BackgroundColour: application.NewRGB(244, 245, 240),
 		Mac: application.MacWindow{
 			TitleBar:    application.MacTitleBarHiddenInset,
@@ -61,7 +61,7 @@ func main() {
 	tray := app.SystemTray.New()
 	tray.SetTemplateIcon(menuBarIcon())
 	menu := app.NewMenu()
-	menu.Add("Stickguy desktop preview").SetEnabled(false)
+	menu.Add(desktopMenuLabel()).SetEnabled(false)
 	serviceItem := menu.Add("Service: checking…").SetEnabled(false)
 	activityItem := menu.Add("Activity: checking…").SetEnabled(false)
 	menu.AddSeparator()
@@ -69,6 +69,15 @@ func main() {
 		window.Show()
 		window.Focus()
 	})
+	if desktopDevelopment {
+		menu.Add("Open local live Project").OnClick(func(*application.Context) {
+			go func() {
+				if err := openLocalProject(context.Background(), window); err != nil {
+					slog.Warn("open local Project", "error", err)
+				}
+			}()
+		})
+	}
 	pauseItem := menu.Add("Pause all sharing").SetEnabled(false)
 	scanItem := menu.Add("Scan now").SetEnabled(false)
 	menu.AddSeparator()
