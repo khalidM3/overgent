@@ -32,7 +32,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
     try {
       const result = mode === "create" ? await api.createProject(request) : await api.joinProject(request);
       setJoinCode(result.joinCode);
-      setWarnings(result.warnings);
+      setWarnings(Array.isArray(result.warnings) ? result.warnings : []);
       await refresh();
     } catch (cause) { setError((cause as Error).message); }
     finally { setPending(false); }

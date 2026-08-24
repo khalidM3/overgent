@@ -20,6 +20,9 @@ Outcome: PASS under ADR-032
 - Agent discovery covers `PATH`, standard macOS app/user-local locations, and
   NVM-managed Claude installs. Discovery is advisory and never disables an
   explicit adapter choice when the app process cannot see a valid installation.
+- Successful enrollment serializes an empty warning list as `[]`; the React
+  boundary also normalizes a legacy/null warning response so the connected
+  screen cannot fail blank immediately after Project creation.
 - The connected screen shows deterministic Git observation and adapter fidelity,
   opens the Project through a short-lived nonce handoff, and can configure an
   adapter later without overwriting unrelated Project configuration.
@@ -37,7 +40,7 @@ Focused checks passed while implementing:
 GOCACHE=/private/tmp/stickguy-onboarding-go-cache go test ./internal/activation
 GOCACHE=/private/tmp/stickguy-onboarding-desktop-cache go test ./...  # apps/desktop
 CI=true pnpm --dir apps/dashboard typecheck
-CI=true pnpm --dir apps/dashboard test  # 18 tests after native-bridge and agent-detection regressions
+CI=true pnpm --dir apps/dashboard test  # 18 tests including native-bridge, detection, and post-create rendering regressions
 CI=true pnpm desktop:assets
 GOCACHE=/private/tmp/stickguy-onboarding-desktop-cache node scripts/build-desktop.mjs --development
 ```

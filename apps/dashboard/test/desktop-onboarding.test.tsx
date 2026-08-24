@@ -18,7 +18,7 @@ describe("desktop onboarding", () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => calls++ === 0 ? initial : enrolled),
       chooseRepository: vi.fn(async () => "/tmp/atlas"),
-      createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: [] })),
+      createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })),
       joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
