@@ -9,6 +9,8 @@ These are upstream contracts, not substitutes for Stickguy specifications. Re-ch
 - Codex lifecycle hooks: <https://learn.chatgpt.com/docs/hooks>
 - Codex non-interactive JSONL/structured output: <https://learn.chatgpt.com/docs/non-interactive-mode>
 - Codex App Server (evaluation reference, not V1 dependency): <https://learn.chatgpt.com/docs/app-server>
+- Claude Code hooks: <https://code.claude.com/docs/en/hooks>
+- Claude Agent SDK streaming: <https://code.claude.com/docs/en/agent-sdk/streaming-output>
 - Convex functions/HTTP actions: <https://docs.convex.dev/functions/overview>
 - Convex vector search and filter/consistency constraints: <https://docs.convex.dev/search/vector-search>
 - Convex limits: <https://docs.convex.dev/production/state/limits>

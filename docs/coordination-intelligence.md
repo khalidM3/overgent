@@ -118,6 +118,6 @@ Measure candidate recall separately from alert precision. Low-confidence candida
 
 ## 8. Privacy boundary
 
-Coordination summaries, symbol/path metadata, and embeddings are sensitive project metadata. Enrollment and settings disclose their processing and retention. Source, diffs, prompts, transcripts, and environment values remain prohibited.
+Coordination summaries, symbol/path metadata, and embeddings are sensitive project metadata. Enrollment and settings disclose their processing and retention. Source, diffs, prompts, transcripts, and environment values remain prohibited as intelligence/embedding inputs. Optional visible conversation events under ADR-027 remain separate activity history unless another focused ADR and evaluation gate permits a bounded derived coordination summary.
 
 Project deletion removes semantic objects, embeddings, findings, and evaluation feedback. Object supersession/deletion removes or tombstones the corresponding vector. Authorization is enforced before retrieval and again before loading results; vector similarity must never cross project boundaries.

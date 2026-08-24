@@ -70,6 +70,14 @@ Deliver stdio bridge; pinned stable official Go SDK; idempotent/revisioned `begi
 
 Exit: real Codex begins work and receives a brief, preflights broad edits, reports/retries a checkpoint without duplication, acknowledges context, and finishes with verification state; MCP exit does not stop service; ambiguity never guesses; unsupported agents retain Git/manual fidelity.
 
+Current outcome: narrowed by ADR-026. The lifecycle core and official-SDK bridge pass, but production Codex/Claude setup remains withheld pending focused current-client compatibility evidence.
+
+## L5A — Opt-in agent activity adapter validation
+
+Before adding shared contracts, run isolated synthetic Codex App Server/SDK and Claude Code hooks/Agent SDK spikes under ADR-027 and `agent-activity-sharing.md`. Map independently started versus adapter-connected session coverage; normalize session/turn/message/plan/tool/subagent/permission/file-path/verification events; and prove exact coordination/activity/conversation profile projection. Test owner/member consent precedence, representative preview, synchronous pause/downgrade, deletion/retention, adapter removal/config drift, unknown-event failure, and Project isolation. Use fixture-only content and retain only redacted capability/evidence metadata.
+
+Exit: each vendor is separately passed, narrowed, or assigned an existing Git/manual/MCP fallback; `.env` variants, protected paths, tokens, transcript/system/reasoning/source/diff/tool-result/raw-command/output candidates provably never reach durable storage or a sender; supported activity is sufficient to explain what an agent is doing without Stickguy owning or controlling its loop. Only then may the integrator define versioned shared schemas/generated code and enable an opt-in adapter.
+
 ## L6 — Coordination intelligence vertical slice
 
 Deliver bounded semantic-object validation; embedding-provider and semantic-index adapters; Convex vector search with mandatory composite project/repository scope keys plus post-retrieval authorization/current-state checks; lexical/structural/semantic candidate retrieval; versioned evidence fusion; finding kinds/confidence/severity/explanations; deterministic relevance router/brief renderer with budgets, context revisions, delivery/acknowledgement and stale-assumption detection; optional strict-schema adjudication for ambiguous candidates; retries/degraded mode; radar feedback; labeled fixtures/eval runner; dashboard/MCP delivery.

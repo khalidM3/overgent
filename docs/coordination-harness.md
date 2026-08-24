@@ -29,9 +29,9 @@ Stickguy never impersonates an agent, executes its coding tools, or claims to ha
 
 | Component | V1 responsibility |
 |---|---|
-| Observation | Git baseline/current manifests, workstream/session lifecycle, agent reports, coarse symbols/dependencies, bounded verification state. |
+| Observation | Git baseline/current manifests, workstream/session lifecycle, agent reports, coarse symbols/dependencies, bounded verification state, and explicitly opted-in policy-projected agent activity. |
 | Project model | Members, workstreams, plans, manifests, contracts, decisions, findings, revisions, and acknowledgements. |
-| Semantic memory | Revisioned intent/change/plan/decision summaries and embeddings; no transcript or source memory. |
+| Semantic memory | Revisioned intent/change/plan/decision summaries and embeddings; no transcript or source memory. Opt-in visible conversation events are activity history, not automatic semantic-memory input. |
 | Context router | Select, rank, budget, render, and version only information relevant to one workstream at one trigger. |
 | Coordinator | Fuse evidence, assign advisory severity, manage finding/sync lifecycle, and request human coordination when warranted. |
 | Delivery adapters | MCP responses, dashboard/live feed, native notification later, and explicit untracked context export. |
@@ -126,7 +126,7 @@ Stickguy permissions govern project data, findings, decisions, integrations, and
 
 Durable memory is structured canonical state: current/completed workstreams, revisioned plans/decisions, significant checkpoints, findings/resolutions, and acknowledged dependencies. Ephemeral events are compacted according to retention policy.
 
-Context compression means rendering relevant canonical objects into a small brief. V1 does not ingest a coding agent's full history and ask a model to summarize it. This makes briefs reproducible, deletable, attributable, and portable across agent products.
+Context compression means rendering relevant canonical objects into a small brief. V1 does not ingest a coding agent's full history and ask a model to summarize it. Optional visible conversation events do not become brief or embedding input unless a future focused ADR defines and validates that separate transformation. This keeps briefs reproducible, deletable, attributable, and portable across agent products.
 
 ## 9. Error and degradation behavior
 
