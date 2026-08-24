@@ -1,7 +1,7 @@
 # Stickguy — Continuous Implementation Plan
 
 Status: canonical execution order  
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 No time estimates. Complete levels in order, verify the exit gate, and immediately continue while work remains. Scaffolding alone never completes a level.
 
@@ -16,6 +16,10 @@ L0 contracts/scaffold
 L4 deterministic vertical slice
           ▼
 L5 MCP integration
+          ▼
+L5A agent activity validation
+          ▼
+L5B macOS desktop preview
           ▼
 L6 coordination intelligence
           ▼
@@ -85,6 +89,23 @@ subscription, so MCP/Git/manual remains its live fallback. Production collection
 is still disabled pending reviewed contracts, generated code, consent controls,
 retention/deletion integration, and end-to-end security tests.
 
+## L5B — macOS desktop preview
+
+Deliver the ADR-029 preview as a separate exact-pinned Wails v3 module: embed the
+shared React build without a localhost listener; provide one native window plus
+a persistent menu-bar item; read health and invoke pause/resume-all and scan only
+through the existing current-user Unix socket; label fixture-backed window data;
+and keep close-to-hide, open, and clean quit behavior. The preview must not start
+another service or introduce Wails/CGO into the root Go module.
+
+Exit: native macOS arm64 launch renders the shared dashboard; the system-tray
+menu remains after closing the window and reflects connected/disconnected and
+paused state honestly; pause/resume and scan reach the existing service; no TCP
+listener exists; tests, build, ad-hoc signing, privacy review, idle measurement,
+and a visual smoke pass. Signed/notarized distribution, updater integration,
+native notifications, deep links, cross-platform runtime support, and real
+hosted desktop authentication remain L8 or a separately gated milestone.
+
 ## L6 — Coordination intelligence vertical slice
 
 Deliver bounded semantic-object validation; embedding-provider and semantic-index adapters; Convex vector search with mandatory composite project/repository scope keys plus post-retrieval authorization/current-state checks; lexical/structural/semantic candidate retrieval; versioned evidence fusion; finding kinds/confidence/severity/explanations; deterministic relevance router/brief renderer with budgets, context revisions, delivery/acknowledgement and stale-assumption detection; optional strict-schema adjudication for ambiguous candidates; retries/degraded mode; radar feedback; labeled fixtures/eval runner; dashboard/MCP delivery.
@@ -99,7 +120,7 @@ Exit: two members resolve a finding and both agents receive the decision; concur
 
 ## L8 — Distribution and beta
 
-Deliver signed cross-platform releases/checksums/SBOM; installers; update/rollback; OS service recovery; member/device/invite management; export/deletion; privacy-safe diagnostics; load/soak/reconnect/migration/security tests; contributor/adapter guides; Wails spike and ADR only when demanded.
+Deliver signed cross-platform releases/checksums/SBOM; installers; update/rollback; OS service recovery; member/device/invite management; export/deletion; privacy-safe diagnostics; load/soak/reconnect/migration/security tests; contributor/adapter guides; re-evaluate the preview's Wails beta and qualify any supported desktop release.
 
 Exit: clean install/update/uninstall; security checklist; no critical data loss in restart/network/update tests; a real team voluntarily completes a second session.
 

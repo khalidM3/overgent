@@ -132,7 +132,7 @@ Build in observed-demand order:
 - while-you-were-away digest from structured events;
 - auto-update and robust OS service lifecycle;
 - explicitly authorized hosted read-only view;
-- Wails desktop shell, tray, native notifications, and deep links;
+- the ADR-029 macOS desktop preview shell and tray; native notifications, deep links, and supported distribution remain later gates;
 - explicit checkpoint publishing/fetching after a Git-host spike;
 - additional agent adapters and optional bounded narration.
 

@@ -241,7 +241,13 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 	case "health", "doctor":
 		w, _ := s.store.Workspaces(ctx)
 		p, _ := s.store.Pending(ctx)
-		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pending": len(p), "scans": s.scans, "pid": os.Getpid()}}
+		paused := 0
+		for _, workspace := range w {
+			if workspace.Paused {
+				paused++
+			}
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "pending": len(p), "scans": s.scans, "pid": os.Getpid()}}
 	case "pause", "resume":
 		if e := s.store.SetPaused(ctx, q.WorkspaceID, q.Method == "pause"); e != nil {
 			return daemon.Response{Error: e.Error()}

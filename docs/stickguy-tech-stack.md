@@ -1,7 +1,7 @@
 # Stickguy — Technology and Repository Plan
 
 Status: canonical  
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 ## 1. Stack decision
 
@@ -12,7 +12,7 @@ Last updated: 2026-08-23
 | Agent protocol | Official MCP Go SDK | Stdio and optional loopback Streamable HTTP. Pin stable. |
 | Hosted backend | Convex + TypeScript | Realtime subscriptions, transactions, schedules, HTTP actions, low ops. |
 | Dashboard | Vite + React + TypeScript | Hosted SPA; no SSR requirement. |
-| Desktop later | Wails + existing React UI | Wraps the Go core instead of replacing it. |
+| macOS desktop preview | Exact-pinned Wails v3 beta + existing React UI | Provides a native window/menu bar without replacing or duplicating the Go service. |
 | Contract | OpenAPI 3.1 + JSON Schema | Language-neutral source with generated Go/TS types. |
 | V1 embeddings | Backend `EmbeddingProvider` interface | Embed only approved coordination summaries; model/version recorded and replaceable. |
 | V1 semantic index | `SemanticIndex` domain interface; Convex vector adapter first | Shared cross-device retrieval without a second database or Rust runtime. |
@@ -45,6 +45,7 @@ stickguy/
 │   └── generated/              # never hand-edit
 ├── adapters/                   # public agent/platform adapters
 ├── apps/dashboard/
+├── apps/desktop/               # separate Wails preview module; embedded dashboard
 ├── convex/
 │   ├── intelligence/           # retrieval, evidence fusion, findings, evals
 │   ├── context/                # relevance router, brief rendering/versioning
@@ -65,7 +66,10 @@ stickguy/
 └── package.json
 ```
 
-Use one Go module until multiple are demonstrated necessary. Do not create a generic `pkg/` until a package is intentionally public.
+Use one root Go module for the service. ADR-029 permits one narrow separate
+`apps/desktop` module so Wails beta/CGO dependencies do not enter the pure-Go
+service graph. Do not create a generic `pkg/` until a package is intentionally
+public.
 
 ## 3. Initial Go preferences
 
@@ -104,7 +108,7 @@ stickguy update
 
 Convex stores coordination state, a separate vector table/index, and live dashboard projections. Go never imports a Convex SDK; it calls versioned Stickguy HTTP endpoints implemented by Convex HTTP actions. Semantic indexing is behind a Stickguy domain interface even though the first adapter uses Convex vector search. Domain/evidence-fusion rules live in testable TypeScript modules behind thin Convex wrappers. Device enrollment and browser tickets use Stickguy's own hashed-token flow; Convex Auth is not part of alpha.
 
-Frontend: React/TypeScript/Vite; minimal accessible components; no global state library until necessary; Playwright for critical flows; hosted responsive UI first and reuse in Wails later.
+Frontend: React/TypeScript/Vite; minimal accessible components; no global state library until necessary; Playwright for critical flows. The hosted and embedded desktop views reuse the same build; the preview window is fixture-backed while its menu bar talks only to the local service.
 
 ## 6. Distribution
 
@@ -112,7 +116,9 @@ Initial targets: macOS arm64/amd64, Windows amd64, Linux amd64/arm64. Add Window
 
 Use GoReleaser for checksums, archives/installers, SBOMs, and provenance, with Sigstore/Cosign-compatible signing. Provide direct signed downloads, macOS/Linux script, Windows PowerShell installer, then Homebrew/WinGet. Update metadata must be signed.
 
-End users need no runtime. Contributors need Go 1.26+, pnpm via Corepack, and Wails platform dependencies only after the desktop milestone.
+End users need no runtime. Contributors need Go 1.26+ and pnpm via Corepack.
+Building the optional macOS desktop preview additionally needs Xcode command-line
+tools and the exact-pinned Wails module dependencies.
 
 The application repository is intended to be public. Production operations, billing, internal admin/abuse systems, private runbooks, and private evaluation data live in a separate private `cloud-ops` repository. See `docs/open-source-strategy.md`.
 
@@ -128,7 +134,7 @@ The application repository is intended to be public. Production operations, bill
 
 ## 8. Deferred choices
 
-- Wails is after deterministic alpha; browser dashboard first.
+- Wails v3 remains beta and is accepted only for the ADR-029 macOS preview; signed/notarized and cross-platform support waits for L8 re-evaluation.
 - Embedding and adjudication provider activation waits for privacy fixtures and labeled coordination evals; their interfaces/schemas are V1 contracts.
 - TurboVec remains an optional local/self-hosted semantic-index adapter pending corpus benchmarks and a packaging ADR.
 - Checkpoint namespace waits for Git-host spikes.
