@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex } from "../src/domain";
+import { canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex } from "../src/domain";
+import type { ManifestEntry } from "../src/domain";
 
 const DAY = 86_400_000;
 const ACTIVITY_RETENTION = 30 * DAY;
@@ -23,14 +24,6 @@ type EventInput = {
   source: string;
   type: string;
   payload: Record<string, unknown>;
-};
-
-type ManifestEntry = {
-  path: string;
-  status: string;
-  oldPath?: string;
-  symbols?: string[];
-  dependencies?: string[];
 };
 
 export const createProject = internalMutation({
@@ -230,6 +223,7 @@ export const publishEvents = internalMutation({
       if (duplicate) {
         if (duplicate.deviceId !== device._id || duplicate.projectId !== project._id) fail("event_id_conflict");
         acceptedEventIds.push(event.eventId);
+        projects.set(project._id, Math.max(projects.get(project._id) ?? 0, event.sequence));
         continue;
       }
       await applyProjection(ctx, event, project, member, device, args.now);
@@ -516,6 +510,7 @@ async function applyProjection(
       const manifest = await requireManifest(ctx, String(payload.manifestId), project._id, workspace.scopeKey);
       if (manifest.state !== "staging" || manifest.revision !== Number(payload.revision)) fail("manifest_revision_conflict");
       const chunks = await ctx.db.query("changeManifestChunks").withIndex("by_manifest_chunk", (q) => q.eq("manifestId", manifest._id)).collect();
+      chunks.sort((left, right) => left.chunkIndex - right.chunkIndex);
       if (chunks.length !== manifest.expectedChunks || chunks.some((chunk, index) => chunk.chunkIndex !== index)) fail("manifest_incomplete");
       const entries = chunks.flatMap((chunk) => chunk.entries) as ManifestEntry[];
       const hash = manifestContentHash(entries);
@@ -524,6 +519,14 @@ async function applyProjection(
       if (!workstream) fail("workstream_not_found");
       if (workstream.currentManifestId) {
         const previous = await ctx.db.get(workstream.currentManifestId);
+        if (previous && !canActivateManifestRevision(previous.revision, manifest.revision)) {
+          // Keep the out-of-order event durable and acknowledged, but do not
+          // let its stale projection replace the newer active snapshot.
+          await ctx.db.patch(manifest._id, {
+            state: "superseded", contentHash: hash, pathCount: entries.length, activatedAt: now,
+          });
+          return;
+        }
         if (previous) await ctx.db.patch(previous._id, { state: "superseded" });
       }
       await ctx.db.patch(manifest._id, { state: "active", contentHash: hash, pathCount: entries.length, activatedAt: now });

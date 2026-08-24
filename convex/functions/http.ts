@@ -260,11 +260,10 @@ function bearer(request: Request): string {
   return token;
 }
 
-function requestRateKey(request: Request, scope: string): string {
-  // Only trust the platform-owned address header. Falling back to one shared
-  // bucket is safer than accepting a caller-spoofable forwarding header.
-  const address = request.headers.get("cf-connecting-ip") ?? "unavailable";
-  return sha256Hex(`${scope}\0${address.trim()}`);
+function requestRateKey(_request: Request, scope: string): string {
+  // Convex does not document a trustworthy client-IP header at this boundary.
+  // A shared bucket cannot be bypassed with caller-controlled forwarding data.
+  return sha256Hex(`${scope}\0shared-unauthenticated`);
 }
 
 async function assertEmptyBody(request: Request): Promise<void> {

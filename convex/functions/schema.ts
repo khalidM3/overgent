@@ -144,8 +144,11 @@ export default defineSchema({
     chunkIndex: v.number(),
     entries: v.array(v.object({
       path: v.string(),
-      status: v.string(),
-      oldPath: v.optional(v.string()),
+      states: v.object({
+        baseline: v.optional(v.object({ status: v.string(), oldPath: v.optional(v.string()) })),
+        index: v.optional(v.object({ status: v.string(), oldPath: v.optional(v.string()) })),
+        worktree: v.optional(v.object({ status: v.string(), oldPath: v.optional(v.string()) })),
+      }),
       symbols: v.optional(v.array(v.string())),
       dependencies: v.optional(v.array(v.string())),
     })),

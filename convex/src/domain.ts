@@ -2,6 +2,15 @@ import type { components } from "../../protocol/generated/typescript/schema.js";
 
 export type EventEnvelope = components["schemas"]["EventEnvelope"];
 export type EventType = EventEnvelope["type"];
+export type ChangeStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked";
+export type ManifestChange = { status: ChangeStatus; oldPath?: string };
+export type ManifestEntry = {
+  path: string;
+  states: { baseline?: ManifestChange; index?: ManifestChange; worktree?: ManifestChange };
+  symbols?: string[];
+  dependencies?: string[];
+};
+const MANIFEST_LAYERS = ["baseline", "index", "worktree"] as const;
 
 export const LIMITS = Object.freeze({
   requestBytes: 256 * 1024,
@@ -106,7 +115,16 @@ export function validateEventBatch(value: unknown): EventEnvelope[] {
   if (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > LIMITS.eventBatchCount) {
     throw new ValidationError("batch_count_out_of_range");
   }
-  return body.events.map(validateEventEnvelope);
+  const events = body.events.map(validateEventEnvelope);
+  const first = events[0];
+  if (events.some((event) => event.projectId !== first.projectId || event.deviceId !== first.deviceId || event.workspaceId !== first.workspaceId)) {
+    throw new ValidationError("mixed_event_batch");
+  }
+  return events;
+}
+
+export function canActivateManifestRevision(currentRevision: number | undefined, nextRevision: number): boolean {
+  return currentRevision === undefined || nextRevision > currentRevision;
 }
 
 export function validateEventEnvelope(value: unknown): EventEnvelope {
@@ -160,7 +178,7 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectInteger(payload.revision, 1, Number.MAX_SAFE_INTEGER);
       expectGitRef(payload.baselineRef);
       expectGitRef(payload.headRef);
-      expectInteger(payload.chunkCount, 1, LIMITS.manifestChunks, "chunk_count_out_of_range");
+      expectInteger(payload.chunkCount, 0, LIMITS.manifestChunks, "chunk_count_out_of_range");
       return;
     }
     case "workspace.manifest_chunk": {
@@ -236,11 +254,22 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
 
 function validateManifestEntry(value: unknown): void {
   const entry = expectObject(value);
-  expectExactKeys(entry, ["path", "status"], ["oldPath", "symbols", "dependencies"]);
+  expectExactKeys(entry, ["path", "states"], ["symbols", "dependencies"]);
   expectString(entry.path, 1, LIMITS.pathLength);
-  if (entry.oldPath !== undefined) expectString(entry.oldPath, 1, LIMITS.pathLength);
-  if (!["added", "modified", "deleted", "renamed", "untracked"].includes(String(entry.status))) {
-    throw new ValidationError("validation_failed");
+  const states = expectObject(entry.states);
+  expectExactKeys(states, [], MANIFEST_LAYERS);
+  if (Object.keys(states).length === 0) throw new ValidationError("manifest_states_empty");
+  for (const layer of MANIFEST_LAYERS) {
+    if (states[layer] === undefined) continue;
+    const change = expectObject(states[layer]);
+    expectExactKeys(change, ["status"], ["oldPath"]);
+    if (!["added", "modified", "deleted", "renamed", "copied", "untracked"].includes(String(change.status))) {
+      throw new ValidationError("validation_failed");
+    }
+    if (change.oldPath !== undefined) {
+      expectString(change.oldPath, 1, LIMITS.pathLength);
+      if (change.status !== "renamed" && change.status !== "copied") throw new ValidationError("old_path_status_invalid");
+    }
   }
   validateBoundedStrings(entry.symbols, 64, 160);
   validateBoundedStrings(entry.dependencies, 64, 160);
@@ -284,8 +313,15 @@ function rejectProhibitedData(value: unknown): void {
   }
 }
 
-export function manifestContentHash(entries: readonly { path: string; status: string; oldPath?: string }[]): string {
-  return sha256Hex(entries.map((entry) => `${entry.path}\0${entry.status}\0${entry.oldPath ?? ""}\0`).join(""));
+export function manifestContentHash(entries: readonly ManifestEntry[]): string {
+  return sha256Hex(entries.map((entry) => {
+    const fields = [entry.path];
+    for (const layer of MANIFEST_LAYERS) {
+      const change = entry.states[layer];
+      fields.push(layer, change?.status ?? "", change?.oldPath ?? "");
+    }
+    return `${fields.join("\0")}\0`;
+  }).join(""));
 }
 
 export function scopeKey(projectId: string, repositoryId: string): string {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ValidationError,
+  canActivateManifestRevision,
   RETENTION_TABLES,
   expiredRecordIds,
   manifestContentHash,
@@ -35,6 +36,19 @@ describe("hosted boundary validation", () => {
     expect(event.type).toBe("workspace.manifest_completed");
   });
 
+  it("accepts an empty manifest snapshot that clears active paths", () => {
+    const [event] = validateEventBatch({ events: [{
+      ...baseEvent,
+      type: "workspace.manifest_started",
+      payload: {
+        manifestId: "mft_empty", revision: 2, workstreamId: "wrk_fixture",
+        baselineRef: "a".repeat(40), headRef: "b".repeat(40), chunkCount: 0,
+      },
+    }] });
+    expect(event.payload).toMatchObject({ chunkCount: 0 });
+    expect(manifestContentHash([])).toBe(sha256Hex(""));
+  });
+
   it("rejects unknown and prohibited payload fields", () => {
     expect(() => validateEventBatch({
       events: [{ ...baseEvent, type: "workspace.resumed", payload: { sourceContent: "synthetic" } }],
@@ -50,19 +64,55 @@ describe("hosted boundary validation", () => {
         payload: {
           manifestId: "mft_fixture",
           chunkIndex: 0,
-          entries: Array.from({ length: 101 }, (_, index) => ({ path: `synthetic/${index}`, status: "added" })),
+          entries: Array.from({ length: 101 }, (_, index) => ({ path: `synthetic/${index}`, states: { worktree: { status: "added" } } })),
         },
       }],
     })).toThrow("path_count_out_of_range");
   });
+
+  it("preserves layered manifest states and rejects ambiguous changes", () => {
+    const manifestEvent = (entries: unknown[]) => ({
+      ...baseEvent,
+      type: "workspace.manifest_chunk",
+      payload: { manifestId: "mft_fixture", chunkIndex: 0, entries },
+    });
+    expect(validateEventBatch({ events: [manifestEvent([{
+      path: "synthetic/layered.ts",
+      states: {
+        baseline: { status: "modified" },
+        index: { status: "renamed", oldPath: "synthetic/old.ts" },
+        worktree: { status: "copied", oldPath: "synthetic/source.ts" },
+      },
+    }])] })).toHaveLength(1);
+    expect(() => validateEventBatch({ events: [manifestEvent([{ path: "a.ts", states: {} }])] }))
+      .toThrow("manifest_states_empty");
+    expect(() => validateEventBatch({ events: [manifestEvent([{
+      path: "a.ts", states: { worktree: { status: "modified", oldPath: "old.ts" } },
+    }])] })).toThrow("old_path_status_invalid");
+  });
+
+  it("rejects mixed-workspace batches so the acknowledgement cursor is unambiguous", () => {
+    expect(() => validateEventBatch({ events: [
+      { ...baseEvent, type: "workspace.resumed", payload: {} },
+      { ...baseEvent, eventId: "evt_second", workspaceId: "wsp_other", sequence: 2, type: "workspace.resumed", payload: {} },
+    ] })).toThrow("mixed_event_batch");
+  });
 });
 
 describe("hosted deterministic helpers", () => {
-  it("implements SHA-256 and the Gate B manifest hash wire format", () => {
+  it("implements SHA-256 and canonical layered manifest hashing", () => {
     expect(sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    expect(manifestContentHash([{ path: "a.ts", status: "modified" }])).toBe(
-      "550c7216ed3b1e5a9022e342749e18347cc6108ff653f363e7440c9d1768cd05",
-    );
+    const baseline = manifestContentHash([{ path: "a.ts", states: { baseline: { status: "modified" } } }]);
+    expect(baseline).toHaveLength(64);
+    expect(baseline).not.toBe(manifestContentHash([{ path: "a.ts", states: { worktree: { status: "modified" } } }]));
+    expect(baseline).toBe(manifestContentHash([{ path: "a.ts", states: { baseline: { status: "modified" } } }]));
+  });
+
+  it("allows only monotonically newer manifest activation", () => {
+    expect(canActivateManifestRevision(undefined, 1)).toBe(true);
+    expect(canActivateManifestRevision(1, 2)).toBe(true);
+    expect(canActivateManifestRevision(2, 2)).toBe(false);
+    expect(canActivateManifestRevision(3, 2)).toBe(false);
   });
 
   it("derives stable project/repository scopes", () => {
