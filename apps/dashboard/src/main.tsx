@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
+import { DesktopOnboarding } from "./desktop-onboarding";
 import type { DashboardSession, Finding, FindingFeedback, FindingState, ProjectSnapshot, ShellState } from "./model";
 import { fidelityLabel, semanticMessage, stateMessage } from "./state";
 import "./style.css";
@@ -166,7 +167,7 @@ if (root) {
   const desktopPreview = parameters.get("desktop") === "preview" || window.location.protocol === "wails:";
   if (desktopPreview) document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
-    {desktopPreview && <DesktopPreviewBanner live={parameters.get("live") === "1"} />}
-    {parameters.get("live") === "1" ? <LiveApp /> : <App />}
+    {desktopPreview && parameters.get("desktop") !== "onboarding" && <DesktopPreviewBanner live={parameters.get("live") === "1"} />}
+    {parameters.get("desktop") === "onboarding" ? <DesktopOnboarding /> : parameters.get("live") === "1" ? <LiveApp /> : <App />}
   </StrictMode>);
 }

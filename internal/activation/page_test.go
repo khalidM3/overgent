@@ -19,3 +19,13 @@ func TestActivationPagePostsTicketOutsideURLAndEscapesValues(t *testing.T) {
 		t.Fatal("ticket moved into activation URL")
 	}
 }
+
+func TestActivationSupportsLoopbackDashboardProxyPrefix(t *testing.T) {
+	_, action, err := activationAction("http://127.0.0.1:5173/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action != "http://127.0.0.1:5173/api/v1/dashboard-activations" {
+		t.Fatalf("action=%q", action)
+	}
+}

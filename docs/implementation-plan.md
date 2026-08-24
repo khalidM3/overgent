@@ -138,6 +138,27 @@ desktop build modes pass; the real development bundle launches against Vite;
 and the anonymous loopback L6 live suite passes all structural, semantic,
 authorization, and dashboard assertions.
 
+## L6B — Native Project and agent onboarding
+
+Deliver a native first-run surface in the existing development desktop: choose
+one canonical Git repository; create or join a Project; detect Codex and Claude
+Code; explicitly install their drift-safe Project MCP entries; show honest Git
+fallback fidelity; open the authenticated live Project; and assign existing
+distinct linked worktrees for local Codex-versus-Claude attribution. Preserve
+the single-profile limitation, never create/mutate worktrees, and keep all
+development origins loopback-only.
+
+Exit: a fresh local profile can enroll from the app without a terminal; a
+connected profile can open live state; React hot reload retains the Wails
+bridge; absent/declined adapters still receive Git observation; and selecting
+two existing linked worktrees registers separate workstreams without shell
+concatenation or Git mutation.
+
+Current outcome: complete under ADR-032. Native/React unit tests, frozen root
+checks, both desktop build modes, and the L6 live suite pass. Adding a second
+Project to one running local profile and signed production distribution remain
+L8 work.
+
 ## L7 — Plan, claims, sync, decisions
 
 Deliver revisioned plan items; ownership/status; normalized path/glob claims; sync-card create/comment/resolve; durable affected-member decisions; remaining MCP tools; optional untracked local context; structured while-away digest.

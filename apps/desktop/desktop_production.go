@@ -11,9 +11,12 @@ import (
 
 const desktopDevelopment = false
 
-func desktopProductName() string { return "Stickguy" }
-func desktopMenuLabel() string   { return "Stickguy desktop preview" }
-func desktopStartURL() string    { return "/?desktop=preview" }
+func desktopProductName() string       { return "Stickguy" }
+func desktopMenuLabel() string         { return "Stickguy desktop preview" }
+func desktopStartURL() string          { return "/?desktop=preview" }
+func desktopAPIBaseURL() string        { return "https://api.stickguy.dev" }
+func desktopActivationBaseURL() string { return desktopAPIBaseURL() }
+func desktopCLIBinary() string         { return "" }
 func openLocalProject(context.Context, *application.WebviewWindow) error {
 	return errors.New("local Project activation is available only in the development app")
 }

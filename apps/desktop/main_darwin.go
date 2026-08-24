@@ -31,8 +31,9 @@ func main() {
 		Name:        desktopProductName(),
 		Description: "Persistent coordination for teams working with coding agents",
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler: application.BundledAssetFileServer(assets),
 		},
+		Services: []application.Service{application.NewService(newOnboardingService())},
 		Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,

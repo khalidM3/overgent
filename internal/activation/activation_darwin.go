@@ -27,9 +27,9 @@ type Handoff struct {
 }
 
 func Start(apiBaseURL, ticket string) (*Handoff, error) {
-	base, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
-	if err != nil || base.Host == "" || base.Path != "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Scheme != "https" && !(base.Scheme == "http" && isLoopback(base.Hostname()))) {
-		return nil, errors.New("dashboard activation requires an HTTPS API origin or loopback validation origin")
+	base, action, err := activationAction(apiBaseURL)
+	if err != nil {
+		return nil, err
 	}
 	if len(ticket) < 22 || len(ticket) > 512 || strings.ContainsAny(ticket, "\r\n") {
 		return nil, errors.New("dashboard activation ticket is invalid")
@@ -44,7 +44,6 @@ func Start(apiBaseURL, ticket string) (*Handoff, error) {
 		return nil, fmt.Errorf("generate dashboard activation nonce: %w", err)
 	}
 	path := "/activate/" + hex.EncodeToString(nonceBytes)
-	action := strings.TrimRight(apiBaseURL, "/") + "/v1/dashboard-activations"
 	served := make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +67,17 @@ func Start(apiBaseURL, ticket string) (*Handoff, error) {
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	return &Handoff{url: "http://" + listener.Addr().String() + path, listener: listener, server: server, served: served, done: done}, nil
+}
+
+func activationAction(apiBaseURL string) (*url.URL, string, error) {
+	base, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
+	if err != nil || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || (base.Scheme != "https" && !(base.Scheme == "http" && isLoopback(base.Hostname()))) {
+		return nil, "", errors.New("dashboard activation requires an HTTPS API origin or loopback validation origin")
+	}
+	if base.Path != "" && (!strings.HasPrefix(base.Path, "/") || strings.Contains(base.Path, "..")) {
+		return nil, "", errors.New("dashboard activation origin path is invalid")
+	}
+	return base, strings.TrimRight(apiBaseURL, "/") + "/v1/dashboard-activations", nil
 }
 
 func (handoff *Handoff) URL() string { return handoff.url }

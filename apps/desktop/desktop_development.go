@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"errors"
-	"net"
-	"net/url"
 	"os"
 	"strings"
 
@@ -21,22 +19,12 @@ const desktopDevelopment = true
 
 func desktopProductName() string { return "Stickguy Dev" }
 func desktopMenuLabel() string   { return "Stickguy development" }
-
-func desktopStartURL() string {
-	value := os.Getenv("STICKGUY_DESKTOP_DEV_URL")
-	if value == "" {
-		value = "http://127.0.0.1:5173/?desktop=preview"
-	}
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Host == "" || parsed.Fragment != "" {
-		return "/?desktop=preview"
-	}
-	host := parsed.Hostname()
-	if host != "localhost" && (net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback()) {
-		return "/?desktop=preview"
-	}
-	return parsed.String()
+func desktopStartURL() string    { return "/?desktop=onboarding" }
+func desktopAPIBaseURL() string  { return loopbackEnv("STICKGUY_API_ORIGIN", "http://127.0.0.1:3211") }
+func desktopActivationBaseURL() string {
+	return loopbackEnv("STICKGUY_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
 }
+func desktopCLIBinary() string { return os.Getenv("STICKGUY_CLI_BINARY") }
 
 func openLocalProject(ctx context.Context, window *application.WebviewWindow) error {
 	root, err := config.DefaultRoot()
@@ -77,7 +65,7 @@ func openLocalProject(ctx context.Context, window *application.WebviewWindow) er
 	if err != nil {
 		return err
 	}
-	handoff, err := activation.Start(cfg.APIBaseURL, ticket.Ticket)
+	handoff, err := activation.Start(desktopActivationBaseURL(), ticket.Ticket)
 	if err != nil {
 		return err
 	}

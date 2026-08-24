@@ -153,3 +153,28 @@ Codex remains `mcp_with_git_fallback` because current-client durable delivery is
 still narrowed by ADR-026. Linked worktrees provide distinct workstream
 attribution while retaining one repository fingerprint and one per-user
 service. Accepted by the owner 2026-08-24 before L7.
+
+## ADR-032: Make the repository the native onboarding anchor
+
+The normal development workflow begins in `Stickguy Dev.app`, not with a
+per-chat command. The user chooses one canonical Git repository and creates or
+joins a Project. Git observation starts from that registered root regardless of
+which editor or coding agent changes it. Detected Codex and Claude Code adapters
+are explicit opt-ins that structurally add only the reviewed Project MCP entry;
+existing sessions must restart to discover it. Missing, declined, or narrowed
+adapters retain deterministic Git fidelity.
+
+One working tree cannot honestly attribute a filesystem change to a particular
+process. For local Codex-versus-Claude attribution, the desktop accepts existing
+distinct linked worktrees, validates their shared Git common directory, hot
+registers separate workstreams through the one-service boundary, and configures
+only the selected agent in each root. Stickguy does not create, switch, remove,
+or otherwise mutate worktrees. Claude Code CLI is supported; generic Claude
+Desktop sessions do not currently expose a repository-bound lifecycle surface.
+
+Development Vite is proxied through Wails using its documented
+`FRONTEND_DEVSERVER_URL` path so the native runtime remains available during hot
+reload. Dashboard activation POSTs through the loopback Vite `/api` proxy so
+the HttpOnly development cookie is same-origin with the live UI. Production
+onboarding, multiple Projects/devices in one local profile, distribution, and
+updating remain L8 gates. Accepted by the owner 2026-08-24 before L7.

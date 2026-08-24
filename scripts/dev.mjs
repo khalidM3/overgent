@@ -25,7 +25,7 @@ if (build.status !== 0) process.exit(build.status ?? 1);
 
 start("backend", "pnpm", ["dev:backend"]);
 start("ui", "pnpm", ["dev:ui"]);
-const uiURL = "http://127.0.0.1:5173/?desktop=preview";
+const uiURL = "http://127.0.0.1:5173/?desktop=onboarding";
 for (let attempt = 0; attempt < 120; attempt++) {
   try { if ((await fetch("http://127.0.0.1:5173/", { signal: AbortSignal.timeout(500) })).ok) break; } catch {}
   await new Promise((resolve) => setTimeout(resolve, 250));
@@ -34,7 +34,7 @@ for (let attempt = 0; attempt < 120; attempt++) {
 const desktopBuild = spawnSync(process.execPath, [path.join(root, "scripts", "build-desktop.mjs"), "--development"], { cwd: root, stdio: "inherit" });
 if (desktopBuild.status !== 0) { stop(); process.exit(desktopBuild.status ?? 1); }
 const desktopBinary = path.join(root, "apps", "desktop", "build", "bin", "Stickguy Dev.app", "Contents", "MacOS", "stickguy-desktop-dev");
-start("desktop", desktopBinary, [], { env: { ...process.env, STICKGUY_DESKTOP_DEV_URL: uiURL } });
+start("desktop", desktopBinary, [], { env: { ...process.env, FRONTEND_DEVSERVER_URL: "http://127.0.0.1:5173", STICKGUY_API_ORIGIN: "http://127.0.0.1:3211", STICKGUY_DASHBOARD_ORIGIN: "http://127.0.0.1:5173/api", STICKGUY_CLI_BINARY: cli } });
 
 const configPath = path.join(os.homedir(), "Library", "Application Support", "Stickguy", "config.json");
 let service;
