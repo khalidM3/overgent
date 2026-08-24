@@ -7,7 +7,20 @@ the foreground Go process runs the same one-service core.
 
 ## Commands
 
-Run from the repository root after `pnpm install --frozen-lockfile`:
+The repository requires Node 22. With NVM, select the checked-in version and
+activate the pinned package manager before the first install:
+
+```bash
+nvm install
+nvm use
+corepack enable
+corepack prepare pnpm@11.19.0 --activate
+pnpm install --frozen-lockfile
+```
+
+Node 20's older bundled Corepack cannot load pnpm 11's compatibility shim and
+fails with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`; upgrading the Project to
+Node 22 is the supported fix. Then run commands from the repository root:
 
 | Command | Behavior |
 |---|---|
