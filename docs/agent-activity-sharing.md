@@ -1,7 +1,7 @@
 # Stickguy — Agent Activity Sharing
 
-Status: approved direction; production contracts gated on adapter validation
-Last updated: 2026-08-23
+Status: approved direction; L5A narrowed by ADR-028; production collection disabled
+Last updated: 2026-08-24
 
 ## 1. Purpose and boundary
 

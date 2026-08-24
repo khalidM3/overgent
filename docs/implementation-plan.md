@@ -78,6 +78,13 @@ Before adding shared contracts, run isolated synthetic Codex App Server/SDK and 
 
 Exit: each vendor is separately passed, narrowed, or assigned an existing Git/manual/MCP fallback; `.env` variants, protected paths, tokens, transcript/system/reasoning/source/diff/tool-result/raw-command/output candidates provably never reach durable storage or a sender; supported activity is sufficient to explain what an agent is doing without Stickguy owning or controlling its loop. Only then may the integrator define versioned shared schemas/generated code and enable an opt-in adapter.
 
+Current outcome: NARROW complete under ADR-028. Authenticated Claude project
+hooks pass for supported lifecycle/tool/subagent activity. Codex App Server
+passes bounded existing-task enumeration/read but not cross-process realtime
+subscription, so MCP/Git/manual remains its live fallback. Production collection
+is still disabled pending reviewed contracts, generated code, consent controls,
+retention/deletion integration, and end-to-end security tests.
+
 ## L6 — Coordination intelligence vertical slice
 
 Deliver bounded semantic-object validation; embedding-provider and semantic-index adapters; Convex vector search with mandatory composite project/repository scope keys plus post-retrieval authorization/current-state checks; lexical/structural/semantic candidate retrieval; versioned evidence fusion; finding kinds/confidence/severity/explanations; deterministic relevance router/brief renderer with budgets, context revisions, delivery/acknowledgement and stale-assumption detection; optional strict-schema adjudication for ambiguous candidates; retries/degraded mode; radar feedback; labeled fixtures/eval runner; dashboard/MCP delivery.
