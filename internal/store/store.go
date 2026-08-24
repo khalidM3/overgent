@@ -240,6 +240,31 @@ func (s *Store) SetPaused(ctx context.Context, id string, p bool) error {
 	}
 	return nil
 }
+
+func (s *Store) EnqueueEvent(ctx context.Context, workspaceID, eventID, source, kind string, payload any) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var sequence int64
+	var projectID, memberID, deviceID, sessionID string
+	if err = tx.QueryRowContext(ctx, `SELECT sequence,project_id,member_id,device_id,session_id FROM workspaces WHERE id=?`, workspaceID).Scan(&sequence, &projectID, &memberID, &deviceID, &sessionID); err != nil {
+		return err
+	}
+	queuedAt := time.Now().UTC()
+	body, err := json.Marshal(eventEnvelope{SchemaVersion: 1, EventID: eventID, ProjectID: projectID, MemberID: memberID, DeviceID: deviceID, WorkspaceID: workspaceID, SessionID: sessionID, Sequence: sequence + 1, ObservedAt: queuedAt, SentAt: queuedAt, Source: source, Type: kind, Payload: payload})
+	if err != nil {
+		return fmt.Errorf("encode queued event: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO event_queue(id,workspace_id,sequence,kind,payload,created_at) VALUES(?,?,?,?,?,?)`, eventID, workspaceID, sequence+1, kind, body, queuedAt.Unix()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE workspaces SET sequence=? WHERE id=?`, sequence+1, workspaceID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 func (s *Store) PublishManifest(ctx context.Context, publication ManifestPublication) (int64, error) {
 	payload, e := json.Marshal(publication.Entries)
 	if e != nil {

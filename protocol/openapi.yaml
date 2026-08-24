@@ -31,11 +31,28 @@ paths:
       security: []
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TicketExchangeRequest' } } } }
       responses: { '204': { description: Browser session established }, default: { $ref: '#/components/responses/Error' } }
+  /dashboard-activations:
+    post:
+      operationId: activateDashboardBrowser
+      security: []
+      requestBody: { required: true, content: { application/x-www-form-urlencoded: { schema: { $ref: '#/components/schemas/TicketExchangeRequest' } } } }
+      responses: { '303': { description: Browser session established and redirected to the same-origin dashboard, headers: { Location: { schema: { type: string, maxLength: 2048 } }, Set-Cookie: { schema: { type: string, maxLength: 1024 } } } }, default: { $ref: '#/components/responses/Error' } }
   /dashboard-tickets:
     post:
       operationId: createDashboardTicket
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateDashboardTicketRequest' } } } }
       responses: { '201': { description: One-time browser ticket created, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardTicket' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /dashboard/session:
+    get:
+      operationId: getDashboardSession
+      security: [ { browserSession: [] } ]
+      responses: { '200': { description: Authorized browser session, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/session' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /dashboard/projects/{id}:
+    get:
+      operationId: getDashboardProjectSnapshot
+      security: [ { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Authorized live Project snapshot, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/snapshot' } } } }, default: { $ref: '#/components/responses/Error' } }
   /device/bootstrap:
     get:
       operationId: getDeviceBootstrap
@@ -74,6 +91,7 @@ paths:
 components:
   securitySchemes:
     deviceToken: { type: http, scheme: bearer }
+    browserSession: { type: apiKey, in: cookie, name: stickguy_session }
   parameters:
     Id: { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
     Cursor: { name: cursor, in: query, required: false, schema: { type: string, maxLength: 512 } }

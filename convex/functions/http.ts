@@ -148,6 +148,41 @@ http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: ht
   });
 })) });
 
+http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const ticket = await readActivationTicket(request);
+  await consumeEdgeRate(ctx, requestRateKey(request, "dashboard-activation"), "dashboard.activation", 20);
+  const session = randomHex(32);
+  const now = Date.now();
+  await ctx.runMutation(internal.service.exchangeDashboardTicket, {
+    rateKey: requestRateKey(request, "dashboard-activation"),
+    ticketHash: sha256Hex(ticket), sessionHash: sha256Hex(session), now, sessionExpiresAt: now + 8 * 60 * 60_000,
+  });
+  const requestURL = new URL(request.url);
+  const loopback = ["127.0.0.1", "::1", "localhost"].includes(requestURL.hostname);
+  return new Response(null, { status: 303, headers: {
+    "cache-control": "no-store",
+    "location": loopback ? "http://127.0.0.1:5173/?live=1" : "/dashboard?live=1",
+    "set-cookie": `stickguy_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
+    "x-content-type-options": "nosniff",
+  } });
+})) });
+
+http.route({ path: "/v1/dashboard/session", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const sessionHash = sha256Hex(browserSession(request));
+  await consumeEdgeRate(ctx, sessionHash, "dashboard.session", 120);
+  const result = await ctx.runQuery(internal.service.dashboardSession, { sessionHash, now: Date.now() });
+  return json(result);
+})) });
+
+http.route({ pathPrefix: "/v1/dashboard/projects/", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const match = new URL(request.url).pathname.match(/^\/v1\/dashboard\/projects\/([^/]+)$/);
+  if (!match) throw new HttpFailure("not_found", 404);
+  const sessionHash = sha256Hex(browserSession(request));
+  await consumeEdgeRate(ctx, sessionHash, "dashboard.snapshot", 120);
+  const result = await ctx.runQuery(internal.service.dashboardSnapshot, { sessionHash, projectPublicId: expectId(match[1]), now: Date.now() });
+  return json(result);
+})) });
+
 http.route({ path: "/v1/device/bootstrap", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const tokenHash = sha256Hex(bearer(request));
   await consumeEdgeRate(ctx, requestRateKey(request, "device.bootstrap"), "device.bootstrap", 120);
@@ -271,12 +306,31 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+async function readActivationTicket(request: Request): Promise<string> {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/x-www-form-urlencoded") throw new HttpFailure("content_type_unsupported", 415);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > 1024) throw new HttpFailure("request_too_large", 413);
+  const form = new URLSearchParams(new TextDecoder().decode(bytes));
+  if ([...form.keys()].length !== 1 || !form.has("ticket")) throw new ValidationError("validation_failed");
+  return expectString(form.get("ticket"), 22, 512);
+}
+
 function bearer(request: Request): string {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) throw new HttpFailure("unauthorized", 401);
   const token = header.slice(7);
   if (token.length < 32 || token.length > 512 || /\s/.test(token)) throw new HttpFailure("unauthorized", 401);
   return token;
+}
+
+function browserSession(request: Request): string {
+  const cookie = request.headers.get("cookie") ?? "";
+  for (const part of cookie.split(";")) {
+    const [name, value] = part.trim().split("=", 2);
+    if (name === "stickguy_session" && value && /^[a-f0-9]{64}$/.test(value)) return value;
+  }
+  throw new HttpFailure("unauthorized", 401);
 }
 
 function requestRateKey(_request: Request, scope: string): string {

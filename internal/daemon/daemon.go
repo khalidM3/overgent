@@ -9,7 +9,13 @@ import (
 	"time"
 )
 
-type Request struct{ Method, WorkspaceID string }
+type Request struct {
+	Method, WorkspaceID           string
+	Title, IntendedOutcome        string
+	ApproachSummary               string
+	Components, Contracts         []string
+	AnticipatedPaths, PlanItemIDs []string
+}
 type Response struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
@@ -38,7 +44,7 @@ func serveConn(ctx context.Context, c net.Conn, h Handler) {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	var q Request
-	if json.NewDecoder(io.LimitReader(c, 4096)).Decode(&q) != nil {
+	if json.NewDecoder(io.LimitReader(c, 128<<10)).Decode(&q) != nil {
 		return
 	}
 	_ = json.NewEncoder(c).Encode(h(ctx, q))

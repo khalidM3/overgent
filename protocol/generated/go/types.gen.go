@@ -169,6 +169,11 @@ type GetContextItem200JSONResponseBody struct {
 	union json.RawMessage
 }
 
+// ActivateDashboardBrowserFormdataBody defines parameters for ActivateDashboardBrowser.
+type ActivateDashboardBrowserFormdataBody struct {
+	Ticket string `form:"ticket" json:"ticket"`
+}
+
 // CreateDashboardTicketJSONBody defines parameters for CreateDashboardTicket.
 type CreateDashboardTicketJSONBody struct {
 	ProjectId string `json:"projectId"`
@@ -306,6 +311,9 @@ type CreateCoordinationBriefJSONBody struct {
 	SinceCursor            *string `json:"sinceCursor,omitempty"`
 	Trigger                string  `json:"trigger"`
 }
+
+// ActivateDashboardBrowserFormdataRequestBody defines body for ActivateDashboardBrowser for application/x-www-form-urlencoded ContentType.
+type ActivateDashboardBrowserFormdataRequestBody ActivateDashboardBrowserFormdataBody
 
 // CreateDashboardTicketJSONRequestBody defines body for CreateDashboardTicket for application/json ContentType.
 type CreateDashboardTicketJSONRequestBody CreateDashboardTicketJSONBody

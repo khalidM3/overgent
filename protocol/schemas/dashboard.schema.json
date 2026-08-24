@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/dashboard.schema.json",
+  "$defs": {
+    "project": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "repositoryLabel", "semanticStatus"],
+      "properties": {
+        "id": {"type": "string"}, "name": {"type": "string", "maxLength": 120},
+        "repositoryLabel": {"type": "string", "maxLength": 160},
+        "semanticStatus": {"enum": ["enabled", "degraded", "disabled"]}
+      }
+    },
+    "session": {
+      "type": "object", "additionalProperties": false,
+      "required": ["memberName", "projects", "selectedProjectId"],
+      "properties": {
+        "memberName": {"type": "string", "maxLength": 120},
+        "projects": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/project"}},
+        "selectedProjectId": {"type": "string"}
+      }
+    },
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["project", "contextRevision", "synchronizedAt", "workstreams", "findings", "activity", "devices", "workspacePaused"],
+      "properties": {
+        "project": {"$ref": "#/$defs/project"}, "contextRevision": {"type": "integer", "minimum": 0},
+        "synchronizedAt": {"type": "string", "maxLength": 80}, "workspacePaused": {"type": "boolean"},
+        "workstreams": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/workstream"}},
+        "findings": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/finding"}},
+        "activity": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/activity"}},
+        "devices": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/device"}}
+      }
+    },
+    "workstream": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "memberName", "initials", "title", "outcome", "presence", "fidelity", "updatedLabel", "pathCount", "paths"],
+      "properties": {
+        "id": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "initials": {"type": "string", "maxLength": 4},
+        "title": {"type": "string", "maxLength": 160}, "outcome": {"type": "string", "maxLength": 2000},
+        "presence": {"enum": ["online", "idle", "offline", "paused"]}, "fidelity": {"enum": ["mcp", "git", "manual", "hook_unverified"]},
+        "updatedLabel": {"type": "string", "maxLength": 80}, "pathCount": {"type": "integer", "minimum": 0},
+        "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}},
+        "largeChange": {"type": "object", "additionalProperties": false, "required": ["pathCount", "summary", "revision"], "properties": {"pathCount": {"type": "integer", "minimum": 1000}, "summary": {"type": "string", "maxLength": 500}, "revision": {"type": "integer", "minimum": 1}}}
+      }
+    },
+    "finding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "kind", "severity", "confidence", "state", "title", "reason", "workstreamIds", "evidence", "firstSeen", "lastSeen"],
+      "properties": {
+        "id": {"type": "string"}, "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact"]},
+        "severity": {"enum": ["critical", "high", "medium", "low"]}, "confidence": {"enum": ["deterministic", "high", "medium", "low"]},
+        "state": {"enum": ["open", "acknowledged", "resolved", "dismissed"]}, "title": {"type": "string", "maxLength": 160}, "reason": {"type": "string", "maxLength": 500},
+        "workstreamIds": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
+        "evidence": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "label", "source"], "properties": {"kind": {"enum": ["path", "contract", "dependency", "intent"]}, "label": {"type": "string", "maxLength": 500}, "source": {"enum": ["git", "mcp", "manual", "semantic_candidate"]}}}},
+        "firstSeen": {"type": "string", "maxLength": 80}, "lastSeen": {"type": "string", "maxLength": 80}
+      }
+    },
+    "activity": {
+      "type": "object", "additionalProperties": false, "required": ["id", "at", "actor", "kind", "summary", "fidelity"],
+      "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "actor": {"type": "string", "maxLength": 120}, "kind": {"enum": ["intent", "manifest", "finding", "checkpoint", "pause"]}, "summary": {"type": "string", "maxLength": 500}, "fidelity": {"enum": ["mcp", "git", "manual", "hook_unverified", "structural"]}}
+    },
+    "device": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label", "platform", "status", "lastSeen"],
+      "properties": {"id": {"type": "string"}, "label": {"type": "string", "maxLength": 120}, "platform": {"type": "string", "maxLength": 64}, "status": {"enum": ["online", "idle", "offline", "paused"]}, "lastSeen": {"type": "string", "maxLength": 80}}
+    }
+  }
+}

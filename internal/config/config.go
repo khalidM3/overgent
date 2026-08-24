@@ -21,6 +21,7 @@ type Workspace struct {
 
 type Config struct {
 	Version    int         `json:"version"`
+	APIBaseURL string      `json:"apiBaseUrl"`
 	DeviceID   string      `json:"deviceId"`
 	Workspaces []Workspace `json:"workspaces"`
 }

@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboard-activations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["activateDashboardBrowser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard-tickets": {
         parameters: {
             query?: never;
@@ -78,6 +94,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["createDashboardTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDashboardSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboard/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDashboardProjectSnapshot"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -503,6 +551,156 @@ export interface components {
                 retryable: boolean;
                 details?: Record<string, never>;
             };
+        };
+        project: {
+            id: string;
+            name: string;
+            repositoryLabel: string;
+            /** @enum {unknown} */
+            semanticStatus: "enabled" | "degraded" | "disabled";
+        };
+        session: {
+            memberName: string;
+            projects: {
+                id: string;
+                name: string;
+                repositoryLabel: string;
+                /** @enum {unknown} */
+                semanticStatus: "enabled" | "degraded" | "disabled";
+            }[];
+            selectedProjectId: string;
+        };
+        workstream: {
+            id: string;
+            memberName: string;
+            initials: string;
+            title: string;
+            outcome: string;
+            /** @enum {unknown} */
+            presence: "online" | "idle" | "offline" | "paused";
+            /** @enum {unknown} */
+            fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+            updatedLabel: string;
+            pathCount: number;
+            paths: string[];
+            largeChange?: {
+                pathCount: number;
+                summary: string;
+                revision: number;
+            };
+        };
+        finding: {
+            id: string;
+            /** @enum {unknown} */
+            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+            /** @enum {unknown} */
+            severity: "critical" | "high" | "medium" | "low";
+            /** @enum {unknown} */
+            confidence: "deterministic" | "high" | "medium" | "low";
+            /** @enum {unknown} */
+            state: "open" | "acknowledged" | "resolved" | "dismissed";
+            title: string;
+            reason: string;
+            workstreamIds: string[];
+            evidence: {
+                /** @enum {unknown} */
+                kind: "path" | "contract" | "dependency" | "intent";
+                label: string;
+                /** @enum {unknown} */
+                source: "git" | "mcp" | "manual" | "semantic_candidate";
+            }[];
+            firstSeen: string;
+            lastSeen: string;
+        };
+        activity: {
+            id: string;
+            at: string;
+            actor: string;
+            /** @enum {unknown} */
+            kind: "intent" | "manifest" | "finding" | "checkpoint" | "pause";
+            summary: string;
+            /** @enum {unknown} */
+            fidelity: "mcp" | "git" | "manual" | "hook_unverified" | "structural";
+        };
+        device: {
+            id: string;
+            label: string;
+            platform: string;
+            /** @enum {unknown} */
+            status: "online" | "idle" | "offline" | "paused";
+            lastSeen: string;
+        };
+        snapshot: {
+            project: {
+                id: string;
+                name: string;
+                repositoryLabel: string;
+                /** @enum {unknown} */
+                semanticStatus: "enabled" | "degraded" | "disabled";
+            };
+            contextRevision: number;
+            synchronizedAt: string;
+            workspacePaused: boolean;
+            workstreams: {
+                id: string;
+                memberName: string;
+                initials: string;
+                title: string;
+                outcome: string;
+                /** @enum {unknown} */
+                presence: "online" | "idle" | "offline" | "paused";
+                /** @enum {unknown} */
+                fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+                updatedLabel: string;
+                pathCount: number;
+                paths: string[];
+                largeChange?: {
+                    pathCount: number;
+                    summary: string;
+                    revision: number;
+                };
+            }[];
+            findings: {
+                id: string;
+                /** @enum {unknown} */
+                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+                /** @enum {unknown} */
+                severity: "critical" | "high" | "medium" | "low";
+                /** @enum {unknown} */
+                confidence: "deterministic" | "high" | "medium" | "low";
+                /** @enum {unknown} */
+                state: "open" | "acknowledged" | "resolved" | "dismissed";
+                title: string;
+                reason: string;
+                workstreamIds: string[];
+                evidence: {
+                    /** @enum {unknown} */
+                    kind: "path" | "contract" | "dependency" | "intent";
+                    label: string;
+                    /** @enum {unknown} */
+                    source: "git" | "mcp" | "manual" | "semantic_candidate";
+                }[];
+                firstSeen: string;
+                lastSeen: string;
+            }[];
+            activity: {
+                id: string;
+                at: string;
+                actor: string;
+                /** @enum {unknown} */
+                kind: "intent" | "manifest" | "finding" | "checkpoint" | "pause";
+                summary: string;
+                /** @enum {unknown} */
+                fidelity: "mcp" | "git" | "manual" | "hook_unverified" | "structural";
+            }[];
+            devices: {
+                id: string;
+                label: string;
+                platform: string;
+                /** @enum {unknown} */
+                status: "online" | "idle" | "offline" | "paused";
+                lastSeen: string;
+            }[];
         };
         manifestId: string;
         workstreamId: string;
@@ -959,6 +1157,49 @@ export interface operations {
             };
         };
     };
+    activateDashboardBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    ticket: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Browser session established and redirected to the same-origin dashboard */
+            303: {
+                headers: {
+                    Location?: string;
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
     createDashboardTicket: {
         parameters: {
             query?: never;
@@ -984,6 +1225,163 @@ export interface operations {
                         ticket: string;
                         /** Format: date-time */
                         expiresAt: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getDashboardSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized browser session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        memberName: string;
+                        projects: {
+                            id: string;
+                            name: string;
+                            repositoryLabel: string;
+                            /** @enum {unknown} */
+                            semanticStatus: "enabled" | "degraded" | "disabled";
+                        }[];
+                        selectedProjectId: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getDashboardProjectSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized live Project snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        project: {
+                            id: string;
+                            name: string;
+                            repositoryLabel: string;
+                            /** @enum {unknown} */
+                            semanticStatus: "enabled" | "degraded" | "disabled";
+                        };
+                        contextRevision: number;
+                        synchronizedAt: string;
+                        workspacePaused: boolean;
+                        workstreams: {
+                            id: string;
+                            memberName: string;
+                            initials: string;
+                            title: string;
+                            outcome: string;
+                            /** @enum {unknown} */
+                            presence: "online" | "idle" | "offline" | "paused";
+                            /** @enum {unknown} */
+                            fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+                            updatedLabel: string;
+                            pathCount: number;
+                            paths: string[];
+                            largeChange?: {
+                                pathCount: number;
+                                summary: string;
+                                revision: number;
+                            };
+                        }[];
+                        findings: {
+                            id: string;
+                            /** @enum {unknown} */
+                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact";
+                            /** @enum {unknown} */
+                            severity: "critical" | "high" | "medium" | "low";
+                            /** @enum {unknown} */
+                            confidence: "deterministic" | "high" | "medium" | "low";
+                            /** @enum {unknown} */
+                            state: "open" | "acknowledged" | "resolved" | "dismissed";
+                            title: string;
+                            reason: string;
+                            workstreamIds: string[];
+                            evidence: {
+                                /** @enum {unknown} */
+                                kind: "path" | "contract" | "dependency" | "intent";
+                                label: string;
+                                /** @enum {unknown} */
+                                source: "git" | "mcp" | "manual" | "semantic_candidate";
+                            }[];
+                            firstSeen: string;
+                            lastSeen: string;
+                        }[];
+                        activity: {
+                            id: string;
+                            at: string;
+                            actor: string;
+                            /** @enum {unknown} */
+                            kind: "intent" | "manifest" | "finding" | "checkpoint" | "pause";
+                            summary: string;
+                            /** @enum {unknown} */
+                            fidelity: "mcp" | "git" | "manual" | "hook_unverified" | "structural";
+                        }[];
+                        devices: {
+                            id: string;
+                            label: string;
+                            platform: string;
+                            /** @enum {unknown} */
+                            status: "online" | "idle" | "offline" | "paused";
+                            lastSeen: string;
+                        }[];
                     };
                 };
             };
