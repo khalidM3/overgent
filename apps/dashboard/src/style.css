@@ -19,6 +19,12 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
+html[data-desktop-preview="true"] { --desktop-preview-height: 2.25rem; }
+html[data-desktop-preview="true"] body { padding-top: var(--desktop-preview-height); }
+.desktop-preview-banner { position: fixed; z-index: 100; inset: 0 0 auto; height: var(--desktop-preview-height); display: flex; align-items: center; justify-content: center; gap: .6rem; color: #604112; background: #fff2d8; border-bottom: 1px solid #e7cf9f; font-size: .75rem; }
+.desktop-preview-banner span { color: #806537; }
+html[data-desktop-preview="true"] .app-shell { min-height: calc(100vh - var(--desktop-preview-height)); }
+html[data-desktop-preview="true"] .sidebar { top: var(--desktop-preview-height); height: calc(100vh - var(--desktop-preview-height)); }
 button, input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .52; }

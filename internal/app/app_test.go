@@ -259,6 +259,14 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	health, e := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"})
+	if e != nil || !health.OK {
+		t.Fatal(health, e)
+	}
+	healthData, ok := health.Data.(map[string]any)
+	if !ok || healthData["workspaces"] != float64(2) || healthData["pausedWorkspaces"] != float64(1) {
+		t.Fatalf("desktop health summary = %#v", health.Data)
+	}
 	intentResponse, e := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "intent", WorkspaceID: "wsp_a", Title: "Synthetic intent", IntendedOutcome: "Prove paused intent remains durable"})
 	if e != nil || !intentResponse.OK {
 		t.Fatal(intentResponse, e)

@@ -27,5 +27,5 @@ Current baseline decisions as of 2026-08-23:
 - Go module baseline 1.26; CI also covers 1.27.
 - MCP Go SDK uses the latest stable pinned release, never a floating prerelease.
 - Local MCP HTTP protections stay enabled; do not use compatibility flags that disable localhost protection.
-- Wails is deferred until after deterministic alpha.
+- Wails `v3.0.0-beta.12` is exact-pinned only for the ADR-029 macOS desktop preview; Wails v2.15.0 remains the window-only fallback and release support is deferred to L8.
 - TurboVec is evaluated only as a future local/self-hosted semantic-index adapter: <https://github.com/RyanCodrai/turbovec>

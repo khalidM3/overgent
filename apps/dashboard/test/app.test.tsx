@@ -2,11 +2,17 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
-import { App } from "../src/main";
+import { App, DesktopPreviewBanner } from "../src/main";
 
 const renderReady = () => render(<App initialState="ready" source={new FixtureProjectSource()} />);
 
 describe("dashboard component behavior", () => {
+  it("labels the native desktop fixture boundary", () => {
+    render(<DesktopPreviewBanner />);
+    expect(screen.getByRole("status").textContent).toContain("Fixture data");
+    expect(screen.getByRole("status").textContent).toContain("menu bar");
+  });
+
   it("omits all Project data in the unauthorized state", () => {
     render(<App initialState="unauthorized" source={new FixtureProjectSource()} />);
     expect(screen.getByRole("alert").textContent).toContain("not authorized");

@@ -147,5 +147,17 @@ function DeviceDialog({ snapshot, onClose }: { snapshot: ProjectSnapshot; onClos
   return <dialog ref={dialogRef} className="device-dialog" aria-labelledby="devices-title" aria-describedby="devices-description" onCancel={(event) => { event.preventDefault(); onClose(); }}><header><div><p className="eyebrow">Current Project</p><h2 id="devices-title">Devices & privacy</h2></div><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="Close devices and privacy">×</button></header><p id="devices-description" className="dialog-copy">Only disclosed coordination metadata is synchronized. Revoke and clear controls require the hosted device boundary and are shown here as entry points.</p><ul>{snapshot.devices.map((device) => <li key={device.id}><span className={`device-icon ${device.status}`} aria-hidden="true">◇</span><div><strong>{device.label}</strong><small>{device.platform} · {device.status} · {device.lastSeen}</small></div><button className="text-button" disabled>Manage</button></li>)}</ul><div className="privacy-note"><strong>Not collected in V1</strong><p>Source, diffs, Git objects, prompts, transcripts, environment values, and raw command or test output.</p></div><button className="secondary-button" onClick={onClose}>Done</button></dialog>;
 }
 
+export function DesktopPreviewBanner() {
+  return <div className="desktop-preview-banner" role="status"><strong>Desktop preview</strong><span>Fixture data · local service controls are available from the menu bar</span></div>;
+}
+
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<StrictMode>{new URLSearchParams(window.location.search).get("live") === "1" ? <LiveApp /> : <App />}</StrictMode>);
+if (root) {
+  const parameters = new URLSearchParams(window.location.search);
+  const desktopPreview = parameters.get("desktop") === "preview" || window.location.protocol === "wails:";
+  if (desktopPreview) document.documentElement.dataset.desktopPreview = "true";
+  createRoot(root).render(<StrictMode>
+    {desktopPreview && <DesktopPreviewBanner />}
+    {parameters.get("live") === "1" ? <LiveApp /> : <App />}
+  </StrictMode>);
+}
