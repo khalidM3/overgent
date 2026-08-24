@@ -1,0 +1,6 @@
+Captured: 2026-08-23 America/Los_Angeles
+codex-cli 0.148.0-alpha.15
+go version go1.26.7 darwin/arm64
+official MCP Go SDK github.com/modelcontextprotocol/go-sdk v1.7.0
+git baseline observed before gate work: main at 4c9c6ff
+network/API secrets: not inspected or recorded

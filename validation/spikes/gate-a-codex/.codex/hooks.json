@@ -1,0 +1,32 @@
+{
+  "description": "Gate A fixture: bounded coordination context only; no collection.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|compact)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/private/tmp/stickguy-gate-a/bin/gate-a-hook --marker /private/tmp/stickguy-gate-a/session-start.marker",
+            "timeout": 2,
+            "statusMessage": "Loading bounded Stickguy fixture context",
+            "additionalContextLimit": 256
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/private/tmp/stickguy-gate-a/bin/gate-a-hook --marker /private/tmp/stickguy-gate-a/subagent-start.marker",
+            "timeout": 2,
+            "statusMessage": "Loading bounded Stickguy fixture context",
+            "additionalContextLimit": 256
+          }
+        ]
+      }
+    ]
+  }
+}

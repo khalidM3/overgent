@@ -1,0 +1,10 @@
+{
+  "workspaces": [
+    {
+      "root": ".",
+      "workspaceId": "wsp_gate_a_fixture",
+      "projectId": "prj_gate_a_fixture",
+      "workstreamId": "wrk_gate_a_fixture"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+Reviewed project install adds exactly these two files and does not alter user config:
+
+  .codex/config.toml
+  .codex/hooks.json
+
+config.toml managed table:
+
+  [mcp_servers.stickguy_gate_a]
+  command = "/private/tmp/stickguy-gate-a/bin/gate-a-sdk-mcp"
+  args = ["<gate-dir>/fixtures/registry.json"]
+  startup_timeout_sec = 5
+  tool_timeout_sec = 5
+  enabled = true
+
+hooks.json managed events:
+
+  SessionStart matcher: ^(startup|resume|compact)$
+  SubagentStart matcher: omitted (all subagent types)
+  handler type: command
+  timeout: 2 seconds
+  additionalContextLimit: 256 tokens
+
+Removal deletes only the exact `stickguy_gate_a` MCP table and the two exact
+Stickguy command handlers. If an installed handler has changed or shares a
+matcher group with unrelated handlers, removal must refuse and report drift.
+The disposable spike does not implement this structured merge/removal; that is
+an explicit narrowing and L5 conformance requirement.

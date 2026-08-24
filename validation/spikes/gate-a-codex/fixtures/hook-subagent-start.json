@@ -1,0 +1,10 @@
+{
+  "session_id": "thr_redacted",
+  "transcript_path": "/redacted/not-opened.jsonl",
+  "cwd": "/synthetic/stickguy-gate-a",
+  "hook_event_name": "SubagentStart",
+  "turn_id": "turn_redacted",
+  "agent_id": "agent_redacted",
+  "agent_type": "fixture",
+  "permission_mode": "default"
+}
