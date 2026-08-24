@@ -68,3 +68,39 @@ func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
 		t.Fatalf("generated Go type lost required enum semantics: %#v", batch.Events)
 	}
 }
+
+func TestManifestFixtureRetainsSimultaneousGitStates(t *testing.T) {
+	schemaData, err := os.ReadFile("schemas/change-manifest.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schemaDocument map[string]any
+	if err := json.Unmarshal(schemaData, &schemaDocument); err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	const schemaURL = "https://schemas.stickguy.dev/v1/change-manifest.schema.json"
+	if err := compiler.AddResource(schemaURL, schemaDocument); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile("fixtures/change-manifest-simultaneous.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(fixture, &value); err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(value); err != nil {
+		t.Fatalf("schema validation: %v", err)
+	}
+	entries := value["entries"].([]any)
+	states := entries[0].(map[string]any)["states"].(map[string]any)
+	if len(states) != 3 {
+		t.Fatalf("simultaneous states collapsed: %#v", states)
+	}
+}

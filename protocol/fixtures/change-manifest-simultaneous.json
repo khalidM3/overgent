@@ -1,0 +1,20 @@
+{
+  "manifestId": "mft_simultaneous",
+  "workstreamId": "wrk_fixture",
+  "revision": 8,
+  "baselineRef": "1111111111111111111111111111111111111111",
+  "headRef": "2222222222222222222222222222222222222222",
+  "state": "active",
+  "pathCount": 1,
+  "entries": [
+    {
+      "path": "internal/store/store.go",
+      "states": {
+        "baseline": {"status": "modified"},
+        "index": {"status": "modified"},
+        "worktree": {"status": "modified"}
+      },
+      "symbols": ["Store.ApplyManifest"]
+    }
+  ]
+}
