@@ -14,6 +14,5 @@ arrays, local servers bind only to loopback/current-user IPC, and generated
 protocol code is changed only through `pnpm protocol:generate`.
 
 Contributions use Developer Certificate of Origin sign-off (`Signed-off-by`) as
-recommended by the reviewed open-source strategy. License terms remain pending
-owner/legal approval, so external contributions must not be accepted until a
-LICENSE is committed.
+recommended by the reviewed open-source strategy. Contributions intentionally
+submitted for inclusion are accepted under the repository's Apache-2.0 terms.
