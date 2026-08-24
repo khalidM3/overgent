@@ -10,11 +10,19 @@ import (
 )
 
 type Request struct {
-	Method, WorkspaceID           string
-	Title, IntendedOutcome        string
-	ApproachSummary               string
-	Components, Contracts         []string
-	AnticipatedPaths, PlanItemIDs []string
+	Method, WorkspaceID                                                                 string
+	Title, IntendedOutcome                                                              string
+	ApproachSummary                                                                     string
+	Components, Contracts                                                               []string
+	AnticipatedPaths, PlanItemIDs                                                       []string
+	IdempotencyKey, Trigger, SinceCursor, CheckpointID, BriefID, Kind, Summary, Outcome string
+	Revision, ManifestRevision, ApproximateTokenBudget                                  int64
+	Discoveries, ConsideredItemIDs                                                      []string
+	Verification                                                                        []VerificationSummary
+}
+type VerificationSummary struct {
+	State, CheckKind, Label, Summary, AffectedComponent, Source, ObservedAt string
+	ManifestRevision                                                        int64
 }
 type Response struct {
 	OK    bool   `json:"ok"`

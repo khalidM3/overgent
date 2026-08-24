@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	git "github.com/stickguy/stickguy/internal/git"
+	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/store"
 	"github.com/stickguy/stickguy/internal/watcher"
 )
@@ -27,6 +29,9 @@ type Sender interface {
 }
 type presenceSender interface {
 	Heartbeat(context.Context, string, string) error
+}
+type briefProvider interface {
+	CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error)
 }
 type Service struct {
 	paths       config.Paths
@@ -270,12 +275,236 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 			return daemon.Response{Error: e.Error()}
 		}
 		return daemon.Response{OK: true}
+	case "begin_work", "update_intent", "check_coordination", "report_checkpoint", "acknowledge_context", "finish_work", "report_event":
+		return s.handleLifecycle(ctx, q)
 	case "scan":
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
+}
+
+type lifecycleResult struct {
+	Duplicate      bool                      `json:"duplicate"`
+	IntentRevision int64                     `json:"intentRevision,omitempty"`
+	Brief          *hosted.CoordinationBrief `json:"brief,omitempty"`
+	Degraded       bool                      `json:"degraded"`
+	Degradation    string                    `json:"degradation,omitempty"`
+}
+
+func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.Response {
+	workstreamID := workspaceWorkstream(s.cfg, q.WorkspaceID)
+	if workstreamID == "" {
+		return daemon.Response{Error: "workspace not found"}
+	}
+	result := lifecycleResult{}
+	trigger := ""
+	var publication *store.LifecyclePublication
+	switch q.Method {
+	case "begin_work", "update_intent":
+		if err := validateLifecycleIntent(q); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		payload := intentPayload(workstreamID, q)
+		publication = &store.LifecyclePublication{WorkspaceID: q.WorkspaceID, Method: q.Method, IdempotencyKey: q.IdempotencyKey, Source: "mcp", Kind: "workstream.intent_reported", Payload: payload, IncrementIntentRevision: true}
+		if q.Method == "update_intent" {
+			expected := q.Revision
+			publication.ExpectedIntentRevision = &expected
+		} else {
+			trigger = "begin"
+		}
+	case "check_coordination":
+		trigger = q.Trigger
+		if trigger == "" {
+			trigger = "before_broad_edit"
+		}
+		if !validBriefTrigger(trigger) || q.ApproximateTokenBudget < 0 || q.ApproximateTokenBudget > 800 || q.ApproximateTokenBudget > 0 && q.ApproximateTokenBudget < 128 || len(q.SinceCursor) > 512 {
+			return daemon.Response{Error: "invalid coordination brief request"}
+		}
+	case "report_checkpoint":
+		if err := validateCheckpoint(q); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		payload := map[string]any{"checkpointId": q.CheckpointID, "workstreamId": workstreamID, "summary": q.Summary}
+		if len(q.Discoveries) > 0 {
+			payload["discoveries"] = q.Discoveries
+		}
+		if q.ManifestRevision > 0 {
+			payload["relatedManifestRevision"] = q.ManifestRevision
+		}
+		if q.BriefID != "" {
+			payload["basedOnBriefId"] = q.BriefID
+		}
+		if len(q.Verification) > 0 {
+			payload["verification"] = verificationPayload(q.Verification)
+		}
+		publication = &store.LifecyclePublication{WorkspaceID: q.WorkspaceID, Method: q.Method, IdempotencyKey: q.CheckpointID, Source: "mcp", Kind: "workstream.checkpoint_reported", Payload: payload}
+		trigger = "checkpoint"
+	case "acknowledge_context":
+		if !validContractID(q.BriefID) || len(q.ConsideredItemIDs) < 1 || len(q.ConsideredItemIDs) > 64 {
+			return daemon.Response{Error: "invalid context acknowledgement"}
+		}
+		for _, itemID := range q.ConsideredItemIDs {
+			if !validContractID(itemID) {
+				return daemon.Response{Error: "invalid context acknowledgement item"}
+			}
+		}
+		key := q.IdempotencyKey
+		if key == "" {
+			key = q.BriefID
+		}
+		publication = &store.LifecyclePublication{WorkspaceID: q.WorkspaceID, Method: q.Method, IdempotencyKey: key, Source: "mcp", Kind: "context.acknowledged", Payload: map[string]any{"briefId": q.BriefID, "consideredItemIds": q.ConsideredItemIDs}}
+	case "finish_work":
+		if err := validateIdempotency(q.IdempotencyKey); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		if len(q.Outcome) < 1 || len(q.Outcome) > 2000 || len(q.Summary) < 1 || len(q.Summary) > 2000 || q.ManifestRevision < 0 || q.BriefID != "" && !validContractID(q.BriefID) {
+			return daemon.Response{Error: "finish outcome and summary are required and bounded"}
+		}
+		if err := validateVerification(q.Verification); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		checkpointSum := sha256.Sum256([]byte("stickguy.finish-checkpoint.v1\x00" + q.WorkspaceID + "\x00" + q.IdempotencyKey))
+		checkpoint := map[string]any{"checkpointId": fmt.Sprintf("chk_finish_%x", checkpointSum[:12]), "workstreamId": workstreamID, "summary": q.Summary}
+		if q.ManifestRevision > 0 {
+			checkpoint["relatedManifestRevision"] = q.ManifestRevision
+		}
+		if q.BriefID != "" {
+			checkpoint["basedOnBriefId"] = q.BriefID
+		}
+		if len(q.Verification) > 0 {
+			checkpoint["verification"] = verificationPayload(q.Verification)
+		}
+		publication = &store.LifecyclePublication{
+			WorkspaceID: q.WorkspaceID, Method: q.Method, IdempotencyKey: q.IdempotencyKey, Source: "mcp",
+			Kind: "workstream.checkpoint_reported", Payload: checkpoint,
+			Additional: []store.LifecycleEvent{
+				{Kind: "activity.reported", Payload: map[string]any{"kind": "completion", "summary": q.Outcome}},
+				{Kind: "workstream.status_changed", Payload: map[string]any{"workstreamId": workstreamID, "status": "done"}},
+			},
+		}
+		trigger = "finish"
+	case "report_event":
+		if err := validateIdempotency(q.IdempotencyKey); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		if !map[string]bool{"decision": true, "completion": true, "blocker": true}[q.Kind] || len(q.Summary) < 1 || len(q.Summary) > 2000 {
+			return daemon.Response{Error: "invalid bounded activity event"}
+		}
+		publication = &store.LifecyclePublication{WorkspaceID: q.WorkspaceID, Method: q.Method, IdempotencyKey: q.IdempotencyKey, Source: "mcp", Kind: "activity.reported", Payload: map[string]any{"kind": q.Kind, "summary": q.Summary}}
+	}
+	if publication != nil {
+		revision, duplicate, err := s.store.PublishLifecycle(ctx, *publication)
+		if err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		result.IntentRevision, result.Duplicate = revision, duplicate
+	}
+	if trigger != "" {
+		budget := int(q.ApproximateTokenBudget)
+		if budget == 0 {
+			budget = 400
+		}
+		provider, ok := s.sender.(briefProvider)
+		if !ok {
+			result.Degraded, result.Degradation = true, "hosted_coordination_unavailable"
+		} else if brief, err := provider.CreateBrief(ctx, workstreamID, trigger, q.SinceCursor, budget); err != nil {
+			result.Degraded, result.Degradation = true, "hosted_coordination_unavailable"
+		} else {
+			result.Brief = &brief
+		}
+	}
+	return daemon.Response{OK: true, Data: result}
+}
+
+func intentPayload(workstreamID string, q daemon.Request) map[string]any {
+	payload := map[string]any{"workstreamId": workstreamID, "title": q.Title, "intendedOutcome": q.IntendedOutcome}
+	if q.ApproachSummary != "" {
+		payload["approachSummary"] = q.ApproachSummary
+	}
+	if len(q.Components) > 0 {
+		payload["components"] = q.Components
+	}
+	if len(q.Contracts) > 0 {
+		payload["contracts"] = q.Contracts
+	}
+	if len(q.AnticipatedPaths) > 0 {
+		payload["anticipatedPaths"] = q.AnticipatedPaths
+	}
+	if len(q.PlanItemIDs) > 0 {
+		payload["planItemIds"] = q.PlanItemIDs
+	}
+	return payload
+}
+
+func validateLifecycleIntent(q daemon.Request) error {
+	if err := validateIdempotency(q.IdempotencyKey); err != nil {
+		return err
+	}
+	if q.Method == "update_intent" && q.Revision < 1 {
+		return errors.New("update_intent requires the current positive revision")
+	}
+	return validateIntent(q)
+}
+
+func validateIdempotency(key string) error {
+	if len(key) < 1 || len(key) > 128 || strings.ContainsAny(key, "\r\n\x00") {
+		return errors.New("idempotency key must be 1-128 safe characters")
+	}
+	return nil
+}
+
+func validBriefTrigger(trigger string) bool {
+	return map[string]bool{"begin": true, "before_broad_edit": true, "checkpoint": true, "refresh": true, "finish": true, "manual": true}[trigger]
+}
+
+func validateCheckpoint(q daemon.Request) error {
+	if !regexp.MustCompile(`^chk_[A-Za-z0-9_-]{1,80}$`).MatchString(q.CheckpointID) || len(q.Summary) < 1 || len(q.Summary) > 2000 || len(q.Discoveries) > 32 || len(q.Verification) > 32 || q.ManifestRevision < 0 || q.BriefID != "" && !validContractID(q.BriefID) {
+		return errors.New("invalid bounded checkpoint")
+	}
+	for _, discovery := range q.Discoveries {
+		if len(discovery) < 1 || len(discovery) > 500 {
+			return errors.New("checkpoint discovery exceeds limit")
+		}
+	}
+	return validateVerification(q.Verification)
+}
+
+func validContractID(value string) bool {
+	return regexp.MustCompile(`^[a-z][a-z0-9_]{2,127}$`).MatchString(value)
+}
+
+func validateVerification(values []daemon.VerificationSummary) error {
+	if len(values) > 32 {
+		return errors.New("too many verification summaries")
+	}
+	for _, verification := range values {
+		if !map[string]bool{"not_run": true, "running": true, "passed": true, "failed": true, "unknown": true}[verification.State] || len(verification.CheckKind) < 1 || len(verification.CheckKind) > 80 || len(verification.Label) < 1 || len(verification.Label) > 160 || len(verification.Summary) > 500 || len(verification.AffectedComponent) > 160 || verification.ManifestRevision < 0 {
+			return errors.New("invalid structured verification summary")
+		}
+		if verification.ObservedAt != "" {
+			if _, err := time.Parse(time.RFC3339Nano, verification.ObservedAt); err != nil {
+				return errors.New("verification observed_at must be RFC3339")
+			}
+		}
+	}
+	return nil
+}
+
+func verificationPayload(values []daemon.VerificationSummary) []map[string]any {
+	out := make([]map[string]any, len(values))
+	for i, value := range values {
+		item := map[string]any{"state": value.State, "checkKind": value.CheckKind, "label": value.Label, "summary": value.Summary, "source": "mcp", "observedAt": value.ObservedAt}
+		if value.AffectedComponent != "" {
+			item["affectedComponent"] = value.AffectedComponent
+		}
+		if value.ManifestRevision > 0 {
+			item["manifestRevision"] = value.ManifestRevision
+		}
+		out[i] = item
+	}
+	return out
 }
 
 func workspaceWorkstream(cfg config.Config, workspaceID string) string {

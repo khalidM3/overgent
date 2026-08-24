@@ -15,6 +15,7 @@ import (
 type batchPublisher interface {
 	PublishBatch(context.Context, []byte) (hosted.BatchAck, error)
 	Heartbeat(context.Context, string, string) error
+	CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error)
 }
 
 type hostedSender struct{ client batchPublisher }
@@ -76,4 +77,8 @@ func (s hostedSender) Send(ctx context.Context, _ string, batch []byte) error {
 
 func (s hostedSender) Heartbeat(ctx context.Context, workspaceID, state string) error {
 	return s.client.Heartbeat(ctx, workspaceID, state)
+}
+
+func (s hostedSender) CreateBrief(ctx context.Context, workstreamID, trigger, sinceCursor string, budget int) (hosted.CoordinationBrief, error) {
+	return s.client.CreateBrief(ctx, workstreamID, trigger, sinceCursor, budget)
 }
