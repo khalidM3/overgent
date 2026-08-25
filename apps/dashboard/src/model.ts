@@ -35,9 +35,19 @@ export interface Workstream {
   agent?: {
     vendor: "codex" | "claude";
     sessionAlias?: string;
+    branch?: string;
     status?: "active" | "waiting" | "idle" | "done" | "error";
     tool?: string;
     subagents: Array<{ alias: string; agentType: string; status: string }>;
+    activity?: Array<{
+      id: string;
+      at: string;
+      kind: string;
+      status: "active" | "waiting" | "idle" | "done" | "error";
+      action: string;
+      tool?: string;
+      paths: string[];
+    }>;
   };
   largeChange?: {
     pathCount: number;

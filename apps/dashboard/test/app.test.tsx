@@ -24,16 +24,20 @@ describe("Project Workroom behavior", () => {
     const user = userEvent.setup();
     renderReady();
     expect(screen.getByRole("heading", { name: "Now" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Khalid Working now/ }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
     const inspector = screen.getByLabelText("Details inspector");
     expect(within(inspector).getByRole("heading", { name: "Codex" })).toBeTruthy();
     expect(within(inspector).getByText("Live agent")).toBeTruthy();
+    expect(within(inspector).getByText("feature/session-rotation")).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Session activity 3" })).toBeTruthy();
     expect(within(inspector).getByRole("heading", { name: "Subagents 1" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     expect(within(inspector).getByRole("heading", { name: "Claude Code" })).toBeTruthy();
     expect(within(inspector).getByText("Waiting for input")).toBeTruthy();
+    expect(within(inspector).queryByRole("heading", { name: /Subagents/ })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Open Shared task session for Ravi" }));
     expect(within(inspector).getByText("Git observed")).toBeTruthy();

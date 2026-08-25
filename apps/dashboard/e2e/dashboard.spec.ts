@@ -4,12 +4,16 @@ test("Project Workroom shows people, Codex, Claude, and session drill-down", asy
   await page.goto("/?state=ready");
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Now" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Khalid Working now/ })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("button", { name: "Open Codex session for Khalid" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeVisible();
   await expect(page.getByLabel("Details inspector")).toContainText("Codex");
+  await expect(page.getByLabel("Details inspector")).toContainText("feature/session-rotation");
+  await expect(page.getByLabel("Details inspector")).toContainText("Session activity");
   await page.getByRole("button", { name: "Open Claude Code session for Mina" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("Claude Code");
   await expect(page.getByLabel("Details inspector")).toContainText("Waiting for input");
+  await expect(page.getByLabel("Details inspector").getByRole("heading", { name: /Subagents/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Open Shared task session for Ravi" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("1,000 paths");
   await expect(page.getByLabel("Semantic processing status")).toContainText("degraded");

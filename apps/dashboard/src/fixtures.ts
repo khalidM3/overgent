@@ -38,7 +38,15 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 1,
         paths: ["apps/dashboard/src/session.ts"],
-        agent: { vendor: "codex", sessionAlias: "codex-a1b2c3", status: "active", tool: "apply_patch", subagents: [{ alias: "sub-a1b2c3", agentType: "reviewer", status: "active" }] },
+        agent: {
+          vendor: "codex", sessionAlias: "codex-a1b2c3", branch: "feature/session-rotation", status: "active", tool: "apply_patch",
+          subagents: [{ alias: "sub-a1b2c3", agentType: "reviewer", status: "active" }],
+          activity: [
+            { id: "codex-act-3", at: "Now", kind: "PostToolUse", status: "active", action: "Edited apps/dashboard/src/session.ts", tool: "apply_patch", paths: ["apps/dashboard/src/session.ts"] },
+            { id: "codex-act-2", at: "1 min", kind: "PreToolUse", status: "active", action: "Started a repository edit", tool: "apply_patch", paths: ["apps/dashboard/src/session.ts"] },
+            { id: "codex-act-1", at: "4 min", kind: "SessionStart", status: "active", action: "Session started", paths: [] },
+          ],
+        },
       },
       {
         id: "wst_atlas_session",
@@ -51,7 +59,13 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 7,
         paths: ["convex/auth/session.ts", "apps/dashboard/src/session.ts"],
-        agent: { vendor: "claude", sessionAlias: "claude-d4e5f6", status: "waiting", tool: "Read", subagents: [] },
+        agent: {
+          vendor: "claude", sessionAlias: "claude-d4e5f6", branch: "main", status: "waiting", tool: "Read", subagents: [],
+          activity: [
+            { id: "claude-act-2", at: "Now", kind: "PermissionRequest", status: "waiting", action: "Waiting for approval to continue", tool: "Read", paths: ["apps/dashboard/src/session.ts"] },
+            { id: "claude-act-1", at: "3 min", kind: "SessionStart", status: "active", action: "Session started", paths: [] },
+          ],
+        },
       },
       {
         id: "wst_atlas_manifest",

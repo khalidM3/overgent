@@ -202,6 +202,7 @@ export const dashboardSnapshot = internalQuery({
     const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
     const memberById = new Map(members.map((member) => [member._id, member]));
     const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
+    const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(60);
     const workstreams = [];
     const devices: Array<{ id: string; label: string; platform: string; status: string; lastSeen: string }> = [];
     let contextRevision = 0;
@@ -232,10 +233,25 @@ export const dashboardSnapshot = internalQuery({
       }
       const lastSeenAt = stream.vendor ? stream.updatedAt : device?.lastSeenAt ?? 0;
       const presence = workspace.paused ? "paused" : stream.agentStatus === "done" ? "offline" : stream.agentStatus === "waiting" || stream.agentStatus === "idle" ? "idle" : args.now - lastSeenAt <= 35_000 ? "online" : args.now - lastSeenAt <= 120_000 ? "idle" : "offline";
+      const sessionActivity = stream.vendor ? activityDocs
+        .filter((event) => event.type === "agent.activity_reported" && String((event.payload as Record<string, unknown>).workstreamId ?? "") === stream.publicId)
+        .slice(0, 12)
+        .map((event) => {
+          const payload = event.payload as Record<string, unknown>;
+          return {
+            id: event.eventId,
+            at: relativeLabel(args.now, event.receivedAt),
+            kind: String(payload.kind ?? "Activity"),
+            status: dashboardAgentStatus(payload.status),
+            action: String(payload.action ?? "Reported agent activity"),
+            ...(typeof payload.tool === "string" ? { tool: payload.tool } : {}),
+            paths: stringValues(payload.paths).slice(0, 3),
+          };
+        }) : [];
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
-        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, subagents: stream.subagents ?? [] } } : {}),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, subagents: stream.subagents ?? [], activity: sessionActivity } } : {}),
         pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
@@ -247,8 +263,7 @@ export const dashboardSnapshot = internalQuery({
       evidence: (finding.evidence as Array<{ kind: string; summary: string; source: string }>).map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
     }));
-    const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(20);
-    const activity = activityDocs.map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
+    const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
     return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
   },
 });
@@ -1100,6 +1115,10 @@ function activityKind(type: string): "intent" | "manifest" | "finding" | "checkp
   if (type === "workstream.checkpoint_reported") return "checkpoint";
   if (type === "workspace.paused" || type === "workspace.resumed") return "pause";
   return "manifest";
+}
+
+function dashboardAgentStatus(value: unknown): "active" | "waiting" | "idle" | "done" | "error" {
+  return value === "waiting" || value === "idle" || value === "done" || value === "error" ? value : "active";
 }
 
 function activitySummary(type: string, payload: unknown): string {
