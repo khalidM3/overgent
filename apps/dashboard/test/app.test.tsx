@@ -6,7 +6,7 @@ import { App, DesktopPreviewBanner } from "../src/main";
 
 const renderReady = () => render(<App initialState="ready" source={new FixtureProjectSource()} />);
 
-describe("dashboard component behavior", () => {
+describe("Project Workroom behavior", () => {
   it("labels the native desktop fixture boundary", () => {
     render(<DesktopPreviewBanner />);
     expect(screen.getByRole("status").textContent).toContain("Fixture data");
@@ -20,54 +20,78 @@ describe("dashboard component behavior", () => {
     expect(screen.queryByText("stickguy/atlas")).toBeNull();
   });
 
-  it("renders fidelity, structural fallback, large-change, evidence, and advisory states", () => {
-    renderReady();
-    expect(screen.getByText("MCP reported")).toBeTruthy();
-    expect(screen.getByText("Git observed")).toBeTruthy();
-    expect(screen.getByText("Manual intent")).toBeTruthy();
-    expect(screen.getByText("Live agent")).toBeTruthy();
-    expect(screen.getByText("Codex · codex-a1b2c3")).toBeTruthy();
-    expect(screen.getByText("1 active subagents")).toBeTruthy();
-    expect(screen.getByText(/Structural findings remain live/)).toBeTruthy();
-    expect(screen.getByText("Large change · 1,000 paths")).toBeTruthy();
-    expect(screen.getByLabelText("Selected finding detail").textContent).toContain("Advisory only");
-  });
-
-  it("keeps Project fixtures isolated when switching", async () => {
+  it("centers people and live agent sessions with drill-down details", async () => {
     const user = userEvent.setup();
     renderReady();
-    expect(screen.getAllByText("Session contract is changing in two workstreams")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "Now" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
+    const inspector = screen.getByLabelText("Details inspector");
+    expect(within(inspector).getByRole("heading", { name: "Codex" })).toBeTruthy();
+    expect(within(inspector).getByText("Live agent")).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Subagents 1" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
+    expect(within(inspector).getByRole("heading", { name: "Claude Code" })).toBeTruthy();
+    expect(within(inspector).getByText("Waiting for input")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open Shared task session for Ravi" }));
+    expect(within(inspector).getByText("Git observed")).toBeTruthy();
+    expect(within(inspector).getByText("1,000 paths")).toBeTruthy();
+  });
+
+  it("keeps Project data isolated when switching", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    expect(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Orchard mobile/ }));
     expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
-    expect(screen.queryByText("Session contract is changing in two workstreams")).toBeNull();
-    expect(screen.getByText(/Semantic processing is off/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Collision detected/ })).toBeNull();
+    expect(screen.getByLabelText("Semantic processing status").textContent).toContain("disabled");
     expect(screen.getByText("Workspace sharing is paused")).toBeTruthy();
   });
 
-  it("applies pause, live fixture update, and finding lifecycle changes immediately", async () => {
+  it("applies pause, activity, and collision lifecycle changes immediately", async () => {
     const user = userEvent.setup();
     renderReady();
-    await user.click(screen.getByRole("button", { name: "Pause sharing" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
     expect(screen.getByText("Workspace sharing is paused")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Resume sharing" }));
+    await user.click(screen.getByRole("button", { name: "Resume" }));
     expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
-    const observedPaths = screen.getByText("Observed paths").closest("article");
-    expect(observedPaths).not.toBeNull();
-    expect(within(observedPaths!).getByText("1,010")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Publish fixture update" }));
-    expect(within(observedPaths!).getByText("1,011")).toBeTruthy();
-    expect(screen.getByText(/Published one new path-only manifest revision/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Simulate activity" }));
+    expect(screen.getByText("Published one new path-only manifest revision.")).toBeTruthy();
+    expect(screen.getByText("revision 185")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
+    const detail = screen.getByLabelText("Selected collision detail");
+    expect(detail.textContent).toContain("Advisory only");
     await user.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(screen.getByLabelText("Selected finding detail").textContent).toContain("acknowledged");
+    expect(detail.textContent).toContain("acknowledged");
     await user.click(screen.getByRole("button", { name: "Mark resolved" }));
-    expect(screen.getByLabelText("Selected finding detail").textContent).toContain("resolved");
+    expect(detail.textContent).toContain("resolved");
   });
 
-  it("records explicit finding usefulness feedback", async () => {
+  it("records collision feedback and exposes settings and theme controls", async () => {
     const user = userEvent.setup();
     renderReady();
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
     await user.click(screen.getByRole("button", { name: "Useful" }));
     expect(await screen.findByText("Feedback recorded")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(within(dialog).getByText("Coordination metadata only")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: /Theme/ }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("switches Projects through the command palette", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Search Projects and commands" }));
+    const dialog = screen.getByRole("dialog", { name: "Search Projects and commands" });
+    await user.type(within(dialog).getByRole("textbox"), "Orchard");
+    await user.click(within(dialog).getByRole("button", { name: /Orchard mobile/ }));
+    expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
   });
 
   it("activates a browser session without asking for a ticket value", async () => {
