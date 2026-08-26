@@ -293,6 +293,9 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		if len(q.Contracts) > 0 {
 			payload["contracts"] = q.Contracts
 		}
+		if q.WaitingOn != nil {
+			payload["waitingOn"] = q.WaitingOn
+		}
 		if len(q.AnticipatedPaths) > 0 {
 			payload["anticipatedPaths"] = q.AnticipatedPaths
 		}
@@ -872,6 +875,9 @@ func intentPayload(workstreamID string, q daemon.Request) map[string]any {
 	if len(q.Contracts) > 0 {
 		payload["contracts"] = q.Contracts
 	}
+	if q.WaitingOn != nil {
+		payload["waitingOn"] = q.WaitingOn
+	}
 	if len(q.AnticipatedPaths) > 0 {
 		payload["anticipatedPaths"] = q.AnticipatedPaths
 	}
@@ -981,14 +987,14 @@ func validateIntent(q daemon.Request) error {
 	if len(q.ApproachSummary) > 2000 {
 		return errors.New("approach summary exceeds 2000 characters")
 	}
-	if len(q.Components) > 32 || len(q.Contracts) > 32 || len(q.AnticipatedPaths) > 100 || len(q.PlanItemIDs) > 32 {
+	if len(q.Components) > 32 || len(q.Contracts) > 32 || len(q.WaitingOn) > 8 || len(q.AnticipatedPaths) > 100 || len(q.PlanItemIDs) > 32 {
 		return errors.New("intent list exceeds contract limit")
 	}
 	for _, values := range []struct {
 		name  string
 		items []string
 		max   int
-	}{{"component", q.Components, 160}, {"contract", q.Contracts, 160}, {"anticipated path", q.AnticipatedPaths, 512}, {"plan item id", q.PlanItemIDs, 128}} {
+	}{{"component", q.Components, 160}, {"contract", q.Contracts, 160}, {"waiting_on claim", q.WaitingOn, 160}, {"anticipated path", q.AnticipatedPaths, 512}, {"plan item id", q.PlanItemIDs, 128}} {
 		for _, item := range values.items {
 			if len(item) < 1 || len(item) > values.max || strings.ContainsAny(item, "\r\n\x00") {
 				return fmt.Errorf("intent %s must be 1-%d safe characters", values.name, values.max)

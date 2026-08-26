@@ -132,11 +132,14 @@ func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T)
 	}
 	sender := &lifecycleFixtureSender{}
 	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
-	begin := daemon.Request{Method: "begin_work", WorkspaceID: workspace.ID, IdempotencyKey: "begin_1", Title: "Bounded lifecycle", IntendedOutcome: "Preserve coordination evidence"}
+	begin := daemon.Request{Method: "begin_work", WorkspaceID: workspace.ID, IdempotencyKey: "begin_1", Title: "Bounded lifecycle", IntendedOutcome: "Preserve coordination evidence", WaitingOn: []string{"session-api"}}
 	response := service.handle(ctx, begin)
 	result, ok := response.Data.(lifecycleResult)
 	if !response.OK || !ok || result.IntentRevision != 1 || result.Duplicate || result.Brief == nil {
 		t.Fatalf("begin response=%#v", response)
+	}
+	if response = service.handle(ctx, daemon.Request{Method: "begin_work", WorkspaceID: workspace.ID, IdempotencyKey: "invalid_wait", Title: "Bounded lifecycle", IntendedOutcome: "Preserve coordination evidence", WaitingOn: make([]string, 9)}); response.OK {
+		t.Fatalf("over-limit waiting_on accepted: %#v", response)
 	}
 	response = service.handle(ctx, begin)
 	result, _ = response.Data.(lifecycleResult)

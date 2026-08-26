@@ -130,6 +130,7 @@
           "intendedOutcome": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "approachSummary": { "type": "string", "minLength": 1, "maxLength": 2000 },
           "components": { "$ref": "#/$defs/boundedStringList" }, "contracts": { "$ref": "#/$defs/boundedStringList" },
+          "waitingOn": { "type": "array", "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
           "anticipatedPaths": { "type": "array", "maxItems": 100, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
           "planItemIds": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/id" } }
         }

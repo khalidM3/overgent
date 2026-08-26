@@ -43,7 +43,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `workspace.manifest_chunk` | manifestId, chunkIndex, bounded paths with independent baseline/index/worktree states plus optional symbol/dependency metadata |
 | `workspace.manifest_completed` | manifestId, revision, contentHash |
 | `workspace.paused` / `workspace.resumed` | optional reason / empty |
-| `workstream.intent_reported` | title, intendedOutcome, approachSummary, components/contracts, anticipatedPaths, optional planItemIds |
+| `workstream.intent_reported` | title, intendedOutcome, approachSummary, components/contracts, optional `waitingOn`, anticipatedPaths, optional planItemIds |
 | `workstream.checkpoint_reported` | checkpointId, summary/discoveries, verification summaries, relatedManifestRevision, basedOnBriefId |
 | `workstream.status_changed` | active/idle/done/blocked |
 | `context.acknowledged` | briefId, consideredItemIds |
@@ -101,8 +101,8 @@ MCP resolves workspace from client working directory or explicit trusted config,
 
 | Tool | Behavior |
 |---|---|
-| `begin_work(idempotency_key, title, outcome, approach?, components?, contracts?, anticipated_paths?, plan_item_ids?)` | Create/resume workstream, establish baseline, and return initial `CoordinationBrief`. |
-| `update_intent(workstream_id, revision, ...)` | Revision-check and update active intent. |
+| `begin_work(idempotency_key, title, outcome, approach?, components?, contracts?, waiting_on?, anticipated_paths?, plan_item_ids?)` | Create/resume workstream, establish baseline, declare up to eight bounded dependency claims, and return initial `CoordinationBrief`. |
+| `update_intent(workstream_id, revision, ..., waiting_on?)` | Revision-check and update active intent and declared dependency claims. |
 | `check_coordination(workstream_id, trigger?, since_cursor?, approximate_token_budget?)` | Return a relevant `CoordinationBrief`; budget range 128–800, default 400. |
 | `report_checkpoint(checkpoint_id, workstream_id, summary, discoveries?, affected_interfaces?, dependencies?, verification?, manifest_revision?, based_on_brief_id?)` | Publish idempotent progress/change/verification state and return newly relevant context. |
 | `acknowledge_context(brief_id, considered_item_ids)` | Record delivery consideration without claiming compliance/correctness. |

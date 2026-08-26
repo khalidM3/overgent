@@ -146,6 +146,15 @@ type GetContextItem200JSONResponseBody1 struct {
 			Path   string    `json:"path"`
 			ReadAt time.Time `json:"readAt"`
 		} `json:"contract,omitempty"`
+		Dependency *struct {
+			Claim       string `json:"claim"`
+			SatisfiedBy struct {
+				Path    string   `json:"path"`
+				Symbols []string `json:"symbols"`
+			} `json:"satisfiedBy"`
+			SatisfiedByWorkstreamId string      `json:"satisfiedByWorkstreamId"`
+			State                   interface{} `json:"state"`
+		} `json:"dependency,omitempty"`
 		Fidelity string      `json:"fidelity"`
 		Kind     interface{} `json:"kind"`
 		Source   string      `json:"source"`
@@ -309,6 +318,15 @@ type GetProjectChanges200JSONResponseBodyItems1 struct {
 			Path   string    `json:"path"`
 			ReadAt time.Time `json:"readAt"`
 		} `json:"contract,omitempty"`
+		Dependency *struct {
+			Claim       string `json:"claim"`
+			SatisfiedBy struct {
+				Path    string   `json:"path"`
+				Symbols []string `json:"symbols"`
+			} `json:"satisfiedBy"`
+			SatisfiedByWorkstreamId string      `json:"satisfiedByWorkstreamId"`
+			State                   interface{} `json:"state"`
+		} `json:"dependency,omitempty"`
 		Fidelity string      `json:"fidelity"`
 		Kind     interface{} `json:"kind"`
 		Source   string      `json:"source"`

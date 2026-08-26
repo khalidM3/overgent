@@ -23,7 +23,8 @@
     "desktop:dev": "node scripts/dev-desktop.mjs",
     "desktop:run": "pnpm desktop:build && open -n apps/desktop/build/bin/Stickguy.app",
     "protocol:generate": "node scripts/protocol-generate.mjs",
-    "protocol:check": "node scripts/protocol-check.mjs"
+    "protocol:check": "node scripts/protocol-check.mjs",
+    "protocol": "pnpm protocol:generate && pnpm protocol:check"
   },
   "devDependencies": {
     "@redocly/cli": "2.47.0",

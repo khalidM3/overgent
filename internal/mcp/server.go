@@ -29,6 +29,7 @@ type intentInput struct {
 	Approach         string   `json:"approach,omitempty" jsonschema:"bounded approach summary; never source or raw output"`
 	Components       []string `json:"components,omitempty"`
 	Contracts        []string `json:"contracts,omitempty"`
+	WaitingOn        []string `json:"waiting_on,omitempty" jsonschema:"at most 8 bounded contract, symbol, or path claims"`
 	AnticipatedPaths []string `json:"anticipated_paths,omitempty"`
 	PlanItemIDs      []string `json:"plan_item_ids,omitempty"`
 }
@@ -132,9 +133,24 @@ func (s *server) updateIntent(ctx context.Context, _ *sdkmcp.CallToolRequest, in
 	return s.intent(ctx, "update_intent", in)
 }
 func (s *server) intent(ctx context.Context, method string, in intentInput) (*sdkmcp.CallToolResult, toolOutput, error) {
-	q := daemon.Request{Method: method, WorkspaceID: in.WorkspaceID, IdempotencyKey: in.IdempotencyKey, Revision: in.Revision, Title: in.Title, IntendedOutcome: in.Outcome, ApproachSummary: in.Approach, Components: in.Components, Contracts: in.Contracts, AnticipatedPaths: in.AnticipatedPaths, PlanItemIDs: in.PlanItemIDs}
+	if err := validateWaitingOn(in.WaitingOn); err != nil {
+		return nil, toolOutput{}, err
+	}
+	q := daemon.Request{Method: method, WorkspaceID: in.WorkspaceID, IdempotencyKey: in.IdempotencyKey, Revision: in.Revision, Title: in.Title, IntendedOutcome: in.Outcome, ApproachSummary: in.Approach, Components: in.Components, Contracts: in.Contracts, WaitingOn: in.WaitingOn, AnticipatedPaths: in.AnticipatedPaths, PlanItemIDs: in.PlanItemIDs}
 	out, err := s.call(ctx, &q)
 	return nil, out, err
+}
+
+func validateWaitingOn(values []string) error {
+	if len(values) > 8 {
+		return errors.New("waiting_on exceeds 8 claims")
+	}
+	for _, value := range values {
+		if len(value) < 1 || len(value) > 160 || strings.ContainsAny(value, "\r\n\x00") {
+			return errors.New("waiting_on claim must be 1-160 safe characters")
+		}
+	}
+	return nil
 }
 func (s *server) checkCoordination(ctx context.Context, _ *sdkmcp.CallToolRequest, in checkInput) (*sdkmcp.CallToolResult, toolOutput, error) {
 	q := daemon.Request{Method: "check_coordination", WorkspaceID: in.WorkspaceID, Trigger: in.Trigger, SinceCursor: in.SinceCursor, ApproximateTokenBudget: in.ApproximateTokenBudget}
