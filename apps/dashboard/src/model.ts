@@ -127,12 +127,8 @@ export type SessionMessageKind = "user" | "assistant" | "thinking" | "system";
 /** One entry of the viewer's own session, read locally and never uploaded. */
 export interface LocalSessionMessage { kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string }
 export interface LocalSessionDetail { available: boolean; title?: string; branch?: string; messages: LocalSessionMessage[] }
-export interface SessionSharingSnapshot {
+export interface SessionMessagesSnapshot {
   workstreamId: string;
-  policy: {
-    profile: "private" | "conversation"; audience: "self" | "project"; consentVersion: "session-share/v1";
-    allowedKinds: SessionMessageKind[]; enabled: boolean; canManage: boolean; expiresAt?: string; updatedAt?: string;
-  };
   messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: "codex" | "claude"; capturedAt: string; expiresAt: string }>;
 }
 

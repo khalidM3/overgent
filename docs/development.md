@@ -152,8 +152,8 @@ or environment values.
   preview. It never silently detaches the other profile. Partial entries for the
   current profile are repaired automatically; unknown drift still fails closed.
 - Stickguy may read the supported vendor session record locally to show the
-  session owner their own bounded conversation and to prepare an explicitly
-  consented share. It never uploads the transcript file itself, scans process
+  session owner their own bounded conversation and project classifier-passing
+  messages to enrolled Project members while sharing is unpaused. It never uploads the transcript file itself, scans process
   memory, displays hidden reasoning, or collects source/diffs, raw
   commands/output, environment values, `.env` variants, credentials, or
   system/developer prompts.
