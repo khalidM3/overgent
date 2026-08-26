@@ -14,7 +14,7 @@ type Request struct {
 	ProjectID, WorkstreamID, MemberID, SessionID, Root                                  string
 	Title, IntendedOutcome                                                              string
 	ApproachSummary                                                                     string
-	Components, Contracts                                                               []string
+	Components, Contracts, WaitingOn                                                    []string
 	AnticipatedPaths, PlanItemIDs                                                       []string
 	IdempotencyKey, Trigger, SinceCursor, CheckpointID, BriefID, Kind, Summary, Outcome string
 	Revision, ManifestRevision, ApproximateTokenBudget                                  int64
