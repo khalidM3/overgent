@@ -186,14 +186,16 @@ func TestDevelopmentAgentSetupIsExplicitAndUsesBuiltExecutable(t *testing.T) {
 	}
 }
 
-func TestNarrowedAgentSetupFailsClosed(t *testing.T) {
+func TestProductionAgentSetupUsesCurrentProfile(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("local service currently supports macOS")
 	}
 	for _, agent := range []string{"codex", "claude"} {
-		err := run([]string{"--config-root", t.TempDir(), "setup", agent, "--project-root", t.TempDir()})
-		if err == nil || !strings.Contains(err.Error(), "withheld") || !strings.Contains(err.Error(), "Git/manual") {
-			t.Fatalf("%s setup error=%v", agent, err)
-		}
+		state, project := t.TempDir(), t.TempDir()
+		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil { t.Fatalf("%s setup: %v", agent, err) }
+		path := filepath.Join(project, ".mcp.json")
+		if agent == "codex" { path = filepath.Join(project, ".codex", "config.toml") }
+		contents, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(contents), state) || !strings.Contains(string(contents), "agent-hook") { t.Fatalf("%s production config path=%s err=%v contents=%q", agent, path, err, contents) }
 	}
 }

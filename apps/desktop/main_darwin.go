@@ -34,7 +34,7 @@ func main() {
 			Handler: application.BundledAssetFileServer(assets),
 		},
 		Services: []application.Service{application.NewService(newOnboardingService())},
-		Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		Logger:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
 		},
@@ -70,15 +70,13 @@ func main() {
 		window.Show()
 		window.Focus()
 	})
-	if desktopDevelopment {
-		menu.Add("Open local live Project").OnClick(func(*application.Context) {
-			go func() {
-				if err := openLocalProject(context.Background(), window); err != nil {
-					slog.Warn("open local Project", "error", err)
-				}
-			}()
-		})
-	}
+	menu.Add("Open live Project").OnClick(func(*application.Context) {
+		go func() {
+			if err := openLocalProject(context.Background(), window); err != nil {
+				slog.Warn("open local Project", "error", err)
+			}
+		}()
+	})
 	pauseItem := menu.Add("Pause all sharing").SetEnabled(false)
 	scanItem := menu.Add("Scan now").SetEnabled(false)
 	menu.AddSeparator()

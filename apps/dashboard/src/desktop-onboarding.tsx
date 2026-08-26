@@ -58,7 +58,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
     } catch (cause) { setError((cause as Error).message); }
     finally { setPending(false); }
   };
-  if (!state && !error) return <main className="onboarding-shell"><header><Brand /><span>Desktop development</span></header><section className="onboarding-card" role="status"><span className="spinner" /><h1>Checking this Mac…</h1></section></main>;
+  if (!state && !error) return <main className="onboarding-shell"><header><Brand /><span>Desktop beta</span></header><section className="onboarding-card" role="status"><span className="spinner" /><h1>Checking this Mac…</h1></section></main>;
   if (!state) return <main className="onboarding-shell"><header><Brand /></header><section className="onboarding-card"><p className="form-error" role="alert">{error}</p><button className="secondary-button" onClick={() => { setError(""); void refresh().catch((cause: Error) => setError(cause.message)); }}>Try again</button></section></main>;
   if (state.enrolled) {
     const needsSetup = state.adapters.some((adapter) => adapter.binding === "not_configured" || adapter.binding === "partial");
