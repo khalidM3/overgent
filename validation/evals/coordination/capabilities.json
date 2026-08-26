@@ -1,3 +1,7 @@
 {
-  "required": ["structural", "contract"]
+  "required": [
+    "structural",
+    "contract",
+    "injection"
+  ]
 }
