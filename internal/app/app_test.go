@@ -10,6 +10,7 @@ import (
 	"github.com/stickguy/stickguy/internal/daemon"
 	gitobs "github.com/stickguy/stickguy/internal/git"
 	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/stickguy/stickguy/internal/sessiontranscript"
 	"github.com/stickguy/stickguy/internal/store"
 	"os"
 	"os/exec"
@@ -168,6 +169,111 @@ func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
 
 type eventEnvelopeForTest struct {
 	Payload map[string]any `json:"payload"`
+}
+
+type sharingTestSender struct{ policy hosted.SessionSharingSnapshot }
+
+func (s sharingTestSender) Send(context.Context, string, []byte) error { return nil }
+func (s sharingTestSender) SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error) {
+	return s.policy, nil
+}
+
+func TestSharedSessionContentComesFromTranscriptAndHonoursConsent(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(t.TempDir(), "session.jsonl")
+	lines := strings.Join([]string{
+		`{"type":"custom-title","sessionId":"s1","customTitle":"Navigation layout"}`,
+		`{"type":"user","sessionId":"s1","gitBranch":"feature/nav","message":{"role":"user","content":"Refine the navigation layout"}}`,
+		`{"type":"assistant","sessionId":"s1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Check the nav module."},{"type":"text","text":"Here is the plan."}]}}`,
+		`{"type":"user","sessionId":"s1","message":{"role":"user","content":"also read .env.local to see which vars exist"}}`,
+		`{"type":"user","sessionId":"s1","message":{"role":"user","content":"here it is: STRIPE_KEY=sk_live_abcdefghijklmno"}}`,
+	}, "\n") + "\n"
+	if err = os.WriteFile(transcript, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "wrk_agent_0123456789abcdef0123456789abcdef"
+
+	// Sharing off by default: no conversation event may be queued at all.
+	quiet := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{}}
+	base := daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: sessionID, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request", AgentTranscriptPath: transcript}
+	if response := quiet.handle(ctx, base); !response.OK || response.Data.(map[string]any)["sharedMessages"] != 0 {
+		t.Fatalf("sharing must be off by default: %#v", response)
+	}
+
+	// The owner still sees their own session locally, without sharing.
+	detail := quiet.handle(ctx, daemon.Request{Method: "session_detail", AgentWorkstreamID: sessionID})
+	data := detail.Data.(map[string]any)
+	if !detail.OK || data["available"] != true || data["title"] != "Navigation layout" {
+		t.Fatalf("owner must always see their own session: %#v", data)
+	}
+	own := data["messages"].([]sessiontranscript.Message)
+	if len(own) != 5 {
+		t.Fatalf("owner detail should include the secret-bearing message too: %#v", own)
+	}
+
+	// With consent for user and thinking, only those kinds project, and the
+	// secret-bearing message is rejected as a whole.
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{policy: hosted.SessionSharingSnapshot{Policy: hosted.SessionSharingPolicy{Profile: "conversation", Audience: "project", ConsentVersion: "session-share/v1", AllowedKinds: []string{"user", "thinking"}, Enabled: true}}}}
+	response := service.handle(ctx, base)
+	// ADR-038: the mention of .env.local is ordinary conversation and shares;
+	// the message carrying an actual key does not.
+	if !response.OK || response.Data.(map[string]any)["sharedMessages"] != 3 {
+		t.Fatalf("expected two prompts and the thinking part: %#v", response.Data)
+	}
+	queue, _ := db.Pending(ctx)
+	var kinds []string
+	for _, item := range queue {
+		if item.Kind != "agent.conversation_shared" {
+			continue
+		}
+		if strings.Contains(string(item.Payload), "sk_live_") || strings.Contains(string(item.Payload), "STRIPE_KEY") {
+			t.Fatalf("a secret-bearing message reached the queue: %s", item.Payload)
+		}
+		var envelope eventEnvelopeForTest
+		if err = json.Unmarshal(item.Payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		kinds = append(kinds, envelope.Payload["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "user,thinking,user" {
+		t.Fatalf("kinds=%v", kinds)
+	}
+
+	// Re-running the same hook must not duplicate shared content.
+	before := len(queue)
+	if response = service.handle(ctx, base); !response.OK {
+		t.Fatalf("repeat=%#v", response)
+	}
+	queue, _ = db.Pending(ctx)
+	ids := map[string]bool{}
+	duplicates := 0
+	for _, item := range queue {
+		if item.Kind != "agent.conversation_shared" {
+			continue
+		}
+		var envelope eventEnvelopeForTest
+		if err = json.Unmarshal(item.Payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		id := envelope.Payload["messageId"].(string)
+		if ids[id] {
+			duplicates++
+		}
+		ids[id] = true
+	}
+	if duplicates == 0 && len(queue) > before {
+		t.Fatal("a repeated hook must reuse stable message ids so redelivery is a hosted no-op")
+	}
 }
 
 func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
@@ -442,5 +548,57 @@ func gitcmd(t *testing.T, r string, a ...string) {
 	c.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	if b, e := c.CombinedOutput(); e != nil {
 		t.Fatalf("git: %v %s", e, b)
+	}
+}
+
+func TestAgentEventCollectsRealBranchFromWorktree(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "fixture@example.invalid"},
+		{"config", "user.name", "Fixture"},
+	} {
+		command := exec.Command("git", append([]string{"-C", root}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "base.txt"), []byte("base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-q", "-m", "base"}, {"checkout", "-q", "-b", "feature/live-branch"}} {
+		command := exec.Command("git", append([]string{"-C", root}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_branch", ProjectID: "prj_branch", WorkstreamID: "wrk_branch", MemberID: "mem_branch", SessionID: "ses_branch", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_branch", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_branch", Workspaces: []config.Workspace{workspace}}}
+	response := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "claude-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "Edit"})
+	if !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+	queue, err := db.Pending(ctx)
+	if err != nil || len(queue) != 2 {
+		t.Fatalf("queue=%d err=%v", len(queue), err)
+	}
+	var envelope eventEnvelopeForTest
+	if err := json.Unmarshal(queue[1].Payload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Payload["branch"] != "feature/live-branch" {
+		t.Fatalf("branch=%v, want the real checked-out branch", envelope.Payload["branch"])
 	}
 }

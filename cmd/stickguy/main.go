@@ -164,7 +164,8 @@ func run(args []string) error {
 			AgentWorkstreamID: event.WorkstreamID, AgentSessionAlias: event.SessionAlias,
 			AgentEvent: event.Kind, AgentStatus: event.Status, AgentAction: event.Action,
 			AgentTool: event.Tool, AgentType: event.AgentType, AgentSubagentAlias: event.SubagentAlias,
-			AgentPaths: event.CandidatePaths,
+			AgentPaths:          event.CandidatePaths,
+			AgentTranscriptPath: event.TranscriptPath, AgentVendorSessionID: event.VendorSessionID,
 		})
 		if callErr != nil || !response.OK {
 			return nil

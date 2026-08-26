@@ -41,8 +41,7 @@ func (e PublishEventBatchJSONBodyEventsSource) Valid() bool {
 const (
 	ActivityReported             PublishEventBatchJSONBodyEventsType = "activity.reported"
 	AgentActivityReported        PublishEventBatchJSONBodyEventsType = "agent.activity_reported"
-	ClaimCreated                 PublishEventBatchJSONBodyEventsType = "claim.created"
-	ClaimReleased                PublishEventBatchJSONBodyEventsType = "claim.released"
+	AgentConversationShared      PublishEventBatchJSONBodyEventsType = "agent.conversation_shared"
 	ContextAcknowledged          PublishEventBatchJSONBodyEventsType = "context.acknowledged"
 	WorkspaceManifestChunk       PublishEventBatchJSONBodyEventsType = "workspace.manifest_chunk"
 	WorkspaceManifestCompleted   PublishEventBatchJSONBodyEventsType = "workspace.manifest_completed"
@@ -62,9 +61,7 @@ func (e PublishEventBatchJSONBodyEventsType) Valid() bool {
 		return true
 	case AgentActivityReported:
 		return true
-	case ClaimCreated:
-		return true
-	case ClaimReleased:
+	case AgentConversationShared:
 		return true
 	case ContextAcknowledged:
 		return true
@@ -167,6 +164,17 @@ type GetContextItem200JSONResponseBody2 struct {
 	WorkstreamId string `json:"workstreamId"`
 }
 
+// GetContextItem200JSONResponseBody3 defines parameters for GetContextItem.
+type GetContextItem200JSONResponseBody3 struct {
+	AffectedMemberIds     []string  `json:"affectedMemberIds"`
+	AffectedWorkstreamIds []string  `json:"affectedWorkstreamIds"`
+	CreatedAt             time.Time `json:"createdAt"`
+	Id                    string    `json:"id"`
+	Revision              int       `json:"revision"`
+	Summary               string    `json:"summary"`
+	SyncCardId            *string   `json:"syncCardId,omitempty"`
+}
+
 // GetContextItem200JSONResponseBody defines parameters for GetContextItem.
 type GetContextItem200JSONResponseBody struct {
 	union json.RawMessage
@@ -189,12 +197,15 @@ type ExchangeDashboardTicketJSONBody struct {
 
 // CreateEnrollmentJSONBody defines parameters for CreateEnrollment.
 type CreateEnrollmentJSONBody struct {
-	AppVersion    string `json:"appVersion"`
-	DeviceLabel   string `json:"deviceLabel"`
-	InviteId      string `json:"inviteId"`
-	InviteSecret  string `json:"inviteSecret"`
-	SchemaMaximum int    `json:"schemaMaximum"`
-	SchemaMinimum int    `json:"schemaMinimum"`
+	AppVersion  string `json:"appVersion"`
+	DeviceLabel string `json:"deviceLabel"`
+
+	// DisplayName Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
+	DisplayName   *string `json:"displayName,omitempty"`
+	InviteId      string  `json:"inviteId"`
+	InviteSecret  string  `json:"inviteSecret"`
+	SchemaMaximum int     `json:"schemaMaximum"`
+	SchemaMinimum int     `json:"schemaMinimum"`
 }
 
 // PublishEventBatchJSONBody defines parameters for PublishEventBatch.
@@ -239,7 +250,10 @@ type HeartbeatJSONBodyState string
 // CreateProjectJSONBody defines parameters for CreateProject.
 type CreateProjectJSONBody struct {
 	DeviceLabel string `json:"deviceLabel"`
-	Label       string `json:"label"`
+
+	// DisplayName Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
+	DisplayName *string `json:"displayName,omitempty"`
+	Label       string  `json:"label"`
 }
 
 // GetProjectChangesParams defines parameters for GetProjectChanges.
@@ -302,9 +316,25 @@ type GetProjectChanges200JSONResponseBodyItems2 struct {
 	WorkstreamId string `json:"workstreamId"`
 }
 
+// GetProjectChanges200JSONResponseBodyItems3 defines parameters for GetProjectChanges.
+type GetProjectChanges200JSONResponseBodyItems3 struct {
+	AffectedMemberIds     []string  `json:"affectedMemberIds"`
+	AffectedWorkstreamIds []string  `json:"affectedWorkstreamIds"`
+	CreatedAt             time.Time `json:"createdAt"`
+	Id                    string    `json:"id"`
+	Revision              int       `json:"revision"`
+	Summary               string    `json:"summary"`
+	SyncCardId            *string   `json:"syncCardId,omitempty"`
+}
+
 // GetProjectChanges200JSONResponseBody_Items_Item defines parameters for GetProjectChanges.
 type GetProjectChanges200JSONResponseBody_Items_Item struct {
 	union json.RawMessage
+}
+
+// GetProjectCollaborationParams defines parameters for GetProjectCollaboration.
+type GetProjectCollaborationParams struct {
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // CreateInviteJSONBody defines parameters for CreateInvite.
@@ -313,11 +343,46 @@ type CreateInviteJSONBody struct {
 	MaxUses          int `json:"maxUses"`
 }
 
+// UpdateProjectMemberIdentityJSONBody defines parameters for UpdateProjectMemberIdentity.
+type UpdateProjectMemberIdentityJSONBody struct {
+	// DisplayName Member-chosen live-work identity. Email addresses are rejected.
+	DisplayName string `json:"displayName"`
+}
+
+// CreateSyncCardJSONBody defines parameters for CreateSyncCard.
+type CreateSyncCardJSONBody struct {
+	FindingId *string `json:"findingId,omitempty"`
+	Summary   string  `json:"summary"`
+	Title     string  `json:"title"`
+}
+
+// CommentOnSyncCardJSONBody defines parameters for CommentOnSyncCard.
+type CommentOnSyncCardJSONBody struct {
+	Body string `json:"body"`
+}
+
+// ResolveSyncCardJSONBody defines parameters for ResolveSyncCard.
+type ResolveSyncCardJSONBody struct {
+	AffectedMemberIds     []string `json:"affectedMemberIds"`
+	AffectedWorkstreamIds []string `json:"affectedWorkstreamIds"`
+	ExpectedRevision      int      `json:"expectedRevision"`
+	Summary               string   `json:"summary"`
+}
+
 // CreateCoordinationBriefJSONBody defines parameters for CreateCoordinationBrief.
 type CreateCoordinationBriefJSONBody struct {
 	ApproximateTokenBudget int     `json:"approximateTokenBudget"`
 	SinceCursor            *string `json:"sinceCursor,omitempty"`
 	Trigger                string  `json:"trigger"`
+}
+
+// UpdateSessionSharingJSONBody defines parameters for UpdateSessionSharing.
+type UpdateSessionSharingJSONBody struct {
+	AllowedKinds     []interface{} `json:"allowedKinds"`
+	Audience         interface{}   `json:"audience"`
+	ConsentVersion   interface{}   `json:"consentVersion"`
+	ExpiresInSeconds *int          `json:"expiresInSeconds,omitempty"`
+	Profile          interface{}   `json:"profile"`
 }
 
 // ActivateDashboardBrowserFormdataRequestBody defines body for ActivateDashboardBrowser for application/x-www-form-urlencoded ContentType.
@@ -347,8 +412,23 @@ type CreateProjectJSONRequestBody CreateProjectJSONBody
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody CreateInviteJSONBody
 
+// UpdateProjectMemberIdentityJSONRequestBody defines body for UpdateProjectMemberIdentity for application/json ContentType.
+type UpdateProjectMemberIdentityJSONRequestBody UpdateProjectMemberIdentityJSONBody
+
+// CreateSyncCardJSONRequestBody defines body for CreateSyncCard for application/json ContentType.
+type CreateSyncCardJSONRequestBody CreateSyncCardJSONBody
+
+// CommentOnSyncCardJSONRequestBody defines body for CommentOnSyncCard for application/json ContentType.
+type CommentOnSyncCardJSONRequestBody CommentOnSyncCardJSONBody
+
+// ResolveSyncCardJSONRequestBody defines body for ResolveSyncCard for application/json ContentType.
+type ResolveSyncCardJSONRequestBody ResolveSyncCardJSONBody
+
 // CreateCoordinationBriefJSONRequestBody defines body for CreateCoordinationBrief for application/json ContentType.
 type CreateCoordinationBriefJSONRequestBody CreateCoordinationBriefJSONBody
+
+// UpdateSessionSharingJSONRequestBody defines body for UpdateSessionSharing for application/json ContentType.
+type UpdateSessionSharingJSONRequestBody UpdateSessionSharingJSONBody
 
 // AsGetContextItem200JSONResponseBody0 returns the union data inside the GetContextItem200JSONResponseBody as a GetContextItem200JSONResponseBody0
 func (t GetContextItem200JSONResponseBody) AsGetContextItem200JSONResponseBody0() (GetContextItem200JSONResponseBody0, error) {
@@ -418,6 +498,32 @@ func (t *GetContextItem200JSONResponseBody) FromGetContextItem200JSONResponseBod
 
 // MergeGetContextItem200JSONResponseBody2 performs a merge with any union data inside the GetContextItem200JSONResponseBody, using the provided GetContextItem200JSONResponseBody2
 func (t *GetContextItem200JSONResponseBody) MergeGetContextItem200JSONResponseBody2(v GetContextItem200JSONResponseBody2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGetContextItem200JSONResponseBody3 returns the union data inside the GetContextItem200JSONResponseBody as a GetContextItem200JSONResponseBody3
+func (t GetContextItem200JSONResponseBody) AsGetContextItem200JSONResponseBody3() (GetContextItem200JSONResponseBody3, error) {
+	var body GetContextItem200JSONResponseBody3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGetContextItem200JSONResponseBody3 overwrites any union data inside the GetContextItem200JSONResponseBody as the provided GetContextItem200JSONResponseBody3
+func (t *GetContextItem200JSONResponseBody) FromGetContextItem200JSONResponseBody3(v GetContextItem200JSONResponseBody3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGetContextItem200JSONResponseBody3 performs a merge with any union data inside the GetContextItem200JSONResponseBody, using the provided GetContextItem200JSONResponseBody3
+func (t *GetContextItem200JSONResponseBody) MergeGetContextItem200JSONResponseBody3(v GetContextItem200JSONResponseBody3) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -506,6 +612,32 @@ func (t *GetProjectChanges200JSONResponseBody_Items_Item) FromGetProjectChanges2
 
 // MergeGetProjectChanges200JSONResponseBodyItems2 performs a merge with any union data inside the GetProjectChanges200JSONResponseBody_Items_Item, using the provided GetProjectChanges200JSONResponseBodyItems2
 func (t *GetProjectChanges200JSONResponseBody_Items_Item) MergeGetProjectChanges200JSONResponseBodyItems2(v GetProjectChanges200JSONResponseBodyItems2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsGetProjectChanges200JSONResponseBodyItems3 returns the union data inside the GetProjectChanges200JSONResponseBody_Items_Item as a GetProjectChanges200JSONResponseBodyItems3
+func (t GetProjectChanges200JSONResponseBody_Items_Item) AsGetProjectChanges200JSONResponseBodyItems3() (GetProjectChanges200JSONResponseBodyItems3, error) {
+	var body GetProjectChanges200JSONResponseBodyItems3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromGetProjectChanges200JSONResponseBodyItems3 overwrites any union data inside the GetProjectChanges200JSONResponseBody_Items_Item as the provided GetProjectChanges200JSONResponseBodyItems3
+func (t *GetProjectChanges200JSONResponseBody_Items_Item) FromGetProjectChanges200JSONResponseBodyItems3(v GetProjectChanges200JSONResponseBodyItems3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeGetProjectChanges200JSONResponseBodyItems3 performs a merge with any union data inside the GetProjectChanges200JSONResponseBody_Items_Item, using the provided GetProjectChanges200JSONResponseBodyItems3
+func (t *GetProjectChanges200JSONResponseBody_Items_Item) MergeGetProjectChanges200JSONResponseBodyItems3(v GetProjectChanges200JSONResponseBodyItems3) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err

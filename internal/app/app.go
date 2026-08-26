@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/stickguy/stickguy/internal/daemon"
 	git "github.com/stickguy/stickguy/internal/git"
 	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/stickguy/stickguy/internal/sessiontranscript"
 	"github.com/stickguy/stickguy/internal/store"
 	"github.com/stickguy/stickguy/internal/watcher"
 )
@@ -34,6 +36,12 @@ type presenceSender interface {
 type briefProvider interface {
 	CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error)
 }
+type collaborationProvider interface {
+	Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error)
+}
+type sessionSharingProvider interface {
+	SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error)
+}
 type Service struct {
 	paths       config.Paths
 	store       *store.Store
@@ -42,6 +50,10 @@ type Service struct {
 	mu          sync.Mutex
 	scans, boot int64
 	watch       *watcher.Watcher
+	// transcripts maps a session to its vendor transcript path. Only paths are
+	// held; content is read on demand and never copied (ADR-036).
+	transcriptMu sync.Mutex
+	transcripts  map[string]string
 }
 
 func Run(ctx context.Context, root string, sender Sender) error {
@@ -286,6 +298,10 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return daemon.Response{OK: true}
 	case "begin_work", "update_intent", "check_coordination", "report_checkpoint", "acknowledge_context", "finish_work", "report_event":
 		return s.handleLifecycle(ctx, q)
+	case "get_resolutions":
+		return s.handleCollaboration(ctx, q)
+	case "session_detail":
+		return s.handleSessionDetail(q)
 	case "agent_event":
 		return s.handleAgentEvent(ctx, q)
 	case "scan":
@@ -300,6 +316,113 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
+}
+
+// handleCollaboration serves the one remaining agent-facing collaboration read:
+// how collisions affecting this workspace were resolved (ADR-037).
+// rememberTranscript records where this session's transcript lives so the owner
+// can read it later. Only the path is kept; content is never copied (ADR-036).
+func (s *Service) rememberTranscript(workstreamID, path string) {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	if s.transcripts == nil {
+		s.transcripts = map[string]string{}
+	}
+	s.transcripts[workstreamID] = path
+}
+
+func (s *Service) transcriptPath(workstreamID string) string {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	return s.transcripts[workstreamID]
+}
+
+// shareTranscript projects consented session messages. It is a no-op unless the
+// member turned sharing on for this exact session under the current consent
+// version, and every candidate is classified before it can be enqueued.
+func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspace, event agentactivity.Event, transcript sessiontranscript.Session) int {
+	if len(transcript.Messages) == 0 {
+		return 0
+	}
+	provider, ok := s.sender.(sessionSharingProvider)
+	if !ok {
+		return 0
+	}
+	policyContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	sharing, sharingErr := provider.SessionSharing(policyContext, event.WorkstreamID)
+	cancel()
+	if sharingErr != nil || !sharing.Policy.Enabled || sharing.Policy.Profile != "conversation" || sharing.Policy.ConsentVersion != "session-share/v1" {
+		return 0
+	}
+	allowed := make(map[string]bool, len(sharing.Policy.AllowedKinds))
+	for _, kind := range sharing.Policy.AllowedKinds {
+		allowed[kind] = true
+	}
+	shared := 0
+	for index, candidate := range transcript.Messages {
+		if candidate.Kind == sessiontranscript.KindTool || !allowed[candidate.Kind] {
+			continue
+		}
+		message, classifyErr := agentactivity.ClassifyMessage(agentactivity.Message{Kind: candidate.Kind, Text: candidate.Text})
+		if classifyErr != nil {
+			continue
+		}
+		// A stable identity per message makes redelivery a hosted no-op, so a
+		// restart or a repeated hook never duplicates shared content.
+		digest := sha256.Sum256([]byte(event.WorkstreamID + "\x00" + strconv.Itoa(index) + "\x00" + message.Kind + "\x00" + message.Text))
+		messagePayload := map[string]any{
+			"messageId": fmt.Sprintf("msg_%x", digest[:16]), "workstreamId": event.WorkstreamID,
+			"vendor": event.Vendor, "sessionAlias": event.SessionAlias,
+			"kind": message.Kind, "text": message.Text, "consentVersion": "session-share/v1",
+		}
+		if s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "hook", "agent.conversation_shared", messagePayload) != nil {
+			continue
+		}
+		shared++
+	}
+	return shared
+}
+
+// handleSessionDetail returns the caller's own session content. Only sessions
+// this device observed have a remembered transcript, so a member can never read
+// someone else's session through this path, and nothing is uploaded (ADR-036).
+func (s *Service) handleSessionDetail(q daemon.Request) daemon.Response {
+	if !validContractID(q.AgentWorkstreamID) {
+		return daemon.Response{Error: "invalid session id"}
+	}
+	path := s.transcriptPath(q.AgentWorkstreamID)
+	if path == "" {
+		return daemon.Response{OK: true, Data: map[string]any{"available": false, "messages": []any{}}}
+	}
+	transcript, err := sessiontranscript.Read(path, sessiontranscript.MaxMessages)
+	if err != nil {
+		return daemon.Response{OK: true, Data: map[string]any{"available": false, "messages": []any{}}}
+	}
+	return daemon.Response{OK: true, Data: map[string]any{
+		"available": true, "title": transcript.Title, "branch": transcript.Branch, "messages": transcript.Messages,
+	}}
+}
+
+func (s *Service) handleCollaboration(ctx context.Context, q daemon.Request) daemon.Response {
+	workspace := config.Workspace{}
+	for _, candidate := range s.cfg.Workspaces {
+		if candidate.ID == q.WorkspaceID {
+			workspace = candidate
+			break
+		}
+	}
+	if workspace.ID == "" {
+		return daemon.Response{Error: "workspace not found"}
+	}
+	provider, ok := s.sender.(collaborationProvider)
+	if !ok {
+		return daemon.Response{Error: "hosted collaboration unavailable"}
+	}
+	snapshot, err := provider.Collaboration(ctx, workspace.ProjectID)
+	if err != nil {
+		return daemon.Response{Error: "hosted collaboration unavailable"}
+	}
+	return daemon.Response{OK: true, Data: map[string]any{"collaboration": snapshot}}
 }
 
 func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon.Response {
@@ -335,10 +458,43 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if len(event.CandidatePaths) > 0 {
 		payload["paths"] = event.CandidatePaths
 	}
+	// The branch is read from the registered worktree rather than reported by the
+	// agent, so it reflects the real checkout. Observation must never delay the
+	// coding agent, so a slow or failed read simply omits the branch.
+	branchContext, cancelBranch := context.WithTimeout(ctx, 2*time.Second)
+	branch, branchErr := git.CurrentBranch(branchContext, git.Runner{}, workspace.Root)
+	cancelBranch()
+	if branchErr == nil && branch != "" {
+		payload["branch"] = branch
+	}
+	// The transcript names this session far better than a vendor alias does, so
+	// the tree can show what each chat is actually about.
+	var transcript sessiontranscript.Session
+	// Claude names its transcript in the hook payload; Codex does not, but names
+	// every rollout after the session id, so it is discoverable locally.
+	transcriptPath := q.AgentTranscriptPath
+	if transcriptPath == "" && event.Vendor == "codex" {
+		if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			transcriptPath = sessiontranscript.LocateCodexRollout(home, q.AgentVendorSessionID)
+		}
+	}
+	if transcriptPath != "" {
+		if parsed, readErr := sessiontranscript.Read(transcriptPath, sessiontranscript.MaxMessages); readErr == nil {
+			transcript = parsed
+			s.rememberTranscript(event.WorkstreamID, transcriptPath)
+			if title, titleErr := agentactivity.ClassifyCoordinationTitle(transcript.Title); titleErr == nil {
+				payload["sessionTitle"] = title
+			}
+			if _, present := payload["branch"]; !present && transcript.Branch != "" {
+				payload["branch"] = transcript.Branch
+			}
+		}
+	}
 	if err := s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "hook", "agent.activity_reported", payload); err != nil {
 		return daemon.Response{Error: err.Error()}
 	}
-	return daemon.Response{OK: true, Data: map[string]any{"accepted": true}}
+	shared := s.shareTranscript(ctx, workspace, event, transcript)
+	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared}}
 }
 
 func workspaceForCWD(cfg config.Config, cwd string) (config.Workspace, bool) {

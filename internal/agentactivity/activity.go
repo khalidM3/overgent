@@ -9,9 +9,16 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 const MaxInputBytes = 256 << 10
+const MaxMessageBytes = 8000
+
+type Message struct {
+	Kind string
+	Text string
+}
 
 type Event struct {
 	Vendor         string
@@ -25,6 +32,11 @@ type Event struct {
 	AgentType      string
 	SubagentAlias  string
 	CandidatePaths []string
+	// TranscriptPath is the vendor-named transcript for this session (ADR-036).
+	TranscriptPath string
+	// VendorSessionID is the raw id the vendor used. It is used locally to find
+	// a session record that the hook does not name, and is never published.
+	VendorSessionID string
 }
 
 var identifier = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._:-]{0,63}$`)
@@ -53,9 +65,10 @@ func Parse(vendor string, input []byte) (Event, error) {
 	sum := sha256.Sum256([]byte("stickguy.agent-session.v1\x00" + vendor + "\x00" + sessionID))
 	event := Event{
 		Vendor: vendor, CWD: canonicalCWD,
-		WorkstreamID: fmt.Sprintf("wrk_agent_%x", sum[:16]),
-		SessionAlias: fmt.Sprintf("%s-%x", vendor, sum[:3]),
-		Kind:         kind,
+		WorkstreamID:    fmt.Sprintf("wrk_agent_%x", sum[:16]),
+		VendorSessionID: sessionID,
+		SessionAlias:    fmt.Sprintf("%s-%x", vendor, sum[:3]),
+		Kind:            kind,
 	}
 	tool, _ := raw["tool_name"].(string)
 	if tool != "" {
@@ -101,10 +114,69 @@ func Parse(vendor string, input []byte) (Event, error) {
 		return Event{}, errors.New("unsupported activity hook event")
 	}
 
+	// Supported hooks do not carry assistant text or reasoning; they name the
+	// vendor transcript instead. ADR-036 reads that file locally so the session
+	// owner can see their own session.
+	if path, ok := raw["transcript_path"].(string); ok && path != "" && len(path) <= 4096 {
+		event.TranscriptPath = path
+	}
+
 	if toolInput, ok := raw["tool_input"].(map[string]any); ok {
 		event.CandidatePaths = candidatePaths(tool, toolInput)
 	}
 	return event, nil
+}
+
+var (
+	credentialPattern = regexp.MustCompile(`(?i)(bearer\s+[a-z0-9._~+/=-]{12,}|(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*\S+|\b(?:sk|ghp|github_pat|xox[baprs])[-_][a-z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b)`)
+	// An assignment discloses a value wherever it appears, not only at line
+	// start. The trailing class excludes "==" so a comparison in quoted code is
+	// not mistaken for a secret.
+	environmentPattern = regexp.MustCompile(`\b[A-Z][A-Z0-9_]{2,}\s*=[^=\s]\S*`)
+	privateKeyPattern  = regexp.MustCompile(`(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----`)
+	// Naming a file is not disclosing its contents, and agents discuss ".env"
+	// constantly. What must never leave is the file's *content*, which is what
+	// environmentPattern catches. A single mention no longer rejects a message.
+	toolOutputPattern = regexp.MustCompile(`(?im)(\btool_result\b|\btranscript_path\b|^\s*(?:stdout|stderr)\s*:)`)
+)
+
+var shareableKinds = map[string]bool{"user": true, "assistant": true, "thinking": true, "system": true}
+
+// ClassifyCoordinationTitle permits only the short vendor-visible label used
+// for activity/v1 and automatic intent. It is deliberately stricter than local
+// owner display because this value may leave the device and be embedded.
+func ClassifyCoordinationTitle(value string) (string, error) {
+	title := strings.Join(strings.Fields(value), " ")
+	if title == "" || utf8.RuneCountInString(title) > 160 || strings.ContainsRune(title, '\x00') {
+		return "", errors.New("session title is empty, invalid, or too large")
+	}
+	if privateKeyPattern.MatchString(title) || credentialPattern.MatchString(title) || environmentPattern.MatchString(title) || toolOutputPattern.MatchString(title) {
+		return "", errors.New("session title contains prohibited content")
+	}
+	return title, nil
+}
+
+// ClassifyMessage is the final local boundary before a message may be shared.
+// It rejects the entire candidate; it never redacts prohibited material into
+// allowed content. Under ADR-036 quoted code and diffs are allowed, because an
+// agent conversation is unreadable without them and the member explicitly chose
+// to share it. Secrets, environment values, and raw tool output are not.
+//
+// ADR-038 narrows this to the material itself: referring to a credential file by
+// name is ordinary conversation, so only actual values reject a message.
+func ClassifyMessage(candidate Message) (Message, error) {
+	if !shareableKinds[candidate.Kind] {
+		return Message{}, errors.New("conversation message kind is unsupported")
+	}
+	text := strings.TrimSpace(candidate.Text)
+	if text == "" || len(text) > MaxMessageBytes || !utf8.ValidString(text) || strings.ContainsRune(text, '\x00') {
+		return Message{}, errors.New("conversation message is empty, invalid, or too large")
+	}
+	if privateKeyPattern.MatchString(text) || credentialPattern.MatchString(text) ||
+		environmentPattern.MatchString(text) || toolOutputPattern.MatchString(text) {
+		return Message{}, errors.New("conversation message contains prohibited content")
+	}
+	return Message{Kind: candidate.Kind, Text: text}, nil
 }
 
 func NormalizePaths(event Event, repositoryRoot string) (Event, error) {

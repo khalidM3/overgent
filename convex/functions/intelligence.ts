@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import { internalAction, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { OpenAIEmbeddingProvider } from "@stickguy/coordination";
+
+const OPENAI_EMBEDDING_DIMENSIONS = 1024;
 
 async function loadContext(ctx: QueryCtx, args: { tokenHash: string; workstreamPublicId: string }) {
     const device = await ctx.db.query("devices").withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash)).unique();
@@ -38,6 +41,64 @@ export const loadCurrentSemanticMatches = internalQuery({
       objectIds.push(object.publicId);
     }
     return { retry: false, objectIds };
+  },
+});
+
+export const semanticEmbeddingInput = internalQuery({
+  args: { semanticObjectPublicId: v.string(), expectedRevision: v.number() },
+  handler: async (ctx, args) => {
+    const object = await ctx.db.query("semanticObjects").withIndex("by_public_id", (q) => q.eq("publicId", args.semanticObjectPublicId)).unique();
+    if (!object || !object.active || object.revision !== args.expectedRevision) return null;
+    return { publicId: object.publicId, revision: object.revision, text: object.text, scopeKey: object.scopeKey };
+  },
+});
+
+export const applyOpenAIEmbedding = internalMutation({
+  args: { semanticObjectPublicId: v.string(), expectedRevision: v.number(), providerName: v.string(), modelVersion: v.string(), vector: v.array(v.float64()), now: v.number() },
+  handler: async (ctx, args) => {
+    const object = await ctx.db.query("semanticObjects").withIndex("by_public_id", (q) => q.eq("publicId", args.semanticObjectPublicId)).unique();
+    if (!object || !object.active || object.revision !== args.expectedRevision || args.vector.length !== OPENAI_EMBEDDING_DIMENSIONS) return false;
+    const existing = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object._id)).unique();
+    const record = { scopeKey: object.scopeKey, providerName: args.providerName, modelVersion: args.modelVersion, contentRevision: object.revision, vector: args.vector, expiresAt: object.expiresAt };
+    if (existing) await ctx.db.patch(existing._id, record);
+    else await ctx.db.insert("semanticEmbeddings", { objectId: object._id, ...record });
+    const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", object.scopeKey)).unique();
+    if (scope) await ctx.db.patch(scope._id, { semanticHealthyAt: args.now, semanticProviderName: args.providerName });
+    return true;
+  },
+});
+
+export const recordOpenAIEmbeddingFailure = internalMutation({
+  args: { scopeKey: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", args.scopeKey)).unique();
+    if (scope) await ctx.db.patch(scope._id, { semanticDegradedAt: args.now });
+  },
+});
+
+export const embedSemanticObject = internalAction({
+  args: { semanticObjectPublicId: v.string(), expectedRevision: v.number() },
+  handler: async (ctx, args) => {
+    const input = await ctx.runQuery(internal.intelligence.semanticEmbeddingInput, args);
+    if (!input) return { applied: false, mode: "stale" as const };
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied: false, mode: "fallback" as const };
+    }
+    try {
+      const provider = new OpenAIEmbeddingProvider(apiKey, OPENAI_EMBEDDING_DIMENSIONS);
+      const [embedded] = await provider.embed([{ projectId: "internal", repositoryId: input.scopeKey, objectId: input.publicId, revision: input.revision, text: input.text }], AbortSignal.timeout(10_000));
+      if (!embedded) throw new Error("openai_embedding_missing");
+      const applied = await ctx.runMutation(internal.intelligence.applyOpenAIEmbedding, {
+        semanticObjectPublicId: input.publicId, expectedRevision: input.revision, providerName: provider.name, modelVersion: "text-embedding-3-large/1024", vector: [...embedded.vector], now: Date.now(),
+      });
+      if (applied) await ctx.runMutation(internal.service.refreshSemanticFindings, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied, mode: "openai" as const };
+    } catch {
+      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied: false, mode: "fallback" as const };
+    }
   },
 });
 

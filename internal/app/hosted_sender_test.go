@@ -20,6 +20,12 @@ func (f fakePublisher) Heartbeat(context.Context, string, string) error { return
 func (f fakePublisher) CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error) {
 	return hosted.CoordinationBrief{}, f.err
 }
+func (f fakePublisher) Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error) {
+	return hosted.CollaborationSnapshot{}, f.err
+}
+func (f fakePublisher) SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error) {
+	return hosted.SessionSharingSnapshot{}, f.err
+}
 
 func TestHostedSenderRequiresEveryAcknowledgement(t *testing.T) {
 	batch := []byte(`{"events":[{"eventId":"evt_a"},{"eventId":"evt_b"}]}`)

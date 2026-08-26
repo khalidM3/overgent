@@ -196,6 +196,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/collaboration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getProjectCollaboration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getProjectMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/member": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateProjectMemberIdentity"];
+        trace?: never;
+    };
+    "/projects/{id}/sync-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createSyncCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sync-cards/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["commentOnSyncCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sync-cards/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resolveSyncCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workstreams/{id}/briefs": {
         parameters: {
             query?: never;
@@ -207,6 +303,22 @@ export interface paths {
         put?: never;
         post: operations["createCoordinationBrief"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workstreams/{id}/session-sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSessionSharing"];
+        put: operations["updateSessionSharing"];
+        post?: never;
+        delete: operations["deleteSharedSessionMessages"];
         options?: never;
         head?: never;
         patch?: never;
@@ -270,6 +382,8 @@ export interface components {
         CreateProjectRequest: {
             label: string;
             deviceLabel: string;
+            /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
+            displayName?: string;
         };
         Project: {
             id: string;
@@ -289,6 +403,8 @@ export interface components {
             inviteId: string;
             inviteSecret: string;
             deviceLabel: string;
+            /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
+            displayName?: string;
             appVersion: string;
             schemaMinimum: number;
             schemaMaximum: number;
@@ -339,7 +455,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -359,10 +475,9 @@ export interface components {
                 contextAcknowledged: unknown;
                 activityReported: unknown;
                 agentActivityReported: unknown;
-                claimCreated: unknown;
-                claimReleased: unknown;
+                agentConversationShared: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** @description A bounded batch from exactly one workspace; sequence and the returned cursor are workspace-scoped. */
         EventBatch: {
             events: ({
@@ -382,7 +497,7 @@ export interface components {
                 /** @enum {string} */
                 source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                 /** @enum {string} */
-                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
+                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
                 payload: Record<string, never>;
                 $defs: {
                     id: string;
@@ -402,10 +517,9 @@ export interface components {
                     contextAcknowledged: unknown;
                     activityReported: unknown;
                     agentActivityReported: unknown;
-                    claimCreated: unknown;
-                    claimReleased: unknown;
+                    agentConversationShared: unknown;
                 };
-            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
         };
         EventBatchAck: {
             acceptedEventIds: string[];
@@ -415,6 +529,10 @@ export interface components {
             workspaceId: string;
             /** @enum {string} */
             state: "active" | "idle" | "paused";
+        };
+        UpdateMemberIdentityRequest: {
+            /** @description Member-chosen live-work identity. Email addresses are rejected. */
+            displayName: string;
         };
         ChangePage: {
             items: ({
@@ -484,6 +602,15 @@ export interface components {
                     /** Format: date-time */
                     observedAt: string;
                 }[];
+            } | {
+                id: string;
+                syncCardId?: string;
+                summary: string;
+                affectedMemberIds: string[];
+                affectedWorkstreamIds: string[];
+                revision: number;
+                /** Format: date-time */
+                createdAt: string;
             })[];
             cursor: string;
         };
@@ -496,6 +623,30 @@ export interface components {
         FindingFeedbackRequest: {
             /** @enum {unknown} */
             value: "useful" | "not_related" | "already_coordinated" | "missed_severity";
+        };
+        CreateSyncCardRequest: {
+            findingId?: string;
+            title: string;
+            summary: string;
+        };
+        SyncCommentRequest: {
+            body: string;
+        };
+        ResolveSyncCardRequest: {
+            expectedRevision: number;
+            summary: string;
+            affectedMemberIds: string[];
+            affectedWorkstreamIds: string[];
+        };
+        UpdateSessionSharingRequest: {
+            /** @enum {unknown} */
+            profile: "private" | "conversation";
+            /** @enum {unknown} */
+            audience: "self" | "project";
+            /** @constant */
+            consentVersion: "session-share/v1";
+            allowedKinds: ("user" | "assistant" | "reasoning_summary" | "system")[];
+            expiresInSeconds?: number;
         };
         ContextItem: {
             id: string;
@@ -564,6 +715,15 @@ export interface components {
                 /** Format: date-time */
                 observedAt: string;
             }[];
+        } | {
+            id: string;
+            syncCardId?: string;
+            summary: string;
+            affectedMemberIds: string[];
+            affectedWorkstreamIds: string[];
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
         };
         ErrorEnvelope: {
             error: {
@@ -580,17 +740,60 @@ export interface components {
             repositoryLabel: string;
             /** @enum {unknown} */
             semanticStatus: "enabled" | "degraded" | "disabled";
+            /** @enum {unknown} */
+            semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
         };
         session: {
+            memberId: string;
             memberName: string;
+            /** @enum {unknown} */
+            memberNameSource: "device" | "member";
             projects: {
                 id: string;
                 name: string;
                 repositoryLabel: string;
                 /** @enum {unknown} */
                 semanticStatus: "enabled" | "degraded" | "disabled";
+                /** @enum {unknown} */
+                semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
             }[];
             selectedProjectId: string;
+        };
+        agentSession: {
+            /** @enum {unknown} */
+            vendor: "codex" | "claude";
+            sessionAlias: string;
+            /** @enum {unknown} */
+            status: "active" | "waiting" | "idle" | "done" | "error";
+            tool?: string;
+            branch?: string;
+            sessionTitle?: string;
+            capabilities: {
+                observeSession: boolean;
+                observeToolActivity: boolean;
+                observeSafePaths: boolean;
+                readExistingSession: boolean;
+                pollUpdates: boolean;
+                /** @enum {unknown} */
+                deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+                /** @enum {unknown} */
+                requestAttention: "advisory" | "unavailable";
+            };
+            subagents: {
+                alias: string;
+                agentType: string;
+                status: string;
+            }[];
+            activity: {
+                id: string;
+                at: string;
+                kind: string;
+                /** @enum {unknown} */
+                status: "active" | "waiting" | "idle" | "done" | "error";
+                action: string;
+                tool?: string;
+                paths: string[];
+            }[];
         };
         workstream: {
             id: string;
@@ -601,10 +804,46 @@ export interface components {
             /** @enum {unknown} */
             presence: "online" | "idle" | "offline" | "paused";
             /** @enum {unknown} */
-            fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+            fidelity: "mcp" | "git" | "manual" | "hook" | "hook_unverified";
             updatedLabel: string;
             pathCount: number;
             paths: string[];
+            agent?: {
+                /** @enum {unknown} */
+                vendor: "codex" | "claude";
+                sessionAlias: string;
+                /** @enum {unknown} */
+                status: "active" | "waiting" | "idle" | "done" | "error";
+                tool?: string;
+                branch?: string;
+                sessionTitle?: string;
+                capabilities: {
+                    observeSession: boolean;
+                    observeToolActivity: boolean;
+                    observeSafePaths: boolean;
+                    readExistingSession: boolean;
+                    pollUpdates: boolean;
+                    /** @enum {unknown} */
+                    deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+                    /** @enum {unknown} */
+                    requestAttention: "advisory" | "unavailable";
+                };
+                subagents: {
+                    alias: string;
+                    agentType: string;
+                    status: string;
+                }[];
+                activity: {
+                    id: string;
+                    at: string;
+                    kind: string;
+                    /** @enum {unknown} */
+                    status: "active" | "waiting" | "idle" | "done" | "error";
+                    action: string;
+                    tool?: string;
+                    paths: string[];
+                }[];
+            };
             largeChange?: {
                 pathCount: number;
                 summary: string;
@@ -659,6 +898,8 @@ export interface components {
                 repositoryLabel: string;
                 /** @enum {unknown} */
                 semanticStatus: "enabled" | "degraded" | "disabled";
+                /** @enum {unknown} */
+                semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
             };
             contextRevision: number;
             synchronizedAt: string;
@@ -672,10 +913,46 @@ export interface components {
                 /** @enum {unknown} */
                 presence: "online" | "idle" | "offline" | "paused";
                 /** @enum {unknown} */
-                fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+                fidelity: "mcp" | "git" | "manual" | "hook" | "hook_unverified";
                 updatedLabel: string;
                 pathCount: number;
                 paths: string[];
+                agent?: {
+                    /** @enum {unknown} */
+                    vendor: "codex" | "claude";
+                    sessionAlias: string;
+                    /** @enum {unknown} */
+                    status: "active" | "waiting" | "idle" | "done" | "error";
+                    tool?: string;
+                    branch?: string;
+                    sessionTitle?: string;
+                    capabilities: {
+                        observeSession: boolean;
+                        observeToolActivity: boolean;
+                        observeSafePaths: boolean;
+                        readExistingSession: boolean;
+                        pollUpdates: boolean;
+                        /** @enum {unknown} */
+                        deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+                        /** @enum {unknown} */
+                        requestAttention: "advisory" | "unavailable";
+                    };
+                    subagents: {
+                        alias: string;
+                        agentType: string;
+                        status: string;
+                    }[];
+                    activity: {
+                        id: string;
+                        at: string;
+                        kind: string;
+                        /** @enum {unknown} */
+                        status: "active" | "waiting" | "idle" | "done" | "error";
+                        action: string;
+                        tool?: string;
+                        paths: string[];
+                    }[];
+                };
                 largeChange?: {
                     pathCount: number;
                     summary: string;
@@ -782,8 +1059,7 @@ export interface components {
         contextAcknowledged: unknown;
         activityReported: unknown;
         agentActivityReported: unknown;
-        claimCreated: unknown;
-        claimReleased: unknown;
+        agentConversationShared: unknown;
         /** EventEnvelope */
         "event-envelope.schema": {
             /** @constant */
@@ -802,7 +1078,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -822,10 +1098,9 @@ export interface components {
                 contextAcknowledged: unknown;
                 activityReported: unknown;
                 agentActivityReported: unknown;
-                claimCreated: unknown;
-                claimReleased: unknown;
+                agentConversationShared: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** SemanticObject */
         "semantic-object.schema": {
             id: string;
@@ -906,6 +1181,159 @@ export interface components {
                 observedAt: string;
             }[];
         };
+        resolution: {
+            id: string;
+            syncCardId?: string;
+            summary: string;
+            affectedMemberIds: string[];
+            affectedWorkstreamIds: string[];
+            revision: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        syncComment: {
+            id: string;
+            memberName: string;
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        syncCard: {
+            id: string;
+            findingId?: string;
+            title: string;
+            summary: string;
+            /** @enum {unknown} */
+            state: "open" | "resolved";
+            revision: number;
+            comments: {
+                id: string;
+                memberName: string;
+                body: string;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
+            resolution?: {
+                id: string;
+                syncCardId?: string;
+                summary: string;
+                affectedMemberIds: string[];
+                affectedWorkstreamIds: string[];
+                revision: number;
+                /** Format: date-time */
+                createdAt: string;
+            };
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        "collaboration.schema": {
+            projectId: string;
+            syncCards: {
+                id: string;
+                findingId?: string;
+                title: string;
+                summary: string;
+                /** @enum {unknown} */
+                state: "open" | "resolved";
+                revision: number;
+                comments: {
+                    id: string;
+                    memberName: string;
+                    body: string;
+                    /** Format: date-time */
+                    createdAt: string;
+                }[];
+                resolution?: {
+                    id: string;
+                    syncCardId?: string;
+                    summary: string;
+                    affectedMemberIds: string[];
+                    affectedWorkstreamIds: string[];
+                    revision: number;
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                /** Format: date-time */
+                updatedAt: string;
+            }[];
+            resolutions: {
+                id: string;
+                syncCardId?: string;
+                summary: string;
+                affectedMemberIds: string[];
+                affectedWorkstreamIds: string[];
+                revision: number;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
+            cursor: string;
+            $defs: {
+                syncComment: {
+                    id: string;
+                    memberName: string;
+                    body: string;
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                resolution: {
+                    id: string;
+                    syncCardId?: string;
+                    summary: string;
+                    affectedMemberIds: string[];
+                    affectedWorkstreamIds: string[];
+                    revision: number;
+                    /** Format: date-time */
+                    createdAt: string;
+                };
+                syncCard: {
+                    id: string;
+                    findingId?: string;
+                    title: string;
+                    summary: string;
+                    /** @enum {unknown} */
+                    state: "open" | "resolved";
+                    revision: number;
+                    comments: {
+                        id: string;
+                        memberName: string;
+                        body: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                    }[];
+                    resolution?: {
+                        id: string;
+                        syncCardId?: string;
+                        summary: string;
+                        affectedMemberIds: string[];
+                        affectedWorkstreamIds: string[];
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
+                    };
+                    /** Format: date-time */
+                    updatedAt: string;
+                };
+            };
+        };
+        members: {
+            members: {
+                id: string;
+                name: string;
+                /** @enum {unknown} */
+                nameSource: "device" | "member";
+                /** @enum {unknown} */
+                role: "owner" | "member";
+                isSelf: boolean;
+                /** Format: date-time */
+                joinedAt: string;
+            }[];
+        };
+        memberIdentity: {
+            memberId: string;
+            memberName: string;
+            /** @enum {unknown} */
+            memberNameSource: "device" | "member";
+        };
         item: {
             id: string;
             revision: number;
@@ -960,6 +1388,98 @@ export interface components {
                 };
             };
         };
+        /** @enum {unknown} */
+        messageKind: "user" | "assistant" | "thinking" | "system";
+        policy: {
+            /** @enum {unknown} */
+            profile: "private" | "conversation";
+            /** @enum {unknown} */
+            audience: "self" | "project";
+            /** @constant */
+            consentVersion: "session-share/v1";
+            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+            enabled: boolean;
+            canManage: boolean;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        message: {
+            id: string;
+            /** @enum {unknown} */
+            kind: "user" | "assistant" | "thinking" | "system";
+            text: string;
+            /** @enum {unknown} */
+            vendor: "codex" | "claude";
+            /** Format: date-time */
+            capturedAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        /** Session sharing snapshot */
+        "session-sharing.schema": {
+            workstreamId: string;
+            policy: {
+                /** @enum {unknown} */
+                profile: "private" | "conversation";
+                /** @enum {unknown} */
+                audience: "self" | "project";
+                /** @constant */
+                consentVersion: "session-share/v1";
+                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                enabled: boolean;
+                canManage: boolean;
+                /** Format: date-time */
+                expiresAt?: string;
+                /** Format: date-time */
+                updatedAt?: string;
+            };
+            messages: {
+                id: string;
+                /** @enum {unknown} */
+                kind: "user" | "assistant" | "thinking" | "system";
+                text: string;
+                /** @enum {unknown} */
+                vendor: "codex" | "claude";
+                /** Format: date-time */
+                capturedAt: string;
+                /** Format: date-time */
+                expiresAt: string;
+            }[];
+            $defs: {
+                id: string;
+                /** @enum {unknown} */
+                messageKind: "user" | "assistant" | "thinking" | "system";
+                policy: {
+                    /** @enum {unknown} */
+                    profile: "private" | "conversation";
+                    /** @enum {unknown} */
+                    audience: "self" | "project";
+                    /** @constant */
+                    consentVersion: "session-share/v1";
+                    allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                    enabled: boolean;
+                    canManage: boolean;
+                    /** Format: date-time */
+                    expiresAt?: string;
+                    /** Format: date-time */
+                    updatedAt?: string;
+                };
+                message: {
+                    id: string;
+                    /** @enum {unknown} */
+                    kind: "user" | "assistant" | "thinking" | "system";
+                    text: string;
+                    /** @enum {unknown} */
+                    vendor: "codex" | "claude";
+                    /** Format: date-time */
+                    capturedAt: string;
+                    /** Format: date-time */
+                    expiresAt: string;
+                };
+            };
+        };
     };
     responses: {
         /** @description Stable error envelope */
@@ -1002,6 +1522,8 @@ export interface operations {
                 "application/json": {
                     label: string;
                     deviceLabel: string;
+                    /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
+                    displayName?: string;
                 };
             };
         };
@@ -1101,6 +1623,8 @@ export interface operations {
                     inviteId: string;
                     inviteSecret: string;
                     deviceLabel: string;
+                    /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
+                    displayName?: string;
                     appVersion: string;
                     schemaMinimum: number;
                     schemaMaximum: number;
@@ -1287,13 +1811,18 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        memberId: string;
                         memberName: string;
+                        /** @enum {unknown} */
+                        memberNameSource: "device" | "member";
                         projects: {
                             id: string;
                             name: string;
                             repositoryLabel: string;
                             /** @enum {unknown} */
                             semanticStatus: "enabled" | "degraded" | "disabled";
+                            /** @enum {unknown} */
+                            semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
                         }[];
                         selectedProjectId: string;
                     };
@@ -1342,6 +1871,8 @@ export interface operations {
                             repositoryLabel: string;
                             /** @enum {unknown} */
                             semanticStatus: "enabled" | "degraded" | "disabled";
+                            /** @enum {unknown} */
+                            semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
                         };
                         contextRevision: number;
                         synchronizedAt: string;
@@ -1355,10 +1886,46 @@ export interface operations {
                             /** @enum {unknown} */
                             presence: "online" | "idle" | "offline" | "paused";
                             /** @enum {unknown} */
-                            fidelity: "mcp" | "git" | "manual" | "hook_unverified";
+                            fidelity: "mcp" | "git" | "manual" | "hook" | "hook_unverified";
                             updatedLabel: string;
                             pathCount: number;
                             paths: string[];
+                            agent?: {
+                                /** @enum {unknown} */
+                                vendor: "codex" | "claude";
+                                sessionAlias: string;
+                                /** @enum {unknown} */
+                                status: "active" | "waiting" | "idle" | "done" | "error";
+                                tool?: string;
+                                branch?: string;
+                                sessionTitle?: string;
+                                capabilities: {
+                                    observeSession: boolean;
+                                    observeToolActivity: boolean;
+                                    observeSafePaths: boolean;
+                                    readExistingSession: boolean;
+                                    pollUpdates: boolean;
+                                    /** @enum {unknown} */
+                                    deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+                                    /** @enum {unknown} */
+                                    requestAttention: "advisory" | "unavailable";
+                                };
+                                subagents: {
+                                    alias: string;
+                                    agentType: string;
+                                    status: string;
+                                }[];
+                                activity: {
+                                    id: string;
+                                    at: string;
+                                    kind: string;
+                                    /** @enum {unknown} */
+                                    status: "active" | "waiting" | "idle" | "done" | "error";
+                                    action: string;
+                                    tool?: string;
+                                    paths: string[];
+                                }[];
+                            };
                             largeChange?: {
                                 pathCount: number;
                                 summary: string;
@@ -1503,7 +2070,7 @@ export interface operations {
                         /** @enum {string} */
                         source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                         /** @enum {string} */
-                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "claim.created" | "claim.released";
+                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
                         payload: Record<string, never>;
                         $defs: {
                             id: string;
@@ -1523,10 +2090,9 @@ export interface operations {
                             contextAcknowledged: unknown;
                             activityReported: unknown;
                             agentActivityReported: unknown;
-                            claimCreated: unknown;
-                            claimReleased: unknown;
+                            agentConversationShared: unknown;
                         };
-                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
                 };
             };
         };
@@ -1692,8 +2258,430 @@ export interface operations {
                                 /** Format: date-time */
                                 observedAt: string;
                             }[];
+                        } | {
+                            id: string;
+                            syncCardId?: string;
+                            summary: string;
+                            affectedMemberIds: string[];
+                            affectedWorkstreamIds: string[];
+                            revision: number;
+                            /** Format: date-time */
+                            createdAt: string;
                         })[];
                         cursor: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getProjectCollaboration: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open collisions and their resolutions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        projectId: string;
+                        syncCards: {
+                            id: string;
+                            findingId?: string;
+                            title: string;
+                            summary: string;
+                            /** @enum {unknown} */
+                            state: "open" | "resolved";
+                            revision: number;
+                            comments: {
+                                id: string;
+                                memberName: string;
+                                body: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            resolution?: {
+                                id: string;
+                                syncCardId?: string;
+                                summary: string;
+                                affectedMemberIds: string[];
+                                affectedWorkstreamIds: string[];
+                                revision: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                            /** Format: date-time */
+                            updatedAt: string;
+                        }[];
+                        resolutions: {
+                            id: string;
+                            syncCardId?: string;
+                            summary: string;
+                            affectedMemberIds: string[];
+                            affectedWorkstreamIds: string[];
+                            revision: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                        }[];
+                        cursor: string;
+                        $defs: {
+                            syncComment: {
+                                id: string;
+                                memberName: string;
+                                body: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                            resolution: {
+                                id: string;
+                                syncCardId?: string;
+                                summary: string;
+                                affectedMemberIds: string[];
+                                affectedWorkstreamIds: string[];
+                                revision: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            };
+                            syncCard: {
+                                id: string;
+                                findingId?: string;
+                                title: string;
+                                summary: string;
+                                /** @enum {unknown} */
+                                state: "open" | "resolved";
+                                revision: number;
+                                comments: {
+                                    id: string;
+                                    memberName: string;
+                                    body: string;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                }[];
+                                resolution?: {
+                                    id: string;
+                                    syncCardId?: string;
+                                    summary: string;
+                                    affectedMemberIds: string[];
+                                    affectedWorkstreamIds: string[];
+                                    revision: number;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                };
+                                /** Format: date-time */
+                                updatedAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getProjectMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project members and how each display name was chosen */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        members: {
+                            id: string;
+                            name: string;
+                            /** @enum {unknown} */
+                            nameSource: "device" | "member";
+                            /** @enum {unknown} */
+                            role: "owner" | "member";
+                            isSelf: boolean;
+                            /** Format: date-time */
+                            joinedAt: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateProjectMemberIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Member-chosen live-work identity. Email addresses are rejected. */
+                    displayName: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Member-controlled display name applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        memberId: string;
+                        memberName: string;
+                        /** @enum {unknown} */
+                        memberNameSource: "device" | "member";
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createSyncCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    findingId?: string;
+                    title: string;
+                    summary: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sync card created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        findingId?: string;
+                        title: string;
+                        summary: string;
+                        /** @enum {unknown} */
+                        state: "open" | "resolved";
+                        revision: number;
+                        comments: {
+                            id: string;
+                            memberName: string;
+                            body: string;
+                            /** Format: date-time */
+                            createdAt: string;
+                        }[];
+                        resolution?: {
+                            id: string;
+                            syncCardId?: string;
+                            summary: string;
+                            affectedMemberIds: string[];
+                            affectedWorkstreamIds: string[];
+                            revision: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                        };
+                        /** Format: date-time */
+                        updatedAt: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    commentOnSyncCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    body: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Comment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        memberName: string;
+                        body: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    resolveSyncCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                    summary: string;
+                    affectedMemberIds: string[];
+                    affectedWorkstreamIds: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Collision resolution */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        syncCardId?: string;
+                        summary: string;
+                        affectedMemberIds: string[];
+                        affectedWorkstreamIds: string[];
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
                     };
                 };
             };
@@ -1804,6 +2792,256 @@ export interface operations {
             };
         };
     };
+    getSessionSharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized policy and shared messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        workstreamId: string;
+                        policy: {
+                            /** @enum {unknown} */
+                            profile: "private" | "conversation";
+                            /** @enum {unknown} */
+                            audience: "self" | "project";
+                            /** @constant */
+                            consentVersion: "session-share/v1";
+                            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                            enabled: boolean;
+                            canManage: boolean;
+                            /** Format: date-time */
+                            expiresAt?: string;
+                            /** Format: date-time */
+                            updatedAt?: string;
+                        };
+                        messages: {
+                            id: string;
+                            /** @enum {unknown} */
+                            kind: "user" | "assistant" | "thinking" | "system";
+                            text: string;
+                            /** @enum {unknown} */
+                            vendor: "codex" | "claude";
+                            /** Format: date-time */
+                            capturedAt: string;
+                            /** Format: date-time */
+                            expiresAt: string;
+                        }[];
+                        $defs: {
+                            id: string;
+                            /** @enum {unknown} */
+                            messageKind: "user" | "assistant" | "thinking" | "system";
+                            policy: {
+                                /** @enum {unknown} */
+                                profile: "private" | "conversation";
+                                /** @enum {unknown} */
+                                audience: "self" | "project";
+                                /** @constant */
+                                consentVersion: "session-share/v1";
+                                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                                enabled: boolean;
+                                canManage: boolean;
+                                /** Format: date-time */
+                                expiresAt?: string;
+                                /** Format: date-time */
+                                updatedAt?: string;
+                            };
+                            message: {
+                                id: string;
+                                /** @enum {unknown} */
+                                kind: "user" | "assistant" | "thinking" | "system";
+                                text: string;
+                                /** @enum {unknown} */
+                                vendor: "codex" | "claude";
+                                /** Format: date-time */
+                                capturedAt: string;
+                                /** Format: date-time */
+                                expiresAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    updateSessionSharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {unknown} */
+                    profile: "private" | "conversation";
+                    /** @enum {unknown} */
+                    audience: "self" | "project";
+                    /** @constant */
+                    consentVersion: "session-share/v1";
+                    allowedKinds: ("user" | "assistant" | "reasoning_summary" | "system")[];
+                    expiresInSeconds?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated policy and current messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        workstreamId: string;
+                        policy: {
+                            /** @enum {unknown} */
+                            profile: "private" | "conversation";
+                            /** @enum {unknown} */
+                            audience: "self" | "project";
+                            /** @constant */
+                            consentVersion: "session-share/v1";
+                            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                            enabled: boolean;
+                            canManage: boolean;
+                            /** Format: date-time */
+                            expiresAt?: string;
+                            /** Format: date-time */
+                            updatedAt?: string;
+                        };
+                        messages: {
+                            id: string;
+                            /** @enum {unknown} */
+                            kind: "user" | "assistant" | "thinking" | "system";
+                            text: string;
+                            /** @enum {unknown} */
+                            vendor: "codex" | "claude";
+                            /** Format: date-time */
+                            capturedAt: string;
+                            /** Format: date-time */
+                            expiresAt: string;
+                        }[];
+                        $defs: {
+                            id: string;
+                            /** @enum {unknown} */
+                            messageKind: "user" | "assistant" | "thinking" | "system";
+                            policy: {
+                                /** @enum {unknown} */
+                                profile: "private" | "conversation";
+                                /** @enum {unknown} */
+                                audience: "self" | "project";
+                                /** @constant */
+                                consentVersion: "session-share/v1";
+                                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
+                                enabled: boolean;
+                                canManage: boolean;
+                                /** Format: date-time */
+                                expiresAt?: string;
+                                /** Format: date-time */
+                                updatedAt?: string;
+                            };
+                            message: {
+                                id: string;
+                                /** @enum {unknown} */
+                                kind: "user" | "assistant" | "thinking" | "system";
+                                text: string;
+                                /** @enum {unknown} */
+                                vendor: "codex" | "claude";
+                                /** Format: date-time */
+                                capturedAt: string;
+                                /** Format: date-time */
+                                expiresAt: string;
+                            };
+                        };
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteSharedSessionMessages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shared messages deleted and sharing disabled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
     getContextItem: {
         parameters: {
             query?: never;
@@ -1888,6 +3126,15 @@ export interface operations {
                             /** Format: date-time */
                             observedAt: string;
                         }[];
+                    } | {
+                        id: string;
+                        syncCardId?: string;
+                        summary: string;
+                        affectedMemberIds: string[];
+                        affectedWorkstreamIds: string[];
+                        revision: number;
+                        /** Format: date-time */
+                        createdAt: string;
                     };
                 };
             };

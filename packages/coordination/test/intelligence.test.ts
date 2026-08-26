@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DeterministicConceptEmbeddingProvider, MemorySemanticIndex, SemanticPolicyError, conceptVector, evaluatePair, evaluateWorkstreams, renderBrief, retrieveSemanticCandidates, staleAssumption, validateAdjudication, validateSemanticTags, validateSemanticText, type EmbeddingProvider, type WorkstreamRecord } from "../src/index.js";
+import { DeterministicConceptEmbeddingProvider, MemorySemanticIndex, NO_HARNESS_CAPABILITIES, OpenAIEmbeddingProvider, SemanticPolicyError, canDeliverRelevantUpdate, conceptVector, evaluatePair, evaluateWorkstreams, renderBrief, retrieveSemanticCandidates, staleAssumption, validateAdjudication, validateSemanticTags, validateSemanticText, type EmbeddingProvider, type WorkstreamRecord } from "../src/index.js";
 
 const scope = { projectId: "prj_eval", repositoryId: "repo_primary" };
 const records: WorkstreamRecord[] = [
@@ -82,5 +82,38 @@ describe("L6 intelligence engine", () => {
   it("accepts only the closed optional adjudication schema", () => {
     expect(validateAdjudication({ classification: "not_related", confidence: "medium", reason: "The reported changes have no supported relevance edge." }).classification).toBe("not_related");
     expect(() => validateAdjudication({ classification: "not_related", confidence: "medium", reason: "Safe.", extra: true })).toThrow("adjudication_invalid");
+  });
+
+  it("embeds only approved text with the configured OpenAI model and dimensions", async () => {
+    let request: RequestInit | undefined;
+    const provider = new OpenAIEmbeddingProvider("sk-test-key-that-never-leaves-this-unit-test", 4, async (_url, init) => {
+      request = init;
+      return new Response(JSON.stringify({ data: [{ index: 0, embedding: [0.1, 0.2, 0.3, 0.4] }] }), { status: 200 });
+    });
+    const [embedded] = await provider.embed([{ ...scope, objectId: "sem_openai", revision: 1, text: "Coordinate a membership contract revision." }], new AbortController().signal);
+    expect(embedded?.dimensions).toBe(4);
+    expect(embedded?.model).toBe("openai/text-embedding-3-large");
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "text-embedding-3-large", dimensions: 4 });
+    await expect(provider.embed([{ ...scope, objectId: "sem_bad", revision: 1, text: "api_key=synthetic-secret" }], new AbortController().signal)).rejects.toThrow(SemanticPolicyError);
+  });
+
+  it("treats delivery as an explicit adapter capability", () => {
+    expect(canDeliverRelevantUpdate(NO_HARNESS_CAPABILITIES)).toBe(false);
+    expect(canDeliverRelevantUpdate({ ...NO_HARNESS_CAPABILITIES, observeSession: true, deliverBrief: "mcp_pull" })).toBe(true);
+  });
+
+  it("uses compatible managed vectors for lexically different semantic candidates", () => {
+    const left: WorkstreamRecord = { ...scope, id: "managed-a", revision: 1, status: "active", summary: "Introduce rotating browser credentials after access changes.", semanticProvider: "openai/text-embedding-3-large", semanticVector: [1, 0, 0] };
+    const right: WorkstreamRecord = { ...scope, id: "managed-b", revision: 1, status: "active", summary: "Re-issue web identity grants whenever privileges move.", semanticProvider: "openai/text-embedding-3-large", semanticVector: [0.99, 0.01, 0] };
+    const finding = evaluatePair(left, right);
+    expect(finding?.kind).toBe("redundant_work");
+    expect(finding?.evidence[0]?.source).toBe("openai/text-embedding-3-large");
+    expect(finding?.reason).toContain("candidates");
+  });
+
+  it("does not treat unrelated managed vectors as a semantic collision", () => {
+    const left: WorkstreamRecord = { ...scope, id: "managed-c", revision: 1, status: "active", summary: "Rework account access.", semanticProvider: "openai/text-embedding-3-large", semanticVector: [1, 0] };
+    const right: WorkstreamRecord = { ...scope, id: "managed-d", revision: 1, status: "active", summary: "Tune image compression.", semanticProvider: "openai/text-embedding-3-large", semanticVector: [0, 1] };
+    expect(evaluatePair(left, right)).toBeNull();
   });
 });

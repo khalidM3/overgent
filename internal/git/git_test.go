@@ -200,3 +200,37 @@ func gitcmd(t *testing.T, r string, a ...string) {
 		t.Fatalf("git %v: %v %s", a, e, b)
 	}
 }
+
+func TestCurrentBranchReportsCheckoutAndDegradesOnDetachedHead(t *testing.T) {
+	r := repo(t)
+	gitcmd(t, r, "checkout", "-q", "-b", "feature/session-rotation")
+	branch, e := CurrentBranch(context.Background(), Runner{}, r)
+	if e != nil || branch != "feature/session-rotation" {
+		t.Fatalf("branch on checkout: %q err=%v", branch, e)
+	}
+
+	// A detached HEAD has no branch. Observation must degrade to no branch
+	// rather than failing and stopping session attribution.
+	head, err := CaptureBaseline(context.Background(), Runner{}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitcmd(t, r, "checkout", "-q", "--detach", head)
+	branch, e = CurrentBranch(context.Background(), Runner{}, r)
+	if e != nil || branch != "" {
+		t.Fatalf("detached HEAD must report no branch: %q err=%v", branch, e)
+	}
+}
+
+func TestBranchNameValidationRejectsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"main", "feature/a-b", "release/1.2.3", "user.name/topic"} {
+		if !validBranchName(name) {
+			t.Fatalf("expected %q to be a valid branch name", name)
+		}
+	}
+	for _, name := range []string{"", "-delete", "has space", "a..b", "ref@{0}", "star*", "caret^", "colon:name", "back\\slash", "tilde~1", "topic.lock", "q?mark", strings.Repeat("a", 256)} {
+		if validBranchName(name) {
+			t.Fatalf("expected %q to be rejected as a branch name", name)
+		}
+	}
+}

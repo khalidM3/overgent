@@ -27,6 +27,10 @@ Protect against token theft/replay, unauthorized project access, hostile website
 - Treat embedding/adjudication input as untrusted data, require structured outputs, and grant models no tools or authority.
 - Authorize every context item before ranking and again on item fetch; never use semantic relevance as authorization.
 - Agent adapters are event- and field-allowlisted by sharing profile. The activity/v1 hook process reduces vendor input immediately to a hashed session workstream, lifecycle/status, generated action label, allowlisted tool/subagent metadata, and safe repository-relative paths. Ignore transcript paths; reject protected paths and secret-bearing candidates as whole events; discard disallowed vendor fields before durable local storage or enqueue. Optional conversation processing remains disabled and requires the versioned owner/member consent and controls in `agent-activity-sharing.md`.
+- A vendor-visible session title may seed automatic intent only after the local
+  ADR-042 classifier and hosted semantic policy both accept it. The UI discloses
+  that an approved title may reach the configured embedding provider; a rejected
+  title never blocks safe lifecycle/path observation.
 - Opaque public IDs; separate dev/preview/prod data and credentials.
 - Audit security events without secrets; implement retention and deletion jobs.
 

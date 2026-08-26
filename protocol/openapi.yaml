@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Stickguy Public API
   version: 1.0.0-alpha.1
-  description: Versioned coordination contracts. Payloads never contain source, diffs, prompts, transcripts, environment values, or raw command output.
+  description: Versioned coordination contracts. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require the explicit session-share/v1 contract.
 servers:
   - url: https://api.stickguy.dev/v1
 security:
@@ -72,12 +72,69 @@ paths:
       operationId: getProjectChanges
       parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Cursor' } ]
       responses: { '200': { description: Changes, content: { application/json: { schema: { $ref: '#/components/schemas/ChangePage' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/collaboration:
+    get:
+      operationId: getProjectCollaboration
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Cursor' } ]
+      responses: { '200': { description: Open collisions and their resolutions, content: { application/json: { schema: { $ref: './schemas/collaboration.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/members:
+    get:
+      operationId: getProjectMembers
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Project members and how each display name was chosen, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/members' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/member:
+    patch:
+      operationId: updateProjectMemberIdentity
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMemberIdentityRequest' } } } }
+      responses: { '200': { description: Member-controlled display name applied, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/memberIdentity' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/sync-cards:
+    post:
+      operationId: createSyncCard
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateSyncCardRequest' } } } }
+      responses: { '201': { description: Sync card created, content: { application/json: { schema: { $ref: './schemas/collaboration.schema.json#/$defs/syncCard' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /sync-cards/{id}/comments:
+    post:
+      operationId: commentOnSyncCard
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SyncCommentRequest' } } } }
+      responses: { '201': { description: Comment created, content: { application/json: { schema: { $ref: './schemas/collaboration.schema.json#/$defs/syncComment' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /sync-cards/{id}/resolve:
+    post:
+      operationId: resolveSyncCard
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveSyncCardRequest' } } } }
+      responses: { '200': { description: Collision resolution, content: { application/json: { schema: { $ref: './schemas/collaboration.schema.json#/$defs/resolution' } } } }, default: { $ref: '#/components/responses/Error' } }
   /workstreams/{id}/briefs:
     post:
       operationId: createCoordinationBrief
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BriefRequest' } } } }
       responses: { '200': { description: Brief, content: { application/json: { schema: { $ref: './schemas/coordination-brief.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /workstreams/{id}/session-sharing:
+    get:
+      operationId: getSessionSharing
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Authorized policy and shared messages, content: { application/json: { schema: { $ref: './schemas/session-sharing.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
+    put:
+      operationId: updateSessionSharing
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateSessionSharingRequest' } } } }
+      responses: { '200': { description: Updated policy and current messages, content: { application/json: { schema: { $ref: './schemas/session-sharing.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
+    delete:
+      operationId: deleteSharedSessionMessages
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '204': { description: Shared messages deleted and sharing disabled }, default: { $ref: '#/components/responses/Error' } }
   /context-items/{id}:
     get:
       operationId: getContextItem
@@ -113,7 +170,14 @@ components:
       type: object
       additionalProperties: false
       required: [label, deviceLabel]
-      properties: { label: { type: string, minLength: 1, maxLength: 120 }, deviceLabel: { type: string, minLength: 1, maxLength: 120 } }
+      properties:
+        label: { type: string, minLength: 1, maxLength: 120 }
+        deviceLabel: { type: string, minLength: 1, maxLength: 120 }
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 60
+          description: Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
     Project:
       type: object
       additionalProperties: false
@@ -137,6 +201,11 @@ components:
         inviteId: { $ref: '#/components/schemas/Id' }
         inviteSecret: { type: string, minLength: 22, maxLength: 512 }
         deviceLabel: { type: string, minLength: 1, maxLength: 120 }
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 60
+          description: Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
         appVersion: { type: string, maxLength: 64 }
         schemaMinimum: { type: integer, minimum: 1 }
         schemaMaximum: { type: integer, minimum: 1 }
@@ -187,6 +256,16 @@ components:
       additionalProperties: false
       required: [workspaceId, state]
       properties: { workspaceId: { $ref: '#/components/schemas/Id' }, state: { type: string, enum: [active, idle, paused] } }
+    UpdateMemberIdentityRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 60
+          description: Member-chosen live-work identity. Email addresses are rejected.
     ChangePage:
       type: object
       additionalProperties: false
@@ -202,11 +281,44 @@ components:
       additionalProperties: false
       required: [value]
       properties: { value: { enum: [useful, not_related, already_coordinated, missed_severity] } }
+    CreateSyncCardRequest:
+      type: object
+      additionalProperties: false
+      required: [title, summary]
+      properties:
+        findingId: { $ref: '#/components/schemas/Id' }
+        title: { type: string, minLength: 1, maxLength: 160 }
+        summary: { type: string, minLength: 1, maxLength: 2000 }
+    SyncCommentRequest:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties: { body: { type: string, minLength: 1, maxLength: 2000 } }
+    ResolveSyncCardRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision, summary, affectedMemberIds, affectedWorkstreamIds]
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
+        summary: { type: string, minLength: 1, maxLength: 2000 }
+        affectedMemberIds: { type: array, maxItems: 100, uniqueItems: true, items: { $ref: '#/components/schemas/Id' } }
+        affectedWorkstreamIds: { type: array, maxItems: 100, uniqueItems: true, items: { $ref: '#/components/schemas/Id' } }
+    UpdateSessionSharingRequest:
+      type: object
+      additionalProperties: false
+      required: [profile, audience, consentVersion, allowedKinds]
+      properties:
+        profile: { enum: [private, conversation] }
+        audience: { enum: [self, project] }
+        consentVersion: { const: session-share/v1 }
+        allowedKinds: { type: array, maxItems: 4, uniqueItems: true, items: { enum: [user, assistant, reasoning_summary, system] } }
+        expiresInSeconds: { type: integer, minimum: 300, maximum: 2592000 }
     ContextItem:
       oneOf:
         - { $ref: './schemas/semantic-object.schema.json' }
         - { $ref: './schemas/finding.schema.json' }
         - { $ref: './schemas/checkpoint.schema.json' }
+        - { $ref: './schemas/collaboration.schema.json#/$defs/resolution' }
     ErrorEnvelope:
       type: object
       additionalProperties: false

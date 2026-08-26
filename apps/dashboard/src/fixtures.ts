@@ -5,6 +5,7 @@ const atlas = {
   name: "Atlas launch",
   repositoryLabel: "stickguy/atlas",
   semanticStatus: "degraded",
+  semanticMode: "managed_degraded",
 } as const;
 
 const orchard = {
@@ -12,10 +13,13 @@ const orchard = {
   name: "Orchard mobile",
   repositoryLabel: "stickguy/orchard",
   semanticStatus: "disabled",
+  semanticMode: "offline_fallback",
 } as const;
 
 export const fixtureSession: DashboardSession = {
+  memberId: "mem_fixture_khalid",
   memberName: "Khalid",
+  memberNameSource: "member",
   projects: [atlas, orchard],
   selectedProjectId: atlas.id,
 };
@@ -26,6 +30,11 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
     contextRevision: 184,
     synchronizedAt: "12 seconds ago",
     workspacePaused: false,
+    collaboration: {
+      projectId: atlas.id,
+      syncCards: [{ id: "syn_session", findingId: "fnd_atlas_session", title: "Choose the session rotation owner", summary: "Codex and Claude are changing the same boundary.", state: "open", revision: 1, comments: [], updatedAt: "2026-08-24T18:31:00Z" }],
+      resolutions: [], cursor: "time:1787596260000",
+    },
     workstreams: [
       {
         id: "wrk_agent_fixture_codex",
@@ -39,7 +48,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         pathCount: 1,
         paths: ["apps/dashboard/src/session.ts"],
         agent: {
-          vendor: "codex", sessionAlias: "codex-a1b2c3", branch: "feature/session-rotation", status: "active", tool: "apply_patch",
+          vendor: "codex", sessionAlias: "codex-a1b2c3", sessionTitle: "Rotate the browser session boundary", branch: "feature/session-rotation", status: "active", tool: "apply_patch", capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "mcp_pull", requestAttention: "unavailable" },
           subagents: [{ alias: "sub-a1b2c3", agentType: "reviewer", status: "active" }],
           activity: [
             { id: "codex-act-3", at: "Now", kind: "PostToolUse", status: "active", action: "Edited apps/dashboard/src/session.ts", tool: "apply_patch", paths: ["apps/dashboard/src/session.ts"] },
@@ -60,7 +69,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         pathCount: 7,
         paths: ["convex/auth/session.ts", "apps/dashboard/src/session.ts"],
         agent: {
-          vendor: "claude", sessionAlias: "claude-d4e5f6", branch: "main", status: "waiting", tool: "Read", subagents: [],
+          vendor: "claude", sessionAlias: "claude-d4e5f6", sessionTitle: "Audit session validity checks", branch: "main", status: "waiting", tool: "Read", capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "mcp_pull", requestAttention: "unavailable" }, subagents: [],
           activity: [
             { id: "claude-act-2", at: "Now", kind: "PermissionRequest", status: "waiting", action: "Waiting for approval to continue", tool: "Read", paths: ["apps/dashboard/src/session.ts"] },
             { id: "claude-act-1", at: "3 min", kind: "SessionStart", status: "active", action: "Session started", paths: [] },
@@ -147,6 +156,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
     contextRevision: 29,
     synchronizedAt: "1 minute ago",
     workspacePaused: true,
+    collaboration: { projectId: orchard.id, syncCards: [], resolutions: [], cursor: "time:0" },
     workstreams: [
       {
         id: "wst_orchard_nav",
@@ -184,5 +194,5 @@ export function snapshotForProject(projectId: string): ProjectSnapshot {
 }
 
 export function emptyFixtureSession(): DashboardSession {
-  return { memberName: fixtureSession.memberName, projects: [], selectedProjectId: "" };
+  return { memberId: fixtureSession.memberId, memberName: fixtureSession.memberName, memberNameSource: fixtureSession.memberNameSource, projects: [], selectedProjectId: "" };
 }

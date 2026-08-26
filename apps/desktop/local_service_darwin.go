@@ -15,10 +15,7 @@ type daemonService struct {
 }
 
 func newDaemonService() daemonService {
-	root, err := config.DefaultRoot()
-	if err != nil {
-		return daemonService{}
-	}
+	root := desktopConfigRoot()
 	paths, err := config.Resolve(root)
 	if err != nil {
 		return daemonService{}
@@ -103,4 +100,46 @@ func integer(value any) int {
 	default:
 		return 0
 	}
+}
+
+// SessionMessage is one entry of the caller's own agent session. It is read
+// from the local transcript and never leaves this machine (ADR-036).
+type SessionMessage struct {
+	Kind string `json:"kind"`
+	Text string `json:"text,omitempty"`
+	Tool string `json:"tool,omitempty"`
+	At   string `json:"at,omitempty"`
+}
+
+type SessionDetail struct {
+	Available bool             `json:"available"`
+	Title     string           `json:"title,omitempty"`
+	Branch    string           `json:"branch,omitempty"`
+	Messages  []SessionMessage `json:"messages"`
+}
+
+// SessionDetail returns the local content of one of this device's own agent
+// sessions. Sessions observed on another device have no local transcript here,
+// so this can only ever return the caller's own work.
+func (service daemonService) SessionDetail(ctx context.Context, workstreamID string) (SessionDetail, error) {
+	empty := SessionDetail{Messages: []SessionMessage{}}
+	if service.paths.Socket == "" {
+		return empty, nil
+	}
+	response, err := daemon.Call(ctx, service.paths.Socket, daemon.Request{Method: "session_detail", AgentWorkstreamID: workstreamID})
+	if err != nil || !response.OK {
+		return empty, nil
+	}
+	encoded, err := json.Marshal(response.Data)
+	if err != nil {
+		return empty, nil
+	}
+	var detail SessionDetail
+	if err = json.Unmarshal(encoded, &detail); err != nil {
+		return empty, nil
+	}
+	if detail.Messages == nil {
+		detail.Messages = []SessionMessage{}
+	}
+	return detail, nil
 }

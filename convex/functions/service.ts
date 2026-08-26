@@ -2,8 +2,9 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { conceptVector, evaluateWorkstreams, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, SemanticPolicyError, type WorkstreamRecord } from "@stickguy/coordination";
-import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, ValidationError } from "../src/domain";
+import { internal } from "./_generated/api";
+import { conceptVector, evaluateWorkstreams, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type WorkstreamRecord } from "@stickguy/coordination";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
 const DAY = 86_400_000;
@@ -35,6 +36,7 @@ export const createProject = internalMutation({
     devicePublicId: v.string(),
     label: v.string(),
     deviceLabel: v.string(),
+    displayName: v.optional(v.string()),
     now: v.number(),
   },
   handler: async (ctx, args) => {
@@ -65,7 +67,7 @@ export const createProject = internalMutation({
       publicId: args.memberPublicId,
       projectId,
       deviceId: device._id,
-      displayName: args.deviceLabel,
+      ...memberIdentity(args.displayName, args.deviceLabel),
       role: "owner",
       joinedAt: args.now,
     });
@@ -97,7 +99,7 @@ export const createInvite = internalMutation({
 export const enroll = internalMutation({
   args: {
     rateKey: v.string(), invitePublicId: v.string(), inviteSecretHash: v.string(), devicePublicId: v.string(),
-    memberPublicId: v.string(), deviceTokenHash: v.string(), dashboardTicketHash: v.string(), deviceLabel: v.string(),
+    memberPublicId: v.string(), deviceTokenHash: v.string(), dashboardTicketHash: v.string(), deviceLabel: v.string(), displayName: v.optional(v.string()),
     appVersion: v.string(), schemaMinimum: v.number(), schemaMaximum: v.number(), now: v.number(), ticketExpiresAt: v.number(),
   },
   handler: async (ctx, args) => {
@@ -121,7 +123,7 @@ export const enroll = internalMutation({
       publicId: args.memberPublicId,
       projectId: invite.projectId,
       deviceId,
-      displayName: args.deviceLabel,
+      ...memberIdentity(args.displayName, args.deviceLabel),
       role: "member",
       joinedAt: args.now,
     });
@@ -183,10 +185,15 @@ export const dashboardSession = internalQuery({
   args: { sessionHash: v.string(), now: v.number() },
   handler: async (ctx, args) => {
     const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
-    const semanticStatus = await projectSemanticStatus(ctx, auth.project._id);
+    const semantic = await projectSemanticStatus(ctx, auth.project._id);
     return {
+      memberId: auth.member.publicId,
       memberName: auth.member.displayName,
-      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus }],
+      // Absent source means the name is still the enrolling device label, so the
+      // dashboard must ask the member to choose their own before it is shown as
+      // live-work identity.
+      memberNameSource: auth.member.displayNameSource ?? "device",
+      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: semantic.status, semanticMode: semantic.mode }],
       selectedProjectId: auth.project.publicId,
     };
   },
@@ -207,6 +214,7 @@ export const dashboardSnapshot = internalQuery({
     const devices: Array<{ id: string; label: string; platform: string; status: string; lastSeen: string }> = [];
     let contextRevision = 0;
     let semanticStatus: "enabled" | "degraded" = "enabled";
+    let semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded" = "offline_fallback";
     for (const stream of projectWorkstreams) {
       const workspace = workspaces.find((candidate) => candidate._id === stream.workspaceId);
       if (!workspace) continue;
@@ -214,7 +222,11 @@ export const dashboardSnapshot = internalQuery({
       const device = await ctx.db.get(workspace.deviceId);
       const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).unique();
       contextRevision = Math.max(contextRevision, scope?.contextRevision ?? 0);
-      if ((scope?.semanticDegradedAt ?? 0) > (scope?.semanticHealthyAt ?? 0)) semanticStatus = "degraded";
+      if (scope?.semanticProviderName?.startsWith("openai/")) semanticMode = "managed_openai";
+      if ((scope?.semanticDegradedAt ?? 0) > (scope?.semanticHealthyAt ?? 0)) {
+        semanticStatus = "degraded";
+        semanticMode = "managed_degraded";
+      }
       let pathCount = 0;
       let paths: string[] = [];
       let manifestRevision = 0;
@@ -251,7 +263,7 @@ export const dashboardSnapshot = internalQuery({
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
-        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, subagents: stream.subagents ?? [], activity: sessionActivity } } : {}),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), capabilities: PROJECT_HOOK_MCP_CAPABILITIES, subagents: stream.subagents ?? [], activity: sessionActivity } } : {}),
         pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
@@ -264,7 +276,7 @@ export const dashboardSnapshot = internalQuery({
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
     }));
     const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
-    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
+    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus, semanticMode }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
   },
 });
 
@@ -278,6 +290,19 @@ export const recordSemanticHealth = internalMutation({
     const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).unique();
     if (!scope) fail("not_found");
     await ctx.db.patch(scope._id, args.degraded ? { semanticDegradedAt: args.now } : { semanticHealthyAt: args.now });
+    return true;
+  },
+});
+
+export const refreshSemanticFindings = internalMutation({
+  args: { scopeKey: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", args.scopeKey)).unique();
+    if (!scope) return false;
+    const project = await ctx.db.get(scope.projectId);
+    if (!project || project.status !== "active") return false;
+    await bumpScope(ctx, args.scopeKey, args.now);
+    await recomputeSemanticFindings(ctx, project, args.scopeKey, args.now);
     return true;
   },
 });
@@ -351,6 +376,9 @@ export const publishEvents = internalMutation({
         continue;
       }
       await applyProjection(ctx, event, project, member, device, args.now);
+      const retainedPayload = event.type === "agent.conversation_shared" ? {
+        messageId: String(event.payload.messageId), workstreamId: String(event.payload.workstreamId), kind: String(event.payload.kind),
+      } : event.payload;
       await ctx.db.insert("activityEvents", {
         eventId: event.eventId,
         projectId: project._id,
@@ -362,7 +390,7 @@ export const publishEvents = internalMutation({
         receivedAt: args.now,
         source: event.source,
         type: event.type,
-        payload: event.payload,
+        payload: retainedPayload,
         expiresAt: args.now + ACTIVITY_RETENTION,
       });
       acceptedEventIds.push(event.eventId);
@@ -388,9 +416,10 @@ export const projectChanges = internalQuery({
     const findings = await ctx.db.query("findings")
       .withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id).gt("lastSeenAt", args.after))
       .take(101);
-    if (findings.length > 100) fail("page_too_large");
-    const items = findings.map(findingContract);
-    const cursorValue = findings.reduce((latest, finding) => Math.max(latest, finding.lastSeenAt), args.after);
+    const decisions = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", auth.project._id).gt("updatedAt", args.after)).take(101);
+    if (findings.length > 100 || decisions.length > 100 || findings.length + decisions.length > 100) fail("page_too_large");
+    const items = [...findings.map(findingContract), ...await Promise.all(decisions.map((decision) => decisionContract(ctx, decision)))];
+    const cursorValue = Math.max(findings.reduce((latest, finding) => Math.max(latest, finding.lastSeenAt), args.after), decisions.reduce((latest, decision) => Math.max(latest, decision.updatedAt), args.after));
     return { items, cursor: `time:${cursorValue}` };
   },
 });
@@ -430,6 +459,17 @@ export const createBrief = internalMutation({
     const items = [...rendered.items];
     let renderedSize = rendered.renderedSize;
     let truncated = rendered.truncated;
+    const decisionRows = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", project._id)).order("desc").take(201);
+    if (decisionRows.length > 200) fail("page_too_large");
+    const relevantDecisions = decisionRows.filter((decision) => decision.affectedWorkstreamIds.includes(workstream._id) || decision.affectedMemberIds.includes(workstream.memberId));
+    const deliveredDecisionIds = new Set<string>();
+    for (const decision of relevantDecisions) {
+      if (items.length >= 64) { truncated = true; break; }
+      const item = { id: decision.publicId, revision: decision.revision, kind: "decision" as const, text: decision.summary, relevanceReason: "This durable Project decision explicitly affects this member or workstream.", fidelity: "manual", advisoryAction: "coordination_required" as const, priority: 95 };
+      const estimated = Math.ceil(JSON.stringify(item).length / 4);
+      if (renderedSize + estimated > args.requestedBudget) { truncated = true; continue; }
+      items.push(item); renderedSize += estimated; deliveredDecisionIds.add(decision.publicId);
+    }
     const semanticCurrent = !args.semanticDegraded && args.semanticContextRevision === scope.contextRevision;
     for (const objectPublicId of semanticCurrent ? args.semanticObjectIds : []) {
       if (items.length >= 64) { truncated = true; break; }
@@ -455,6 +495,12 @@ export const createBrief = internalMutation({
       deliveredAt: args.now,
       expiresAt: args.now + DELIVERY_RETENTION,
     });
+    for (const decision of relevantDecisions.filter((candidate) => deliveredDecisionIds.has(candidate.publicId))) {
+      const existing = await ctx.db.query("decisionDeliveries").withIndex("by_decision_workstream", (q) => q.eq("decisionId", decision._id).eq("workstreamId", workstream._id)).unique();
+      if (existing) {
+        if (existing.decisionRevision !== decision.revision) await ctx.db.patch(existing._id, { decisionRevision: decision.revision, deliveredAt: args.now, acknowledgedAt: undefined });
+      } else await ctx.db.insert("decisionDeliveries", { decisionId: decision._id, workstreamId: workstream._id, decisionRevision: decision.revision, deliveredAt: args.now });
+    }
     return {
       briefId: args.briefPublicId,
       projectId: project.publicId,
@@ -477,9 +523,14 @@ export const contextItem = internalQuery({
   handler: async (ctx, args) => {
     const device = await requireDevice(ctx, args.tokenHash);
     const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.itemPublicId)).unique();
-    if (!finding) fail("not_found");
-    await requireMembership(ctx, device._id, finding.projectId);
-    return findingContract(finding);
+    if (finding) {
+      await requireMembership(ctx, device._id, finding.projectId);
+      return findingContract(finding);
+    }
+    const decision = await ctx.db.query("decisions").withIndex("by_public_id", (q) => q.eq("publicId", args.itemPublicId)).unique();
+    if (!decision) fail("not_found");
+    await requireMembership(ctx, device._id, decision.projectId);
+    return decisionContract(ctx, decision);
   },
 });
 
@@ -496,6 +547,189 @@ export const recordFindingFeedback = internalMutation({
     if (existing) await ctx.db.patch(existing._id, record);
     else await ctx.db.insert("findingFeedback", { publicId: args.feedbackPublicId, projectId: finding.projectId, findingId: finding._id, memberId: member._id, ...record });
     return true;
+  },
+});
+
+const collaborationAuthArgs = {
+  projectPublicId: v.string(),
+  tokenHash: v.optional(v.string()),
+  sessionHash: v.optional(v.string()),
+  now: v.number(),
+};
+
+export const collaborationSnapshot = internalQuery({
+  args: { ...collaborationAuthArgs, after: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    return collaborationView(ctx, auth.project, args.after ?? 0);
+  },
+});
+
+
+
+
+
+export const createSyncCard = internalMutation({
+  args: { ...collaborationAuthArgs, cardPublicId: v.string(), findingPublicId: v.optional(v.string()), title: v.string(), summary: v.string() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    let findingId: Id<"findings"> | undefined;
+    if (args.findingPublicId) {
+      const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId!)).unique();
+      if (!finding || finding.projectId !== auth.project._id) fail("not_found");
+      findingId = finding._id;
+    }
+    const id = await ctx.db.insert("syncCards", { publicId: args.cardPublicId, projectId: auth.project._id, ...(findingId ? { findingId } : {}), title: args.title, summary: args.summary, state: "open", revision: 1, createdByMemberId: auth.member._id, createdAt: args.now, updatedAt: args.now });
+    const card = await ctx.db.get(id);
+    if (!card) fail("not_found");
+    return syncCardContract(ctx, card);
+  },
+});
+
+export const commentOnSyncCard = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), cardPublicId: v.string(), commentPublicId: v.string(), body: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const card = await ctx.db.query("syncCards").withIndex("by_public_id", (q) => q.eq("publicId", args.cardPublicId)).unique();
+    if (!card) fail("not_found");
+    const project = await ctx.db.get(card.projectId);
+    if (!project) fail("not_found");
+    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
+    if (card.state !== "open") fail("sync_card_resolved");
+    const id = await ctx.db.insert("syncComments", { publicId: args.commentPublicId, syncCardId: card._id, projectId: project._id, memberId: auth.member._id, body: args.body, createdAt: args.now });
+    await ctx.db.patch(card._id, { revision: card.revision + 1, updatedAt: args.now });
+    const comment = await ctx.db.get(id);
+    if (!comment) fail("not_found");
+    return syncCommentContract(ctx, comment);
+  },
+});
+
+export const resolveSyncCard = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), cardPublicId: v.string(), decisionPublicId: v.string(), expectedRevision: v.number(), summary: v.string(), affectedMemberPublicIds: v.array(v.string()), affectedWorkstreamPublicIds: v.array(v.string()), now: v.number() },
+  handler: async (ctx, args) => {
+    const card = await ctx.db.query("syncCards").withIndex("by_public_id", (q) => q.eq("publicId", args.cardPublicId)).unique();
+    if (!card) fail("not_found");
+    const project = await ctx.db.get(card.projectId);
+    if (!project) fail("not_found");
+    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
+    if (card.state !== "open" || card.revision !== args.expectedRevision) fail("revision_conflict");
+    const affectedMemberIds: Id<"members">[] = [];
+    for (const publicId of [...new Set(args.affectedMemberPublicIds)]) {
+      const member = await ctx.db.query("members").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique();
+      if (!member || member.projectId !== project._id || member.removedAt !== undefined) fail("forbidden");
+      affectedMemberIds.push(member._id);
+    }
+    const affectedWorkstreamIds: Id<"workstreams">[] = [];
+    for (const publicId of [...new Set(args.affectedWorkstreamPublicIds)]) {
+      const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique();
+      if (!workstream || workstream.projectId !== project._id) fail("forbidden");
+      affectedWorkstreamIds.push(workstream._id);
+    }
+    if (affectedMemberIds.length === 0 && affectedWorkstreamIds.length === 0) fail("validation_failed");
+    const id = await ctx.db.insert("decisions", { publicId: args.decisionPublicId, projectId: project._id, syncCardId: card._id, summary: args.summary, affectedMemberIds, affectedWorkstreamIds, revision: 1, createdByMemberId: auth.member._id, createdAt: args.now, updatedAt: args.now });
+    await ctx.db.patch(card._id, { state: "resolved", revision: card.revision + 1, updatedAt: args.now });
+    if (card.findingId) {
+      const finding = await ctx.db.get(card.findingId);
+      if (finding && finding.state !== "resolved") await ctx.db.patch(finding._id, { state: "resolved", revision: finding.revision + 1, lastSeenAt: args.now });
+    }
+    await bumpProjectScopes(ctx, project._id, args.now);
+    const decision = await ctx.db.get(id);
+    if (!decision) fail("not_found");
+    return decisionContract(ctx, decision);
+  },
+});
+
+export const sessionSharingSnapshot = internalQuery({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), workstreamPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
+    if (!workstream) fail("not_found");
+    const project = await ctx.db.get(workstream.projectId);
+    if (!project) fail("not_found");
+    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
+    return sessionSharingView(ctx, workstream, auth.member, args.now);
+  },
+});
+
+export const updateSessionSharing = internalMutation({
+  args: {
+    tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), workstreamPublicId: v.string(),
+    profile: v.string(), audience: v.string(), consentVersion: v.string(), allowedKinds: v.array(v.string()),
+    expiresAt: v.optional(v.number()), now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
+    if (!workstream) fail("not_found");
+    const project = await ctx.db.get(workstream.projectId);
+    if (!project) fail("not_found");
+    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
+    if (workstream.memberId !== auth.member._id) fail("forbidden");
+    if (args.consentVersion !== "session-share/v1") fail("consent_version_invalid");
+    if (!['private', 'conversation'].includes(args.profile) || !['self', 'project'].includes(args.audience)) fail("validation_failed");
+    const allowedKinds = [...new Set(args.allowedKinds)];
+    if (allowedKinds.some((kind) => !['user', 'assistant', 'thinking', 'system'].includes(kind)) || allowedKinds.length > 4) fail("validation_failed");
+    if (args.profile === "conversation" && allowedKinds.length === 0) fail("validation_failed");
+    if (args.profile === "private" && allowedKinds.length !== 0) fail("validation_failed");
+    if (args.expiresAt !== undefined && (args.expiresAt < args.now + 300_000 || args.expiresAt > args.now + 30 * DAY)) fail("validation_failed");
+    const current = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
+    const record = {
+      projectId: project._id, memberId: auth.member._id,
+      profile: args.profile as "private" | "conversation", audience: args.audience as "self" | "project",
+      consentVersion: args.consentVersion, allowedKinds, enabled: args.profile === "conversation",
+      ...(args.expiresAt !== undefined ? { expiresAt: args.expiresAt } : {}), updatedAt: args.now,
+    };
+    if (current) await ctx.db.replace(current._id, { workstreamId: workstream._id, ...record });
+    else await ctx.db.insert("sessionSharingPolicies", { workstreamId: workstream._id, ...record });
+    return sessionSharingView(ctx, workstream, auth.member, args.now);
+  },
+});
+
+export const deleteSharedSessionMessages = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), workstreamPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
+    if (!workstream) fail("not_found");
+    const project = await ctx.db.get(workstream.projectId);
+    if (!project) fail("not_found");
+    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
+    if (workstream.memberId !== auth.member._id && auth.member.role !== "owner") fail("forbidden");
+    const messages = await ctx.db.query("sessionMessages").withIndex("by_workstream_captured", (q) => q.eq("workstreamId", workstream._id)).take(101);
+    if (messages.length > 100) fail("page_too_large");
+    for (const message of messages) await ctx.db.delete(message._id);
+    const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
+    if (policy) await ctx.db.patch(policy._id, { profile: "private", audience: "self", allowedKinds: [], enabled: false, expiresAt: undefined, updatedAt: args.now });
+    return true;
+  },
+});
+
+export const updateMemberDisplayName = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), displayName: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    const displayName = normalizeDisplayName(args.displayName);
+    await ctx.db.patch(auth.member._id, { displayName, displayNameSource: "member" });
+    // Names appear in briefs and rendered coordination items, so dependents must
+    // re-read rather than keep the previous device-derived label.
+    await bumpProjectScopes(ctx, auth.project._id, args.now);
+    return { memberId: auth.member.publicId, memberName: displayName, memberNameSource: "member" as const };
+  },
+});
+
+export const projectMembers = internalQuery({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
+    if (members.length > 100) fail("page_too_large");
+    return {
+      members: members.filter((member) => member.removedAt === undefined).map((member) => ({
+        id: member.publicId,
+        name: member.displayName,
+        nameSource: member.displayNameSource ?? "device",
+        role: member.role,
+        isSelf: member._id === auth.member._id,
+        joinedAt: new Date(member.joinedAt).toISOString(),
+      })),
+    };
   },
 });
 
@@ -667,6 +901,7 @@ async function applyProjection(
       const currentAction = String(payload.action);
       let workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       if (workstream && (workstream.projectId !== project._id || workstream.workspaceId !== workspace._id || workstream.vendor !== vendor)) fail("forbidden");
+      const previousSessionTitle = workstream?.sessionTitle;
       const incomingPaths = stringValues(payload.paths);
       const safePaths = activityKind === "SessionStart" ? [] : [...new Set([...(workstream?.safePaths ?? []), ...incomingPaths])].sort().slice(0, 100);
       const subagents = [...(workstream?.subagents ?? [])];
@@ -677,10 +912,14 @@ async function applyProjection(
         if (current) Object.assign(current, next); else subagents.push(next);
       }
       const record = {
-        title: `${vendor === "codex" ? "Codex" : "Claude Code"} · ${String(payload.sessionAlias)}`,
+        title: typeof payload.sessionTitle === "string" && payload.sessionTitle !== ""
+          ? payload.sessionTitle
+          : workstream?.sessionTitle ?? `${vendor === "codex" ? "Codex" : "Claude Code"} · ${String(payload.sessionAlias)}`,
         summary: currentAction, status: agentStatus === "done" ? "done" as const : agentStatus === "error" ? "blocked" as const : agentStatus === "idle" ? "idle" as const : "active" as const,
         vendor, sessionAlias: String(payload.sessionAlias), agentStatus, activityKind, currentAction,
         toolName: typeof payload.tool === "string" ? payload.tool : undefined,
+        branch: typeof payload.branch === "string" && payload.branch !== "" ? payload.branch : workstream?.branch,
+        sessionTitle: typeof payload.sessionTitle === "string" && payload.sessionTitle !== "" ? payload.sessionTitle : workstream?.sessionTitle,
         safePaths, subagents: subagents.slice(0, 32), updatedAt: now,
       };
       if (workstream) {
@@ -694,9 +933,45 @@ async function applyProjection(
         workstream = await ctx.db.get(id);
       }
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
+      const derivedTitle = typeof payload.sessionTitle === "string" ? payload.sessionTitle : "";
+      if (workstream && derivedTitle && derivedTitle !== previousSessionTitle) {
+        // A vendor-visible session title is already part of activity/v1. It may
+        // seed a bounded, honestly labeled intent, but never at the cost of
+        // rejecting the underlying observation when semantic policy blocks it.
+        try {
+          validateSemanticText(derivedTitle);
+          await upsertSemanticIntelligence(ctx, project, workstream, derivedTitle, "intent", safePaths.map((path) => `path:${path}`), "hook-derived-title/v1", now);
+        } catch (error) {
+          if (!(error instanceof SemanticPolicyError)) throw error;
+        }
+      }
       if (workstream && incomingPaths.length > 0) await upsertAgentPathFindings(ctx, project, workstream, incomingPaths, now);
       if (workstream && agentStatus === "done") await resolveAgentPathFindings(ctx, workstream, now);
       await bumpScope(ctx, workspace.scopeKey, now);
+      return;
+    }
+    case "agent.conversation_shared": {
+      if (event.sequence <= workspace.lastProjectedSequence) return;
+      const workstream = await requireWorkstream(ctx, String(payload.workstreamId), project._id, workspace._id);
+      if (workstream.memberId !== member._id || workstream.vendor !== payload.vendor || workstream.sessionAlias !== payload.sessionAlias) fail("forbidden");
+      const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
+      const kind = String(payload.kind);
+      if (!policy || !policy.enabled || policy.profile !== "conversation" || policy.consentVersion !== "session-share/v1" ||
+        policy.memberId !== member._id || (policy.expiresAt !== undefined && policy.expiresAt <= now) || !policy.allowedKinds.includes(kind)) fail("sharing_not_enabled");
+      const text = String(payload.text);
+      validateSessionMessageText(text);
+      const existing = await ctx.db.query("sessionMessages").withIndex("by_public_id", (q) => q.eq("publicId", String(payload.messageId))).unique();
+      if (existing) {
+        if (existing.workstreamId !== workstream._id) fail("event_id_conflict");
+      } else {
+        const expiresAt = Math.min(policy.expiresAt ?? now + project.retentionDays * DAY, now + project.retentionDays * DAY);
+        await ctx.db.insert("sessionMessages", {
+          publicId: String(payload.messageId), workstreamId: workstream._id, projectId: project._id, memberId: member._id,
+          vendor: payload.vendor as "codex" | "claude", kind: kind as "user" | "assistant" | "thinking" | "system",
+          text, capturedAt: now, expiresAt,
+        });
+      }
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       return;
     }
     case "workspace.manifest_started": {
@@ -901,6 +1176,13 @@ async function upsertSemanticIntelligence(
   if (existingEmbedding) await ctx.db.patch(existingEmbedding._id, embedding);
   else await ctx.db.insert("semanticEmbeddings", { objectId: object._id, ...embedding });
 
+  // Embedding generation is intentionally asynchronous: a provider outage or
+  // slow network must never delay observation, manifests, or checkpoints.
+  if (changed) await ctx.scheduler.runAfter(0, internal.intelligence.embedSemanticObject, {
+    semanticObjectPublicId: object.publicId,
+    expectedRevision: object.revision,
+  });
+
   if (changed) {
     await bumpScope(ctx, workstream.scopeKey, now);
     await recomputeSemanticFindings(ctx, project, workstream.scopeKey, now);
@@ -916,7 +1198,7 @@ async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"project
   for (const [workstreamId, group] of grouped) {
     const current = await ctx.db.get(workstreamId);
     if (!current || current.status === "done") continue;
-    records.push(semanticRecord(project.publicId, current, group));
+    records.push(await semanticRecord(ctx, project.publicId, current, group));
   }
   const activeFingerprints = new Set<string>();
   const revisionByWorkstream = new Map(records.map((record) => [record.id, record.revision]));
@@ -940,11 +1222,17 @@ async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"project
   }
 }
 
-function semanticRecord(projectId: string, workstream: Doc<"workstreams">, objects: Array<Doc<"semanticObjects">>): WorkstreamRecord {
+async function semanticRecord(ctx: MutationCtx, projectId: string, workstream: Doc<"workstreams">, objects: Array<Doc<"semanticObjects">>): Promise<WorkstreamRecord> {
   const tags = objects.flatMap((object) => object.tags ?? []);
   const values = (prefix: string) => tags.filter((tag) => tag.startsWith(prefix)).map((tag) => tag.slice(prefix.length));
-  const summary = objects.sort((left, right) => left.kind === "intent" ? -1 : right.kind === "intent" ? 1 : right.revision - left.revision).map((object) => object.text).join(" ").slice(0, 2_000);
-  return { projectId, repositoryId: objects[0]!.scopeKey, id: workstream.publicId, revision: Math.max(...objects.map((object) => object.revision)), status: workstream.status, summary, paths: values("path:"), dependencies: values("dependency:"), contracts: values("contract:"), schemas: values("schema:"), routes: values("route:"), components: values("component:"), changes: values("changes:"), assumptions: values("assumption:") };
+  const ordered = [...objects].sort((left, right) => left.kind === "intent" ? -1 : right.kind === "intent" ? 1 : right.revision - left.revision);
+  const primary = ordered[0]!;
+  const summary = ordered.map((object) => object.text).join(" ").slice(0, 2_000);
+  const embedding = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", primary._id)).unique();
+  const currentProviderEmbedding = embedding && embedding.contentRevision === primary.revision && embedding.providerName.startsWith("openai/")
+    ? { semanticVector: embedding.vector, semanticProvider: embedding.providerName }
+    : {};
+  return { projectId, repositoryId: primary.scopeKey, id: workstream.publicId, revision: Math.max(...objects.map((object) => object.revision)), status: workstream.status, summary, paths: values("path:"), dependencies: values("dependency:"), contracts: values("contract:"), schemas: values("schema:"), routes: values("route:"), components: values("component:"), changes: values("changes:"), assumptions: values("assumption:"), ...currentProviderEmbedding };
 }
 
 async function deactivateWorkstreamSemantics(ctx: MutationCtx, workstreamId: Id<"workstreams">): Promise<void> {
@@ -1090,10 +1378,13 @@ async function requireBrowserSession(ctx: QueryCtx | MutationCtx, sessionHash: s
   return { session, project, member, device };
 }
 
-async function projectSemanticStatus(ctx: QueryCtx, projectId: Id<"projects">): Promise<"enabled" | "degraded"> {
+async function projectSemanticStatus(ctx: QueryCtx, projectId: Id<"projects">): Promise<{ status: "enabled" | "degraded"; mode: "offline_fallback" | "managed_openai" | "managed_degraded" }> {
   const scopes = await ctx.db.query("repositoryScopes").withIndex("by_project", (q) => q.eq("projectId", projectId)).take(101);
   if (scopes.length > 100) fail("page_too_large");
-  return scopes.some((scope) => (scope.semanticDegradedAt ?? 0) > (scope.semanticHealthyAt ?? 0)) ? "degraded" : "enabled";
+  if (scopes.some((scope) => (scope.semanticDegradedAt ?? 0) > (scope.semanticHealthyAt ?? 0))) return { status: "degraded", mode: "managed_degraded" };
+  return scopes.some((scope) => scope.semanticProviderName?.startsWith("openai/"))
+    ? { status: "enabled", mode: "managed_openai" }
+    : { status: "enabled", mode: "offline_fallback" };
 }
 
 function initials(name: string): string {
@@ -1149,12 +1440,139 @@ function dashboardEvidenceKind(kind: string): "path" | "contract" | "dependency"
 
 function dashboardEvidenceSource(source: string): "git" | "mcp" | "manual" | "hook" | "semantic_candidate" {
   if (["git", "mcp", "manual", "hook", "semantic_candidate"].includes(source)) return source as ReturnType<typeof dashboardEvidenceSource>;
+  if (source.startsWith("openai/") || source.startsWith("stickguy-concepts/")) return "semantic_candidate";
   return "manual";
 }
 
 function dashboardFidelity(source: string): "mcp" | "git" | "manual" | "hook" | "hook_unverified" {
   if (["mcp", "git", "manual", "hook", "hook_unverified"].includes(source)) return source as ReturnType<typeof dashboardFidelity>;
   return "manual";
+}
+
+async function requireCollaborationActor(
+  ctx: QueryCtx | MutationCtx,
+  args: { projectPublicId: string; tokenHash?: string; sessionHash?: string; now: number },
+): Promise<{ project: Doc<"projects">; member: Doc<"members">; device: Doc<"devices"> }> {
+  if ((args.tokenHash ? 1 : 0) + (args.sessionHash ? 1 : 0) !== 1) fail("unauthorized");
+  if (args.sessionHash) {
+    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    if (auth.project.publicId !== args.projectPublicId) fail("forbidden");
+    return { project: auth.project, member: auth.member, device: auth.device };
+  }
+  return requireProjectRole(ctx, args.tokenHash!, args.projectPublicId);
+}
+
+async function sessionSharingView(
+  ctx: QueryCtx | MutationCtx,
+  workstream: Doc<"workstreams">,
+  actor: Doc<"members">,
+  now: number,
+) {
+  const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
+  const canManage = actor._id === workstream.memberId;
+  const enabled = Boolean(policy?.enabled && policy.profile === "conversation" && (policy.expiresAt === undefined || policy.expiresAt > now));
+  const visible = enabled && (policy?.audience === "project" || canManage);
+  const messages = visible ? await ctx.db.query("sessionMessages")
+    .withIndex("by_workstream_captured", (q) => q.eq("workstreamId", workstream._id))
+    .order("asc").take(100) : [];
+  return {
+    workstreamId: workstream.publicId,
+    policy: policy ? {
+      profile: enabled ? policy.profile : "private",
+      audience: enabled ? policy.audience : "self",
+      consentVersion: "session-share/v1",
+      allowedKinds: enabled ? policy.allowedKinds : [],
+      enabled,
+      canManage,
+      ...(enabled && policy.expiresAt !== undefined ? { expiresAt: new Date(policy.expiresAt).toISOString() } : {}),
+      updatedAt: new Date(policy.updatedAt).toISOString(),
+    } : {
+      profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [], enabled: false, canManage,
+    },
+    messages: messages.map((message) => ({
+      id: message.publicId, kind: message.kind, text: message.text, vendor: message.vendor,
+      capturedAt: new Date(message.capturedAt).toISOString(), expiresAt: new Date(message.expiresAt).toISOString(),
+    })),
+  };
+}
+
+// A member who named themselves at enrollment is not asked again; otherwise the
+// device label seeds the name and is marked as still owing an explicit choice.
+function memberIdentity(displayName: string | undefined, deviceLabel: string): { displayName: string; displayNameSource: "device" | "member" } {
+  if (displayName === undefined) return { displayName: deviceLabel, displayNameSource: "device" };
+  return { displayName: normalizeDisplayName(displayName), displayNameSource: "member" };
+}
+
+// Live-work identity is member-chosen. Email addresses are rejected so a
+// Project never turns a contact address into the name teammates see.
+export function normalizeDisplayName(value: string): string {
+  const displayName = value.trim().replace(/\s+/g, " ");
+  if (displayName.length < 2 || displayName.length > 60) fail("validation_failed");
+  if (/[\u0000-\u001f\u007f]/.test(displayName)) fail("validation_failed");
+  if (/@/.test(displayName)) fail("email_identity_rejected");
+  return displayName;
+}
+
+
+
+async function bumpProjectScopes(ctx: MutationCtx, projectId: Id<"projects">, now: number): Promise<void> {
+  const scopes = await ctx.db.query("repositoryScopes").withIndex("by_project", (q) => q.eq("projectId", projectId)).take(101);
+  if (scopes.length > 100) fail("page_too_large");
+  for (const scope of scopes) await ctx.db.patch(scope._id, { contextRevision: scope.contextRevision + 1, updatedAt: now });
+}
+
+
+
+async function syncCommentContract(ctx: QueryCtx | MutationCtx, comment: Doc<"syncComments">) {
+  const member = await ctx.db.get(comment.memberId);
+  if (!member) fail("not_found");
+  return { id: comment.publicId, memberName: member.displayName, body: comment.body, createdAt: new Date(comment.createdAt).toISOString() };
+}
+
+async function decisionContract(ctx: QueryCtx | MutationCtx, decision: Doc<"decisions">) {
+  const card = decision.syncCardId ? await ctx.db.get(decision.syncCardId) : null;
+  const affectedMemberIds: string[] = [];
+  for (const id of decision.affectedMemberIds) {
+    const member = await ctx.db.get(id);
+    if (member) affectedMemberIds.push(member.publicId);
+  }
+  const affectedWorkstreamIds: string[] = [];
+  for (const id of decision.affectedWorkstreamIds) {
+    const workstream = await ctx.db.get(id);
+    if (workstream) affectedWorkstreamIds.push(workstream.publicId);
+  }
+  return {
+    id: decision.publicId, ...(card ? { syncCardId: card.publicId } : {}), summary: decision.summary,
+    affectedMemberIds, affectedWorkstreamIds, revision: decision.revision, createdAt: new Date(decision.createdAt).toISOString(),
+  };
+}
+
+async function syncCardContract(ctx: QueryCtx | MutationCtx, card: Doc<"syncCards">) {
+  const finding = card.findingId ? await ctx.db.get(card.findingId) : null;
+  const comments = await ctx.db.query("syncComments").withIndex("by_card_created", (q) => q.eq("syncCardId", card._id)).take(101);
+  if (comments.length > 100) fail("page_too_large");
+  const decisions = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", card.projectId)).collect();
+  const decision = decisions.find((candidate) => candidate.syncCardId === card._id);
+  return {
+    id: card.publicId, ...(finding ? { findingId: finding.publicId } : {}), title: card.title, summary: card.summary,
+    state: card.state, revision: card.revision, comments: await Promise.all(comments.map((comment) => syncCommentContract(ctx, comment))),
+    ...(decision ? { resolution: await decisionContract(ctx, decision) } : {}), updatedAt: new Date(card.updatedAt).toISOString(),
+  };
+}
+
+// ADR-037: the coordination surface is collisions and their resolutions. Plan
+// items, advisory claims, and the standalone decision log were removed; a
+// resolution still reaches every affected agent through the brief.
+async function collaborationView(ctx: QueryCtx | MutationCtx, project: Doc<"projects">, after: number) {
+  const cardRows = await ctx.db.query("syncCards").withIndex("by_project_updated", (q) => q.eq("projectId", project._id)).order("desc").take(101);
+  const resolutionRows = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", project._id)).order("desc").take(201);
+  if (cardRows.length > 100 || resolutionRows.length > 200) fail("page_too_large");
+  const syncCards = await Promise.all(cardRows.map((card) => syncCardContract(ctx, card)));
+  const resolutions = await Promise.all(resolutionRows.map((resolution) => decisionContract(ctx, resolution)));
+  const latest = [...cardRows.map((card) => card.updatedAt), ...resolutionRows.map((resolution) => resolution.updatedAt)]
+    .filter((at) => at > after)
+    .reduce((maximum, at) => Math.max(maximum, at), after);
+  return { projectId: project.publicId, syncCards, resolutions, cursor: `time:${latest}` };
 }
 
 function fail(code: string): never {

@@ -60,8 +60,6 @@ Convex holds materialized project state plus append-only activity. It is not ful
 | changeManifestChunks | manifestId, chunkIndex, bounded path/symbol/dependency entries |
 | semanticObjects | publicId, projectId, repoFingerprint, workstreamId, kind, text, metadata, source, fidelity, revision, active |
 | semanticEmbeddings | objectId, scopeKey, kind, modelVersion, contentRevision, vector |
-| planItems | publicId, projectId, title, status, ownerMemberId, source, revision |
-| claims | publicId, workstreamId, pattern, normalizedPattern, releasedAt |
 | activityEvents | eventId, projectId, type, actors, observedAt, payload, expiresAt |
 | findings | publicId, projectId, repoFingerprint, kind, severity, confidenceBand, workstreamIds, evidence, state, fingerprint, engineVersion |
 | verificationReports | publicId, workstreamId, manifestRevision, state, checkKind, label, summary, source, observedAt |
@@ -89,7 +87,7 @@ Presence is lossy and separate from durable events. Heartbeat about every 15 sec
 
 ## 6. Coordination intelligence
 
-Alpha findings are deterministic: select active workstreams in the same project/repository identity, intersect normalized paths and claims, generate a stable fingerprint, and upsert without repeated notification.
+Alpha findings are deterministic: select active workstreams in the same project/repository identity, intersect normalized paths and other structural evidence, generate a stable fingerprint, and upsert without repeated notification.
 
 V1 extends candidate retrieval with symbols, packages, schemas/routes, dependencies, lexical similarity, and semantic similarity across synchronized intent/change/plan/decision objects. A versioned evidence-fusion engine classifies findings; optional bounded adjudication handles ambiguous candidates. Similarity never overwrites deterministic evidence, crosses authorization boundaries, or appears as unexplained proof. See `coordination-intelligence.md`.
 

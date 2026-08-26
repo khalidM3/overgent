@@ -5,7 +5,10 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/stickguy/stickguy/internal/activation"
@@ -20,17 +23,24 @@ const desktopDevelopment = true
 func desktopProductName() string { return "Stickguy Dev" }
 func desktopMenuLabel() string   { return "Stickguy development" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
-func desktopAPIBaseURL() string  { return loopbackEnv("STICKGUY_API_ORIGIN", "http://127.0.0.1:3211") }
+func desktopAPIBaseURL() string {
+	return developmentOrigin("STICKGUY_API_ORIGIN", "http://127.0.0.1:3211")
+}
 func desktopActivationBaseURL() string {
-	return loopbackEnv("STICKGUY_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
+	return developmentOrigin("STICKGUY_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
 }
 func desktopCLIBinary() string { return os.Getenv("STICKGUY_CLI_BINARY") }
+func desktopConfigRoot() string {
+	value := strings.TrimSpace(os.Getenv("STICKGUY_CONFIG_ROOT"))
+	if value != "" && filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	root, _ := config.DefaultRoot()
+	return root
+}
 
 func openLocalProject(ctx context.Context, window *application.WebviewWindow) error {
-	root, err := config.DefaultRoot()
-	if err != nil {
-		return err
-	}
+	root := desktopConfigRoot()
 	paths, err := config.Resolve(root)
 	if err != nil {
 		return err
@@ -50,8 +60,8 @@ func openLocalProject(ctx context.Context, window *application.WebviewWindow) er
 	for value := range projects {
 		projectID = value
 	}
-	if !strings.HasPrefix(cfg.APIBaseURL, "http://127.0.0.1:") && !strings.HasPrefix(cfg.APIBaseURL, "http://localhost:") {
-		return errors.New("development desktop refuses a non-loopback API origin")
+	if !developmentOriginAllowed(cfg.APIBaseURL) {
+		return errors.New("development desktop requires loopback HTTP or an HTTPS shared-development API origin")
 	}
 	token, err := credential.Get(ctx, cfg.DeviceID)
 	if err != nil {
@@ -71,4 +81,27 @@ func openLocalProject(ctx context.Context, window *application.WebviewWindow) er
 	}
 	window.SetURL(handoff.URL())
 	return handoff.Wait(ctx)
+}
+
+func developmentOriginAllowed(value string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	if parsed.Scheme != "http" {
+		return false
+	}
+	host := parsed.Hostname()
+	return host == "localhost" || net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
+}
+
+func developmentOrigin(name, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if !developmentOriginAllowed(value) {
+		return fallback
+	}
+	return strings.TrimRight(value, "/")
 }

@@ -19,7 +19,7 @@ describe("desktop onboarding", () => {
       state: vi.fn(async () => calls++ === 0 ? initial : enrolled),
       chooseRepository: vi.fn(async () => "/tmp/atlas"),
       createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })),
-      joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     await screen.findByRole("heading", { name: /Connect the Project/ });
@@ -35,7 +35,7 @@ describe("desktop onboarding", () => {
   it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
@@ -53,7 +53,7 @@ describe("desktop onboarding", () => {
     const navigate = vi.fn();
     const api: NativeOnboarding = {
       state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(),
-      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"),
+      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} navigate={navigate} />);
@@ -64,11 +64,34 @@ describe("desktop onboarding", () => {
   it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
-      connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(),
+      connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     expect(await screen.findByText(/New Codex and Claude Code sessions opened in this repository appear automatically/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Assign .* worktree/ })).toBeNull();
     expect(api.connectAgentWorktree).not.toHaveBeenCalled();
+  });
+});
+
+describe("first-run identity", () => {
+  it("asks for a member name and keeps the device name as a security detail", async () => {
+    const user = userEvent.setup();
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => initial),
+      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+    };
+    render(<DesktopOnboarding api={api} navigate={() => undefined} />);
+    await screen.findByLabelText("Your name");
+
+    const name = screen.getByLabelText("Your name") as HTMLInputElement;
+    expect(name.value).toBe("");
+    expect(screen.getByText(/Not your email address/)).toBeTruthy();
+    // The device name is still available, but behind an explicit security disclosure.
+    expect(screen.getByText("Device name & security")).toBeTruthy();
+    expect(screen.getByText(/never shown as your identity/)).toBeTruthy();
+
+    await user.type(name, "Khalid M");
+    expect((screen.getByLabelText("Your name") as HTMLInputElement).value).toBe("Khalid M");
   });
 });

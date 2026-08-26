@@ -6,8 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +20,7 @@ import (
 	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/onboarding"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"unicode/utf8"
 )
 
 type AdapterState struct {
@@ -48,6 +47,7 @@ type EnrollmentRequest struct {
 	RepositoryRoot string `json:"repositoryRoot"`
 	ProjectLabel   string `json:"projectLabel"`
 	DeviceLabel    string `json:"deviceLabel"`
+	DisplayName    string `json:"displayName"`
 	JoinCode       string `json:"joinCode"`
 	EnableCodex    bool   `json:"enableCodex"`
 	EnableClaude   bool   `json:"enableClaude"`
@@ -64,7 +64,7 @@ type OnboardingService struct {
 }
 
 func newOnboardingService() *OnboardingService {
-	root, _ := config.DefaultRoot()
+	root := desktopConfigRoot()
 	return &OnboardingService{configRoot: root, apiBaseURL: desktopAPIBaseURL(), activationBaseURL: desktopActivationBaseURL(), cliBinary: desktopCLIBinary()}
 }
 
@@ -131,10 +131,17 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	}
 	request.RepositoryRoot = root
 	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
+	// An empty display name is passed through as empty so the member is asked to
+	// choose one rather than silently inheriting this machine's hostname.
+	displayName, err := boundedDisplayName(request.DisplayName)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	request.DisplayName = displayName
 	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel}
+	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName}
 	flow := onboarding.New(service.apiBaseURL)
 	var result onboarding.Result
 	if create {
@@ -307,8 +314,8 @@ func (service *OnboardingService) configureAdapters(root string, codex, claude b
 func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	executable, cliErr := service.resolveCLI()
 	states := []AdapterState{
-		{Name: "Codex", Fidelity: "Live sessions + tools + subagents + safe paths", Detail: "Project-scoped activity hooks and MCP; no per-chat command or separate branch."},
-		{Name: "Claude Code", Fidelity: "Live sessions + tools + subagents + safe paths", Detail: "Project-scoped activity hooks and MCP; no per-chat command or separate branch."},
+		{Name: "Codex", Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Project hooks share the vendor-visible session title as intent; approved titles may use the configured semantic provider. Brief delivery is MCP pull."},
+		{Name: "Claude Code", Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Project hooks share the vendor-visible session title as intent; approved titles may use the configured semantic provider. Brief delivery is MCP pull."},
 	}
 	for index, command := range []string{"codex", "claude"} {
 		_, states[index].Installed = agentExecutable(command)
@@ -444,6 +451,22 @@ func defaultDeviceLabel() string {
 	return boundedLabel(host, "This Mac")
 }
 
+// boundedDisplayName enforces the ADR-035 identity rules before any network
+// call so the desktop reports a clear reason instead of a hosted error code.
+func boundedDisplayName(value string) (string, error) {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(value) < 2 || utf8.RuneCountInString(value) > 60 {
+		return "", errors.New("choose a display name between 2 and 60 characters")
+	}
+	if strings.ContainsRune(value, '@') {
+		return "", errors.New("choose a display name; an email address cannot be your Project identity")
+	}
+	return value, nil
+}
+
 func boundedLabel(value, fallback string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -456,15 +479,11 @@ func boundedLabel(value, fallback string) string {
 	return value
 }
 
-func loopbackEnv(name, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(name))
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return fallback
-	}
-	host := parsed.Hostname()
-	if host != "localhost" && (net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback()) {
-		return fallback
-	}
-	return strings.TrimRight(parsed.String(), "/")
+// SessionDetail exposes the caller's own local session content to the embedded
+// dashboard. Content is read on demand from the vendor transcript and is never
+// uploaded; sharing it with the Project stays a separate, explicit choice.
+func (service *OnboardingService) SessionDetail(workstreamID string) (SessionDetail, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return newDaemonService().SessionDetail(ctx, workstreamID)
 }

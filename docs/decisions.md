@@ -217,3 +217,214 @@ files. This supersedes ADR-028's Codex hook narrowing and ADR-032's linked-
 worktree requirement for local agent attribution while preserving the
 coordination-harness and always-prohibited-data boundaries. Accepted by the
 owner 2026-08-24 after current official surface review and loopback live proof.
+
+## ADR-034: Add explicit, previewed Project session sharing
+
+Add `session-share/v1` as a per-session, member-controlled disclosure layer on
+top of ADR-033 activity. It is disabled by default and never follows merely from
+installing Stickguy, joining a Project, connecting an adapter, or enabling safe
+activity. Before enabling, the member sees a side-effect-free local preview and
+chooses `self` or authorized `Project` audience, exact message kinds, and an
+expiry. The consent record is versioned; an adapter or schema expansion requires
+new consent. Disable stops new enqueue synchronously, and the member or Project
+owner can delete already-shared messages.
+
+The allowed projection is bounded user-authored prompts, visible assistant
+messages, vendor-exposed reasoning summaries, and explicitly surfaced system
+instructions. Each candidate is classified independently before durable local
+storage. Any `.env` reference or content, environment value, credential, token,
+cookie, private key, protected credential path, source/diff-like content, raw
+tool input/result, command/output, transcript path/file, binary data, scanner
+failure, unknown kind, or oversize content rejects the whole candidate. Redaction
+does not turn prohibited data into allowed data. Stickguy may display only what
+the vendor-supported event exposes; it does not scrape transcript stores,
+inspect process memory, infer hidden chain of thought, or claim unavailable
+reasoning fidelity.
+
+Hosted authorization derives the owning member and Project from the authenticated
+device/session, enforces the exact active consent version and audience on every
+write and read, applies bounded retention, and records deletion. This supersedes
+ADR-006, ADR-027, and ADR-028 only for this explicitly consented projection; all
+other privacy and coordination-harness boundaries remain. Accepted by the owner
+2026-08-24 after explicitly requesting Project-shareable session details while
+retaining `.env` and credential exclusion.
+
+## ADR-035: Separate member identity from device and account identifiers
+
+Live-work identity is a member-controlled display name stored per Project on the
+member record, not the enrolling device label and not an email address. Members
+choose it from Settings; the hosted boundary rejects names containing `@` so a
+contact address never becomes the name teammates see, and rejects control
+characters and names outside 2–60 characters.
+
+`members.displayNameSource` records whether the current name was seeded from the
+device (`device`) or chosen by the member (`member`). Rows written before this
+ADR have no source and are read as `device`, which is the migration: existing
+Projects keep working and rendering their current name, and the dashboard asks
+that member once to choose their own. No hostname is rewritten or guessed on
+their behalf, because a silent rename would change attribution on decisions and
+plan items that teammates have already read.
+
+Device names remain, but only as security surface under Settings → Devices &
+security, where they identify hardware for revocation and audit. Renaming a
+member bumps the Project scopes so briefs and rendered coordination items
+re-read the name rather than keeping a stale device-derived label.
+
+Live agent sessions also carry the real checked-out branch. Stickguy reads it
+from the registered worktree with `git symbolic-ref --short HEAD` rather than
+trusting an adapter-reported value; a detached HEAD or a slow read reports no
+branch instead of failing, and the name is validated as a plain branch name at
+both the local and hosted boundaries. A branch name is coordination metadata and
+carries none of the always-prohibited repository content. Accepted by the owner
+2026-08-24 as part of beta identity readiness.
+
+## ADR-036: Read the local session transcript for owner display and consented sharing
+
+Supersedes the ADR-034 prohibition on reading vendor transcript stores, and the
+`AGENTS.md` rule that listed raw transcript files as never-collect, for one
+bounded purpose. Hook payloads do not carry assistant text, reasoning, or system
+instructions; only `UserPromptSubmit` carries content. Session detail was
+therefore structurally empty, and no amount of hook work could fix it.
+
+Stickguy may now read the vendor transcript file named by the supported hook's
+own `transcript_path` for a session running in a registered repository on this
+device. The file is read locally, bounded from the tail, and never copied into a
+second durable store; Stickguy records only the path, the session title, and the
+branch. Because the content stays on the machine that produced it, the session
+owner always sees their own session in full without enabling any sharing. This
+is the point of the change: a member must be able to see exactly what they would
+be sharing before they decide to share it.
+
+Projection to other members remains opt-in, per session, previewed, versioned,
+and revocable exactly as ADR-034 defines. Shared candidates are classified
+before leaving the device. Fenced code and quoted source in a conversation are
+now allowed, because an agent conversation is unreadable without them and the
+member has explicitly chosen to share that conversation; this narrows ADR-006's
+blanket source prohibition to unattended collection rather than consented
+conversation sharing. Never shared, in any mode: `.env` content or references,
+environment values, credentials, tokens, cookies, private keys, protected
+credential paths, raw tool results, command output, and attachments. Raw
+`tool_result` parts are dropped during parsing and never become candidates.
+
+`thinking` parts are vendor-recorded reasoning that the vendor itself persisted.
+They are treated as content, not as hidden chain of thought inferred by
+Stickguy, and they are shared only under the same explicit consent. Where a
+vendor records no reasoning, Stickguy shows none and claims none. Accepted by
+the owner 2026-08-25 after confirming that hook-only session detail cannot
+show a usable session.
+
+## ADR-037: Narrow the product to collision coordination
+
+Remove shared plan items and advisory path claims. Planning is a human process
+that teams already run elsewhere, and a plan surface inside Stickguy competed
+with the actual value: seeing what every agent session is doing and catching
+collisions before they land. Their tables, contracts, MCP tools, and dashboard
+surfaces are deleted rather than hidden, so no partially maintained surface
+remains.
+
+Collision resolution stays. A collision opens a sync card; members discuss it;
+resolving it records the outcome and delivers it once, idempotently, into the
+brief of every affected agent session. What is removed is the standalone
+"Decisions" product surface and durable Project decision log, not the delivery
+of a resolution to the agents that need it. Accepted by the owner 2026-08-25.
+
+## ADR-038: Classify the material, not the mention
+
+Narrows ADR-036's content rules. Treating the string `.env` as prohibited data
+rejected ordinary sentences — "check the .env file before running" — while
+disclosing nothing, and agents discuss configuration files constantly. Naming a
+file is not disclosing its contents.
+
+A candidate is now rejected for the material itself: environment assignments
+(`NAME=value`, including `export`), credential and token patterns, private key
+blocks, raw tool results, and command output at line start. An actual `.env`
+file pasted into a conversation is still rejected, because its contents *are*
+assignments. Rejection remains whole-message; nothing is redacted, so a partial
+scrub can never be mistaken for a safe message.
+
+This does not widen what may be shared. Sharing is still off by default, still
+per-session, previewed, versioned, and revocable, and every secret class named
+in ADR-036 remains prohibited. Accepted by the owner 2026-08-25 after the
+filename rule was observed eating harmless lines.
+
+## ADR-039: Per-vendor session record adapters
+
+Codex and Claude Code record sessions differently, so one parser cannot serve
+both. `sessiontranscript` detects the format and dispatches to a vendor adapter;
+an unrecognized file yields no content rather than a guess.
+
+Claude Code writes one message record per line with the session's fields at the
+top level, including its own generated or member-set title and the branch.
+
+Codex writes a rollout file of typed envelopes. Conversation is taken from the
+`event_msg` stream, which is what Codex shows its own user. The `response_item`
+stream is raw model I/O that also carries injected context and tool framing, so
+it contributes only tool names and the operating-instruction turns; reading it
+as conversation would present machine-injected text as something a person wrote.
+The `reasoning` payload's `encrypted_content` is vendor-held hidden reasoning
+and is never read, which keeps the ADR-036 promise that Stickguy shows only what
+a vendor surfaced. Codex records no title, so a session is labelled by its
+opening request, skipping the machine-written preamble of a resumed or compacted
+session; where no usable label exists the vendor and alias are shown instead.
+
+Codex does not pass a transcript path to its hooks but names every rollout after
+the session id, so the file is located from the id the hook already sends. That
+id is used locally for the lookup and is never published; only a UUID is
+accepted, so it cannot introduce a path separator. Records above a bounded size
+are skipped, since inline image data carries no readable conversation. Accepted
+by the owner 2026-08-25.
+
+## ADR-040: Managed OpenAI embeddings with deterministic fallback
+
+Keep the public `EmbeddingProvider` contract and retain
+`stickguy-concepts/v1` as an offline, deterministic fallback. The managed
+provider is OpenAI `text-embedding-3-large`, requested at 1024 dimensions and
+called only from a hosted asynchronous action after semantic text has passed
+the existing bounded policy. The API key is a hosted deployment secret; it is
+never available to the local core, dashboard, agent configuration, logs, or
+Project records.
+
+Embedding work is revision-scoped and scheduled after the coordination object
+is durable, so provider latency/outage cannot delay manifests, activity, or
+checkpoints. A late response is discarded when the object was revised or
+deactivated. Failure marks semantic processing degraded and preserves the
+structural and deterministic paths. Vector results remain candidate evidence;
+they do not enable proactive interruption without the existing precision gate.
+The vector index expands from the early 32-dimension fixture shape to 1024
+dimensions; deployments must apply that schema migration before enabling the
+provider. Accepted by the owner 2026-08-25.
+
+## ADR-041: Add an isolated HTTPS shared-development profile
+
+The owner requires a real two-member dogfood before signed production
+distribution. Add `pnpm dev:shared` as an explicit development profile that
+uses the same Go service, Convex functions, dashboard, enrollment, and adapter
+code against a configured HTTPS Convex HTTP-actions origin. It never accepts
+remote plaintext HTTP, keeps the dashboard on loopback through the reviewed
+same-origin proxy, and uses a separate per-user configuration root so local
+loopback credentials and Projects cannot be mixed with shared-development
+state. The ordinary `pnpm dev` profile remains anonymous and loopback-only.
+
+This is a beta verification path, not a production deployment claim. Each Mac
+still runs its own one-user service and Keychain-backed device credential;
+members join through the existing expiring invite and publish only bounded
+coordination records. Accepted by the owner 2026-08-25 when requesting the
+complete two-person dogfood path.
+
+## ADR-042: A safe vendor-visible session title may seed automatic intent
+
+When a member explicitly connects a supported Project adapter, the already
+disclosed `activity/v1` session title may seed that session's current intent.
+Before it leaves the device, a new title classifier normalizes it, enforces 160
+characters, and rejects credentials, environment assignments, private keys,
+raw tool output markers, invalid text, and oversize values. Hosted semantic
+policy runs again before storage or embedding; rejection drops only the derived
+intent and never blocks the underlying coding-agent event.
+
+The derived object is labeled `hook-derived-title/v1`. If the Project has a
+managed embedding provider, the approved title may be sent to it under the same
+retention and deletion rules as an MCP/manual intent. No other prompt,
+transcript message, source, diff, tool payload, command, or output becomes
+semantic input. This gives passive sessions a useful early trajectory while
+preserving honest fidelity and the coordination-harness boundary. Accepted by
+the owner 2026-08-25 as part of completing automatic traffic-control dogfood.

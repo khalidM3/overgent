@@ -64,7 +64,7 @@ func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"acknowledge_context", "begin_work", "check_coordination", "finish_work", "report_checkpoint", "report_event", "update_intent"}
+	want := []string{"acknowledge_context", "begin_work", "check_coordination", "finish_work", "get_resolutions", "report_checkpoint", "report_event", "update_intent"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools=%v", names)
 	}
@@ -76,6 +76,7 @@ func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
 		"acknowledge_context": {"workspace_id": "wsp_fixture", "brief_id": "brf_fixture", "considered_item_ids": []string{"itm_fixture"}},
 		"finish_work":         {"workspace_id": "wsp_fixture", "idempotency_key": "finish-1", "outcome": "Lifecycle complete", "summary": "All bounded checks passed"},
 		"report_event":        {"workspace_id": "wsp_fixture", "idempotency_key": "event-1", "kind": "decision", "summary": "Use MCP-only fallback"},
+		"get_resolutions":     {"workspace_id": "wsp_fixture"},
 	}
 	for _, name := range want {
 		result, err := clientSession.CallTool(ctx, &sdkmcp.CallToolParams{Name: name, Arguments: calls[name]})
@@ -91,7 +92,7 @@ func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
 		}
 	}
 	front := instructions[:min(512, len(instructions))]
-	for _, phrase := range []string{"advisory", "begin_work", "check_coordination", "Never send source", "prompts", "transcripts", "secrets", "Hooks are disabled"} {
+	for _, phrase := range []string{"advisory", "begin_work", "check_coordination", "Never send source", "secrets", "separately consented"} {
 		if !strings.Contains(front, phrase) {
 			t.Errorf("first 512 characters omit %q", phrase)
 		}

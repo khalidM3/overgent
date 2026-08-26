@@ -23,3 +23,9 @@ export const semanticMessage = (status: SemanticStatus): string => ({
   degraded: "Semantic processing is delayed. Structural findings remain live.",
   disabled: "Semantic processing is off. Structural findings remain available.",
 })[status];
+
+export const semanticModeMessage = (mode: import("./model").SemanticMode): string => ({
+  offline_fallback: "Private deterministic fallback; no managed embedding provider is active.",
+  managed_openai: "Managed OpenAI embeddings are active for approved coordination summaries.",
+  managed_degraded: "Managed embeddings are unavailable; deterministic coordination remains live.",
+})[mode];

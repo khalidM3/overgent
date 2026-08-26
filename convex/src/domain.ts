@@ -32,6 +32,7 @@ export const RETENTION_TABLES = [
   "browserSessions",
   "changeManifestChunks",
   "changeManifests",
+  "sessionMessages",
   "activityEvents",
   "findingFeedback",
   "findings",
@@ -56,8 +57,7 @@ const EVENT_TYPES = new Set<EventType>([
   "context.acknowledged",
   "activity.reported",
   "agent.activity_reported",
-  "claim.created",
-  "claim.released",
+  "agent.conversation_shared",
 ]);
 const SOURCES = new Set(["git", "manual", "mcp", "hook", "adapter/v1"]);
 const PROHIBITED_KEYS = /^(source(Content)?|diff|patch|blob|gitObject|transcript|systemPrompt|prompt|environment|env|raw(Command|Output|Log|TestOutput))$/i;
@@ -242,7 +242,7 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectString(payload.summary, 1, LIMITS.summaryLength);
       return;
     case "agent.activity_reported": {
-      expectExactKeys(payload, ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"], ["tool", "agentType", "subagentAlias", "paths"]);
+      expectExactKeys(payload, ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"], ["tool", "agentType", "subagentAlias", "branch", "sessionTitle", "paths"]);
       expectWorkstreamId(payload.workstreamId);
       if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
       const alias = expectString(payload.sessionAlias, 12, 13);
@@ -254,22 +254,48 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
         if (payload[key] !== undefined && !/^[A-Za-z][A-Za-z0-9._:-]{0,63}$/.test(expectString(payload[key], 1, 64))) throw new ValidationError("validation_failed");
       }
       if (payload.subagentAlias !== undefined && !/^sub-[0-9a-f]{6}$/.test(expectString(payload.subagentAlias, 10, 10))) throw new ValidationError("validation_failed");
+      // A branch name is shared coordination metadata, not repository content;
+      // reject anything Git would not accept as a plain branch name.
+      if (payload.sessionTitle !== undefined) expectString(payload.sessionTitle, 1, 160);
+      if (payload.branch !== undefined) {
+        const branch = expectString(payload.branch, 1, 255);
+        if (/[\u0000-\u0020\u007f~^:?*[\\]/.test(branch) || branch.startsWith("-") || branch.includes("..") || branch.includes("@{") || branch.endsWith(".lock")) throw new ValidationError("validation_failed");
+      }
       validateBoundedStrings(payload.paths, 100, LIMITS.pathLength);
       for (const path of Array.isArray(payload.paths) ? payload.paths : []) validateAgentPath(String(path));
       return;
     }
-    case "claim.created":
-      expectExactKeys(payload, ["workstreamId", "patterns"]);
+    case "agent.conversation_shared": {
+      expectExactKeys(payload, ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text", "consentVersion"]);
+      expectId(payload.messageId);
       expectWorkstreamId(payload.workstreamId);
-      validateBoundedStrings(payload.patterns, 32, LIMITS.pathLength, true);
+      if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
+      if (!/^(codex|claude)-[0-9a-f]{6}$/.test(expectString(payload.sessionAlias, 12, 13))) throw new ValidationError("validation_failed");
+      if (!["user", "assistant", "thinking", "system"].includes(expectString(payload.kind, 1, 32))) throw new ValidationError("validation_failed");
+      if (payload.consentVersion !== "session-share/v1") throw new ValidationError("consent_version_invalid");
+      validateSessionMessageText(expectString(payload.text, 1, 8000));
       return;
-    case "claim.released":
-      expectExactKeys(payload, ["workstreamId"], ["claimIds", "patterns"]);
-      expectWorkstreamId(payload.workstreamId);
-      validateBoundedStrings(payload.claimIds, 32, 128);
-      validateBoundedStrings(payload.patterns, 32, LIMITS.pathLength);
+    }
   }
 }
+
+export function validateSessionMessageText(text: string): void {
+  // ADR-036: quoted code and diffs are allowed inside a consented conversation.
+  // Secrets, environment values, and raw tool output never are. A match rejects
+  // the whole message; nothing here redacts. ADR-038 narrows this to the
+  // material itself so a passing mention of a filename is not treated as one.
+  const credential = /(bearer\s+[a-z0-9._~+/=-]{12,}|(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*\S+|\b(?:sk|ghp|github_pat|xox[baprs])[-_][a-z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b)/i;
+  const environment = /\b[A-Z][A-Z0-9_]{2,}\s*=[^=\s]\S*/;
+  const privateKey = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+  const rawOutput = /(\btool_result\b|\btranscript_path\b|^\s*(?:stdout|stderr)\s*:)/im;
+  // ADR-038: naming a credential file is not disclosing it. Only the material
+  // itself — values, keys, tokens, raw output — rejects the message.
+  if (privateKey.test(text) || credential.test(text) ||
+    environment.test(text) || rawOutput.test(text) || text.includes("\0")) {
+    throw new ValidationError("prohibited_data");
+  }
+}
+
 
 function validateAgentPath(value: string): void {
   if (!value || value.startsWith("/") || value.includes("\\") || value.includes("\0") || value.split("/").includes("..")) throw new ValidationError("protected_path");

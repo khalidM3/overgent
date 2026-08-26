@@ -8,7 +8,9 @@ The service stores coordination metadata only. Event validation rejects source,
 diff, patch, Git-object, prompt, transcript, environment, and raw command/test
 output fields. L6 adds a bounded deterministic concept provider, separate
 vectors, scoped retrieval, revision-safe reload, and structural fallback; it
-does not send summaries to a third-party model provider.
+uses the deterministic provider by default. When `OPENAI_API_KEY` is configured
+on the deployment, approved bounded summaries are also embedded asynchronously
+with OpenAI and provider failure preserves the deterministic path.
 
 ## Verification
 
