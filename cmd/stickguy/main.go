@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var (
@@ -69,6 +70,9 @@ func run(args []string) error {
 	}
 	paths, e := config.Resolve(*root)
 	if e != nil {
+		if len(rest) > 0 && rest[0] == "agent-hook" {
+			return nil
+		}
 		return e
 	}
 	ctx := context.Background()
@@ -149,28 +153,9 @@ func run(args []string) error {
 		hookFlags := flag.NewFlagSet("agent-hook", flag.ContinueOnError)
 		vendor := hookFlags.String("vendor", "", "supported coding-agent vendor")
 		if e = hookFlags.Parse(rest[1:]); e != nil {
-			return e
-		}
-		input, readErr := io.ReadAll(io.LimitReader(os.Stdin, agentactivity.MaxInputBytes+1))
-		if readErr != nil {
 			return nil
 		}
-		event, parseErr := agentactivity.Parse(*vendor, input)
-		if parseErr != nil {
-			return nil
-		}
-		response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{
-			Method: "agent_event", AgentVendor: event.Vendor, AgentCWD: event.CWD,
-			AgentWorkstreamID: event.WorkstreamID, AgentSessionAlias: event.SessionAlias,
-			AgentEvent: event.Kind, AgentStatus: event.Status, AgentAction: event.Action,
-			AgentTool: event.Tool, AgentType: event.AgentType, AgentSubagentAlias: event.SubagentAlias,
-			AgentPaths:          event.CandidatePaths,
-			AgentTranscriptPath: event.TranscriptPath, AgentVendorSessionID: event.VendorSessionID,
-		})
-		if callErr != nil || !response.OK {
-			return nil
-		}
-		return nil
+		return runAgentHook(ctx, paths.Socket, *vendor, os.Stdin, os.Stdout, daemon.Call)
 	case "setup":
 		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true, "reconnect": true}[rest[1]] {
 			return errors.New("setup requires codex, claude, status, reconnect, or remove")
@@ -360,6 +345,61 @@ func run(args []string) error {
 		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0]})
 	}
 	return errors.New("unsupported command")
+}
+
+type daemonCaller func(context.Context, string, daemon.Request) (daemon.Response, error)
+
+func runAgentHook(ctx context.Context, socket, vendor string, stdin io.Reader, stdout io.Writer, call daemonCaller) error {
+	hookContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	input, err := io.ReadAll(io.LimitReader(stdin, agentactivity.MaxInputBytes+1))
+	if err != nil {
+		return nil
+	}
+	event, err := agentactivity.Parse(vendor, input)
+	if err != nil {
+		return nil
+	}
+	request := daemon.Request{
+		AgentVendor: event.Vendor, AgentCWD: event.CWD,
+		AgentWorkstreamID: event.WorkstreamID, AgentSessionAlias: event.SessionAlias,
+		AgentEvent: event.Kind, AgentStatus: event.Status, AgentAction: event.Action,
+		AgentTool: event.Tool, AgentType: event.AgentType, AgentSubagentAlias: event.SubagentAlias,
+		AgentPaths:          event.CandidatePaths,
+		AgentTranscriptPath: event.TranscriptPath, AgentVendorSessionID: event.VendorSessionID,
+	}
+	request.Method = "agent_event"
+	response, err := call(hookContext, socket, request)
+	if err != nil || !response.OK || event.Kind != "SessionStart" && event.Kind != "UserPromptSubmit" {
+		return nil
+	}
+	request.Method = "agent_injection"
+	response, err = call(hookContext, socket, request)
+	if err != nil || !response.OK {
+		return nil
+	}
+	encoded, err := json.Marshal(response.Data)
+	if err != nil {
+		return nil
+	}
+	var injection struct {
+		AdditionalContext string `json:"additionalContext"`
+	}
+	if err = json.Unmarshal(encoded, &injection); err != nil || injection.AdditionalContext == "" {
+		return nil
+	}
+	type hookSpecificOutput struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	}
+	output, err := json.Marshal(struct {
+		HookSpecificOutput hookSpecificOutput `json:"hookSpecificOutput"`
+	}{HookSpecificOutput: hookSpecificOutput{HookEventName: event.Kind, AdditionalContext: injection.AdditionalContext}})
+	if err != nil {
+		return nil
+	}
+	_, _ = stdout.Write(append(output, '\n'))
+	return nil
 }
 
 func devID(prefix string) (string, error) {
