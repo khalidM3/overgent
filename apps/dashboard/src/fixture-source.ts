@@ -1,11 +1,11 @@
 import { snapshotForProject } from "./fixtures";
-import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, Resolution, SessionMessageKind, SessionSharingSnapshot, SyncCard, SyncComment } from "./model";
+import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, Resolution, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
 
 export class FixtureProjectSource {
   readonly live: boolean = false;
   private snapshots = new Map<string, ProjectSnapshot>();
   private listeners = new Map<string, Set<() => void>>();
-  private sharing = new Map<string, SessionSharingSnapshot>();
+  private sessionMessages = new Map<string, SessionMessagesSnapshot>();
   private identity: { name: string; source: MemberNameSource } = { name: "Fixture device", source: "device" };
   protected localSessions = new Map<string, LocalSessionDetail>([["wrk_agent_fixture_codex", {
     available: true, title: "Rotate the browser session boundary", branch: "feature/session-rotation",
@@ -83,24 +83,8 @@ export class FixtureProjectSource {
     return structuredClone(this.localSessions.get(workstreamId) ?? { available: false, messages: [] });
   }
 
-  async getSessionSharing(workstreamId: string): Promise<SessionSharingSnapshot> {
-    return structuredClone(this.sharing.get(workstreamId) ?? { workstreamId, policy: { profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [], enabled: false, canManage: true }, messages: [] });
-  }
-
-  async updateSessionSharing(workstreamId: string, audience: "self" | "project", allowedKinds: SessionMessageKind[]): Promise<SessionSharingSnapshot> {
-    const snapshot: SessionSharingSnapshot = {
-      workstreamId,
-      policy: { profile: "conversation", audience, consentVersion: "session-share/v1", allowedKinds, enabled: true, canManage: true, expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(), updatedAt: new Date().toISOString() },
-      messages: this.sharing.get(workstreamId)?.messages ?? [],
-    };
-    this.sharing.set(workstreamId, snapshot);
-    return structuredClone(snapshot);
-  }
-
-  async deleteSessionSharing(workstreamId: string): Promise<SessionSharingSnapshot> {
-    const snapshot: SessionSharingSnapshot = { workstreamId, policy: { profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [], enabled: false, canManage: true, updatedAt: new Date().toISOString() }, messages: [] };
-    this.sharing.set(workstreamId, snapshot);
-    return structuredClone(snapshot);
+  async getSessionMessages(workstreamId: string): Promise<SessionMessagesSnapshot> {
+    return structuredClone(this.sessionMessages.get(workstreamId) ?? { workstreamId, messages: [] });
   }
 
   async listMembers(_projectId: string): Promise<ProjectMember[]> {

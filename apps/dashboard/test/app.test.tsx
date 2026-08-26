@@ -159,9 +159,9 @@ describe("session content", () => {
   it("always shows your own session locally, before and without sharing it", async () => {
     renderReady();
     const inspector = screen.getByLabelText("Details inspector");
-    // Sharing is off, yet the owner still sees prompts, replies, and reasoning.
-    expect(await within(inspector).findByText("Private to you")).toBeTruthy();
-    expect(within(inspector).getByText(/Only you can see this until you share it/)).toBeTruthy();
+    // The owner sees prompts, replies, and reasoning locally while the safe
+    // projection is automatically available to Project members.
+    expect(await within(inspector).findByText(/classifier-passing messages are visible/)).toBeTruthy();
     expect(within(inspector).getByText(/Rotate the browser session on every permission change/)).toBeTruthy();
     expect(within(inspector).getByText(/The rotation boundary lives in session.ts/)).toBeTruthy();
     expect(within(inspector).getAllByText("Thinking").length).toBeGreaterThan(0);
@@ -172,26 +172,11 @@ describe("session content", () => {
     expect(conversation.textContent).not.toContain("file_path");
   });
 
-  it("previews exactly what sharing would send before anything leaves the machine", async () => {
-    const user = userEvent.setup();
-    renderReady();
-    const inspector = screen.getByLabelText("Details inspector");
-    await user.click(await within(inspector).findByRole("button", { name: /Share session/ }));
-    const dialog = within(inspector).getByRole("dialog", { name: /Choose exactly what this session shares/ });
-    expect(within(dialog).getByText(/rejected whole and never sent/)).toBeTruthy();
-    // Four of six fixture messages are user/assistant/thinking; two are tools.
-    expect(within(dialog).getByText("4 of 6 messages match this choice.")).toBeTruthy();
-    const start = within(dialog).getByRole("button", { name: "Start sharing" });
-    expect(start.hasAttribute("disabled")).toBe(true);
-    await user.click(within(dialog).getByRole("checkbox", { name: /I reviewed this/ }));
-    expect(within(dialog).getByRole("button", { name: "Start sharing" }).hasAttribute("disabled")).toBe(false);
-  });
-
-  it("shows a teammate's unshared session as private rather than empty", async () => {
+  it("shows a teammate's Project-visible session without an extra ceremony", async () => {
     const user = userEvent.setup();
     renderReady();
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     const inspector = screen.getByLabelText("Details inspector");
-    expect(await within(inspector).findByText(/This session is private to its owner/)).toBeTruthy();
+    expect(await within(inspector).findByText(/Waiting for the first classifier-passing message/)).toBeTruthy();
   });
 });

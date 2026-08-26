@@ -504,44 +504,23 @@ assert.equal(afterCursor.cursor, cursored.cursor, "a consumed cursor must not mo
 const crossProjectCollaboration = await request("GET", `/v1/projects/${projectA.id}/collaboration`, { token: tokenC, expected: 403 });
 assert.equal(crossProjectCollaboration.body.error.code, "forbidden");
 
-// --- ADR-034 session sharing -----------------------------------------------
+// --- ADR-047 Project session messages --------------------------------------
 const sharingDefault = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
-assert.equal(sharingDefault.policy.enabled, false, "session sharing must be off by default");
-assert.equal(sharingDefault.policy.profile, "private");
 assert.equal(sharingDefault.messages.length, 0);
 
-// A message published before consent is refused outright.
-const beforeConsent = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-  event({ eventId: `evt_share_early_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 31, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_early_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary.", consentVersion: "session-share/v1" } }),
-] }, expected: 409 });
-assert.equal(beforeConsent.body.error.code, "sharing_not_enabled");
-
-const enabled = (await request("PUT", `/v1/workstreams/${codexAgentId}/session-sharing`, {
-  cookie: creatorCookie,
-  body: { profile: "conversation", audience: "project", consentVersion: "session-share/v1", allowedKinds: ["user", "thinking"], expiresInSeconds: 604800 },
-})).body;
-assert.equal(enabled.policy.enabled, true);
-assert.equal(enabled.policy.audience, "project");
-assert.deepEqual(enabled.policy.allowedKinds.slice().sort(), ["thinking", "user"]);
-
+// Enrollment plus an adapter is sufficient; no additional ceremony occurs.
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-  event({ eventId: `evt_share_ok_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 32, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_ok_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary before editing.", consentVersion: "session-share/v1" } }),
+  event({ eventId: `evt_share_ok_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 32, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_ok_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary before editing." } }),
 ] } });
-// ADR-036: quoted code belongs in a consented conversation, and vendor-recorded
-// reasoning is shareable content under the same consent.
+// ADR-036: quoted code and vendor-recorded reasoning are Project content after
+// classifier approval.
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-  event({ eventId: `evt_share_code_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 33, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_code_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "thinking", text: "The boundary is in session.ts:\n```ts\nconst rotate = true;\n```\nI will keep expiry untouched.", consentVersion: "session-share/v1" } }),
+  event({ eventId: `evt_share_code_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 33, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_code_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "thinking", text: "The boundary is in session.ts:\n```ts\nconst rotate = true;\n```\nI will keep expiry untouched." } }),
 ] } });
 const shared = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
 assert.equal(shared.messages.length, 2);
 assert.deepEqual(shared.messages.map((message) => message.kind).sort(), ["thinking", "user"]);
-assert(shared.messages.some((message) => message.text.includes("```ts")), "quoted code must survive a consented share");
-
-// A kind outside the consented set is refused even while sharing is on.
-const disallowedKind = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-  event({ eventId: `evt_share_kind_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 34, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_kind_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "assistant", text: "An assistant reply that was never consented to.", consentVersion: "session-share/v1" } }),
-] }, expected: 409 });
-assert.equal(disallowedKind.body.error.code, "sharing_not_enabled");
+assert(shared.messages.some((message) => message.text.includes("```ts")), "quoted code must survive classifier approval");
 
 // Secret-bearing and source-like candidates are rejected as a whole, not redacted.
 let badSequence = 35;
@@ -554,13 +533,13 @@ for (const [label, text] of [
   ["pasted env file", "Here it is:\nSTRIPE_KEY=sk_live_abcdefghijklmno\nDB_PASS=hunter2"],
 ]) {
   const rejected = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-    event({ eventId: `evt_share_bad_${label.replace(/\W/g, "")}_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: badSequence++, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_bad_${label.replace(/\W/g, "")}_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text, consentVersion: "session-share/v1" } }),
+    event({ eventId: `evt_share_bad_${label.replace(/\W/g, "")}_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: badSequence++, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_bad_${label.replace(/\W/g, "")}_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text } }),
   ] }, expected: 400 });
   assert.equal(rejected.body.error.code, "prohibited_data", `${label} must reject the whole candidate`);
 }
 // ADR-038: naming a configuration file is ordinary conversation and must share.
 await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
-  event({ eventId: `evt_share_mention_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 39, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_mention_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "check the .env.local file to see which variables are set", consentVersion: "session-share/v1" } }),
+  event({ eventId: `evt_share_mention_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 39, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_mention_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "check the .env.local file to see which variables are set" } }),
 ] } });
 const afterMention = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
 assert(afterMention.messages.some((message) => message.text.includes(".env.local")), "a filename mention must not be treated as its contents");
@@ -568,17 +547,10 @@ assert(afterMention.messages.some((message) => message.text.includes(".env.local
 const afterRejections = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
 assert.equal(afterRejections.messages.length, 3, "no rejected candidate may reach durable storage");
 
-// Another member cannot manage someone else's session sharing.
-const peerManage = await request("PUT", `/v1/workstreams/${codexAgentId}/session-sharing`, {
-  cookie, body: { profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [] }, expected: 403,
-});
-assert.equal(peerManage.body.error.code, "forbidden");
-
-// Revoking deletes the shared content, not just the visibility flag.
+// The source member can delete retained Project messages.
 await request("DELETE", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie, expected: 204 });
 const afterDelete = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
-assert.equal(afterDelete.policy.enabled, false);
-assert.equal(afterDelete.messages.length, 0, "revocation must delete shared messages");
+assert.equal(afterDelete.messages.length, 0, "deletion must remove Project messages");
 
 // --- ADR-035 member identity and real branch collection --------------------
 const membersBefore = (await request("GET", `/v1/projects/${projectA.id}/members`, { cookie: creatorCookie })).body;
@@ -720,14 +692,12 @@ console.log(JSON.stringify({
     ,collaborationCursorDoesNotReplay: true
     ,planningSurfacesRemoved: true
     ,collaborationProjectIsolation: true
-    ,sessionSharingOffByDefault: true
-    ,sessionSharingRequiresConsentAndKind: true
+    ,sessionMessagesVisibleAfterEnrollment: true
     ,sessionSecretCandidatesRejectedWhole: true
-    ,quotedCodeAllowedInConsentedShare: true
+    ,quotedCodeAllowedAfterClassification: true
     ,filenameMentionIsNotDisclosure: true
-    ,vendorReasoningShareableUnderConsent: true
-    ,sessionSharingPeerCannotManage: true
-    ,sessionSharingRevocationDeletesContent: true
+    ,vendorReasoningProjectVisible: true
+    ,sessionMessageDeletionRemovesContent: true
     ,memberIdentityIsMemberControlled: true
     ,emailRejectedAsIdentity: true
     ,deviceNameIsSecuritySurfaceOnly: true

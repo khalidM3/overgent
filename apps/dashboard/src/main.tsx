@@ -26,15 +26,13 @@ import {
   Sun,
   Users,
   X,
-  Lock,
-  Share2,
   UserRound,
 } from "lucide-react";
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import { DesktopOnboarding } from "./desktop-onboarding";
-import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectSnapshot, SessionMessageKind, SessionSharingSnapshot, ShellState, Workstream } from "./model";
+import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectSnapshot, SessionMessageKind, SessionMessagesSnapshot, ShellState, Workstream } from "./model";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import "./style.css";
 
@@ -66,7 +64,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 function ActivationView({ onActivate }: { onActivate: () => void }) {
-  return <main className="centered-shell"><Brand /><section className="activation-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={21} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p className="lede">Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, and coordination decisions. Session messages appear only after the session owner previews and explicitly shares them. Source, diffs, `.env`, credentials, and raw tool output are always blocked.</p></div><button className="primary-button" onClick={onActivate}>Activate secure session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
+  return <main className="centered-shell"><Brand /><section className="activation-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={21} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p className="lede">Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Source, raw diffs, `.env` contents, credentials, and raw tool output are always blocked.</p></div><button className="primary-button" onClick={onActivate}>Activate secure session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
 }
 
 function LiveApp() {
@@ -273,23 +271,18 @@ function CollisionRow({ finding, sessions, selected, onClick }: { finding: Findi
 }
 
 function SessionInspector({ session, source, offline }: { session: Workstream; source: FixtureProjectSource; offline: boolean }) {
-  const [sharing, setSharing] = useState<SessionSharingSnapshot | null>(null);
+  const [shared, setShared] = useState<SessionMessagesSnapshot | null>(null);
   const [own, setOwn] = useState<LocalSessionDetail | null>(null);
-  const [preview, setPreview] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const [audience, setAudience] = useState<"self" | "project">("project");
-  const [kinds, setKinds] = useState<SessionMessageKind[]>(["user", "assistant", "thinking"]);
-  const [sharingPending, setSharingPending] = useState(false);
-  const [sharingError, setSharingError] = useState("");
+  const [messageError, setMessageError] = useState("");
   const activity = session.agent?.activity ?? [];
   const activeSubagents = (session.agent?.subagents ?? []).filter((agent) => agent.status !== "done");
   const vendor = session.agent?.vendor === "claude" ? "Claude Code" : session.agent?.vendor === "codex" ? "Codex" : "Manual work";
 
   useEffect(() => {
     let cancelled = false;
-    if (!session.agent) { setSharing(null); setOwn(null); return; }
+    if (!session.agent) { setShared(null); setOwn(null); return; }
     const refresh = () => {
-      void source.getSessionSharing(session.id).then((value) => { if (!cancelled) setSharing(value); }).catch(() => { if (!cancelled) setSharingError("Session sharing status is unavailable."); });
+      void source.getSessionMessages(session.id).then((value) => { if (!cancelled) setShared(value); }).catch(() => { if (!cancelled) setMessageError("Session messages are unavailable."); });
       // Own-session content is read locally and never uploaded, so it loads
       // whether or not this session is shared.
       void source.getLocalSession(session.id).then((value) => { if (!cancelled) setOwn(value); }).catch(() => { if (!cancelled) setOwn(null); });
@@ -299,23 +292,12 @@ function SessionInspector({ session, source, offline }: { session: Workstream; s
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [session.id, source, session.agent]);
 
-  const toggleKind = (kind: SessionMessageKind) => setKinds((current) => current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]);
-  const enableSharing = () => {
-    setSharingPending(true); setSharingError("");
-    void source.updateSessionSharing(session.id, audience, kinds).then((value) => { setSharing(value); setPreview(false); setConfirmed(false); }).catch(() => setSharingError("Session sharing could not be enabled.")).finally(() => setSharingPending(false));
-  };
-  const removeSharing = () => {
-    setSharingPending(true); setSharingError("");
-    void source.deleteSessionSharing(session.id).then(setSharing).catch(() => setSharingError("Session sharing could not be stopped.")).finally(() => setSharingPending(false));
-  };
-
-  // Prefer the member's own local transcript; fall back to what the Project was
-  // allowed to see for a teammate's shared session.
+  // Prefer the member's own local transcript; Project members see the
+  // classifier-passing projection for teammate sessions (ADR-047).
   const mine = (own?.messages ?? []).length > 0;
   const conversation: Array<{ id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string }> = mine
     ? (own?.messages ?? []).map((message, index) => ({ id: `own-${index}`, kind: message.kind, text: message.text, tool: message.tool, at: message.at }))
-    : (sharing?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
-  const shareState = sharing?.policy.enabled ? (sharing.policy.audience === "project" ? "project" : "self") : "off";
+    : (shared?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
   const title = session.agent?.sessionTitle ?? own?.title ?? "";
 
   return <div className="inspector-content">
@@ -328,13 +310,6 @@ function SessionInspector({ session, source, offline }: { session: Workstream; s
       </div>
     </header>
 
-    {session.agent && <div className="share-bar">
-      <span className={`share-state ${shareState}`}>{shareState === "off" ? <Lock size={13} /> : <ShieldCheck size={13} />}{shareState === "off" ? "Private to you" : shareState === "project" ? "Shared with Project" : "Visible to you only"}</span>
-      {sharing?.policy.canManage && (shareState === "off"
-        ? <button className="share-button" disabled={offline} onClick={() => setPreview(true)}><Share2 size={14} />Share session</button>
-        : <button className="text-button danger" disabled={sharingPending} onClick={removeSharing}>Stop &amp; delete</button>)}
-    </div>}
-
     <div className="session-overview">
       <span className="overview-status"><span className={`presence-dot ${session.presence}`} /><strong>{statusCopy(session)}</strong></span>
       <span>{fidelityLabel(session.fidelity)}</span>
@@ -342,25 +317,15 @@ function SessionInspector({ session, source, offline }: { session: Workstream; s
       <span>{session.updatedLabel}</span>
     </div>
     {session.agent && <div className="capability-strip" aria-label="Agent adapter capabilities"><span>Observe · live</span><span>Paths · {session.agent.capabilities.observeSafePaths ? "supported" : "unavailable"}</span><span>Briefs · {session.agent.capabilities.deliverBrief === "mcp_pull" ? "MCP pull" : session.agent.capabilities.deliverBrief.replaceAll("_", " ")}</span><span>Attention · {session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard only"}</span></div>}
-    {sharingError && <p className="form-error" role="alert">{sharingError}</p>}
-
-    {preview && <section className="sharing-preview" role="dialog" aria-modal="true" aria-labelledby="sharing-preview-title">
-      <header><div><p className="eyebrow">Preview · session-share/v1</p><h3 id="sharing-preview-title">Choose exactly what this session shares</h3></div><button className="icon-button" onClick={() => setPreview(false)} aria-label="Close sharing preview"><X size={15} /></button></header>
-      <p>This is read from {vendor}&rsquo;s own session record on your machine. Quoted code is shared so the conversation makes sense. Any message containing <code>.env</code>, environment values, credentials, tokens, keys, or raw tool output is rejected whole and never sent.</p>
-      <fieldset><legend>Include</legend>{([['user', 'Your prompts'], ['assistant', 'Assistant replies'], ['thinking', 'Recorded reasoning'], ['system', 'Operating instructions']] as Array<[SessionMessageKind, string]>).map(([kind, label]) => <label key={kind}><input type="checkbox" checked={kinds.includes(kind)} onChange={() => toggleKind(kind)} />{label}</label>)}</fieldset>
-      <label className="audience-field">Audience<select value={audience} onChange={(event) => setAudience(event.target.value as "self" | "project")}><option value="project">Project members</option><option value="self">Only me</option></select></label>
-      <p className="preview-count">{conversation.length > 0 ? `${conversation.filter((item) => kinds.includes(item.kind as SessionMessageKind)).length} of ${conversation.length} messages match this choice.` : "Nothing has been recorded in this session yet."}</p>
-      <label className="consent-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed this and want to share it for seven days.</label>
-      <div className="sharing-actions"><button className="secondary-button" onClick={() => setPreview(false)}>Cancel</button><button className="primary-button" disabled={!confirmed || kinds.length === 0 || sharingPending} onClick={enableSharing}>Start sharing</button></div>
-    </section>}
+    {messageError && <p className="form-error" role="alert">{messageError}</p>}
 
     {session.agent && <section className="inspector-section conversation-section">
-      <div className="conversation-heading"><div><h3>Session</h3><p>{mine ? "Read from this machine. Only you can see this until you share it." : shareState === "off" ? "This session is private to its owner." : `Shared by ${session.memberName}.`}</p></div></div>
+      <div className="conversation-heading"><div><h3>Session</h3><p>{mine ? "Read from this machine; classifier-passing messages are visible to Project members while sharing is active." : `Shared by ${session.memberName}.`}</p></div></div>
       {conversation.length > 0
         ? <ol className="conversation-list">{conversation.map((message) => message.kind === "tool"
           ? <li key={message.id} className="tool"><span><Command size={11} />{message.tool}</span></li>
           : <li key={message.id} className={message.kind}><span>{messageKindLabel(message.kind as SessionMessageKind)}</span><p>{message.text}</p>{message.at && <small>{new Date(message.at).toLocaleTimeString()}</small>}</li>)}</ol>
-        : <p className="muted-copy">{shareState === "off" && !mine ? "Nothing to show. Open this session on the machine running it, or ask its owner to share it." : "Waiting for the first message in this session."}</p>}
+        : <p className="muted-copy">Waiting for the first classifier-passing message in this session.</p>}
     </section>}
 
     <section className="inspector-section"><h3>Current activity</h3><p className="activity-copy">{session.outcome}</p>{session.agent?.tool && <div className="tool-line"><Command size={14} /><span>Using</span><code>{session.agent.tool}</code></div>}</section>

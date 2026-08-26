@@ -4,30 +4,14 @@
   "title": "Session sharing snapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["workstreamId", "policy", "messages"],
+  "required": ["workstreamId", "messages"],
   "properties": {
     "workstreamId": { "$ref": "#/$defs/id" },
-    "policy": { "$ref": "#/$defs/policy" },
     "messages": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/message" } }
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" },
     "messageKind": { "enum": ["user", "assistant", "thinking", "system"] },
-    "policy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["profile", "audience", "consentVersion", "allowedKinds", "enabled", "canManage"],
-      "properties": {
-        "profile": { "enum": ["private", "conversation"] },
-        "audience": { "enum": ["self", "project"] },
-        "consentVersion": { "const": "session-share/v1" },
-        "allowedKinds": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/messageKind" } },
-        "enabled": { "type": "boolean" },
-        "canManage": { "type": "boolean" },
-        "expiresAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      }
-    },
     "message": {
       "type": "object",
       "additionalProperties": false,
