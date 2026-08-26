@@ -73,7 +73,7 @@ const CONTRACT_SYMBOL_KINDS = new Set([
   "function", "class", "interface", "enum",
 ]);
 const SOURCES = new Set(["git", "manual", "mcp", "hook", "adapter/v1"]);
-const PROHIBITED_KEYS = /^(source(Content)?|diff|patch|blob|gitObject|transcript|systemPrompt|prompt|environment|env|raw(Command|Output|Log|TestOutput))$/i;
+const PROHIBITED_KEYS = /^(sourceContent|diff|patch|blob|gitObject|transcript|systemPrompt|prompt|environment|env|raw(Command|Output|Log|TestOutput))$/i;
 
 export class ValidationError extends Error {
   constructor(readonly code: string, message = code) {
@@ -222,13 +222,14 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectExactKeys(payload, []);
       return;
     case "workstream.intent_reported":
-      expectExactKeys(payload, ["workstreamId", "title", "intendedOutcome"], ["approachSummary", "components", "contracts", "anticipatedPaths", "planItemIds"]);
+      expectExactKeys(payload, ["workstreamId", "title", "intendedOutcome"], ["approachSummary", "components", "contracts", "waitingOn", "anticipatedPaths", "planItemIds"]);
       expectWorkstreamId(payload.workstreamId);
       expectString(payload.title, 1, 160);
       expectString(payload.intendedOutcome, 1, LIMITS.summaryLength);
       if (payload.approachSummary !== undefined) expectString(payload.approachSummary, 1, LIMITS.summaryLength);
       validateBoundedStrings(payload.components, 32, 160);
       validateBoundedStrings(payload.contracts, 32, 160);
+      validateBoundedStrings(payload.waitingOn, 8, 160);
       validateBoundedStrings(payload.anticipatedPaths, 100, LIMITS.pathLength);
       validateBoundedStrings(payload.planItemIds, 32, 128);
       return;
@@ -243,6 +244,21 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectWorkstreamId(payload.workstreamId);
       expectString(payload.summary, 1, LIMITS.summaryLength);
       validateBoundedStrings(payload.discoveries, 32, 500);
+      if (payload.verification !== undefined) {
+        if (!Array.isArray(payload.verification) || payload.verification.length > 32) throw new ValidationError("validation_failed");
+        for (const raw of payload.verification) {
+          const item = expectObject(raw);
+          expectExactKeys(item, ["state", "checkKind", "label", "summary", "source", "observedAt"], ["affectedComponent", "manifestRevision"]);
+          if (!["not_run", "running", "passed", "failed", "unknown"].includes(String(item.state))) throw new ValidationError("validation_failed");
+          expectString(item.checkKind, 1, 80);
+          expectString(item.label, 1, 160);
+          expectString(item.summary, 0, 500);
+          if (!["manual", "mcp", "hook"].includes(String(item.source))) throw new ValidationError("validation_failed");
+          expectTimestamp(item.observedAt);
+          if (item.affectedComponent !== undefined) expectString(item.affectedComponent, 1, 160);
+          if (item.manifestRevision !== undefined) expectInteger(item.manifestRevision, 1, Number.MAX_SAFE_INTEGER);
+        }
+      }
       return;
     case "context.acknowledged":
       expectExactKeys(payload, ["briefId", "consideredItemIds"]);
@@ -471,6 +487,56 @@ export function assertCanonicalManifestOrder(entries: readonly ManifestEntry[]):
       throw new ValidationError("manifest_path_order_invalid");
     }
   }
+}
+
+export type DependencyCandidate = Readonly<{
+  projectId: string;
+  scopeKey: string;
+  workstreamId: string;
+  status: string;
+  path: string;
+  symbols: readonly string[];
+  latestCheckpointPassed?: boolean;
+}>;
+
+export type DependencySatisfaction = Readonly<{
+  claim: string;
+  satisfiedByWorkstreamId: string;
+  satisfiedBy: { path: string; symbols: string[] };
+  state: "stable_wip" | "ready";
+}>;
+
+// Dependency readiness is deliberately structural. Separators and case are
+// ignored for exact symbol/base-name comparisons so a declared `session-api`
+// matches the exported `SessionAPI` contract without interpreting intent text.
+export function findDependencySatisfaction(
+  projectId: string,
+  scopeKeyValue: string,
+  claimingWorkstreamId: string,
+  claim: string,
+  candidates: readonly DependencyCandidate[],
+): DependencySatisfaction | undefined {
+  const loweredClaim = claim.toLocaleLowerCase("en-US");
+  const canonicalClaim = canonicalDependencyName(claim);
+  const matches = candidates.filter((candidate) => {
+    if (candidate.projectId !== projectId || candidate.scopeKey !== scopeKeyValue || candidate.workstreamId === claimingWorkstreamId || candidate.status === "done") return false;
+    const path = candidate.path.toLocaleLowerCase("en-US");
+    const base = path.slice(path.lastIndexOf("/") + 1).replace(/\.(?:go|tsx?|jsx?)$/, "");
+    return path.includes(loweredClaim) || canonicalDependencyName(base) === canonicalClaim ||
+      candidate.symbols.some((symbol) => canonicalDependencyName(symbol) === canonicalClaim);
+  }).sort((left, right) => left.path.localeCompare(right.path) || left.workstreamId.localeCompare(right.workstreamId));
+  const match = matches[0];
+  if (!match) return undefined;
+  return {
+    claim,
+    satisfiedByWorkstreamId: match.workstreamId,
+    satisfiedBy: { path: match.path, symbols: [...match.symbols] },
+    state: match.latestCheckpointPassed ? "ready" : "stable_wip",
+  };
+}
+
+function canonicalDependencyName(value: string): string {
+  return value.toLocaleLowerCase("en-US").replace(/[^a-z0-9]/g, "");
 }
 
 function compareUtf8(left: string, right: string): number {

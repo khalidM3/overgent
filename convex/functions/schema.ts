@@ -134,6 +134,8 @@ export default defineSchema({
     branch: v.optional(v.string()),
     sessionTitle: v.optional(v.string()),
     safePaths: v.optional(v.array(v.string())),
+    waitingOn: v.optional(v.array(v.string())),
+    latestCheckpointPassed: v.optional(v.boolean()),
     subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
     updatedAt: v.number(),
   })
