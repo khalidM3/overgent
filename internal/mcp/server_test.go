@@ -140,6 +140,23 @@ func TestWorkspaceResolutionNeverGuesses(t *testing.T) {
 	}
 }
 
+func TestWaitingOnClaimsAreBoundedAtMCPBoundary(t *testing.T) {
+	valid := []string{"session-api", "backend/session.go", "Refresh"}
+	if err := validateWaitingOn(valid); err != nil {
+		t.Fatalf("valid waiting_on rejected: %v", err)
+	}
+	for name, values := range map[string][]string{
+		"too many":  make([]string, 9),
+		"empty":     {""},
+		"too long":  {strings.Repeat("x", 161)},
+		"multiline": {"session-api\nsecret"},
+	} {
+		if err := validateWaitingOn(values); err == nil {
+			t.Errorf("%s waiting_on accepted", name)
+		}
+	}
+}
+
 func TestProductionBinaryStdioTransport(t *testing.T) {
 	binary := os.Getenv("STICKGUY_BINARY")
 	if binary == "" {

@@ -576,7 +576,7 @@ export interface components {
             } | {
                 id: string;
                 /** @enum {unknown} */
-                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
                 /** @enum {unknown} */
                 severity: "low" | "medium" | "high" | "critical";
                 /** @enum {unknown} */
@@ -600,6 +600,16 @@ export interface components {
                         readAt: string;
                         /** Format: date-time */
                         changedAt: string;
+                    };
+                    dependency?: {
+                        claim: string;
+                        satisfiedByWorkstreamId: string;
+                        satisfiedBy: {
+                            path: string;
+                            symbols: string[];
+                        };
+                        /** @enum {unknown} */
+                        state: "stable_wip" | "ready";
                     };
                 }[];
                 reason: string;
@@ -626,6 +636,26 @@ export interface components {
                             /** Format: date-time */
                             changedAt: string;
                         };
+                        dependency?: {
+                            claim: string;
+                            satisfiedByWorkstreamId: string;
+                            satisfiedBy: {
+                                path: string;
+                                symbols: string[];
+                            };
+                            /** @enum {unknown} */
+                            state: "stable_wip" | "ready";
+                        };
+                    };
+                    dependencyEvidence: {
+                        claim: string;
+                        satisfiedByWorkstreamId: string;
+                        satisfiedBy: {
+                            path: string;
+                            symbols: string[];
+                        };
+                        /** @enum {unknown} */
+                        state: "stable_wip" | "ready";
                     };
                     contractEvidence: {
                         path: string;
@@ -718,7 +748,7 @@ export interface components {
         } | {
             id: string;
             /** @enum {unknown} */
-            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
             /** @enum {unknown} */
             severity: "low" | "medium" | "high" | "critical";
             /** @enum {unknown} */
@@ -742,6 +772,16 @@ export interface components {
                     readAt: string;
                     /** Format: date-time */
                     changedAt: string;
+                };
+                dependency?: {
+                    claim: string;
+                    satisfiedByWorkstreamId: string;
+                    satisfiedBy: {
+                        path: string;
+                        symbols: string[];
+                    };
+                    /** @enum {unknown} */
+                    state: "stable_wip" | "ready";
                 };
             }[];
             reason: string;
@@ -768,6 +808,26 @@ export interface components {
                         /** Format: date-time */
                         changedAt: string;
                     };
+                    dependency?: {
+                        claim: string;
+                        satisfiedByWorkstreamId: string;
+                        satisfiedBy: {
+                            path: string;
+                            symbols: string[];
+                        };
+                        /** @enum {unknown} */
+                        state: "stable_wip" | "ready";
+                    };
+                };
+                dependencyEvidence: {
+                    claim: string;
+                    satisfiedByWorkstreamId: string;
+                    satisfiedBy: {
+                        path: string;
+                        symbols: string[];
+                    };
+                    /** @enum {unknown} */
+                    state: "stable_wip" | "ready";
                 };
                 contractEvidence: {
                     path: string;
@@ -943,7 +1003,7 @@ export interface components {
         finding: {
             id: string;
             /** @enum {unknown} */
-            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
             /** @enum {unknown} */
             severity: "critical" | "high" | "medium" | "low";
             /** @enum {unknown} */
@@ -1052,7 +1112,7 @@ export interface components {
             findings: {
                 id: string;
                 /** @enum {unknown} */
-                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+                kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
                 /** @enum {unknown} */
                 severity: "critical" | "high" | "medium" | "low";
                 /** @enum {unknown} */
@@ -1244,6 +1304,16 @@ export interface components {
             /** Format: date-time */
             changedAt: string;
         };
+        dependencyEvidence: {
+            claim: string;
+            satisfiedByWorkstreamId: string;
+            satisfiedBy: {
+                path: string;
+                symbols: string[];
+            };
+            /** @enum {unknown} */
+            state: "stable_wip" | "ready";
+        };
         evidence: {
             /** @enum {unknown} */
             kind: "path" | "symbol" | "claim" | "dependency" | "schema" | "route" | "lexical" | "semantic" | "decision";
@@ -1263,12 +1333,22 @@ export interface components {
                 /** Format: date-time */
                 changedAt: string;
             };
+            dependency?: {
+                claim: string;
+                satisfiedByWorkstreamId: string;
+                satisfiedBy: {
+                    path: string;
+                    symbols: string[];
+                };
+                /** @enum {unknown} */
+                state: "stable_wip" | "ready";
+            };
         };
         /** Finding */
         "finding.schema": {
             id: string;
             /** @enum {unknown} */
-            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
             /** @enum {unknown} */
             severity: "low" | "medium" | "high" | "critical";
             /** @enum {unknown} */
@@ -1292,6 +1372,16 @@ export interface components {
                     readAt: string;
                     /** Format: date-time */
                     changedAt: string;
+                };
+                dependency?: {
+                    claim: string;
+                    satisfiedByWorkstreamId: string;
+                    satisfiedBy: {
+                        path: string;
+                        symbols: string[];
+                    };
+                    /** @enum {unknown} */
+                    state: "stable_wip" | "ready";
                 };
             }[];
             reason: string;
@@ -1318,6 +1408,26 @@ export interface components {
                         /** Format: date-time */
                         changedAt: string;
                     };
+                    dependency?: {
+                        claim: string;
+                        satisfiedByWorkstreamId: string;
+                        satisfiedBy: {
+                            path: string;
+                            symbols: string[];
+                        };
+                        /** @enum {unknown} */
+                        state: "stable_wip" | "ready";
+                    };
+                };
+                dependencyEvidence: {
+                    claim: string;
+                    satisfiedByWorkstreamId: string;
+                    satisfiedBy: {
+                        path: string;
+                        symbols: string[];
+                    };
+                    /** @enum {unknown} */
+                    state: "stable_wip" | "ready";
                 };
                 contractEvidence: {
                     path: string;
@@ -2067,7 +2177,7 @@ export interface operations {
                         findings: {
                             id: string;
                             /** @enum {unknown} */
-                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
                             /** @enum {unknown} */
                             severity: "critical" | "high" | "medium" | "low";
                             /** @enum {unknown} */
@@ -2353,7 +2463,7 @@ export interface operations {
                         } | {
                             id: string;
                             /** @enum {unknown} */
-                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+                            kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
                             /** @enum {unknown} */
                             severity: "low" | "medium" | "high" | "critical";
                             /** @enum {unknown} */
@@ -2377,6 +2487,16 @@ export interface operations {
                                     readAt: string;
                                     /** Format: date-time */
                                     changedAt: string;
+                                };
+                                dependency?: {
+                                    claim: string;
+                                    satisfiedByWorkstreamId: string;
+                                    satisfiedBy: {
+                                        path: string;
+                                        symbols: string[];
+                                    };
+                                    /** @enum {unknown} */
+                                    state: "stable_wip" | "ready";
                                 };
                             }[];
                             reason: string;
@@ -2403,6 +2523,26 @@ export interface operations {
                                         /** Format: date-time */
                                         changedAt: string;
                                     };
+                                    dependency?: {
+                                        claim: string;
+                                        satisfiedByWorkstreamId: string;
+                                        satisfiedBy: {
+                                            path: string;
+                                            symbols: string[];
+                                        };
+                                        /** @enum {unknown} */
+                                        state: "stable_wip" | "ready";
+                                    };
+                                };
+                                dependencyEvidence: {
+                                    claim: string;
+                                    satisfiedByWorkstreamId: string;
+                                    satisfiedBy: {
+                                        path: string;
+                                        symbols: string[];
+                                    };
+                                    /** @enum {unknown} */
+                                    state: "stable_wip" | "ready";
                                 };
                                 contractEvidence: {
                                     path: string;
@@ -3117,7 +3257,7 @@ export interface operations {
                     } | {
                         id: string;
                         /** @enum {unknown} */
-                        kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+                        kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
                         /** @enum {unknown} */
                         severity: "low" | "medium" | "high" | "critical";
                         /** @enum {unknown} */
@@ -3141,6 +3281,16 @@ export interface operations {
                                 readAt: string;
                                 /** Format: date-time */
                                 changedAt: string;
+                            };
+                            dependency?: {
+                                claim: string;
+                                satisfiedByWorkstreamId: string;
+                                satisfiedBy: {
+                                    path: string;
+                                    symbols: string[];
+                                };
+                                /** @enum {unknown} */
+                                state: "stable_wip" | "ready";
                             };
                         }[];
                         reason: string;
@@ -3167,6 +3317,26 @@ export interface operations {
                                     /** Format: date-time */
                                     changedAt: string;
                                 };
+                                dependency?: {
+                                    claim: string;
+                                    satisfiedByWorkstreamId: string;
+                                    satisfiedBy: {
+                                        path: string;
+                                        symbols: string[];
+                                    };
+                                    /** @enum {unknown} */
+                                    state: "stable_wip" | "ready";
+                                };
+                            };
+                            dependencyEvidence: {
+                                claim: string;
+                                satisfiedByWorkstreamId: string;
+                                satisfiedBy: {
+                                    path: string;
+                                    symbols: string[];
+                                };
+                                /** @enum {unknown} */
+                                state: "stable_wip" | "ready";
                             };
                             contractEvidence: {
                                 path: string;
