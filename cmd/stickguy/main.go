@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,9 +20,15 @@ import (
 	"github.com/stickguy/stickguy/internal/hosted"
 	coordinationmcp "github.com/stickguy/stickguy/internal/mcp"
 	"github.com/stickguy/stickguy/internal/onboarding"
+	servicemanager "github.com/stickguy/stickguy/internal/service"
+	updateclient "github.com/stickguy/stickguy/internal/update"
 	"io"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -30,14 +37,19 @@ var (
 	version   = "dev"
 	commit    = "unknown"
 	buildTime = "unknown"
+	// updatePublicKey is an Ed25519 public key encoded as standard base64. The
+	// release workflow injects it with -ldflags; development binaries refuse
+	// remote updates instead of trusting unsigned metadata.
+	updatePublicKey = ""
 )
 
 type versionInfo struct {
-	Version       string `json:"version"`
-	Commit        string `json:"commit"`
-	BuildTime     string `json:"buildTime"`
-	SchemaMinimum int    `json:"schemaMinimum"`
-	SchemaMaximum int    `json:"schemaMaximum"`
+	Version        string `json:"version"`
+	Commit         string `json:"commit"`
+	BuildTime      string `json:"buildTime"`
+	SchemaMinimum  int    `json:"schemaMinimum"`
+	SchemaMaximum  int    `json:"schemaMaximum"`
+	ArtifactSHA256 string `json:"artifactSha256"`
 }
 
 func main() {
@@ -48,7 +60,8 @@ func main() {
 }
 func run(args []string) error {
 	if len(args) == 2 && args[0] == "version" && args[1] == "--json" {
-		return json.NewEncoder(os.Stdout).Encode(versionInfo{version, commit, buildTime, 1, 1})
+		identity, _ := executableIdentity()
+		return json.NewEncoder(os.Stdout).Encode(versionInfo{version, commit, buildTime, 1, 1, identity})
 	}
 	fs := flag.NewFlagSet("stickguy", flag.ContinueOnError)
 	root := fs.String("config-root", "", "isolated per-user state root")
@@ -58,7 +71,7 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: stickguy [--config-root <dir>] create|join|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|scan")
+		return errors.New("usage: stickguy [--config-root <dir>] create|join|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -167,9 +180,6 @@ func run(args []string) error {
 		if e = setupFlags.Parse(rest[2:]); e != nil {
 			return e
 		}
-		if (rest[1] == "codex" || rest[1] == "claude") && !*development {
-			return errors.New("coding-agent setup is withheld: L5 real-client validation narrowed; use Git/manual coordination fallback")
-		}
 		executable, executableErr := os.Executable()
 		if executableErr != nil {
 			return executableErr
@@ -218,7 +228,7 @@ func run(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(status)
 	case "service":
 		if len(rest) != 2 {
-			return errors.New("service requires run or status")
+			return errors.New("service requires run, install, start, stop, status, or remove")
 		}
 		if rest[1] == "run" {
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -230,7 +240,38 @@ func run(args []string) error {
 			return app.Run(ctx, *root, sender)
 		}
 		if rest[1] == "status" {
-			return printCall(ctx, paths.Socket, daemon.Request{Method: "health"})
+			if response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"}); callErr == nil && response.OK {
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{"service": "running", "health": response.Data})
+			}
+		}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return executableErr
+		}
+		executable, executableErr = filepath.EvalSymlinks(executable)
+		if executableErr != nil {
+			return fmt.Errorf("resolve service executable: %w", executableErr)
+		}
+		home, uid, accountErr := currentAccount()
+		if accountErr != nil {
+			return accountErr
+		}
+		manager := servicemanager.Manager{Executable: executable, ConfigRoot: paths.Root, Home: home, UID: uid}
+		switch rest[1] {
+		case "install":
+			return manager.Install(ctx)
+		case "start":
+			return manager.Start(ctx)
+		case "stop":
+			return manager.Stop(ctx)
+		case "remove":
+			return manager.Remove(ctx)
+		case "status":
+			status, statusErr := manager.Status(ctx)
+			if statusErr != nil {
+				return statusErr
+			}
+			return json.NewEncoder(os.Stdout).Encode(status)
 		}
 	case "workspace":
 		if len(rest) >= 2 && rest[1] == "list" {
@@ -343,6 +384,49 @@ func run(args []string) error {
 		return printCall(ctx, paths.Socket, daemon.Request{Method: "intent", WorkspaceID: *workspaceID, Title: *title, IntendedOutcome: *outcome, ApproachSummary: *approach})
 	case "doctor", "scan":
 		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0]})
+	case "diagnostics":
+		return writeDiagnostics(ctx, paths)
+	case "update":
+		updateFlags := flag.NewFlagSet("update", flag.ContinueOnError)
+		manifestURL := updateFlags.String("manifest", "https://github.com/stickguy/stickguy/releases/latest/download/update-manifest.json", "signed update metadata URL")
+		if e = updateFlags.Parse(rest[1:]); e != nil {
+			return e
+		}
+		executable, executableErr := os.Executable()
+		if executableErr != nil {
+			return executableErr
+		}
+		executable, executableErr = filepath.EvalSymlinks(executable)
+		if executableErr != nil {
+			return executableErr
+		}
+		if updateFlags.NArg() == 1 && updateFlags.Arg(0) == "rollback" {
+			result, rollbackErr := updateclient.Rollback(executable)
+			if rollbackErr != nil {
+				return rollbackErr
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		if updateFlags.NArg() != 0 {
+			return errors.New("update accepts no argument or rollback")
+		}
+		publicKey, keyErr := updateclient.ParsePublicKey(updatePublicKey)
+		if keyErr != nil {
+			return keyErr
+		}
+		client := updateclient.Client{PublicKey: publicKey}
+		manifest, manifestErr := client.FetchManifest(ctx, *manifestURL)
+		if manifestErr != nil {
+			return manifestErr
+		}
+		if manifest.Version == version {
+			return json.NewEncoder(os.Stdout).Encode(updateclient.Result{Version: version, Updated: false})
+		}
+		result, applyErr := client.Apply(ctx, manifest, executable)
+		if applyErr != nil {
+			return applyErr
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	return errors.New("unsupported command")
 }
@@ -428,4 +512,61 @@ func printCall(ctx context.Context, socket string, q daemon.Request) error {
 		return errors.New(r.Error)
 	}
 	return json.NewEncoder(os.Stdout).Encode(r)
+}
+
+func currentAccount() (string, int, error) {
+	account, err := user.Current()
+	if err != nil {
+		return "", 0, fmt.Errorf("resolve current user: %w", err)
+	}
+	uid, err := strconv.Atoi(account.Uid)
+	if err != nil || uid <= 0 || !filepath.IsAbs(account.HomeDir) {
+		return "", 0, errors.New("current user has invalid home or uid")
+	}
+	return account.HomeDir, uid, nil
+}
+
+func executableIdentity() (string, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err = io.Copy(hash, io.LimitReader(file, 250<<20)); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func writeDiagnostics(ctx context.Context, paths config.Paths) error {
+	report := map[string]any{"schemaVersion": 1, "version": version, "commit": commit, "buildTime": buildTime, "platform": runtime.GOOS + "/" + runtime.GOARCH}
+	if identity, err := executableIdentity(); err == nil {
+		report["artifactSha256"] = identity
+	}
+	if cfg, err := config.Load(paths); err == nil {
+		report["configVersion"] = cfg.Version
+		report["workspaceCount"] = len(cfg.Workspaces)
+	} else {
+		report["configState"] = "unreadable"
+	}
+	if stat, err := os.Stat(paths.DB); err == nil {
+		report["databaseBytes"] = stat.Size()
+	} else if os.IsNotExist(err) {
+		report["databaseState"] = "absent"
+	} else {
+		report["databaseState"] = "unreadable"
+	}
+	if response, err := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "doctor"}); err == nil && response.OK {
+		report["service"] = response.Data
+	} else {
+		report["service"] = map[string]any{"status": "unavailable"}
+	}
+	// Project IDs, repository paths, environment values, credentials, event
+	// payloads, command output, and raw errors are deliberately absent.
+	return json.NewEncoder(os.Stdout).Encode(report)
 }

@@ -11,6 +11,8 @@ const productName = development ? "Stickguy Dev" : "Stickguy";
 const app = path.join(output, `${productName}.app`);
 const executableName = development ? "stickguy-desktop-dev" : "stickguy-desktop";
 const executable = path.join(app, "Contents", "MacOS", executableName);
+const resources = path.join(app, "Contents", "Resources");
+const cli = path.join(resources, "stickguy");
 
 if (process.platform !== "darwin") {
   throw new Error("desktop preview build is currently supported only on macOS");
@@ -18,6 +20,19 @@ if (process.platform !== "darwin") {
 
 await rm(app, { recursive: true, force: true });
 await mkdir(path.dirname(executable), { recursive: true });
+await mkdir(resources, { recursive: true });
+
+if (!development) {
+  const cliLdflags = [
+    "-s", "-w",
+    `-X main.version=${process.env.STICKGUY_VERSION ?? "dev"}`,
+    `-X main.commit=${process.env.STICKGUY_COMMIT ?? "unknown"}`,
+    `-X main.buildTime=${process.env.STICKGUY_BUILD_TIME ?? new Date().toISOString()}`,
+    `-X main.updatePublicKey=${process.env.STICKGUY_UPDATE_PUBLIC_KEY ?? ""}`,
+  ].join(" ");
+  const cliBuild = spawnSync("go", ["build", "-trimpath", "-ldflags", cliLdflags, "-o", cli, "./cmd/stickguy"], { cwd: root, stdio: "inherit" });
+  if (cliBuild.status !== 0) process.exit(cliBuild.status ?? 1);
+}
 
 const buildArguments = ["build"];
 if (!development) buildArguments.push("-tags", "production", "-trimpath", "-ldflags", "-w -s");
@@ -43,8 +58,8 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>${productName}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>${development ? "0.1.0-dev" : "0.1.0-preview"}</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>${development ? "0.1.0-dev" : (process.env.STICKGUY_VERSION ?? "0.1.0-beta").replace(/^v/, "")}</string>
+  <key>CFBundleVersion</key><string>${development ? "1" : process.env.STICKGUY_BUILD_NUMBER ?? "1"}</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright 2026 Stickguy contributors</string>
@@ -52,7 +67,14 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 await writeFile(path.join(app, "Contents", "Info.plist"), plist, { mode: 0o644 });
 
-const sign = spawnSync("codesign", ["--force", "--sign", "-", app], { stdio: "inherit" });
+const identity = process.env.STICKGUY_CODESIGN_IDENTITY ?? "-";
+const signArguments = ["--force", "--sign", identity];
+if (identity !== "-") signArguments.push("--options", "runtime", "--timestamp");
+if (!development) {
+  const cliSign = spawnSync("codesign", [...signArguments, cli], { stdio: "inherit" });
+  if (cliSign.status !== 0) process.exit(cliSign.status ?? 1);
+}
+const sign = spawnSync("codesign", [...signArguments, app], { stdio: "inherit" });
 if (sign.status !== 0) process.exit(sign.status ?? 1);
 
 console.log(app);

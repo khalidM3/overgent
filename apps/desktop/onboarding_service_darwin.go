@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/stickguy/stickguy/internal/credential"
 	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/onboarding"
+	servicemanager "github.com/stickguy/stickguy/internal/service"
 	"github.com/stickguy/stickguy/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"unicode/utf8"
@@ -88,7 +91,7 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 }
 
 func (service *OnboardingService) State() (OnboardingState, error) {
-	state := OnboardingState{Available: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
+	state := OnboardingState{Available: true, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
 	if service.configRoot == "" {
 		return state, errors.New("local Stickguy configuration is unavailable")
 	}
@@ -160,7 +163,26 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 		return EnrollmentResult{}, err
 	}
 	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude)...)
+	if serviceErr := service.ensureService(ctx); serviceErr != nil {
+		warnings = append(warnings, "Background service: "+serviceErr.Error())
+	}
 	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
+}
+
+func (service *OnboardingService) ensureService(ctx context.Context) error {
+	executable, err := service.resolveCLI()
+	if err != nil {
+		return err
+	}
+	account, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("resolve current user: %w", err)
+	}
+	uid, err := strconv.Atoi(account.Uid)
+	if err != nil || uid <= 0 || !filepath.IsAbs(account.HomeDir) {
+		return errors.New("current user has invalid home or uid")
+	}
+	return (servicemanager.Manager{Executable: executable, ConfigRoot: service.configRoot, Home: account.HomeDir, UID: uid}).Install(ctx)
 }
 
 func (service *OnboardingService) ConfigureAdapters(repositoryRoot string, enableCodex, enableClaude bool) ([]AdapterState, error) {
