@@ -179,6 +179,20 @@ func ClassifyMessage(candidate Message) (Message, error) {
 	return Message{Kind: candidate.Kind, Text: text}, nil
 }
 
+// ProhibitedContractSignature is the mandatory wire gate for derived contract
+// signature text (ADR-038 semantics, ADR-044). A denied signature is dropped
+// from the fingerprint entirely rather than redacted.
+//
+// It deliberately omits the environment-assignment pattern that guards prose:
+// an exported declaration such as `const MAX_RETRIES = 3` is ordinary API
+// surface, and rejecting it would silently blind contract comparison. Actual
+// credential material in a declaration — an API key, a token, a private key —
+// is still caught by the credential and private-key patterns.
+func ProhibitedContractSignature(signature string) bool {
+	return strings.ContainsRune(signature, '\x00') || privateKeyPattern.MatchString(signature) ||
+		credentialPattern.MatchString(signature) || toolOutputPattern.MatchString(signature)
+}
+
 func NormalizePaths(event Event, repositoryRoot string) (Event, error) {
 	root, err := filepath.EvalSymlinks(repositoryRoot)
 	if err != nil {

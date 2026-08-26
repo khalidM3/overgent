@@ -109,3 +109,26 @@ func TestClassifyCoordinationTitleIsBoundedBeforeUpload(t *testing.T) {
 		}
 	}
 }
+
+func TestProhibitedContractSignatureGatesCredentialsNotConstants(t *testing.T) {
+	for _, denied := range []string{
+		`const Token = "ghp_aaaaaaaaaaaaaaaaaaaa"`,
+		`const APIKey = "abcd" // api_key: abcdefghijklmnop`,
+		"const Key = \"-----BEGIN RSA PRIVATE KEY-----\"",
+		`const Captured = "tool_result payload"`,
+	} {
+		if !ProhibitedContractSignature(denied) {
+			t.Fatalf("signature must be denied: %q", denied)
+		}
+	}
+	for _, allowed := range []string{
+		"func Rotate(ctx context.Context, key string) (string, error)",
+		"const MAX_RETRIES = 3",
+		"export const LIMIT: number",
+		"type Config struct",
+	} {
+		if ProhibitedContractSignature(allowed) {
+			t.Fatalf("ordinary API surface must not be denied: %q", allowed)
+		}
+	}
+}
