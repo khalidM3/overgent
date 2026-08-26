@@ -954,9 +954,7 @@ async function applyProjection(
     case "workspace.contract_fingerprints_reported": {
       if (event.sequence <= workspace.lastProjectedSequence) return;
       if (String(payload.workspaceId) !== workspace.publicId) fail("forbidden");
-      // The wire shape is workspace-scoped, so attribution is the workspace's
-      // own most recently active workstream rather than a field on the event.
-      const changedBy = await changingWorkstream(ctx, workspace);
+      const changedBy = await attributeContractChange(ctx, project, workspace, payload.workstreamId);
       for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
         const entry = raw as ContractFingerprintEntry;
         const existing = await ctx.db.query("contractFingerprints")
@@ -1116,9 +1114,27 @@ type ContractSymbol = { name: string; kind: string; signature: string; signature
 type ContractFingerprintEntry = { path: string; fileContractHash: string; symbols: ContractSymbol[] };
 type ChangedSymbol = { name: string; oldSignature: string; newSignature: string };
 
+// attributeContractChange resolves who changed a contract. A publisher that
+// names its workstream is believed once the workstream is confirmed to belong
+// to this workspace; a publisher that does not, or that names a workstream this
+// service has not projected yet, falls back to derivation.
+async function attributeContractChange(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  workspace: Doc<"workspaces">,
+  reported: unknown,
+): Promise<string> {
+  if (typeof reported === "string" && reported !== "") {
+    const named = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", reported)).unique();
+    if (named && (named.projectId !== project._id || named.workspaceId !== workspace._id)) fail("forbidden");
+    if (named) return named.publicId;
+  }
+  return changingWorkstream(ctx, workspace);
+}
+
 // changingWorkstream attributes a workspace-scoped contract change to the
 // workstream most plausibly responsible: the workspace's most recently active
-// one. The wire contract carries no attribution field, so this is derived.
+// one. It is the fallback for events published without a workstreamId.
 async function changingWorkstream(ctx: MutationCtx, workspace: Doc<"workspaces">): Promise<string> {
   const candidates = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).collect();
   const owned = candidates.filter((candidate) => candidate.workspaceId === workspace._id);

@@ -55,7 +55,9 @@ func (s *Service) publishContractFingerprints(ctx context.Context, workspace con
 		for _, path := range window {
 			payloadEntries = append(payloadEntries, files[path])
 		}
-		payload := map[string]any{"workspaceId": workspace.ID, "entries": payloadEntries}
+		// Naming the publishing workstream makes change attribution exact
+		// rather than something the hosted service has to infer.
+		payload := map[string]any{"workspaceId": workspace.ID, "workstreamId": workspace.WorkstreamID, "entries": payloadEntries}
 		if err := s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "git", "workspace.contract_fingerprints_reported", payload); err != nil {
 			return
 		}
