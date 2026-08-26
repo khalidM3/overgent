@@ -109,3 +109,43 @@ func TestInstallAutomaticallyRepairsPartialCurrentBinding(t *testing.T) {
 		t.Fatalf("repaired inspection=%#v err=%v", inspection, inspectErr)
 	}
 }
+
+func TestInjectionBoundariesAreSynchronousAndBounded(t *testing.T) {
+	for _, vendor := range []string{"claude", "codex"} {
+		command, _ := Command("/a/stickguy", "/state", vendor)
+		for _, event := range []string{"SessionStart", "UserPromptSubmit"} {
+			configured := expected(event, command).Hooks[0]
+			if configured.Async || configured.Timeout != 2 {
+				t.Fatalf("%s %s handler=%#v", vendor, event, configured)
+			}
+		}
+		configured := expected("PostToolUse", command).Hooks[0]
+		if !configured.Async || configured.Timeout != 5 {
+			t.Fatalf("%s observation handler=%#v", vendor, configured)
+		}
+	}
+}
+
+func TestInstallMigratesOnlyRecognizedLegacyInjectionHandlers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
+	command, _ := Command("/a/stickguy", "/state", "codex")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := map[string]any{"hooks": map[string]any{"SessionStart": []group{{Hooks: []handler{legacyExpected("SessionStart", command)}}}}}
+	encoded, _ := json.Marshal(legacy)
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(path, command)
+	if err != nil || inspection.State != BindingPartial {
+		t.Fatalf("legacy inspection=%#v err=%v", inspection, err)
+	}
+	if err = Install(path, command); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err = Inspect(path, command)
+	if err != nil || inspection.State != BindingCurrent {
+		t.Fatalf("migrated inspection=%#v err=%v", inspection, err)
+	}
+}

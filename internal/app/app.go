@@ -39,6 +39,12 @@ type briefProvider interface {
 type collaborationProvider interface {
 	Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error)
 }
+const (
+	injectionFetchTimeout = 1500 * time.Millisecond
+	injectionBudget       = 800
+	maxInjectionChars     = 3200
+)
+
 type Service struct {
 	paths       config.Paths
 	store       *store.Store
@@ -304,6 +310,8 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return s.handleSessionDetail(q)
 	case "agent_event":
 		return s.handleAgentEvent(ctx, q)
+	case "agent_injection":
+		return s.handleAgentInjection(ctx, q)
 	case "scan":
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
@@ -316,6 +324,129 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
+}
+
+type agentInjectionResult struct {
+	AdditionalContext string   `json:"additionalContext,omitempty"`
+	ItemIDs           []string `json:"itemIds,omitempty"`
+}
+
+// handleAgentInjection is a fail-open, fetch-through IPC operation. The hook
+// process never talks to the hosted service directly, and no failure here can
+// block or alter the vendor's turn.
+func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) daemon.Response {
+	result := agentInjectionResult{}
+	if q.AgentEvent != "SessionStart" && q.AgentEvent != "UserPromptSubmit" {
+		return daemon.Response{OK: true, Data: result}
+	}
+	if q.AgentVendor != "claude" && q.AgentVendor != "codex" || !validContractID(q.AgentWorkstreamID) {
+		return daemon.Response{OK: true, Data: result}
+	}
+	if _, ok := workspaceForCWD(s.cfg, q.AgentCWD); !ok {
+		return daemon.Response{OK: true, Data: result}
+	}
+	provider, ok := s.sender.(briefProvider)
+	if !ok {
+		return daemon.Response{OK: true, Data: result}
+	}
+	fetchContext, cancel := context.WithTimeout(ctx, injectionFetchTimeout)
+	defer cancel()
+	brief, err := provider.CreateBrief(fetchContext, q.AgentWorkstreamID, "refresh", "", injectionBudget)
+	if err != nil || len(brief.Items) == 0 {
+		return daemon.Response{OK: true, Data: result}
+	}
+	candidates := make([]store.InjectionItem, 0, len(brief.Items))
+	for _, item := range brief.Items {
+		candidates = append(candidates, store.InjectionItem{ID: item.ID, Revision: item.Revision})
+	}
+	undelivered, err := s.store.UndeliveredInjectionItems(fetchContext, q.AgentWorkstreamID, candidates)
+	if err != nil || len(undelivered) == 0 {
+		return daemon.Response{OK: true, Data: result}
+	}
+	undeliveredSet := make(map[store.InjectionItem]bool, len(undelivered))
+	for _, item := range undelivered {
+		undeliveredSet[item] = true
+	}
+	pendingItems := make([]hosted.BriefItem, 0, len(undelivered))
+	for _, item := range brief.Items {
+		if undeliveredSet[store.InjectionItem{ID: item.ID, Revision: item.Revision}] {
+			pendingItems = append(pendingItems, item)
+		}
+	}
+	selected := selectInjectionItems(pendingItems)
+	selectedCandidates := make([]store.InjectionItem, 0, len(selected))
+	for _, item := range selected {
+		selectedCandidates = append(selectedCandidates, store.InjectionItem{ID: item.ID, Revision: item.Revision})
+	}
+	claimed, err := s.store.ClaimInjectionDeliveries(fetchContext, q.AgentWorkstreamID, selectedCandidates, time.Now())
+	if err != nil || len(claimed) == 0 {
+		return daemon.Response{OK: true, Data: result}
+	}
+	claimedRevisions := make(map[store.InjectionItem]bool, len(claimed))
+	for _, item := range claimed {
+		claimedRevisions[item] = true
+	}
+	pending := make([]hosted.BriefItem, 0, len(claimed))
+	for _, item := range selected {
+		if claimedRevisions[store.InjectionItem{ID: item.ID, Revision: item.Revision}] {
+			pending = append(pending, item)
+			result.ItemIDs = append(result.ItemIDs, item.ID)
+		}
+	}
+	result.AdditionalContext = renderInjection(pending)
+	if result.AdditionalContext == "" {
+		return daemon.Response{OK: true, Data: agentInjectionResult{}}
+	}
+	return daemon.Response{OK: true, Data: result}
+}
+
+func renderInjection(items []hosted.BriefItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var rendered strings.Builder
+	rendered.WriteString("Coordination update:\n")
+	for _, item := range items {
+		rendered.WriteString(injectionLine(item))
+	}
+	return rendered.String()
+}
+
+func selectInjectionItems(items []hosted.BriefItem) []hosted.BriefItem {
+	selected := make([]hosted.BriefItem, 0, len(items))
+	used := len("Coordination update:\n")
+	for _, item := range items {
+		line := injectionLine(item)
+		remaining := maxInjectionChars - used
+		if remaining <= 0 {
+			break
+		}
+		if len(line) > remaining {
+			reference := item
+			reference.Text = "Review coordination item " + item.ID + "."
+			reference.RelevanceReason = "Required context was compacted to honor the injection budget."
+			reference.AdvisoryAction = "review_recommended"
+			line = injectionLine(reference)
+			if len(line) > remaining {
+				break
+			}
+			item = reference
+		}
+		selected = append(selected, item)
+		used += len(line)
+	}
+	return selected
+}
+
+func injectionLine(item hosted.BriefItem) string {
+	line := "- " + strings.Join(strings.Fields(item.Text), " ")
+	if reason := strings.Join(strings.Fields(item.RelevanceReason), " "); reason != "" {
+		line += " Reason: " + reason
+	}
+	if action := strings.Join(strings.Fields(item.AdvisoryAction), " "); action != "" {
+		line += " Action: " + action + "."
+	}
+	return line + "\n"
 }
 
 // handleCollaboration serves the one remaining agent-facing collaboration read:

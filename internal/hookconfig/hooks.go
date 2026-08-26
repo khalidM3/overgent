@@ -85,11 +85,22 @@ func Install(path, command string) error {
 		if err != nil {
 			return fmt.Errorf("decode %s hooks: %w", event, err)
 		}
-		for _, existing := range groups {
-			for _, candidate := range existing.Hooks {
+		for groupIndex := range groups {
+			for handlerIndex, candidate := range groups[groupIndex].Hooks {
 				if managed(candidate.Command) {
 					if candidate.Command != command {
 						return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
+					}
+					wanted := expected(event, command).Hooks[0]
+					if candidate != wanted {
+						if candidate != legacyExpected(event, command) {
+							return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
+						}
+						groups[groupIndex].Hooks[handlerIndex] = wanted
+						hooks[event], err = json.Marshal(groups)
+						if err != nil {
+							return err
+						}
 					}
 					goto nextEvent
 				}
@@ -136,7 +147,12 @@ func Inspect(path, command string) (Inspection, error) {
 						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
 					}
 					existingCommands[candidate.Command] = true
-					present[event] = true
+					wanted := expected(event, candidate.Command).Hooks[0]
+					if candidate == wanted {
+						present[event] = true
+					} else if candidate != legacyExpected(event, candidate.Command) {
+						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
+					}
 				}
 			}
 		}
@@ -291,9 +307,20 @@ func expected(event, command string) group {
 	if event == "PreToolUse" || event == "PermissionRequest" || event == "PostToolUse" || event == "PostToolUseFailure" {
 		matcher = "*"
 	}
-	// SessionEnd is synchronous in Codex even when async is requested; the hook
-	// command itself only performs a short loopback IPC call.
-	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd", Timeout: 5}}}
+	// Context-bearing turn-boundary hooks must complete synchronously so their
+	// additionalContext reaches the triggering turn. Every other observation
+	// hook preserves the existing asynchronous behavior; SessionEnd remains
+	// synchronous because Codex requires it.
+	injectionBoundary := event == "SessionStart" || event == "UserPromptSubmit"
+	timeout := 5
+	if injectionBoundary {
+		timeout = 2
+	}
+	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd" && !injectionBoundary, Timeout: timeout}}}
+}
+
+func legacyExpected(event, command string) handler {
+	return handler{Type: "command", Command: command, Async: event != "SessionEnd", Timeout: 5}
 }
 
 func managed(command string) bool {

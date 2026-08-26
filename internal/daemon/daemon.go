@@ -45,7 +45,11 @@ func Call(ctx context.Context, socket string, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("connect service: %w", e)
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	deadline := time.Now().Add(3 * time.Second)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	_ = c.SetDeadline(deadline)
 	if e = json.NewEncoder(c).Encode(req); e != nil {
 		return Response{}, e
 	}

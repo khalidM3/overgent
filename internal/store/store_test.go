@@ -80,6 +80,40 @@ func TestAgentObservationPersistsRuntimeVerification(t *testing.T) {
 	}
 }
 
+func TestInjectionDeliveriesDeduplicateExactRevisionAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	state, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := []InjectionItem{{ID: "fnd_fixture", Revision: 1}}
+	claimed, err := state.ClaimInjectionDeliveries(ctx, "wrk_agent_fixture", items, time.Now())
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("first claim=%#v err=%v", claimed, err)
+	}
+	claimed, err = state.ClaimInjectionDeliveries(ctx, "wrk_agent_fixture", items, time.Now())
+	if err != nil || len(claimed) != 0 {
+		t.Fatalf("duplicate claim=%#v err=%v", claimed, err)
+	}
+	pending, err := state.UndeliveredInjectionItems(ctx, "wrk_agent_fixture", []InjectionItem{{ID: "fnd_fixture", Revision: 1}, {ID: "fnd_fixture", Revision: 2}})
+	if err != nil || len(pending) != 1 || pending[0].Revision != 2 {
+		t.Fatalf("pending revisions=%#v err=%v", pending, err)
+	}
+	if err = state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	claimed, err = state.ClaimInjectionDeliveries(ctx, "wrk_agent_fixture", []InjectionItem{{ID: "fnd_fixture", Revision: 2}}, time.Now())
+	if err != nil || len(claimed) != 1 || claimed[0].Revision != 2 {
+		t.Fatalf("revised claim=%#v err=%v", claimed, err)
+	}
+}
+
 func TestLifecyclePublicationIsAtomicRevisionedAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))

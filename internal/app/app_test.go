@@ -36,6 +36,89 @@ func (s *lifecycleFixtureSender) CreateBrief(_ context.Context, workstreamID, tr
 	return hosted.CoordinationBrief{BriefID: "brf_fixture", ProjectID: "prj_fixture", RepositoryID: "rep_fixture", WorkstreamID: workstreamID, Trigger: trigger, RequestedBudget: budget, Items: []hosted.BriefItem{{ID: "itm_fixture", Kind: "decision", Text: "Synthetic coordination item"}}}, nil
 }
 
+type injectionFixtureSender struct {
+	mu       sync.Mutex
+	revision int
+	delay    bool
+}
+
+func (*injectionFixtureSender) Send(context.Context, string, []byte) error { return nil }
+func (s *injectionFixtureSender) CreateBrief(ctx context.Context, workstreamID, trigger, _ string, budget int) (hosted.CoordinationBrief, error) {
+	if s.delay {
+		<-ctx.Done()
+		return hosted.CoordinationBrief{}, ctx.Err()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return hosted.CoordinationBrief{
+		BriefID: "brf_injection", WorkstreamID: workstreamID, Trigger: trigger,
+		RequestedBudget: budget, RenderedSize: 80,
+		Items: []hosted.BriefItem{{ID: "fnd_contract_drift", Revision: s.revision, Kind: "finding", Text: "backend.Refresh signature changed after you read it.", RelevanceReason: "This finding directly involves the current workstream.", AdvisoryAction: "coordination_required", Priority: 100}},
+	}, nil
+}
+
+func TestAgentInjectionFetchesThroughIPCStateAndDeduplicatesRevision(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &injectionFixtureSender{revision: 1}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	request := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "UserPromptSubmit"}
+	first := service.handle(ctx, request)
+	firstResult := first.Data.(agentInjectionResult)
+	if !first.OK || !strings.Contains(firstResult.AdditionalContext, "backend.Refresh") || len(firstResult.ItemIDs) != 1 {
+		t.Fatalf("first injection=%#v", first)
+	}
+	second := service.handle(ctx, request)
+	if !second.OK || second.Data.(agentInjectionResult).AdditionalContext != "" {
+		t.Fatalf("same revision reinjected=%#v", second)
+	}
+	sender.mu.Lock()
+	sender.revision = 2
+	sender.mu.Unlock()
+	third := service.handle(ctx, request)
+	if !third.OK || !strings.Contains(third.Data.(agentInjectionResult).AdditionalContext, "backend.Refresh") {
+		t.Fatalf("revised item not injected=%#v", third)
+	}
+}
+
+func TestAgentInjectionFetchTimeoutFailsOpen(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &injectionFixtureSender{revision: 1, delay: true}}
+	response := service.handle(ctx, daemon.Request{Method: "agent_injection", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "SessionStart"})
+	if !response.OK || response.Data.(agentInjectionResult).AdditionalContext != "" {
+		t.Fatalf("timeout did not fail open: %#v", response)
+	}
+}
+
+func TestInjectionRenderingHonorsCharacterCap(t *testing.T) {
+	items := make([]hosted.BriefItem, 64)
+	for index := range items {
+		items[index] = hosted.BriefItem{ID: fmt.Sprintf("fnd_%03d", index), Revision: 1, Text: strings.Repeat("coordination detail ", 80), RelevanceReason: strings.Repeat("direct relevance ", 20), AdvisoryAction: "coordination_required"}
+	}
+	selected := selectInjectionItems(items)
+	rendered := renderInjection(selected)
+	if len(rendered) > maxInjectionChars || len(selected) == 0 || len(selected) >= len(items) {
+		t.Fatalf("rendered chars=%d selected=%d", len(rendered), len(selected))
+	}
+}
+
 func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
