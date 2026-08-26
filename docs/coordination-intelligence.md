@@ -74,6 +74,18 @@ The hosted service keeps the latest fingerprint per (repository scope, path) and
 
 Contract evidence is deterministic and works with AI disabled. It is the trigger layer of ADR-045, not a judgment: the finding reports that a contract moved under a session, not whether that session's work is now wrong.
 
+### Dependency readiness
+
+An active workstream may declare up to eight bounded `waiting_on` claims naming
+a contract, exported symbol, or path. Readiness is derived only from another
+live workstream's contract fingerprints in the same Project/repository scope;
+intent prose is not treated as a claim. Matching contract evidence first yields
+a medium-severity `stable_wip` finding while the producer's latest checkpoint is
+absent or unverified. A passing latest checkpoint upgrades that same finding ID
+to high-severity `ready` at a new revision. Dropping the claim or finishing the
+claiming workstream resolves the finding. These findings use the ordinary brief
+and hook-injection route; there is no planning board or separate delivery path.
+
 ## 4. Detection pipeline
 
 Every material manifest or semantic-object revision runs an incremental, project-isolated pipeline:
@@ -100,6 +112,7 @@ V1 finding kinds:
 - `assumption_conflict` — stated plans or decisions appear incompatible;
 - `downstream_impact` — one change likely invalidates or requires action in another workstream.
 - `stale_assumption` — a checkpoint relied on an older brief that has since been materially invalidated for that workstream, or a contract fingerprint in a live session's read set changed after the session read it.
+- `dependency_ready` — another workstream has produced matching contract evidence for a declared dependency, labeled `stable_wip` until its latest checkpoint passes and `ready` afterward.
 
 Every visible finding includes: kind, severity, confidence band, affected workstreams/members, evidence with provenance, first/last seen, current status, and a plain-language reason. Do not show an unexplained similarity score as a warning.
 

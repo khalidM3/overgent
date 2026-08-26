@@ -7,7 +7,7 @@
   "required": ["id", "kind", "severity", "confidenceBand", "workstreamIds", "evidence", "reason", "state", "revision"],
   "properties": {
     "id": {"type": "string", "pattern": "^fnd_[A-Za-z0-9_-]{1,80}$"},
-    "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption"]},
+    "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption", "dependency_ready"]},
     "severity": {"enum": ["low", "medium", "high", "critical"]},
     "confidenceBand": {"enum": ["deterministic", "high", "medium", "low"]},
     "workstreamIds": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "string"}},
@@ -26,7 +26,27 @@
         "summary": {"type": "string", "maxLength": 500},
         "source": {"type": "string", "maxLength": 80},
         "fidelity": {"type": "string", "maxLength": 80},
-        "contract": {"$ref": "#/$defs/contractEvidence"}
+        "contract": {"$ref": "#/$defs/contractEvidence"},
+        "dependency": {"$ref": "#/$defs/dependencyEvidence"}
+      }
+    },
+    "dependencyEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim", "satisfiedByWorkstreamId", "satisfiedBy", "state"],
+      "properties": {
+        "claim": {"type": "string", "minLength": 1, "maxLength": 160},
+        "satisfiedByWorkstreamId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "satisfiedBy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "symbols"],
+          "properties": {
+            "path": {"type": "string", "minLength": 1, "maxLength": 512},
+            "symbols": {"type": "array", "maxItems": 200, "items": {"type": "string", "minLength": 1, "maxLength": 200}}
+          }
+        },
+        "state": {"enum": ["stable_wip", "ready"]}
       }
     },
     "contractEvidence": {
