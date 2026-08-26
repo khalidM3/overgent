@@ -140,6 +140,12 @@ or environment values.
 
 - Current documented Codex and Claude Code hooks report supported sessions,
   lifecycle, tools, permission waits, subagents, and safe affected paths.
+- At `SessionStart` and `UserPromptSubmit`, both supported adapters fetch a
+  bounded current coordination brief through the local service and inject new
+  item revisions as vendor `additionalContext`. The two-second handler fails
+  open on service or hosted failure, and local revision tracking prevents the
+  same session from receiving one item revision twice. MCP pull and the
+  dashboard remain available when injection is unavailable.
 - Git observation remains the deterministic combined-checkout fallback when a
   vendor tool does not expose path metadata or an adapter is disconnected.
 - Existing sessions must restart once after adapter installation. Hook coverage
