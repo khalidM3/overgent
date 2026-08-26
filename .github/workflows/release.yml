@@ -30,6 +30,7 @@ jobs:
           UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
           UPDATE_PRIVATE_KEY: "${{ secrets.STICKGUY_UPDATE_SIGNING_PRIVATE_KEY }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
+          APPLE_DEVELOPER_NAME: "${{ vars.APPLE_DEVELOPER_NAME }}"
           CERTIFICATE: "${{ secrets.MACOS_CERTIFICATE_P12 }}"
           CERTIFICATE_PASSWORD: "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
           APPLE_ID: "${{ secrets.APPLE_ID }}"
@@ -38,6 +39,7 @@ jobs:
           test -n "$UPDATE_PUBLIC_KEY"
           test -n "$UPDATE_PRIVATE_KEY"
           test -n "$APPLE_TEAM_ID"
+          test -n "$APPLE_DEVELOPER_NAME"
           test -n "$CERTIFICATE"
           test -n "$CERTIFICATE_PASSWORD"
           test -n "$APPLE_ID"
@@ -61,7 +63,6 @@ jobs:
         env:
           STICKGUY_VERSION: "${{ github.ref_name }}"
           STICKGUY_COMMIT: "${{ github.sha }}"
-          STICKGUY_BUILD_TIME: "${{ github.event.repository.updated_at }}"
           STICKGUY_UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
           STICKGUY_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
           STICKGUY_BUILD_NUMBER: "${{ github.run_number }}"
@@ -69,6 +70,7 @@ jobs:
           APPLE_APP_PASSWORD: "${{ secrets.APPLE_APP_PASSWORD }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
         run: |
+          export STICKGUY_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           pnpm desktop:build
           ditto -c -k --keepParent apps/desktop/build/bin/Stickguy.app "$RUNNER_TEMP/Stickguy-notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/Stickguy-notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait

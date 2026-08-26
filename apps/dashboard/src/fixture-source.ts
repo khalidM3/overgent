@@ -1,5 +1,5 @@
 import { snapshotForProject } from "./fixtures";
-import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, Resolution, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
+import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, Resolution, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
 
 export class FixtureProjectSource {
   readonly live: boolean = false;
@@ -7,6 +7,7 @@ export class FixtureProjectSource {
   private listeners = new Map<string, Set<() => void>>();
   private sessionMessages = new Map<string, SessionMessagesSnapshot>();
   private identity: { name: string; source: MemberNameSource } = { name: "Fixture device", source: "device" };
+  private access = new Map<string, ProjectAccess>();
   protected localSessions = new Map<string, LocalSessionDetail>([["wrk_agent_fixture_codex", {
     available: true, title: "Rotate the browser session boundary", branch: "feature/session-rotation",
     messages: [
@@ -90,6 +91,50 @@ export class FixtureProjectSource {
   async listMembers(_projectId: string): Promise<ProjectMember[]> {
     return [{ id: "mem_fixture", name: this.identity.name, nameSource: this.identity.source, role: "owner", isSelf: true, joinedAt: new Date().toISOString() }];
   }
+
+  async getProjectAccess(projectId: string): Promise<ProjectAccess> {
+    const existing = this.access.get(projectId);
+    if (existing) return structuredClone(existing);
+    const snapshot = this.get(projectId);
+    const value: ProjectAccess = {
+      role: "owner",
+      members: [{ id: "mem_fixture", name: this.identity.name, nameSource: this.identity.source, role: "owner", isSelf: true, joinedAt: new Date().toISOString() }, { id: "mem_teammate", name: "Fixture teammate", nameSource: "member", role: "member", isSelf: false, joinedAt: new Date().toISOString() }],
+      devices: snapshot.devices.map((device, index) => ({ id: device.id, memberId: index === 0 ? "mem_fixture" : "mem_teammate", label: device.label, appVersion: device.platform, isCurrent: index === 0, revoked: false })),
+      invites: [],
+    };
+    this.access.set(projectId, value);
+    return structuredClone(value);
+  }
+
+  async createInvite(projectId: string): Promise<{ code: string }> {
+    const access = await this.getProjectAccess(projectId);
+    const id = `inv_fixture_${Date.now()}`;
+    access.invites.unshift({ id, expiresAt: new Date(Date.now() + 600_000).toISOString(), remainingUses: 1, revoked: false, createdAt: new Date().toISOString() });
+    this.access.set(projectId, access);
+    return { code: `${id}.fixture-secret` };
+  }
+
+  async revokeInvite(projectId: string, inviteId: string): Promise<void> {
+    const access = await this.getProjectAccess(projectId);
+    access.invites = access.invites.map((invite) => invite.id === inviteId ? { ...invite, revoked: true, remainingUses: 0 } : invite);
+    this.access.set(projectId, access);
+  }
+
+  async revokeDevice(projectId: string, deviceId: string): Promise<void> {
+    const access = await this.getProjectAccess(projectId);
+    access.devices = access.devices.map((device) => device.id === deviceId ? { ...device, revoked: true } : device);
+    this.access.set(projectId, access);
+  }
+
+  async removeMember(projectId: string, memberId: string): Promise<void> {
+    const access = await this.getProjectAccess(projectId);
+    access.members = access.members.filter((member) => member.id !== memberId);
+    this.access.set(projectId, access);
+  }
+
+  exportURL(projectId: string): string { return `data:application/json,${encodeURIComponent(JSON.stringify({ schemaVersion: 1, projectId }))}`; }
+  async deleteProject(_projectId: string): Promise<void> { return Promise.resolve(); }
+  async deleteOwnProjectData(_projectId: string): Promise<void> { return Promise.resolve(); }
 
   async updateDisplayName(_projectId: string, displayName: string): Promise<{ memberName: string; memberNameSource: MemberNameSource }> {
     const name = displayName.trim().replace(/\s+/g, " ");

@@ -140,6 +140,32 @@ const reusedTicket = await request("POST", "/v1/dashboard-tickets/exchange", {
 });
 assert.equal(reusedTicket.body.error.code, "ticket_consumed");
 
+const ownerAccess = (await request("GET", `/v1/projects/${projectA.id}/access`, { token: tokenA })).body;
+assert.equal(ownerAccess.role, "owner");
+assert.equal(ownerAccess.members.length, 2);
+assert.equal(ownerAccess.devices.length, 2);
+const memberAccess = (await request("GET", `/v1/projects/${projectA.id}/access`, { token: tokenB })).body;
+assert.equal(memberAccess.role, "member");
+assert.equal(memberAccess.invites.length, 0, "ordinary members must not receive invite administration data");
+const memberInvite = await request("POST", `/v1/projects/${projectA.id}/invites`, {
+  token: tokenB, body: { expiresInSeconds: 600, maxUses: 1 }, expected: 403,
+});
+assert.equal(memberInvite.body.error.code, "forbidden");
+const revokedInvite = (await request("POST", `/v1/projects/${projectA.id}/invites`, {
+  token: tokenA, body: { expiresInSeconds: 600, maxUses: 1 }, expected: 201,
+})).body;
+await request("POST", `/v1/projects/${projectA.id}/invites/${revokedInvite.id}/revoke`, { token: tokenA, expected: 204 });
+const revokedEnrollment = await request("POST", "/v1/enrollments", {
+  body: { inviteId: revokedInvite.id, inviteSecret: revokedInvite.secret, deviceLabel: "Revoked invite device", appVersion: "fixture/1", schemaMinimum: 1, schemaMaximum: 1 },
+  expected: 409,
+});
+assert.equal(revokedEnrollment.body.error.code, "invite_revoked");
+const ownerLockout = await request("POST", `/v1/devices/${bootstrapA.deviceId}/revoke`, { token: tokenA, expected: 409 });
+assert.equal(ownerLockout.body.error.code, "cannot_revoke_last_owner_device");
+const memberExport = (await request("GET", `/v1/projects/${projectA.id}/export`, { token: tokenB })).body;
+assert.equal(memberExport.schemaVersion, 1);
+assert.deepEqual(memberExport.members.map((member) => member.id), [memberAccess.members.find((member) => member.isSelf).id]);
+
 const consumedInvite = await request("POST", "/v1/enrollments", {
   body: {
     inviteId: invite.id,
@@ -185,6 +211,13 @@ await request("POST", "/v1/presence/heartbeat", {
   body: { workspaceId: ids.workspaceB, state: "active" },
   expected: 204,
 });
+// More than the old deployment-wide allowance succeeds because each real
+// device has its own authenticated bucket; requests are deliberately
+// interleaved to catch a shared honest-fleet rate limiter.
+await Promise.all(Array.from({ length: 8 }, (_, index) => Promise.all([
+  request("POST", "/v1/presence/heartbeat", { token: tokenA, body: { workspaceId: ids.workspaceA, state: index % 2 ? "idle" : "active" }, expected: 204 }),
+  request("POST", "/v1/presence/heartbeat", { token: tokenB, body: { workspaceId: ids.workspaceB, state: index % 2 ? "active" : "idle" }, expected: 204 }),
+])));
 
 function manifestEvents({ side, projectId, deviceId, workspaceId, sessionId, workstreamId, entries }) {
   const baseline = "a".repeat(40);
@@ -873,27 +906,36 @@ assert.equal(oversizedRequest.body.error.code, "request_too_large");
 
 let rateLimited = false;
 for (let attempt = 0; attempt < 12; attempt++) {
-  const response = await request("POST", "/v1/enrollments", {
-    body: {
+  const response = await fetch(`${siteUrl}/v1/enrollments`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       inviteId: invite.id,
       inviteSecret: invite.secret,
       deviceLabel: "Synthetic Brute Force",
       appVersion: "fixture/1",
       schemaMinimum: 1,
       schemaMaximum: 1,
-    },
-    expected: attempt < 10 ? 409 : 429,
+    }),
   });
-  if (response.body.error.code === "rate_limited") {
+  const responseBody = await response.json();
+  if (response.status === 429 && responseBody.error.code === "rate_limited") {
     rateLimited = true;
     break;
   }
+  assert.equal(response.status, 409, `unexpected failed-enrollment status ${response.status}`);
 }
 assert(rateLimited, "failed enrollment attempts must consume persistent edge quota");
 
 await request("POST", `/v1/devices/${bootstrapB.deviceId}/revoke`, { token: tokenA, expected: 204 });
 const revokedBootstrap = await request("GET", "/v1/device/bootstrap", { token: tokenB, expected: 401 });
 assert.equal(revokedBootstrap.body.error.code, "credential_revoked");
+const removedMemberId = ownerAccess.members.find((member) => !member.isSelf).id;
+await request("POST", `/v1/projects/${projectA.id}/members/${removedMemberId}/remove`, { token: tokenA, expected: 204 });
+const projectExport = (await request("GET", `/v1/projects/${projectA.id}/export`, { token: tokenA })).body;
+assert.equal(projectExport.schemaVersion, 1);
+assert(projectExport.activity.length > 0);
+await request("DELETE", `/v1/projects/${projectA.id}`, { token: tokenA, expected: 202 });
+const afterDeletion = await fetch(`${siteUrl}/v1/projects/${projectA.id}/access`, { headers: { authorization: `Bearer ${tokenA}` } });
+assert([401, 404].includes(afterDeletion.status), `deleted Project remained accessible: HTTP ${afterDeletion.status}`);
 
 console.log(JSON.stringify({
   level: "L2 hosted Project service with L6 intelligence, collision coordination, and M2 contract watch",
@@ -903,6 +945,7 @@ console.log(JSON.stringify({
     creatorAndInviteEnrollment: true,
     creatorDashboardTicketIssuance: true,
     twoDevicePublication: true,
+    concurrentPerDeviceRateIsolation: true,
     singleUseDashboardTicket: true,
     singleUseInvite: true,
     transactionalDedupe: true,
@@ -917,6 +960,11 @@ console.log(JSON.stringify({
     materialContextRevisionsOnly: true,
     crossProjectDenied: true,
     revokedDeviceDenied: true,
+    memberDeviceInviteAdministration: true,
+    ownerLockoutPrevented: true,
+    memberScopedExport: true,
+    memberRemovalImmediate: true,
+    projectExportAndDeletion: true,
     batchSizeGuard: true,
     requestByteGuard: true,
     failedAttemptRateGuard: true,

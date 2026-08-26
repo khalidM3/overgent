@@ -19,4 +19,27 @@ describe("live dashboard transport", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/findings/fnd_synthetic/feedback");
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST", credentials: "include", body: JSON.stringify({ value: "not_related" }) });
   });
+
+  it("uses cookie-authorized Project administration and data-rights routes", async () => {
+    const responses = [
+      new Response(JSON.stringify({ role: "owner", members: [], devices: [], invites: [] }), { status: 200, headers: { "content-type": "application/json" } }),
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 202 }),
+      new Response(null, { status: 202 }),
+    ];
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => responses.shift()!);
+    vi.stubGlobal("fetch", fetchMock);
+    const source = new LiveProjectSource([]);
+    await expect(source.getProjectAccess("prj_fixture")).resolves.toMatchObject({ role: "owner" });
+    await source.revokeDevice("prj_fixture", "dev_fixture");
+    await source.deleteOwnProjectData("prj_fixture");
+    await source.deleteProject("prj_fixture");
+    expect(source.exportURL("prj_fixture")).toBe("/api/v1/projects/prj_fixture/export");
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method ?? "GET"])).toEqual([
+      ["/api/v1/projects/prj_fixture/access", "GET"],
+      ["/api/v1/devices/dev_fixture/revoke", "POST"],
+      ["/api/v1/projects/prj_fixture/member", "DELETE"],
+      ["/api/v1/projects/prj_fixture", "DELETE"],
+    ]);
+  });
 });

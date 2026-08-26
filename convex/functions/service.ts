@@ -38,6 +38,7 @@ export const createProject = internalMutation({
     devicePublicId: v.string(),
     label: v.string(),
     deviceLabel: v.string(),
+    appVersion: v.string(),
     displayName: v.optional(v.string()),
     now: v.number(),
   },
@@ -50,7 +51,7 @@ export const createProject = internalMutation({
         publicId: args.devicePublicId,
         tokenHash: args.tokenHash,
         label: args.deviceLabel,
-        appVersion: "creator/v1",
+        appVersion: args.appVersion,
         schemaMinimum: 1,
         schemaMaximum: 1,
         createdAt: args.now,
@@ -79,12 +80,13 @@ export const createProject = internalMutation({
 
 export const createInvite = internalMutation({
   args: {
-    tokenHash: v.string(), projectPublicId: v.string(), invitePublicId: v.string(), secretHash: v.string(),
+    tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), invitePublicId: v.string(), secretHash: v.string(),
     expiresAt: v.number(), maxUses: v.number(), now: v.number(),
   },
   handler: async (ctx, args) => {
-    const auth = await requireProjectRole(ctx, args.tokenHash, args.projectPublicId, "owner");
-    await enforceRate(ctx, args.tokenHash, "invites.create", args.now, 20, 60_000);
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role !== "owner") fail("forbidden");
+    await enforceRate(ctx, auth.device.tokenHash, "invites.create", args.now, 20, 60_000);
     await ctx.db.insert("invites", {
       publicId: args.invitePublicId,
       projectId: auth.project._id,
@@ -701,20 +703,320 @@ export const projectMembers = internalQuery({
   },
 });
 
-export const revokeDevice = internalMutation({
-  args: { tokenHash: v.string(), targetDevicePublicId: v.string(), now: v.number() },
+export const projectAccess = internalQuery({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
-    const actor = await requireDevice(ctx, args.tokenHash);
-    await enforceRate(ctx, args.tokenHash, "devices.revoke", args.now, 20, 60_000);
+    const auth = await requireCollaborationActor(ctx, args);
+    const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
+    if (members.length > 100) fail("page_too_large");
+    const activeMembers = members.filter((member) => member.removedAt === undefined);
+    const devices: Array<{
+      id: string; memberId: string; label: string; appVersion: string;
+      isCurrent: boolean; revoked: boolean; lastSeenAt: string | undefined;
+    }> = [];
+    for (const member of activeMembers) {
+      const device = await ctx.db.get(member.deviceId);
+      if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({
+        id: device.publicId, memberId: member.publicId, label: device.label, appVersion: device.appVersion,
+        isCurrent: device._id === auth.device._id, revoked: device.revokedAt !== undefined,
+        lastSeenAt: device.lastSeenAt === undefined ? undefined : new Date(device.lastSeenAt).toISOString(),
+      });
+    }
+    const invites = auth.member.role === "owner"
+      ? (await ctx.db.query("invites").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101)).map((invite) => ({
+        id: invite.publicId, expiresAt: new Date(invite.expiresAt).toISOString(), remainingUses: invite.remainingUses,
+        revoked: invite.revokedAt !== undefined, createdAt: new Date(invite.createdAt).toISOString(),
+      }))
+      : [];
+    if (invites.length > 100) fail("page_too_large");
+    return {
+      role: auth.member.role,
+      members: activeMembers.map((member) => ({
+        id: member.publicId, name: member.displayName, nameSource: member.displayNameSource ?? "device", role: member.role,
+        isSelf: member._id === auth.member._id, joinedAt: new Date(member.joinedAt).toISOString(),
+      })),
+      devices,
+      invites,
+    };
+  },
+});
+
+export const revokeInvite = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), invitePublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role !== "owner") fail("forbidden");
+    await enforceRate(ctx, auth.device.tokenHash, "invites.revoke", args.now, 30, 60_000);
+    const invite = await ctx.db.query("invites").withIndex("by_public_id", (q) => q.eq("publicId", args.invitePublicId)).unique();
+    if (!invite || invite.projectId !== auth.project._id) fail("not_found");
+    if (invite.revokedAt === undefined) await ctx.db.patch(invite._id, { revokedAt: args.now, remainingUses: 0 });
+    return true;
+  },
+});
+
+export const removeProjectMember = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), memberPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role !== "owner") fail("forbidden");
+    await enforceRate(ctx, auth.device.tokenHash, "members.remove", args.now, 20, 60_000);
+    const target = await ctx.db.query("members").withIndex("by_public_id", (q) => q.eq("publicId", args.memberPublicId)).unique();
+    if (!target || target.projectId !== auth.project._id || target.removedAt !== undefined) fail("not_found");
+    if (target._id === auth.member._id) fail("cannot_remove_self");
+    await ctx.db.patch(target._id, { removedAt: args.now });
+    const sessions = await ctx.db.query("browserSessions").withIndex("by_member", (q) => q.eq("memberId", target._id)).take(101);
+    if (sessions.length > 100) fail("page_too_large");
+    for (const session of sessions) if (session.revokedAt === undefined) await ctx.db.patch(session._id, { revokedAt: args.now });
+    await bumpProjectScopes(ctx, auth.project._id, args.now);
+    return true;
+  },
+});
+
+export const exportProject = internalQuery({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    const allMembers = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allWorkspaces = await ctx.db.query("workspaces").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allManifests = await ctx.db.query("changeManifests").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allContracts = await ctx.db.query("contractFingerprints").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allReads = await ctx.db.query("sessionReadSets").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allFindings = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allSemantic = await ctx.db.query("semanticObjects").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allDeliveries = await ctx.db.query("contextDeliveries").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allActivity = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allCards = await ctx.db.query("syncCards").withIndex("by_project_updated", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allComments = await ctx.db.query("syncComments").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allDecisions = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const allMessages = await ctx.db.query("sessionMessages").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    const collections = [allMembers, allWorkspaces, allWorkstreams, allManifests, allContracts, allReads, allFindings, allSemantic, allDeliveries, allActivity, allCards, allComments, allDecisions, allMessages];
+    if (collections.some((collection) => collection.length > 500)) fail("export_too_large");
+
+    const isOwner = auth.member.role === "owner";
+    const workspaces = isOwner ? allWorkspaces : allWorkspaces.filter((workspace) => workspace.memberId === auth.member._id);
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace._id));
+    const workstreams = isOwner ? allWorkstreams : allWorkstreams.filter((workstream) => workstream.memberId === auth.member._id && workspaceIds.has(workstream.workspaceId));
+    const workstreamIds = new Set(workstreams.map((workstream) => workstream._id));
+    const workstreamPublicIds = new Set(workstreams.map((workstream) => workstream.publicId));
+    const members = isOwner ? allMembers : [auth.member];
+    const manifests = isOwner ? allManifests : allManifests.filter((manifest) => workstreamIds.has(manifest.workstreamId));
+    const contracts = isOwner ? allContracts : allContracts.filter((contract) => workstreamPublicIds.has(contract.changedByWorkstreamPublicId));
+    const reads = isOwner ? allReads : allReads.filter((read) => workstreamIds.has(read.workstreamId));
+    const findings = isOwner ? allFindings : allFindings.filter((finding) => finding.workstreamPublicIds.some((id) => workstreamPublicIds.has(id)));
+    const semantic = isOwner ? allSemantic : allSemantic.filter((object) => workstreamIds.has(object.workstreamId));
+    const deliveries = isOwner ? allDeliveries : allDeliveries.filter((delivery) => workstreamIds.has(delivery.workstreamId));
+    const activity = isOwner ? allActivity : allActivity.filter((event) => event.memberId === auth.member._id);
+    const cards = isOwner ? allCards : allCards.filter((card) => card.createdByMemberId === auth.member._id);
+    const cardIds = new Set(cards.map((card) => card._id));
+    const comments = isOwner ? allComments : allComments.filter((comment) => comment.memberId === auth.member._id || cardIds.has(comment.syncCardId));
+    const decisions = isOwner ? allDecisions : allDecisions.filter((decision) => decision.createdByMemberId === auth.member._id || decision.affectedMemberIds.includes(auth.member._id));
+    const messages = isOwner ? allMessages : allMessages.filter((message) => message.memberId === auth.member._id);
+    const memberPublic = new Map(members.map((member) => [member._id, member.publicId]));
+    const workspacePublic = new Map(workspaces.map((workspace) => [workspace._id, workspace.publicId]));
+    const workstreamPublic = new Map(workstreams.map((workstream) => [workstream._id, workstream.publicId]));
+    return {
+      schemaVersion: 1,
+      exportedAt: new Date(args.now).toISOString(),
+      project: { id: auth.project.publicId, name: auth.project.label, status: auth.project.status, createdAt: new Date(auth.project.createdAt).toISOString(), retentionDays: auth.project.retentionDays },
+      members: members.map((member) => ({ id: member.publicId, name: member.displayName, role: member.role, joinedAt: new Date(member.joinedAt).toISOString(), removedAt: member.removedAt === undefined ? undefined : new Date(member.removedAt).toISOString() })),
+      workspaces: workspaces.map((workspace) => ({ id: workspace.publicId, memberId: memberPublic.get(workspace.memberId), repositoryFingerprint: workspace.repoFingerprint, label: workspace.label, paused: workspace.paused, updatedAt: new Date(workspace.updatedAt).toISOString() })),
+      workstreams: workstreams.map((stream) => ({ id: stream.publicId, memberId: memberPublic.get(stream.memberId), workspaceId: workspacePublic.get(stream.workspaceId), title: stream.title, summary: stream.summary, status: stream.status, revision: stream.revision, vendor: stream.vendor, sessionAlias: stream.sessionAlias, updatedAt: new Date(stream.updatedAt).toISOString() })),
+      manifests: manifests.map((manifest) => ({ id: manifest.publicId, workstreamId: workstreamPublic.get(manifest.workstreamId), revision: manifest.revision, baselineRef: manifest.baselineRef, headRef: manifest.headRef, contentHash: manifest.contentHash, pathCount: manifest.pathCount, state: manifest.state })),
+      contractFingerprints: contracts.map((contract) => ({ path: contract.path, fileContractHash: contract.fileContractHash, symbols: contract.symbols, changedByWorkstreamId: contract.changedByWorkstreamPublicId, revision: contract.revision, updatedAt: new Date(contract.updatedAt).toISOString() })),
+      readSets: reads.map((read) => ({ workstreamId: read.workstreamPublicId, path: read.path, fileContractHashAtRead: read.fileContractHashAtRead, readAt: read.readAt })),
+      findings: findings.map(findingContract),
+      semanticObjects: semantic.map((object) => ({ id: object.publicId, workstreamId: workstreamPublic.get(object.workstreamId), kind: object.kind, text: object.text, source: object.source, fidelity: object.fidelity, tags: object.tags, revision: object.revision, active: object.active })),
+      contextDeliveries: deliveries.map((delivery) => ({ id: delivery.publicId, workstreamId: workstreamPublic.get(delivery.workstreamId), contextRevision: delivery.contextRevision, trigger: delivery.trigger, itemRefs: delivery.itemRefs, deliveredAt: new Date(delivery.deliveredAt).toISOString(), acknowledgedAt: delivery.acknowledgedAt === undefined ? undefined : new Date(delivery.acknowledgedAt).toISOString() })),
+      activity: activity.map((event) => ({ eventId: event.eventId, memberId: memberPublic.get(event.memberId), workspaceId: event.workspacePublicId, sequence: event.sequence, observedAt: event.observedAt, receivedAt: new Date(event.receivedAt).toISOString(), source: event.source, type: event.type, payload: event.payload })),
+      syncCards: cards.map((card) => ({ id: card.publicId, title: card.title, summary: card.summary, state: card.state, revision: card.revision, createdAt: new Date(card.createdAt).toISOString(), updatedAt: new Date(card.updatedAt).toISOString() })),
+      syncComments: comments.map((comment) => ({ id: comment.publicId, memberId: memberPublic.get(comment.memberId), body: comment.body, createdAt: new Date(comment.createdAt).toISOString() })),
+      resolutions: decisions.map((decision) => ({ id: decision.publicId, summary: decision.summary, revision: decision.revision, createdAt: new Date(decision.createdAt).toISOString(), updatedAt: new Date(decision.updatedAt).toISOString() })),
+      sessionMessages: messages.map((message) => ({ id: message.publicId, workstreamId: workstreamPublic.get(message.workstreamId), memberId: memberPublic.get(message.memberId), vendor: message.vendor, kind: message.kind, text: message.text, capturedAt: new Date(message.capturedAt).toISOString(), expiresAt: new Date(message.expiresAt).toISOString() })),
+    };
+  },
+});
+
+export const beginProjectDeletion = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role !== "owner") fail("forbidden");
+    await enforceRate(ctx, auth.device.tokenHash, "projects.delete", args.now, 3, 60_000);
+    await ctx.db.patch(auth.project._id, { status: "deleting" });
+    const sessions = await ctx.db.query("browserSessions").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
+    const invites = await ctx.db.query("invites").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
+    if (sessions.length > 100 || invites.length > 100) fail("page_too_large");
+    for (const session of sessions) await ctx.db.patch(session._id, { revokedAt: args.now });
+    for (const invite of invites) await ctx.db.patch(invite._id, { revokedAt: args.now, remainingUses: 0 });
+    await ctx.scheduler.runAfter(0, internal.service.deleteProjectBatch, { projectId: auth.project._id });
+    return true;
+  },
+});
+
+export const beginMemberDataDeletion = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role === "owner") fail("owner_must_delete_project_or_transfer");
+    await enforceRate(ctx, auth.device.tokenHash, "members.delete_self", args.now, 3, 60_000);
+    await ctx.db.patch(auth.member._id, { removedAt: args.now });
+    const sessions = await ctx.db.query("browserSessions").withIndex("by_member", (q) => q.eq("memberId", auth.member._id)).take(101);
+    if (sessions.length > 100) fail("page_too_large");
+    for (const session of sessions) if (session.revokedAt === undefined) await ctx.db.patch(session._id, { revokedAt: args.now });
+    await bumpProjectScopes(ctx, auth.project._id, args.now);
+    await ctx.scheduler.runAfter(0, internal.service.deleteMemberDataBatch, { projectId: auth.project._id, memberId: auth.member._id, deviceId: auth.device._id });
+    return true;
+  },
+});
+
+export const deleteMemberDataBatch = internalMutation({
+  args: { projectId: v.id("projects"), memberId: v.id("members"), deviceId: v.id("devices") },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get(args.memberId);
+    if (!member || member.projectId !== args.projectId || member.removedAt === undefined) return false;
+    const again = async () => { await ctx.scheduler.runAfter(0, internal.service.deleteMemberDataBatch, args); return true; };
+    const workstream = (await ctx.db.query("workstreams").withIndex("by_member", (q) => q.eq("memberId", args.memberId)).take(1))[0];
+    if (workstream) {
+      const manifest = (await ctx.db.query("changeManifests").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).take(1))[0];
+      if (manifest) {
+        const chunks = await ctx.db.query("changeManifestChunks").withIndex("by_manifest_chunk", (q) => q.eq("manifestId", manifest._id)).take(100);
+        if (chunks.length) for (const chunk of chunks) await ctx.db.delete(chunk._id); else await ctx.db.delete(manifest._id);
+        return again();
+      }
+      const semantic = (await ctx.db.query("semanticObjects").withIndex("by_workstream_active", (q) => q.eq("workstreamId", workstream._id)).take(1))[0];
+      if (semantic) {
+        const embeddings = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", semantic._id)).take(100);
+        if (embeddings.length) for (const embedding of embeddings) await ctx.db.delete(embedding._id); else await ctx.db.delete(semantic._id);
+        return again();
+      }
+      const contextDeliveries = await ctx.db.query("contextDeliveries").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).take(100);
+      if (contextDeliveries.length) { for (const row of contextDeliveries) await ctx.db.delete(row._id); return again(); }
+      const reads = await ctx.db.query("sessionReadSets").withIndex("by_workstream_path", (q) => q.eq("workstreamId", workstream._id)).take(100);
+      if (reads.length) { for (const row of reads) await ctx.db.delete(row._id); return again(); }
+      const messages = await ctx.db.query("sessionMessages").withIndex("by_workstream_captured", (q) => q.eq("workstreamId", workstream._id)).take(100);
+      if (messages.length) { for (const row of messages) await ctx.db.delete(row._id); return again(); }
+      const workstreamDecisionDeliveries = await ctx.db.query("decisionDeliveries").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).take(100);
+      if (workstreamDecisionDeliveries.length) { for (const row of workstreamDecisionDeliveries) await ctx.db.delete(row._id); return again(); }
+      const finding = (await ctx.db.query("findings").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(501)).find((candidate) => candidate.workstreamPublicIds.includes(workstream.publicId));
+      if (finding) {
+        const feedback = await ctx.db.query("findingFeedback").withIndex("by_finding_member", (q) => q.eq("findingId", finding._id)).take(100);
+        if (feedback.length) for (const row of feedback) await ctx.db.delete(row._id); else await ctx.db.delete(finding._id);
+        return again();
+      }
+      const decision = (await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", args.projectId)).take(501)).find((candidate) => candidate.affectedWorkstreamIds.includes(workstream._id));
+      if (decision) {
+        const deliveries = await ctx.db.query("decisionDeliveries").withIndex("by_decision_workstream", (q) => q.eq("decisionId", decision._id)).take(100);
+        if (deliveries.length) for (const row of deliveries) await ctx.db.delete(row._id); else await ctx.db.delete(decision._id);
+        return again();
+      }
+      const contract = (await ctx.db.query("contractFingerprints").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(501)).find((candidate) => candidate.changedByWorkstreamPublicId === workstream.publicId);
+      if (contract) { await ctx.db.delete(contract._id); return again(); }
+      await ctx.db.delete(workstream._id);
+      return again();
+    }
+    for (const table of ["activityEvents", "findingFeedback", "syncComments", "sessionMessages", "dashboardTickets", "browserSessions"] as const) {
+      const rows = await ctx.db.query(table).withIndex("by_member", (q) => q.eq("memberId", args.memberId)).take(100);
+      if (rows.length) { for (const row of rows) await ctx.db.delete(row._id); return again(); }
+    }
+    const card = (await ctx.db.query("syncCards").withIndex("by_creator", (q) => q.eq("createdByMemberId", args.memberId)).take(1))[0];
+    if (card) {
+      const comments = await ctx.db.query("syncComments").withIndex("by_card_created", (q) => q.eq("syncCardId", card._id)).take(100);
+      if (comments.length) for (const comment of comments) await ctx.db.delete(comment._id); else await ctx.db.delete(card._id);
+      return again();
+    }
+    const decision = (await ctx.db.query("decisions").withIndex("by_creator", (q) => q.eq("createdByMemberId", args.memberId)).take(1))[0];
+    if (decision) {
+      const deliveries = await ctx.db.query("decisionDeliveries").withIndex("by_decision_workstream", (q) => q.eq("decisionId", decision._id)).take(100);
+      if (deliveries.length) for (const delivery of deliveries) await ctx.db.delete(delivery._id); else await ctx.db.delete(decision._id);
+      return again();
+    }
+    const invite = (await ctx.db.query("invites").withIndex("by_creator", (q) => q.eq("createdByMemberId", args.memberId)).take(1))[0];
+    if (invite) { await ctx.db.delete(invite._id); return again(); }
+    const workspace = (await ctx.db.query("workspaces").withIndex("by_member", (q) => q.eq("memberId", args.memberId)).take(1))[0];
+    if (workspace) { await ctx.db.delete(workspace._id); return again(); }
+    const cursor = await ctx.db.query("deviceCursors").withIndex("by_device_project", (q) => q.eq("deviceId", args.deviceId).eq("projectId", args.projectId)).unique();
+    if (cursor) await ctx.db.delete(cursor._id);
+    await ctx.db.delete(member._id);
+    const remainingMembership = await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", args.deviceId)).take(1);
+    if (remainingMembership.length === 0) await ctx.db.delete(args.deviceId);
+    return true;
+  },
+});
+
+export const deleteProjectBatch = internalMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.status !== "deleting") return false;
+    const again = async () => { await ctx.scheduler.runAfter(0, internal.service.deleteProjectBatch, args); return true; };
+    const manifest = (await ctx.db.query("changeManifests").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(1))[0];
+    if (manifest) {
+      const chunks = await ctx.db.query("changeManifestChunks").withIndex("by_manifest_chunk", (q) => q.eq("manifestId", manifest._id)).take(100);
+      if (chunks.length) for (const chunk of chunks) await ctx.db.delete(chunk._id); else await ctx.db.delete(manifest._id);
+      return again();
+    }
+    const object = (await ctx.db.query("semanticObjects").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(1))[0];
+    if (object) {
+      const embeddings = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object._id)).take(100);
+      if (embeddings.length) for (const embedding of embeddings) await ctx.db.delete(embedding._id); else await ctx.db.delete(object._id);
+      return again();
+    }
+    const decision = (await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", args.projectId)).take(1))[0];
+    if (decision) {
+      const deliveries = await ctx.db.query("decisionDeliveries").withIndex("by_decision_workstream", (q) => q.eq("decisionId", decision._id)).take(100);
+      if (deliveries.length) for (const delivery of deliveries) await ctx.db.delete(delivery._id); else await ctx.db.delete(decision._id);
+      return again();
+    }
+    const workstream = (await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(1))[0];
+    if (workstream) {
+      const deliveries = await ctx.db.query("decisionDeliveries").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).take(100);
+      if (deliveries.length) for (const delivery of deliveries) await ctx.db.delete(delivery._id); else await ctx.db.delete(workstream._id);
+      return again();
+    }
+    const directTables = ["contextDeliveries", "sessionReadSets", "contractFingerprints", "findingFeedback", "findings", "sessionMessages", "syncComments", "syncCards", "activityEvents", "deviceCursors", "dashboardTickets", "browserSessions", "invites", "workspaces", "repositoryScopes"] as const;
+    for (const table of directTables) {
+      const rows = await ctx.db.query(table).withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(100);
+      if (rows.length) { for (const row of rows) await ctx.db.delete(row._id); return again(); }
+    }
+    const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(100);
+    if (members.length) {
+      for (const member of members) {
+        await ctx.db.delete(member._id);
+        const remainingMembership = await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", member.deviceId)).take(1);
+        if (remainingMembership.length === 0) await ctx.db.delete(member.deviceId);
+      }
+      return again();
+    }
+    await ctx.db.delete(project._id);
+    return true;
+  },
+});
+
+export const revokeDevice = internalMutation({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), targetDevicePublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
     const target = await ctx.db.query("devices").withIndex("by_public_id", (q) => q.eq("publicId", args.targetDevicePublicId)).unique();
     if (!target) fail("not_found");
-    if (actor._id !== target._id) {
+    let actor: Doc<"devices">;
+    if (args.sessionHash) {
+      if (args.tokenHash) fail("unauthorized");
+      const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+      actor = auth.device;
+      const targetMembership = await ctx.db.query("members").withIndex("by_project_device", (q) => q.eq("projectId", auth.project._id).eq("deviceId", target._id)).unique();
+      if (!targetMembership || targetMembership.removedAt !== undefined || actor._id !== target._id && auth.member.role !== "owner") fail("forbidden");
+    } else {
+      actor = await requireDevice(ctx, args.tokenHash ?? "");
+    }
+    await enforceRate(ctx, actor.tokenHash, "devices.revoke", args.now, 20, 60_000);
+    if (!args.sessionHash && actor._id !== target._id) {
       const actorMemberships = (await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", actor._id)).collect())
         .filter((member) => member.removedAt === undefined && member.role === "owner");
       const targetMemberships = (await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", target._id)).collect())
         .filter((member) => member.removedAt === undefined);
       if (!actorMemberships.some((owner) => targetMemberships.some((member) => member.projectId === owner.projectId))) fail("forbidden");
     }
+    await assertOwnerDeviceRevocable(ctx, target);
     await ctx.db.patch(target._id, { revokedAt: args.now });
     return true;
   },
@@ -1778,6 +2080,21 @@ async function requireMembership(ctx: QueryCtx | MutationCtx, deviceId: Id<"devi
   const member = await ctx.db.query("members").withIndex("by_project_device", (q) => q.eq("projectId", projectId).eq("deviceId", deviceId)).unique();
   if (!member || member.removedAt !== undefined) fail("forbidden");
   return member;
+}
+
+async function assertOwnerDeviceRevocable(ctx: QueryCtx | MutationCtx, target: Doc<"devices">): Promise<void> {
+  const memberships = (await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", target._id)).collect())
+    .filter((member) => member.removedAt === undefined && member.role === "owner");
+  for (const membership of memberships) {
+    const projectMembers = (await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", membership.projectId)).collect())
+      .filter((member) => member.removedAt === undefined && member.role === "owner");
+    let activeOwnerDevices = 0;
+    for (const owner of projectMembers) {
+      const device = await ctx.db.get(owner.deviceId);
+      if (device && device.revokedAt === undefined) activeOwnerDevices++;
+    }
+    if (activeOwnerDevices <= 1) fail("cannot_revoke_last_owner_device");
+  }
 }
 
 async function requireProjectRole(

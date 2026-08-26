@@ -51,7 +51,7 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await page.getByRole("button", { name: "Open Project settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Coordination metadata only");
+  await expect(dialog).toContainText("Local-first analysis, bounded Project sharing");
   await expect(page.getByRole("button", { name: "Close settings" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

@@ -84,7 +84,10 @@ describe("Project Workroom behavior", () => {
     expect(await screen.findByText("Feedback recorded")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
     const dialog = screen.getByRole("dialog", { name: "Settings" });
-    expect(within(dialog).getByText("Coordination metadata only")).toBeTruthy();
+    expect(within(dialog).getByText("Local-first analysis, bounded Project sharing")).toBeTruthy();
+    expect(await within(dialog).findByRole("heading", { name: "Members" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Create one-use invite" })).toBeTruthy();
+    expect(within(dialog).getByText("Export retained Project data")).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: /Theme/ }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });

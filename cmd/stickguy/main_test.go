@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"os"
 	"path/filepath"
@@ -192,10 +193,68 @@ func TestProductionAgentSetupUsesCurrentProfile(t *testing.T) {
 	}
 	for _, agent := range []string{"codex", "claude"} {
 		state, project := t.TempDir(), t.TempDir()
-		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil { t.Fatalf("%s setup: %v", agent, err) }
+		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil {
+			t.Fatalf("%s setup: %v", agent, err)
+		}
 		path := filepath.Join(project, ".mcp.json")
-		if agent == "codex" { path = filepath.Join(project, ".codex", "config.toml") }
+		if agent == "codex" {
+			path = filepath.Join(project, ".codex", "config.toml")
+		}
 		contents, err := os.ReadFile(path)
-		if err != nil || !strings.Contains(string(contents), state) || !strings.Contains(string(contents), "agent-hook") { t.Fatalf("%s production config path=%s err=%v contents=%q", agent, path, err, contents) }
+		if err != nil || !strings.Contains(string(contents), "stickguy") || !strings.Contains(string(contents), state) {
+			t.Fatalf("%s production config path=%s err=%v contents=%q", agent, path, err, contents)
+		}
+	}
+}
+
+func TestDiagnosticsDoctorSummaryRejectsProhibitedData(t *testing.T) {
+	secret := "sk_live_abcdefghijklmno"
+	repository := "/Users/person/private-repository"
+	report := safeDoctorSummary(map[string]any{
+		"status": "ok", "workspaces": 2, "pending": int64(3),
+		"projectId": "prj_private", "repositoryRoot": repository,
+		"environment": "DATABASE_URL=postgres://private", "token": secret,
+		"commandOutput": "all private rows",
+	})
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, prohibited := range []string{"prj_private", repository, "DATABASE_URL", secret, "commandOutput", "private rows"} {
+		if strings.Contains(text, prohibited) {
+			t.Fatalf("diagnostics disclosed %q in %s", prohibited, text)
+		}
+	}
+	if !strings.Contains(text, `"status":"ok"`) || !strings.Contains(text, `"workspaces":2`) {
+		t.Fatalf("diagnostics omitted safe health fields: %s", text)
+	}
+}
+
+func TestRemoveAllAgentBindingsUsesManagedRemoval(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("local service currently supports macOS")
+	}
+	state, project := t.TempDir(), t.TempDir()
+	for _, agent := range []string{"codex", "claude"} {
+		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil {
+			t.Fatalf("setup %s: %v", agent, err)
+		}
+	}
+	paths, err := config.Resolve(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = config.Save(paths, config.Config{Version: 1, Workspaces: []config.Workspace{{ID: "wsp_test", Root: project}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = run([]string{"--config-root", state, "setup", "remove-all"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(project, ".codex", "config.toml"), filepath.Join(project, ".mcp.json"), filepath.Join(project, ".codex", "hooks.json"), filepath.Join(project, ".claude", "settings.local.json")} {
+		contents, readErr := os.ReadFile(path)
+		if readErr == nil && strings.Contains(string(contents), "stickguy") {
+			t.Fatalf("managed binding remained in %s: %s", path, contents)
+		}
 	}
 }

@@ -156,3 +156,12 @@ export interface DashboardSession {
 export interface ProjectMember {
   id: string; name: string; nameSource: MemberNameSource; role: "owner" | "member"; isSelf: boolean; joinedAt: string;
 }
+export interface ProjectDeviceAdmin {
+  id: string; memberId: string; label: string; appVersion: string; isCurrent: boolean; revoked: boolean; lastSeenAt?: string;
+}
+export interface ProjectInviteAdmin {
+  id: string; expiresAt: string; remainingUses: number; revoked: boolean; createdAt: string;
+}
+export interface ProjectAccess {
+  role: "owner" | "member"; members: ProjectMember[]; devices: ProjectDeviceAdmin[]; invites: ProjectInviteAdmin[];
+}

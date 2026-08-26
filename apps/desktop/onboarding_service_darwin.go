@@ -43,6 +43,7 @@ type AdapterState struct {
 
 type OnboardingState struct {
 	Available       bool           `json:"available"`
+	Development     bool           `json:"development"`
 	Enrolled        bool           `json:"enrolled"`
 	ProjectID       string         `json:"projectId"`
 	RepositoryRoot  string         `json:"repositoryRoot"`
@@ -91,7 +92,7 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 }
 
 func (service *OnboardingService) State() (OnboardingState, error) {
-	state := OnboardingState{Available: true, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
+	state := OnboardingState{Available: true, Development: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
 	if service.configRoot == "" {
 		return state, errors.New("local Stickguy configuration is unavailable")
 	}
@@ -151,7 +152,7 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName}
+	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "stickguy/desktop-beta"}
 	flow := onboarding.New(service.apiBaseURL)
 	var result onboarding.Result
 	if create {

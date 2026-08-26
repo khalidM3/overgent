@@ -36,6 +36,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/invites/{targetId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revokeInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/enrollments": {
         parameters: {
             query?: never;
@@ -228,6 +244,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getProjectAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/members/{targetId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removeProjectMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/member": {
         parameters: {
             query?: never;
@@ -238,7 +286,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteOwnProjectData"];
         options?: never;
         head?: never;
         patch: operations["updateProjectMemberIdentity"];
@@ -356,6 +404,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["exportProject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devices/{id}/revoke": {
         parameters: {
             query?: never;
@@ -384,6 +464,7 @@ export interface components {
             deviceLabel: string;
             /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
             displayName?: string;
+            appVersion?: string;
         };
         Project: {
             id: string;
@@ -1615,6 +1696,72 @@ export interface components {
                 joinedAt: string;
             }[];
         };
+        /** Format: date-time */
+        timestamp: string;
+        member: {
+            id: string;
+            name: string;
+            /** @enum {unknown} */
+            nameSource: "device" | "member";
+            /** @enum {unknown} */
+            role: "owner" | "member";
+            isSelf: boolean;
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        projectDevice: {
+            id: string;
+            memberId: string;
+            label: string;
+            appVersion: string;
+            isCurrent: boolean;
+            revoked: boolean;
+            /** Format: date-time */
+            lastSeenAt?: string;
+        };
+        invite: {
+            id: string;
+            /** Format: date-time */
+            expiresAt: string;
+            remainingUses: number;
+            revoked: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        access: {
+            /** @enum {unknown} */
+            role: "owner" | "member";
+            members: {
+                id: string;
+                name: string;
+                /** @enum {unknown} */
+                nameSource: "device" | "member";
+                /** @enum {unknown} */
+                role: "owner" | "member";
+                isSelf: boolean;
+                /** Format: date-time */
+                joinedAt: string;
+            }[];
+            devices: {
+                id: string;
+                memberId: string;
+                label: string;
+                appVersion: string;
+                isCurrent: boolean;
+                revoked: boolean;
+                /** Format: date-time */
+                lastSeenAt?: string;
+            }[];
+            invites: {
+                id: string;
+                /** Format: date-time */
+                expiresAt: string;
+                remainingUses: number;
+                revoked: boolean;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
+        };
         memberIdentity: {
             memberId: string;
             memberName: string;
@@ -1722,6 +1869,29 @@ export interface components {
                 };
             };
         };
+        exportRecord: Record<string, never>;
+        exportRecords: Record<string, never>[];
+        projectExport: {
+            /** @constant */
+            schemaVersion: 1;
+            /** Format: date-time */
+            exportedAt: string;
+            project: Record<string, never>;
+            members: Record<string, never>[];
+            workspaces: Record<string, never>[];
+            workstreams: Record<string, never>[];
+            manifests: Record<string, never>[];
+            contractFingerprints: Record<string, never>[];
+            readSets: Record<string, never>[];
+            findings: Record<string, never>[];
+            semanticObjects: Record<string, never>[];
+            contextDeliveries: Record<string, never>[];
+            activity: Record<string, never>[];
+            syncCards: Record<string, never>[];
+            syncComments: Record<string, never>[];
+            resolutions: Record<string, never>[];
+            sessionMessages: Record<string, never>[];
+        };
     };
     responses: {
         /** @description Stable error envelope */
@@ -1744,6 +1914,7 @@ export interface components {
     };
     parameters: {
         Id: string;
+        TargetId: string;
         Cursor: string;
     };
     requestBodies: never;
@@ -1766,6 +1937,7 @@ export interface operations {
                     deviceLabel: string;
                     /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
                     displayName?: string;
+                    appVersion?: string;
                 };
             };
         };
@@ -1832,6 +2004,44 @@ export interface operations {
                         expiresAt: string;
                     };
                 };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    revokeInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invite revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Stable error envelope */
             default: {
@@ -2793,6 +3003,153 @@ export interface operations {
             };
         };
     };
+    getProjectAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {unknown} */
+                        role: "owner" | "member";
+                        members: {
+                            id: string;
+                            name: string;
+                            /** @enum {unknown} */
+                            nameSource: "device" | "member";
+                            /** @enum {unknown} */
+                            role: "owner" | "member";
+                            isSelf: boolean;
+                            /** Format: date-time */
+                            joinedAt: string;
+                        }[];
+                        devices: {
+                            id: string;
+                            memberId: string;
+                            label: string;
+                            appVersion: string;
+                            isCurrent: boolean;
+                            revoked: boolean;
+                            /** Format: date-time */
+                            lastSeenAt?: string;
+                        }[];
+                        invites: {
+                            id: string;
+                            /** Format: date-time */
+                            expiresAt: string;
+                            remainingUses: number;
+                            revoked: boolean;
+                            /** Format: date-time */
+                            createdAt: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    removeProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                targetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member removed from this Project */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteOwnProjectData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Membership revoked immediately and deletion of this member's retained Project data scheduled */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
     updateProjectMemberIdentity: {
         parameters: {
             query?: never;
@@ -3425,6 +3782,102 @@ export interface operations {
         responses: {
             /** @description Feedback recorded */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    exportProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Portable export of retained structured Project data; owners receive the Project and members receive records about their own work */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        schemaVersion: 1;
+                        /** Format: date-time */
+                        exportedAt: string;
+                        project: Record<string, never>;
+                        members: Record<string, never>[];
+                        workspaces: Record<string, never>[];
+                        workstreams: Record<string, never>[];
+                        manifests: Record<string, never>[];
+                        contractFingerprints: Record<string, never>[];
+                        readSets: Record<string, never>[];
+                        findings: Record<string, never>[];
+                        semanticObjects: Record<string, never>[];
+                        contextDeliveries: Record<string, never>[];
+                        activity: Record<string, never>[];
+                        syncCards: Record<string, never>[];
+                        syncComments: Record<string, never>[];
+                        resolutions: Record<string, never>[];
+                        sessionMessages: Record<string, never>[];
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project authorization revoked and batched deletion scheduled */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

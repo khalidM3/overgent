@@ -8,7 +8,7 @@ const adapters = [
   { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false },
   { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false },
 ];
-const initial: OnboardingState = { available: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only." };
+const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only." };
 const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
 
 describe("desktop onboarding", () => {

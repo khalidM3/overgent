@@ -2,7 +2,7 @@
 
 Stickguy is a persistent coordination harness for teams building software with coding agents. It acts as air traffic control around existing Codex, Claude, Cursor, and other coding harnesses: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time.
 
-The repository has completed L-1 and L0–L6, including the deterministic vertical slice, MCP lifecycle core, macOS desktop preview, and coordination-intelligence loop. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
+The repository has completed L-1 and L0–L6 and has implemented L8 to its owner-controlled beta gates, including the deterministic vertical slice, MCP lifecycle core, coordination-intelligence loop, signed update/recovery path, fleet/data controls, and Apple Silicon desktop beta. Publication still requires Apple/update signing credentials, a monitored private security channel, clean-machine evidence, and the real-team second-session gate. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
 
 Core decisions: persistent Projects; standalone Go local core; one service per user; React dashboard and Convex backend; deterministic evidence plus V1 semantic coordination over bounded summaries; no raw transcript, system-prompt, diff, or source-content collection in V1. The intended trust model publishes all installed/collection code and core hosted coordination code while isolating private cloud operations in a separate repository.
 
@@ -31,7 +31,7 @@ verified.
 For the native hot-reload stack and the two-worktree Codex/Claude collision
 exercise, see [`docs/development.md`](docs/development.md).
 
-For a real two-Mac dogfood Project, configure one cloud Convex development
+For the release boundary and owner prerequisites, see [`docs/beta-release.md`](docs/beta-release.md). For a real two-Mac dogfood Project, configure one cloud Convex development
 deployment and run `pnpm dev:shared` on both Macs with the same HTTPS
 `STICKGUY_SHARED_API_ORIGIN`. This uses an isolated local profile; see the
 shared-development section in [`docs/development.md`](docs/development.md).
@@ -62,4 +62,4 @@ pnpm protocol:check
 
 `protocol:generate` is the only supported way to update generated Go and TypeScript protocol types. `protocol:check` regenerates into an isolated temporary directory and fails on byte drift. Generated files are committed.
 
-The public/private data and repository split is explicit in [`docs/public-repository-boundary.md`](docs/public-repository-boundary.md). Stickguy is licensed under Apache-2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Public launch still requires an operational private security-reporting channel.
+The public/private data and repository split is explicit in [`docs/public-repository-boundary.md`](docs/public-repository-boundary.md). Stickguy is licensed under Apache-2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Public launch still requires an operational private security-reporting channel; invited beta publication also requires the owner gates in the beta release guide.

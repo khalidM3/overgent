@@ -275,7 +275,8 @@ type HeartbeatJSONBodyState string
 
 // CreateProjectJSONBody defines parameters for CreateProject.
 type CreateProjectJSONBody struct {
-	DeviceLabel string `json:"deviceLabel"`
+	AppVersion  *string `json:"appVersion,omitempty"`
+	DeviceLabel string  `json:"deviceLabel"`
 
 	// DisplayName Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
 	DisplayName *string `json:"displayName,omitempty"`

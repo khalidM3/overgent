@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/project-administration.schema.json",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "member": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "nameSource", "role", "isSelf", "joinedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "nameSource": { "enum": ["device", "member"] }, "role": { "enum": ["owner", "member"] },
+        "isSelf": { "type": "boolean" }, "joinedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "projectDevice": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "memberId", "label", "appVersion", "isCurrent", "revoked"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "memberId": { "$ref": "#/$defs/id" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 }, "appVersion": { "type": "string", "maxLength": 64 },
+        "isCurrent": { "type": "boolean" }, "revoked": { "type": "boolean" }, "lastSeenAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "invite": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "expiresAt", "remainingUses", "revoked", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "expiresAt": { "$ref": "#/$defs/timestamp" },
+        "remainingUses": { "type": "integer", "minimum": 0, "maximum": 50 }, "revoked": { "type": "boolean" },
+        "createdAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "access": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "members", "devices", "invites"],
+      "properties": {
+        "role": { "enum": ["owner", "member"] },
+        "members": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/member" } },
+        "devices": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/projectDevice" } },
+        "invites": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/invite" } }
+      }
+    },
+    "exportRecord": { "type": "object", "maxProperties": 32 },
+    "exportRecords": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/exportRecord" } },
+    "projectExport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "exportedAt", "project", "members", "workspaces", "workstreams", "manifests", "contractFingerprints", "readSets", "findings", "semanticObjects", "contextDeliveries", "activity", "syncCards", "syncComments", "resolutions", "sessionMessages"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "exportedAt": { "$ref": "#/$defs/timestamp" },
+        "project": { "$ref": "#/$defs/exportRecord" }, "members": { "$ref": "#/$defs/exportRecords" },
+        "workspaces": { "$ref": "#/$defs/exportRecords" }, "workstreams": { "$ref": "#/$defs/exportRecords" },
+        "manifests": { "$ref": "#/$defs/exportRecords" }, "contractFingerprints": { "$ref": "#/$defs/exportRecords" },
+        "readSets": { "$ref": "#/$defs/exportRecords" }, "findings": { "$ref": "#/$defs/exportRecords" },
+        "semanticObjects": { "$ref": "#/$defs/exportRecords" }, "contextDeliveries": { "$ref": "#/$defs/exportRecords" },
+        "activity": { "$ref": "#/$defs/exportRecords" }, "syncCards": { "$ref": "#/$defs/exportRecords" },
+        "syncComments": { "$ref": "#/$defs/exportRecords" }, "resolutions": { "$ref": "#/$defs/exportRecords" },
+        "sessionMessages": { "$ref": "#/$defs/exportRecords" }
+      }
+    }
+  }
+}

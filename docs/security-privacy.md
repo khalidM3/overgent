@@ -46,6 +46,13 @@ Protect against token theft/replay, unauthorized project access, hostile website
 - Opaque public IDs; separate dev/preview/prod data and credentials.
 - Audit security events without secrets; implement retention and deletion jobs.
 
+Hosted activity, findings, semantic objects, deliveries, and shared session
+messages default to 30-day retention and are removed by bounded expiry jobs.
+Project owners can export or delete the Project; ordinary members can export
+records about their own work and leave with deletion of their retained records.
+Authorization is revoked synchronously before batched deletion starts. Deletion
+removes rows and orphan devices rather than hiding them behind a Project flag.
+
 ### Supply chain
 
 - Pin dependencies; SBOM and signed artifacts/update metadata.

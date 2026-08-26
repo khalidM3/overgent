@@ -117,9 +117,12 @@ func New(rawBase, token string) (*Client, error) {
 
 // CreateProject sends displayName only when the member chose one; omitting it
 // keeps the device label as a seed the member is later asked to replace.
-func (c *Client) CreateProject(ctx context.Context, label, deviceLabel, displayName string) (Project, error) {
+func (c *Client) CreateProject(ctx context.Context, label, deviceLabel, displayName, appVersion string) (Project, error) {
 	var out struct{ ID, Label string }
 	body := protocoltypes.CreateProjectJSONBody{Label: label, DeviceLabel: deviceLabel}
+	if appVersion != "" {
+		body.AppVersion = &appVersion
+	}
 	if displayName != "" {
 		body.DisplayName = &displayName
 	}

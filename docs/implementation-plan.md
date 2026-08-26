@@ -321,6 +321,17 @@ Unchanged in content; now gated on M1–M5. Deliver signed cross-platform releas
 
 Exit: clean install/update/uninstall; security checklist; no critical data loss in restart/network/update tests; a real team voluntarily completes a second session.
 
+Current outcome: implementation complete to the owner-controlled release gates
+under ADR-049 and ADR-050. The repository now contains signed updater metadata,
+verified replacement and automatic rollback, a recovering macOS LaunchAgent,
+rendered installer/uninstaller, signed/notarized desktop workflow, SBOM and
+provenance generation, privacy-safe diagnostics, Project fleet controls,
+owner/member exports and deletion, caller-scoped edge limits, and live
+authorization/deletion coverage. L8 remains open until the owner supplies the
+release trust inputs and security channel, publishes a credentialed candidate,
+records clean-machine lifecycle evidence, and a real two-person team completes
+the second-session gate. Linux, Windows, and Intel macOS remain unqualified.
+
 ## Parallel agent lanes
 
 After L0: Agent A owns Go local core; Agent B Convex/API; Agent C dashboard fixtures; one integrator owns protocol/generated code and end-to-end merge. Agents never redefine shared schemas independently.
