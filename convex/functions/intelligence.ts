@@ -8,11 +8,14 @@ const OPENAI_EMBEDDING_DIMENSIONS = 1024;
 
 async function loadContext(ctx: QueryCtx, args: { tokenHash: string; workstreamPublicId: string }) {
     const device = await ctx.db.query("devices").withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash)).unique();
-    if (!device || device.revokedAt !== undefined) throw new Error("unauthorized");
+    // Codes travel to the HTTP boundary in the shared `E:` form. A bare message
+    // classifies as internal_error, which reported an unknown workstream as a
+    // retryable server fault on the brief path.
+    if (!device || device.revokedAt !== undefined) throw new Error("E:unauthorized");
     const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
-    if (!workstream) throw new Error("not_found");
+    if (!workstream) throw new Error("E:not_found");
     const member = await ctx.db.query("members").withIndex("by_project_device", (q) => q.eq("projectId", workstream.projectId).eq("deviceId", device._id)).unique();
-    if (!member || member.removedAt !== undefined) throw new Error("forbidden");
+    if (!member || member.removedAt !== undefined) throw new Error("E:forbidden");
     const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).unique();
     const object = (await ctx.db.query("semanticObjects").withIndex("by_workstream_active", (q) => q.eq("workstreamId", workstream._id).eq("active", true)).take(3)).find((candidate) => candidate.kind === "intent");
     const embedding = object ? await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object._id)).unique() : null;
