@@ -22,9 +22,18 @@ export interface EnrollmentRequest {
   repositoryRoot: string;
   projectLabel: string;
   deviceLabel: string;
+  /** Member-chosen live-work identity. Empty means the member is asked to choose one later. */
+  displayName: string;
   joinCode: string;
   enableCodex: boolean;
   enableClaude: boolean;
+}
+
+export interface NativeSessionDetail {
+  available: boolean;
+  title?: string;
+  branch?: string;
+  messages: Array<{ kind: string; text?: string; tool?: string; at?: string }>;
 }
 
 export interface EnrollmentResult {
@@ -63,6 +72,7 @@ export const nativeOnboarding = {
   configureAdapters: (root: string, codex: boolean, claude: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude),
   connectAgentWorktree: (root: string, agent: "codex" | "claude") => call<AdapterState>("ConnectAgentWorktree", root, agent),
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
+  sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),
 };
 
 export type NativeOnboarding = typeof nativeOnboarding;

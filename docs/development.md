@@ -144,14 +144,56 @@ or environment values.
   vendor tool does not expose path metadata or an adapter is disconnected.
 - Existing sessions must restart once after adapter installation. Hook coverage
   is honest: unsupported hosted or specialized tool paths are not inferred.
-- Stickguy does not scan process memory, tail transcripts, display hidden
-  reasoning, or collect source/diffs, raw commands/output, environment values,
-  `.env` variants, credentials, or system/developer prompts.
+- Stickguy may read the supported vendor session record locally to show the
+  session owner their own bounded conversation and to prepare an explicitly
+  consented share. It never uploads the transcript file itself, scans process
+  memory, displays hidden reasoning, or collects source/diffs, raw
+  commands/output, environment values, `.env` variants, credentials, or
+  system/developer prompts.
 
 This single-Mac exercise validates attribution, live Git collisions, bounded
 semantic findings, briefs, and the dashboard. Inviting another member reuses
 the existing join code, but production multiplayer reliability and distribution
 remain later gates.
+
+## Shared two-Mac dogfood
+
+The explicit shared-development profile uses a cloud Convex development
+deployment while keeping each dashboard and local service on its own Mac. It
+uses a separate local profile and accepts only an HTTPS remote API origin.
+
+On the first Mac, sign in and create or select a cloud development deployment:
+
+```bash
+pnpm --dir convex exec convex login
+pnpm --dir convex exec convex dev --once --configure new --dev-deployment cloud
+```
+
+Copy the deployment's `CONVEX_SITE_URL` (the `https://...convex.site` HTTP
+actions origin), not the `convex.cloud` client URL. Set the OpenAI key without
+putting it in shell history:
+
+```bash
+pbpaste | pnpm --dir convex exec convex env set OPENAI_API_KEY
+pnpm --dir convex exec convex env list --names-only
+```
+
+Push function changes with `convex dev --once`, then start the shared profile:
+
+```bash
+STICKGUY_SHARED_API_ORIGIN=https://YOUR-DEPLOYMENT.convex.site pnpm dev:shared
+```
+
+Create the Project in the desktop and send the one-use invite privately. On the
+second Mac, use the same repository checkout and repository remote, run the same
+commit of Stickguy with the same `STICKGUY_SHARED_API_ORIGIN`, choose **Join a
+Project**, and enter the invite. Each Mac stores a different device credential
+and publishes independently to the shared Project.
+
+The shared profile defaults to
+`~/Library/Application Support/Stickguy Shared Dev`. Override it only with an
+absolute `STICKGUY_SHARED_CONFIG_ROOT`. It never reads or mutates the ordinary
+loopback development profile.
 
 Remove only Stickguy's managed MCP entries without disturbing unrelated agent
 configuration:

@@ -56,6 +56,38 @@ func CaptureBaseline(ctx context.Context, r Runner, root string) (string, error)
 	}
 	return strings.TrimSpace(string(b)), nil
 }
+
+// CurrentBranch reports the checked-out branch name for a worktree. A detached
+// HEAD has no branch, which is reported as an empty name rather than an error so
+// session observation keeps working. The name is bounded and validated because
+// it becomes shared coordination metadata.
+func CurrentBranch(ctx context.Context, r Runner, root string) (string, error) {
+	out, err := r.run(ctx, root, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		// Detached HEAD exits non-zero with --quiet; that is not a failure.
+		return "", nil
+	}
+	branch := strings.TrimSpace(string(out))
+	if !validBranchName(branch) {
+		return "", nil
+	}
+	return branch, nil
+}
+
+// validBranchName keeps only names Git itself accepts and that are safe to
+// render as shared metadata; anything unusual degrades to no branch.
+func validBranchName(name string) bool {
+	if name == "" || len(name) > 255 || strings.HasPrefix(name, "-") {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x21 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return false
+		}
+	}
+	return !strings.Contains(name, "..") && !strings.Contains(name, "@{") && !strings.HasSuffix(name, ".lock")
+}
+
 func Observe(ctx context.Context, r Runner, root, baseline string) (Manifest, error) {
 	if !validOID(baseline) {
 		return Manifest{}, errors.New("invalid baseline object ID")

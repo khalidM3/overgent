@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
+import { fixtureSession } from "../src/fixtures";
 import { App, DesktopPreviewBanner } from "../src/main";
 
 const renderReady = () => render(<App initialState="ready" source={new FixtureProjectSource()} />);
@@ -28,14 +29,14 @@ describe("Project Workroom behavior", () => {
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
     const inspector = screen.getByLabelText("Details inspector");
-    expect(within(inspector).getByRole("heading", { name: "Codex" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Rotate the browser session boundary" })).toBeTruthy();
     expect(within(inspector).getByText("Live agent")).toBeTruthy();
     expect(within(inspector).getByText("feature/session-rotation")).toBeTruthy();
-    expect(within(inspector).getByRole("heading", { name: "Session activity 3" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Recent actions 3" })).toBeTruthy();
     expect(within(inspector).getByRole("heading", { name: "Subagents 1" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
-    expect(within(inspector).getByRole("heading", { name: "Claude Code" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Audit session validity checks" })).toBeTruthy();
     expect(within(inspector).getByText("Waiting for input")).toBeTruthy();
     expect(within(inspector).queryByRole("heading", { name: /Subagents/ })).toBeNull();
 
@@ -105,5 +106,92 @@ describe("Project Workroom behavior", () => {
     expect(screen.getByText(/never stored in this page/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Activate secure session" }));
     expect(screen.getByRole("heading", { name: "Atlas launch" })).toBeTruthy();
+  });
+});
+
+describe("member identity", () => {
+  const deviceNamedSession = { ...fixtureSession, memberName: "khalids-macbook-pro.local", memberNameSource: "device" as const };
+
+  it("asks a Project still using the device name to choose one, and never renames silently", async () => {
+    const user = userEvent.setup();
+    const source = new FixtureProjectSource();
+    render(<App initialState="ready" initialSession={deviceNamedSession} source={source} />);
+
+    const prompt = screen.getByText("Choose how teammates see you").closest(".status-strip") as HTMLElement;
+    expect(prompt).toBeTruthy();
+    // The legacy name is shown as-is; migration is a prompt, never a rewrite.
+    expect(within(prompt).getByText(/khalids-macbook-pro\.local/)).toBeTruthy();
+    expect(within(prompt).getByText(/device name stays in Settings/)).toBeTruthy();
+
+    await user.click(within(prompt).getByRole("button", { name: "Choose a name" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    const field = within(dialog).getByLabelText("Display name");
+    expect((field as HTMLInputElement).value).toBe("");
+    expect((field as HTMLInputElement).placeholder).toBe("khalids-macbook-pro.local");
+
+    await user.type(field, "Khalid M");
+    await user.click(within(dialog).getByRole("button", { name: "Save name" }));
+    expect(await within(dialog).findByText("Display name updated across this Project.")).toBeTruthy();
+  });
+
+  it("rejects an email address as live-work identity", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" initialSession={deviceNamedSession} source={new FixtureProjectSource()} />);
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.type(within(dialog).getByLabelText("Display name"), "khalid@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Save name" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("email address cannot be your Project identity");
+  });
+
+  it("keeps device names under an explicit security heading rather than as identity", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(within(dialog).getByRole("heading", { name: "Devices & security" })).toBeTruthy();
+    expect(within(dialog).getByText(/never shown as your live-work identity/)).toBeTruthy();
+    expect(screen.queryByText("Choose how teammates see you")).toBeNull();
+  });
+});
+
+describe("session content", () => {
+  it("always shows your own session locally, before and without sharing it", async () => {
+    renderReady();
+    const inspector = screen.getByLabelText("Details inspector");
+    // Sharing is off, yet the owner still sees prompts, replies, and reasoning.
+    expect(await within(inspector).findByText("Private to you")).toBeTruthy();
+    expect(within(inspector).getByText(/Only you can see this until you share it/)).toBeTruthy();
+    expect(within(inspector).getByText(/Rotate the browser session on every permission change/)).toBeTruthy();
+    expect(within(inspector).getByText(/The rotation boundary lives in session.ts/)).toBeTruthy();
+    expect(within(inspector).getAllByText("Thinking").length).toBeGreaterThan(0);
+    expect(within(inspector).getAllByText("Assistant").length).toBeGreaterThan(0);
+    // Tool steps appear as names only, never as inputs or results.
+    const conversation = inspector.querySelector(".conversation-list") as HTMLElement;
+    expect(within(conversation).getAllByText("apply_patch").length).toBe(1);
+    expect(conversation.textContent).not.toContain("file_path");
+  });
+
+  it("previews exactly what sharing would send before anything leaves the machine", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    const inspector = screen.getByLabelText("Details inspector");
+    await user.click(await within(inspector).findByRole("button", { name: /Share session/ }));
+    const dialog = within(inspector).getByRole("dialog", { name: /Choose exactly what this session shares/ });
+    expect(within(dialog).getByText(/rejected whole and never sent/)).toBeTruthy();
+    // Four of six fixture messages are user/assistant/thinking; two are tools.
+    expect(within(dialog).getByText("4 of 6 messages match this choice.")).toBeTruthy();
+    const start = within(dialog).getByRole("button", { name: "Start sharing" });
+    expect(start.hasAttribute("disabled")).toBe(true);
+    await user.click(within(dialog).getByRole("checkbox", { name: /I reviewed this/ }));
+    expect(within(dialog).getByRole("button", { name: "Start sharing" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("shows a teammate's unshared session as private rather than empty", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
+    const inspector = screen.getByLabelText("Details inspector");
+    expect(await within(inspector).findByText(/This session is private to its owner/)).toBeTruthy();
   });
 });

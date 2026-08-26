@@ -70,6 +70,59 @@ describe("hosted boundary validation", () => {
     expect(() => validateEventBatch({ events: [{ ...valid, payload: { ...valid.payload, paths: [".env.local"] } }] })).toThrow(ValidationError);
   });
 
+  it("accepts a real branch name and rejects unsafe branch metadata", () => {
+    const base = {
+      ...baseEvent, source: "hook", type: "agent.activity_reported",
+      payload: {
+        workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "PreToolUse",
+        status: "active", action: "editing src/nav.tsx",
+      },
+    };
+    for (const branch of ["main", "feature/session-rotation", "release/1.2.3"]) {
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, branch } }] })).toHaveLength(1);
+    }
+    for (const branch of ["", "-delete", "has space", "a..b", "ref@{0}", "topic.lock", "star*", "back\\slash", "a".repeat(256)]) {
+      expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, branch } }] })).toThrow(ValidationError);
+    }
+  });
+
+  it("accepts consented conversation content but rejects secrets and raw output", () => {
+    const base = {
+      ...baseEvent, source: "hook", type: "agent.conversation_shared",
+      payload: {
+        messageId: "msg_0123456789abcdef0123456789abcdef", workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary.",
+        consentVersion: "session-share/v1",
+      },
+    };
+    expect(validateEventBatch({ events: [base] })).toHaveLength(1);
+    // ADR-036: quoted code and diffs belong in a consented conversation.
+    for (const text of ["```ts\nconst x = 1;\n```", "diff --git a/a.ts b/a.ts", "Call sessionRotation() in src/auth.ts"]) {
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, text } }] })).toHaveLength(1);
+    }
+    // Vendor-recorded reasoning and surfaced instructions are supported kinds.
+    for (const kind of ["thinking", "system"]) {
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, kind } }] })).toHaveLength(1);
+    }
+    // Tool steps are activity metadata, and hooks never supplied a summary kind.
+    for (const kind of ["reasoning_summary", "tool"]) {
+      expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, kind } }] })).toThrow(ValidationError);
+    }
+    // ADR-038: a passing mention of a credential file is ordinary conversation.
+    for (const text of ["read .env.local to see which variables are set", "check the .env file first", "Compare with MAX_RETRIES == 5 first"]) {
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, text } }] })).toHaveLength(1);
+    }
+    for (const text of [
+      "API_KEY=super-secret", "export DATABASE_URL=postgres://x",
+      "Update this in .env.local: DATABASE_URL=postgres://user:pw@host/db",
+      "Here is the file:\nSTRIPE_KEY=sk_live_abcdefghijklmno\nDB_PASS=hunter2",
+      "Bearer abcdefghijklmnopqrstuvwxyz", "-----BEGIN RSA PRIVATE KEY-----", "tool_result: 42 rows", "stdout: total 12",
+    ]) {
+      expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, text } }] })).toThrow(ValidationError);
+    }
+  });
+
   it("rejects oversized batches and manifest chunks", () => {
     expect(() => validateEventBatch({ events: [] })).toThrow("batch_count_out_of_range");
     expect(() => validateEventBatch({

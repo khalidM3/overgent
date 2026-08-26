@@ -13,23 +13,29 @@ import {
   Command,
   FileCode2,
   GitBranch,
+  Gavel,
   Laptop2,
+  MessageSquare,
   Moon,
   Pause,
   Play,
+  Plus,
   Search,
   Settings2,
   ShieldCheck,
   Sun,
   Users,
   X,
+  Lock,
+  Share2,
+  UserRound,
 } from "lucide-react";
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import { DesktopOnboarding } from "./desktop-onboarding";
-import type { DashboardSession, Finding, FindingFeedback, FindingState, ProjectSnapshot, ShellState, Workstream } from "./model";
-import { fidelityLabel, semanticMessage, stateMessage } from "./state";
+import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectSnapshot, SessionMessageKind, SessionSharingSnapshot, ShellState, Workstream } from "./model";
+import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import "./style.css";
 
 const defaultSource = new FixtureProjectSource();
@@ -60,7 +66,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 function ActivationView({ onActivate }: { onActivate: () => void }) {
-  return <main className="centered-shell"><Brand /><section className="activation-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={21} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p className="lede">Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, and coordination decisions. Never source, diffs, prompts, transcripts, environment values, or raw tool output.</p></div><button className="primary-button" onClick={onActivate}>Activate secure session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
+  return <main className="centered-shell"><Brand /><section className="activation-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={21} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p className="lede">Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, and coordination decisions. Session messages appear only after the session owner previews and explicitly shares them. Source, diffs, `.env`, credentials, and raw tool output are always blocked.</p></div><button className="primary-button" onClick={onActivate}>Activate secure session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
 }
 
 function LiveApp() {
@@ -117,6 +123,11 @@ function ProjectWorkroom({ session, source, offline }: { session: DashboardSessi
   const [commandOpen, setCommandOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dark, setDark] = useState(false);
+  const [view, setView] = useState<"now" | "resolve">("now");
+  const [identity, setIdentity] = useState<{ name: string; source: MemberNameSource }>({ name: session.memberName, source: session.memberNameSource });
+  const [identityPromptDismissed, setIdentityPromptDismissed] = useState(false);
+  const [attention, setAttention] = useState<Finding | null>(null);
+  const seenFindings = useRef<Set<string> | null>(null);
   const snapshot = useProjectSnapshot(source, projectId);
   const groups = useMemo(() => groupByMember(snapshot.workstreams), [snapshot.workstreams]);
   const defaultSession = snapshot.workstreams.find((stream) => stream.agent?.status === "active") ?? snapshot.workstreams[0];
@@ -141,8 +152,15 @@ function ProjectWorkroom({ session, source, offline }: { session: DashboardSessi
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, []);
+  useEffect(() => {
+    const current = new Set(snapshot.findings.map((finding) => finding.id));
+    if (seenFindings.current === null) { seenFindings.current = current; return; }
+    const next = snapshot.findings.find((finding) => finding.state === "open" && (finding.severity === "high" || finding.severity === "critical") && !seenFindings.current!.has(finding.id));
+    seenFindings.current = current;
+    if (next) setAttention(next);
+  }, [snapshot.findings]);
 
-  const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setCommandOpen(false); };
+  const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setView("now"); setCommandOpen(false); };
 
   return <div className={sidebarCollapsed ? "workroom-shell sidebar-collapsed" : "workroom-shell"}>
     <aside className="project-sidebar">
@@ -154,29 +172,33 @@ function ProjectWorkroom({ session, source, offline }: { session: DashboardSessi
         const collisionCount = projectSnapshot.findings.filter((finding) => finding.state === "open").length;
         return <button key={project.id} className={project.id === projectId ? "project-item active" : "project-item"} aria-current={project.id === projectId ? "page" : undefined} onClick={() => selectProject(project.id)} title={sidebarCollapsed ? project.name : undefined}><span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span>{!sidebarCollapsed && <span className="project-copy"><strong>{project.name}</strong><small>{project.repositoryLabel}</small></span>}{!sidebarCollapsed && <span className="project-signals">{liveCount > 0 && <span className="live-count" aria-label={`${liveCount} active sessions`}>{liveCount}</span>}{collisionCount > 0 && <span className="collision-count" aria-label={`${collisionCount} open collisions`}>{collisionCount}</span>}</span>}</button>;
       })}</nav>
-      <div className="sidebar-bottom"><button className="profile-button" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog" aria-label="Open settings, devices, and privacy"><span className="avatar">{initialsFor(session.memberName)}</span>{!sidebarCollapsed && <span><strong>{session.memberName}</strong><small>Settings & privacy</small></span>}{!sidebarCollapsed && <Settings2 size={15} />}</button></div>
+      <div className="sidebar-bottom"><button className="profile-button" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog" aria-label="Open settings, devices, and privacy"><span className="avatar">{initialsFor(identity.name)}</span>{!sidebarCollapsed && <span><strong>{identity.name}</strong><small>Settings & privacy</small></span>}{!sidebarCollapsed && <Settings2 size={15} />}</button></div>
     </aside>
 
     <main className="workroom-main">
       {offline && <div className="offline-strip" role="status"><CircleDot size={14} /><strong>Offline</strong><span>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</span></div>}
-      <header className="project-header"><div className="project-heading"><div className="project-title-line"><h1>{snapshot.project.name}</h1><span className={offline ? "live-pill offline" : "live-pill"}><span />{offline ? "Offline" : "Live"}</span></div><div className="project-subtitle"><span>{snapshot.project.repositoryLabel}</span><span>·</span><span>revision {snapshot.contextRevision}</span><SemanticStatus status={snapshot.project.semanticStatus} /></div></div><div className="header-actions">{!source.live && <button className="ghost-button" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Activity size={15} />Simulate activity</button>}<button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open Project settings"><Settings2 size={17} /></button><button className={snapshot.workspacePaused ? "pause-control paused" : "pause-control"} disabled={offline || source.live} title={source.live ? "Use the Stickguy menu bar to pause live sharing" : undefined} onClick={() => source.togglePause(projectId)}>{snapshot.workspacePaused ? <Play size={14} /> : <Pause size={14} />}{source.live ? "Menu bar" : snapshot.workspacePaused ? "Resume" : "Pause"}</button></div></header>
+      <header className="project-header"><div className="project-heading"><div className="project-title-line"><h1>{snapshot.project.name}</h1><span className={offline ? "live-pill offline" : "live-pill"}><span />{offline ? "Offline" : "Live"}</span></div><div className="project-subtitle"><span>{snapshot.project.repositoryLabel}</span><span>·</span><span>revision {snapshot.contextRevision}</span><SemanticStatus status={snapshot.project.semanticStatus} mode={snapshot.project.semanticMode} /></div></div><div className="header-actions">{!source.live && <button className="ghost-button" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Activity size={15} />Simulate activity</button>}<button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>{dark ? <Sun size={17} /> : <Moon size={17} />}</button><button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open Project settings"><Settings2 size={17} /></button><button className={snapshot.workspacePaused ? "pause-control paused" : "pause-control"} disabled={offline || source.live} title={source.live ? "Use the Stickguy menu bar to pause live sharing" : undefined} onClick={() => source.togglePause(projectId)}>{snapshot.workspacePaused ? <Play size={14} /> : <Pause size={14} />}{source.live ? "Menu bar" : snapshot.workspacePaused ? "Resume" : "Pause"}</button></div></header>
       <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
+      {identity.source === "device" && !identityPromptDismissed && <div className="status-strip identity" role="status"><UserRound size={15} /><div><strong>Choose how teammates see you</strong><span>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</span></div><div className="strip-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>}
+      {attention && <div className="status-strip attention" role="alert"><AlertTriangle size={15} /><div><strong>Coordination update</strong><span>{attention.reason}</span></div><div className="strip-actions"><button className="secondary-button" onClick={() => { setSelection({ kind: "collision", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>}
       {snapshot.workspacePaused && <div className="status-strip paused" role="status"><Pause size={15} /><div><strong>Workspace sharing is paused</strong><span>Activity transmission stopped before this state was shown.</span></div></div>}
+      <nav className="workroom-tabs" aria-label="Project views">{(["now", "resolve"] as const).map((item) => <button key={item} aria-current={view === item ? "page" : undefined} onClick={() => setView(item)}>{item === "now" ? <Activity size={14} /> : <MessageSquare size={14} />}{item === "now" ? "Live work" : "Resolve"}{item === "resolve" && snapshot.collaboration.syncCards.filter((card) => card.state === "open").length > 0 && <span>{snapshot.collaboration.syncCards.filter((card) => card.state === "open").length}</span>}</button>)}</nav>
 
-      <section className="now-section" aria-labelledby="now-title">
+      {view === "now" ? <><section className="now-section" aria-labelledby="now-title">
         <div className="section-heading"><div><h2 id="now-title">Now</h2><p>{activePeople} {activePeople === 1 ? "person" : "people"} active · {agentSessions} agent {agentSessions === 1 ? "session" : "sessions"}</p></div>{openCollisions.length > 0 && <span className="attention-count"><AlertTriangle size={13} />{openCollisions.length} {openCollisions.length === 1 ? "collision" : "collisions"}</span>}</div>
         {openCollisions.length > 0 && <div className="collision-stack" aria-label="Open collisions">{openCollisions.map((finding) => <CollisionRow key={finding.id} finding={finding} sessions={snapshot.workstreams} selected={effectiveSelection?.kind === "collision" && effectiveSelection.id === finding.id} onClick={() => setSelection({ kind: "collision", id: finding.id })} />)}</div>}
         <div className="people-list">{groups.map(([memberName, streams]) => <PersonGroup key={memberName} memberName={memberName} streams={streams} selected={effectiveSelection} onSelect={(id) => setSelection({ kind: "session", id })} />)}</div>
       </section>
 
       <section className="recent-section" aria-labelledby="recent-title"><div className="section-heading"><div><h2 id="recent-title">Recent</h2><p>Project activity, newest first</p></div></div><ol className="timeline-list">{snapshot.activity.map((item) => <li key={item.id}><span className={`timeline-icon ${item.kind}`}><Activity size={13} /></span><div><p><strong>{item.actor}</strong> {item.summary}</p><span>{item.at} · {activitySourceLabel(item.fidelity)}</span></div></li>)}</ol></section>
+      </> : <ResolutionPanel projectId={projectId} snapshot={snapshot} source={source} offline={offline} />}
     </main>
 
     <aside className="inspector" aria-label="Details inspector">
-      {selectedSession ? <SessionInspector session={selectedSession} /> : selectedCollision ? <CollisionInspector finding={selectedCollision} sessions={snapshot.workstreams} disabled={offline} onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)} onFeedback={(value) => source.recordFindingFeedback(selectedCollision.id, value)} /> : <InspectorEmpty />}
+      {selectedSession ? <SessionInspector session={selectedSession} source={source} offline={offline} /> : selectedCollision ? <CollisionInspector finding={selectedCollision} sessions={snapshot.workstreams} disabled={offline} onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)} onFeedback={(value) => source.recordFindingFeedback(selectedCollision.id, value)} /> : <InspectorEmpty />}
     </aside>
 
-    {settingsOpen && <SettingsDialog snapshot={snapshot} dark={dark} onTheme={() => setDark((value) => !value)} onClose={() => setSettingsOpen(false)} />}
+    {settingsOpen && <SettingsDialog snapshot={snapshot} dark={dark} identity={identity} projectId={projectId} source={source} offline={offline} onIdentity={setIdentity} onTheme={() => setDark((value) => !value)} onClose={() => setSettingsOpen(false)} />}
     {commandOpen && <CommandPalette projects={session.projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); setSettingsOpen(true); }} onClose={() => setCommandOpen(false)} />}
   </div>;
 }
@@ -198,6 +220,34 @@ function presenceRank(streams: Workstream[]): number {
   return 3;
 }
 
+function ResolutionPanel({ projectId, snapshot, source, offline }: { projectId: string; snapshot: ProjectSnapshot; source: FixtureProjectSource; offline: boolean }) {
+  const [draft, setDraft] = useState("");
+  const [detail, setDetail] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const run = (operation: () => Promise<void>) => { setPending(true); setError(""); void operation().catch((cause) => setError(cause instanceof Error && cause.message.includes("revision") ? "Someone changed this first. Reload and try again." : "That change could not be saved.")).finally(() => setPending(false)); };
+  const open = snapshot.collaboration.syncCards.filter((card) => card.state === "open");
+  const resolved = snapshot.collaboration.syncCards.filter((card) => card.state === "resolved");
+  return <section className="collaboration-view" aria-labelledby="resolve-title">
+    <div className="collaboration-heading"><div><p className="eyebrow">Work it out together</p><h2 id="resolve-title">Resolve collisions</h2><p>Turn an overlap into a short conversation. When you resolve it, every affected agent session is told what you decided.</p></div></div>
+    <form className="sync-create" onSubmit={(event) => { event.preventDefault(); const title = draft.trim(), summary = detail.trim(); if (!title || !summary) return; run(async () => { await source.createSyncCard(projectId, undefined, title, summary); setDraft(""); setDetail(""); }); }}>
+      <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="What needs coordination?" maxLength={160} aria-label="Collision title" />
+      <textarea value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="Give teammates the context they need…" maxLength={2000} aria-label="Collision summary" />
+      <button className="primary-button" disabled={pending || offline}><Plus size={14} />Open a collision</button>
+    </form>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {open.length === 0 && resolved.length === 0
+      ? <div className="empty-collaboration"><MessageSquare size={20} /><strong>Nothing to resolve</strong><p>When two agent sessions touch the same path, the collision shows up here.</p></div>
+      : <div className="sync-card-list">{[...open, ...resolved].map((card) => <SyncCardView key={card.id} card={card} projectId={projectId} source={source} workstreams={snapshot.workstreams} pending={pending || offline} run={run} />)}</div>}
+  </section>;
+}
+
+function SyncCardView({ card, projectId, source, workstreams, pending, run }: { card: ProjectSnapshot["collaboration"]["syncCards"][number]; projectId: string; source: FixtureProjectSource; workstreams: Workstream[]; pending: boolean; run: (operation: () => Promise<void>) => void }) {
+  const [comment, setComment] = useState("");
+  const [decision, setDecision] = useState("");
+  return <article className={`sync-card ${card.state}`}><header><span className={`session-state ${card.state === "open" ? "waiting" : "done"}`}>{card.state}</span><div><strong>{card.title}</strong><p>{card.summary}</p></div><small>r{card.revision}</small></header>{card.comments.length > 0 && <ol>{card.comments.map((item) => <li key={item.id}><strong>{item.memberName}</strong><span>{item.body}</span></li>)}</ol>}{card.resolution && <div className="card-decision"><Gavel size={14} /><span><strong>Resolved · delivered to affected sessions</strong>{card.resolution.summary}</span></div>}{card.state === "open" && <div className="sync-card-actions"><form onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}><input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment…" aria-label={`Comment on ${card.title}`} /><button className="secondary-button" disabled={pending}>Comment</button></form><form onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, workstreams.map((stream) => stream.id)); setDecision(""); }); }}><input value={decision} onChange={(event) => setDecision(event.target.value)} placeholder="How did you resolve it?" aria-label={`Resolution for ${card.title}`} /><button className="primary-button" disabled={pending}>Resolve</button></form></div>}</article>;
+}
+
 function PersonGroup({ memberName, streams, selected, onSelect }: { memberName: string; streams: Workstream[]; selected: Selection | null; onSelect: (id: string) => void }) {
   const [expanded, setExpanded] = useState(true);
   const presence = streams.some((stream) => stream.presence === "online") ? "online" : streams.some((stream) => stream.presence === "idle") ? "idle" : streams[0]?.presence ?? "offline";
@@ -213,7 +263,7 @@ function VendorMark({ vendor, size = 18 }: { vendor: "codex" | "claude"; size?: 
 function SessionRow({ session, selected, onClick }: { session: Workstream; selected: boolean; onClick: () => void }) {
   const vendor = session.agent?.vendor === "codex" ? "Codex" : session.agent?.vendor === "claude" ? "Claude Code" : "Shared task";
   const activeSubagents = session.agent?.subagents.filter((agent) => agent.status !== "done").length ?? 0;
-  return <button className={selected ? "session-row selected" : "session-row"} onClick={onClick} aria-pressed={selected} aria-label={`Open ${vendor} session for ${session.memberName}`}><span className="tree-elbow" aria-hidden="true" /><span className={`agent-icon ${session.agent?.vendor ?? "manual"}`}>{session.agent ? <VendorMark vendor={session.agent.vendor} /> : <Code2 size={16} />}</span><span className="session-copy"><span className="session-title"><strong>{vendor}</strong>{session.agent?.sessionAlias && <code>{session.agent.sessionAlias}</code>}<span className={`session-state ${session.agent?.status ?? session.presence}`}>{session.agent?.status ?? session.presence}</span></span><span className="session-action">{session.outcome}</span><span className="session-meta">{session.agent?.branch && <span><GitBranch size={12} />{session.agent.branch}</span>}{session.agent?.tool && <span><Command size={12} />{session.agent.tool}</span>}{activeSubagents > 0 && <span><Users size={12} />{activeSubagents} {activeSubagents === 1 ? "subagent" : "subagents"}</span>}<span><FileCode2 size={12} />{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "path" : "paths"}</span><span>{session.updatedLabel}</span></span></span><ChevronRight className="row-chevron" size={16} /></button>;
+  return <button className={selected ? "session-row selected" : "session-row"} onClick={onClick} aria-pressed={selected} aria-label={`Open ${vendor} session for ${session.memberName}`}><span className="tree-elbow" aria-hidden="true" /><span className={`agent-icon ${session.agent?.vendor ?? "manual"}`}>{session.agent ? <VendorMark vendor={session.agent.vendor} /> : <Code2 size={16} />}</span><span className="session-copy"><span className="session-title"><strong>{session.agent?.sessionTitle ?? vendor}</strong><span className={`session-state ${session.agent?.status ?? session.presence}`}>{session.agent?.status ?? session.presence}</span></span><span className="session-vendor">{vendor}{session.agent?.sessionAlias && <code>{session.agent.sessionAlias}</code>}</span><span className="session-action">{session.outcome}</span><span className="session-meta">{session.agent?.branch && <span><GitBranch size={12} />{session.agent.branch}</span>}{session.agent?.tool && <span><Command size={12} />{session.agent.tool}</span>}{activeSubagents > 0 && <span><Users size={12} />{activeSubagents} {activeSubagents === 1 ? "subagent" : "subagents"}</span>}<span><FileCode2 size={12} />{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "path" : "paths"}</span><span>{session.updatedLabel}</span></span></span><ChevronRight className="row-chevron" size={16} /></button>;
 }
 
 function CollisionRow({ finding, sessions, selected, onClick }: { finding: Finding; sessions: Workstream[]; selected: boolean; onClick: () => void }) {
@@ -222,11 +272,111 @@ function CollisionRow({ finding, sessions, selected, onClick }: { finding: Findi
   return <button className={selected ? "collision-row selected" : "collision-row"} onClick={onClick} aria-pressed={selected}><span className="collision-symbol"><AlertTriangle size={16} /></span><span><strong>{finding.kind === "direct_collision" ? "Collision detected" : "Possible collision"}</strong><span>{affected.map((stream) => stream.memberName).join(" and ") || finding.title}</span>{path && <code>{path}</code>}</span><span className="collision-confidence">{finding.confidence}</span><ChevronRight size={16} /></button>;
 }
 
-function SessionInspector({ session }: { session: Workstream }) {
-  const vendor = session.agent?.vendor === "codex" ? "Codex" : session.agent?.vendor === "claude" ? "Claude Code" : "Shared task";
-  const activeSubagents = session.agent?.subagents.filter((agent) => agent.status !== "done") ?? [];
+function SessionInspector({ session, source, offline }: { session: Workstream; source: FixtureProjectSource; offline: boolean }) {
+  const [sharing, setSharing] = useState<SessionSharingSnapshot | null>(null);
+  const [own, setOwn] = useState<LocalSessionDetail | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [audience, setAudience] = useState<"self" | "project">("project");
+  const [kinds, setKinds] = useState<SessionMessageKind[]>(["user", "assistant", "thinking"]);
+  const [sharingPending, setSharingPending] = useState(false);
+  const [sharingError, setSharingError] = useState("");
   const activity = session.agent?.activity ?? [];
-  return <div className="inspector-content"><header className="inspector-header"><span className={`agent-icon large ${session.agent?.vendor ?? "manual"}`}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={21} /> : <Code2 size={19} />}</span><div><p>{session.memberName}</p><h2>{vendor}</h2>{session.agent?.sessionAlias && <code>{session.agent.sessionAlias}</code>}</div></header><div className="session-overview"><span className="overview-status"><span className={`presence-dot ${session.presence}`} /><strong>{statusCopy(session)}</strong></span><span>{fidelityLabel(session.fidelity)}</span>{session.agent?.branch && <span><GitBranch size={12} /><code>{session.agent.branch}</code></span>}<span>{session.updatedLabel}</span></div><section className="inspector-section"><h3>Current activity</h3><p className="activity-copy">{session.outcome}</p>{session.agent?.tool && <div className="tool-line"><Command size={14} /><span>Using</span><code>{session.agent.tool}</code></div>}</section>{session.agent && <section className="inspector-section"><h3>Session activity {activity.length > 0 && <span>{activity.length}</span>}</h3><p className="section-note">Safe activity shared by this session. Prompts, source, diffs, raw output, and private reasoning stay on the member’s device.</p>{activity.length > 0 ? <ol className="session-activity-list">{activity.map((item) => <li key={item.id}><span className={`activity-rail-dot ${item.status}`} /><div><strong>{item.action}</strong><span>{item.at}{item.tool ? ` · ${item.tool}` : ""}</span>{item.paths.length > 0 && <code>{item.paths[0]}</code>}</div></li>)}</ol> : <p className="muted-copy">Waiting for the next agent activity event.</p>}</section>}<section className="inspector-section"><h3>Files and paths</h3>{session.paths.length > 0 ? <ul className="path-list">{session.paths.map((path) => <li key={path}><FileCode2 size={14} /><code>{path}</code></li>)}</ul> : <p className="muted-copy">No safe paths have been reported yet.</p>}{session.pathCount > session.paths.length && <p className="muted-copy">{(session.pathCount - session.paths.length).toLocaleString()} additional paths summarized.</p>}</section>{activeSubagents.length > 0 && <section className="inspector-section"><h3>Subagents <span>{activeSubagents.length}</span></h3><ul className="subagent-list">{activeSubagents.map((agent) => <li key={agent.alias}><span className="subagent-icon"><Bot size={13} /></span><span><strong>{agent.agentType || "Subagent"}</strong><code>{agent.alias}</code></span><span className={`session-state ${agent.status}`}>{agent.status}</span></li>)}</ul></section>}{session.largeChange && <section className="inspector-section large-change-detail"><h3>Large change</h3><strong>{session.largeChange.pathCount.toLocaleString()} paths</strong><p>{session.largeChange.summary}</p><small>Manifest revision {session.largeChange.revision}. Size alone does not imply risk.</small></section>}</div>;
+  const activeSubagents = (session.agent?.subagents ?? []).filter((agent) => agent.status !== "done");
+  const vendor = session.agent?.vendor === "claude" ? "Claude Code" : session.agent?.vendor === "codex" ? "Codex" : "Manual work";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!session.agent) { setSharing(null); setOwn(null); return; }
+    const refresh = () => {
+      void source.getSessionSharing(session.id).then((value) => { if (!cancelled) setSharing(value); }).catch(() => { if (!cancelled) setSharingError("Session sharing status is unavailable."); });
+      // Own-session content is read locally and never uploaded, so it loads
+      // whether or not this session is shared.
+      void source.getLocalSession(session.id).then((value) => { if (!cancelled) setOwn(value); }).catch(() => { if (!cancelled) setOwn(null); });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 3_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [session.id, source, session.agent]);
+
+  const toggleKind = (kind: SessionMessageKind) => setKinds((current) => current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]);
+  const enableSharing = () => {
+    setSharingPending(true); setSharingError("");
+    void source.updateSessionSharing(session.id, audience, kinds).then((value) => { setSharing(value); setPreview(false); setConfirmed(false); }).catch(() => setSharingError("Session sharing could not be enabled.")).finally(() => setSharingPending(false));
+  };
+  const removeSharing = () => {
+    setSharingPending(true); setSharingError("");
+    void source.deleteSessionSharing(session.id).then(setSharing).catch(() => setSharingError("Session sharing could not be stopped.")).finally(() => setSharingPending(false));
+  };
+
+  // Prefer the member's own local transcript; fall back to what the Project was
+  // allowed to see for a teammate's shared session.
+  const mine = (own?.messages ?? []).length > 0;
+  const conversation: Array<{ id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string }> = mine
+    ? (own?.messages ?? []).map((message, index) => ({ id: `own-${index}`, kind: message.kind, text: message.text, tool: message.tool, at: message.at }))
+    : (sharing?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
+  const shareState = sharing?.policy.enabled ? (sharing.policy.audience === "project" ? "project" : "self") : "off";
+  const title = session.agent?.sessionTitle ?? own?.title ?? "";
+
+  return <div className="inspector-content">
+    <header className="inspector-header">
+      <span className={`agent-icon large ${session.agent?.vendor ?? "manual"}`}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={21} /> : <Code2 size={19} />}</span>
+      <div className="inspector-identity">
+        <p>{session.memberName} · {vendor}</p>
+        <h2>{title || vendor}</h2>
+        {session.agent?.sessionAlias && <code>{session.agent.sessionAlias}</code>}
+      </div>
+    </header>
+
+    {session.agent && <div className="share-bar">
+      <span className={`share-state ${shareState}`}>{shareState === "off" ? <Lock size={13} /> : <ShieldCheck size={13} />}{shareState === "off" ? "Private to you" : shareState === "project" ? "Shared with Project" : "Visible to you only"}</span>
+      {sharing?.policy.canManage && (shareState === "off"
+        ? <button className="share-button" disabled={offline} onClick={() => setPreview(true)}><Share2 size={14} />Share session</button>
+        : <button className="text-button danger" disabled={sharingPending} onClick={removeSharing}>Stop &amp; delete</button>)}
+    </div>}
+
+    <div className="session-overview">
+      <span className="overview-status"><span className={`presence-dot ${session.presence}`} /><strong>{statusCopy(session)}</strong></span>
+      <span>{fidelityLabel(session.fidelity)}</span>
+      {session.agent?.branch && <span><GitBranch size={12} /><code>{session.agent.branch}</code></span>}
+      <span>{session.updatedLabel}</span>
+    </div>
+    {session.agent && <div className="capability-strip" aria-label="Agent adapter capabilities"><span>Observe · live</span><span>Paths · {session.agent.capabilities.observeSafePaths ? "supported" : "unavailable"}</span><span>Briefs · {session.agent.capabilities.deliverBrief === "mcp_pull" ? "MCP pull" : session.agent.capabilities.deliverBrief.replaceAll("_", " ")}</span><span>Attention · {session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard only"}</span></div>}
+    {sharingError && <p className="form-error" role="alert">{sharingError}</p>}
+
+    {preview && <section className="sharing-preview" role="dialog" aria-modal="true" aria-labelledby="sharing-preview-title">
+      <header><div><p className="eyebrow">Preview · session-share/v1</p><h3 id="sharing-preview-title">Choose exactly what this session shares</h3></div><button className="icon-button" onClick={() => setPreview(false)} aria-label="Close sharing preview"><X size={15} /></button></header>
+      <p>This is read from {vendor}&rsquo;s own session record on your machine. Quoted code is shared so the conversation makes sense. Any message containing <code>.env</code>, environment values, credentials, tokens, keys, or raw tool output is rejected whole and never sent.</p>
+      <fieldset><legend>Include</legend>{([['user', 'Your prompts'], ['assistant', 'Assistant replies'], ['thinking', 'Recorded reasoning'], ['system', 'Operating instructions']] as Array<[SessionMessageKind, string]>).map(([kind, label]) => <label key={kind}><input type="checkbox" checked={kinds.includes(kind)} onChange={() => toggleKind(kind)} />{label}</label>)}</fieldset>
+      <label className="audience-field">Audience<select value={audience} onChange={(event) => setAudience(event.target.value as "self" | "project")}><option value="project">Project members</option><option value="self">Only me</option></select></label>
+      <p className="preview-count">{conversation.length > 0 ? `${conversation.filter((item) => kinds.includes(item.kind as SessionMessageKind)).length} of ${conversation.length} messages match this choice.` : "Nothing has been recorded in this session yet."}</p>
+      <label className="consent-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />I reviewed this and want to share it for seven days.</label>
+      <div className="sharing-actions"><button className="secondary-button" onClick={() => setPreview(false)}>Cancel</button><button className="primary-button" disabled={!confirmed || kinds.length === 0 || sharingPending} onClick={enableSharing}>Start sharing</button></div>
+    </section>}
+
+    {session.agent && <section className="inspector-section conversation-section">
+      <div className="conversation-heading"><div><h3>Session</h3><p>{mine ? "Read from this machine. Only you can see this until you share it." : shareState === "off" ? "This session is private to its owner." : `Shared by ${session.memberName}.`}</p></div></div>
+      {conversation.length > 0
+        ? <ol className="conversation-list">{conversation.map((message) => message.kind === "tool"
+          ? <li key={message.id} className="tool"><span><Command size={11} />{message.tool}</span></li>
+          : <li key={message.id} className={message.kind}><span>{messageKindLabel(message.kind as SessionMessageKind)}</span><p>{message.text}</p>{message.at && <small>{new Date(message.at).toLocaleTimeString()}</small>}</li>)}</ol>
+        : <p className="muted-copy">{shareState === "off" && !mine ? "Nothing to show. Open this session on the machine running it, or ask its owner to share it." : "Waiting for the first message in this session."}</p>}
+    </section>}
+
+    <section className="inspector-section"><h3>Current activity</h3><p className="activity-copy">{session.outcome}</p>{session.agent?.tool && <div className="tool-line"><Command size={14} /><span>Using</span><code>{session.agent.tool}</code></div>}</section>
+
+    {session.agent && activity.length > 0 && <section className="inspector-section"><h3>Recent actions <span>{activity.length}</span></h3><ol className="session-activity-list">{activity.map((item) => <li key={item.id}><span className={`activity-rail-dot ${item.status}`} /><div><strong>{item.action}</strong><span>{item.at}{item.tool ? ` · ${item.tool}` : ""}</span>{item.paths.length > 0 && <code>{item.paths[0]}</code>}</div></li>)}</ol></section>}
+
+    <section className="inspector-section"><h3>Files and paths</h3>{session.paths.length > 0 ? <ul className="path-list">{session.paths.map((path) => <li key={path}><FileCode2 size={14} /><code>{path}</code></li>)}</ul> : <p className="muted-copy">No safe paths have been reported yet.</p>}{session.pathCount > session.paths.length && <p className="muted-copy">{(session.pathCount - session.paths.length).toLocaleString()} additional paths summarized.</p>}</section>
+
+    {activeSubagents.length > 0 && <section className="inspector-section"><h3>Subagents <span>{activeSubagents.length}</span></h3><ul className="subagent-list">{activeSubagents.map((agent) => <li key={agent.alias}><span className="subagent-icon"><Bot size={13} /></span><span><strong>{agent.agentType || "Subagent"}</strong><code>{agent.alias}</code></span><span className={`session-state ${agent.status}`}>{agent.status}</span></li>)}</ul></section>}
+
+    {session.largeChange && <section className="inspector-section large-change-detail"><h3>Large change</h3><strong>{session.largeChange.pathCount.toLocaleString()} paths</strong><p>{session.largeChange.summary}</p><small>Manifest revision {session.largeChange.revision}. Size alone does not imply risk.</small></section>}
+  </div>;
+}
+
+function messageKindLabel(kind: SessionMessageKind): string {
+  return ({ user: "You", assistant: "Assistant", thinking: "Thinking", system: "Instructions" } as const)[kind];
 }
 
 function CollisionInspector({ finding, sessions, disabled, onState, onFeedback }: { finding: Finding; sessions: Workstream[]; disabled: boolean; onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void> }) {
@@ -247,13 +397,18 @@ function InspectorEmpty() {
   return <div className="inspector-empty"><span><Bot size={20} /></span><h2>Select a session</h2><p>Choose an agent or collision to inspect its live coordination details.</p></div>;
 }
 
-function SemanticStatus({ status }: { status: ProjectSnapshot["project"]["semanticStatus"] }) {
-  return <span className={`semantic-status ${status}`} aria-label="Semantic processing status" title={semanticMessage(status)}><CircleDot size={11} />Semantic {status}{status !== "enabled" && " · structural live"}</span>;
+function SemanticStatus({ status, mode }: { status: ProjectSnapshot["project"]["semanticStatus"]; mode: ProjectSnapshot["project"]["semanticMode"] }) {
+  const label = mode === "managed_openai" ? "OpenAI" : mode === "managed_degraded" ? "Fallback" : "Local fallback";
+  return <span className={`semantic-status ${status}`} aria-label="Semantic processing status" title={`${semanticMessage(status)} ${semanticModeMessage(mode)}`}><CircleDot size={11} />Semantic {status} · {label}{status !== "enabled" && " · structural live"}</span>;
 }
 
-function SettingsDialog({ snapshot, dark, onTheme, onClose }: { snapshot: ProjectSnapshot; dark: boolean; onTheme: () => void; onClose: () => void }) {
+function SettingsDialog({ snapshot, dark, identity, projectId, source, offline, onIdentity, onTheme, onClose }: { snapshot: ProjectSnapshot; dark: boolean; identity: { name: string; source: MemberNameSource }; projectId: string; source: FixtureProjectSource; offline: boolean; onIdentity: (value: { name: string; source: MemberNameSource }) => void; onTheme: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [nameDraft, setNameDraft] = useState(identity.source === "member" ? identity.name : "");
+  const [identityError, setIdentityError] = useState("");
+  const [identitySaved, setIdentitySaved] = useState(false);
+  const [identityPending, setIdentityPending] = useState(false);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (typeof dialog?.showModal === "function") dialog.showModal();
@@ -264,7 +419,15 @@ function SettingsDialog({ snapshot, dark, onTheme, onClose }: { snapshot: Projec
       else dialog?.removeAttribute("open");
     };
   }, []);
-  return <dialog ref={dialogRef} className="settings-dialog" aria-labelledby="settings-title" onCancel={(event) => { event.preventDefault(); onClose(); }}><header><div><p>Stickguy</p><h2 id="settings-title">Settings</h2></div><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="Close settings"><X size={17} /></button></header><section><h3>Appearance</h3><button className="settings-row" onClick={onTheme}><span className="settings-icon">{dark ? <Moon size={16} /> : <Sun size={16} />}</span><span><strong>Theme</strong><small>{dark ? "Dark" : "Light"}</small></span><ChevronRight size={15} /></button></section><section><h3>Devices</h3>{snapshot.devices.map((device) => <div className="settings-row" key={device.id}><span className="settings-icon"><Laptop2 size={16} /></span><span><strong>{device.label}</strong><small>{device.platform} · {device.status} · {device.lastSeen}</small></span><span className={`presence-dot ${device.status}`} /></div>)}</section><section><h3>Privacy</h3><div className="privacy-card"><ShieldCheck size={17} /><div><strong>Coordination metadata only</strong><p>Source, diffs, Git objects, prompts, transcripts, environment values, and raw command output are not collected.</p></div></div></section><button className="secondary-button dialog-done" onClick={onClose}>Done</button></dialog>;
+  return <dialog ref={dialogRef} className="settings-dialog" aria-labelledby="settings-title" onCancel={(event) => { event.preventDefault(); onClose(); }}><header><div><p>Stickguy</p><h2 id="settings-title">Settings</h2></div><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="Close settings"><X size={17} /></button></header><section><h3>Your identity</h3><form className="identity-form" onSubmit={(event) => {
+    event.preventDefault();
+    const value = nameDraft.trim();
+    setIdentityError(""); setIdentitySaved(false); setIdentityPending(true);
+    void source.updateDisplayName(projectId, value)
+      .then((result) => { onIdentity({ name: result.memberName, source: result.memberNameSource }); setNameDraft(result.memberName); setIdentitySaved(true); })
+      .catch((error: Error & { status?: number }) => setIdentityError(error.status === 400 ? "Choose a display name; an email address cannot be your Project identity." : error.message || "That display name could not be saved."))
+      .finally(() => setIdentityPending(false));
+  }}><label><span>Display name</span><input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setIdentitySaved(false); }} minLength={2} maxLength={60} placeholder={identity.source === "device" ? identity.name : "How teammates see you"} aria-describedby="identity-help" /></label><p id="identity-help" className="settings-help">This is how you appear on every live session, plan item, and decision. It is not your email address or your device name.</p>{identity.source === "device" && <p className="settings-help warning">Currently showing the device name this Project was created with.</p>}{identityError && <p className="form-error" role="alert">{identityError}</p>}{identitySaved && <p className="settings-help success" role="status">Display name updated across this Project.</p>}<button className="primary-button" disabled={identityPending || offline || nameDraft.trim().length < 2}>Save name</button></form></section><section><h3>Appearance</h3><button className="settings-row" onClick={onTheme}><span className="settings-icon">{dark ? <Moon size={16} /> : <Sun size={16} />}</span><span><strong>Theme</strong><small>{dark ? "Dark" : "Light"}</small></span><ChevronRight size={15} /></button></section><section><h3>Devices &amp; security</h3><p className="settings-help">Device names identify hardware for revocation and audit only. They are never shown as your live-work identity.</p>{snapshot.devices.map((device) => <div className="settings-row" key={device.id}><span className="settings-icon"><Laptop2 size={16} /></span><span><strong>{device.label}</strong><small>{device.platform} · {device.status} · {device.lastSeen}</small></span><span className={`presence-dot ${device.status}`} /></div>)}</section><section><h3>Privacy</h3><div className="privacy-card"><ShieldCheck size={17} /><div><strong>Coordination metadata only</strong><p>Source, diffs, Git objects, prompts, transcripts, environment values, and raw command output are not collected.</p></div></div></section><button className="secondary-button dialog-done" onClick={onClose}>Done</button></dialog>;
 }
 
 function CommandPalette({ projects, selectedProjectId, onSelectProject, onSettings, onClose }: { projects: DashboardSession["projects"]; selectedProjectId: string; onSelectProject: (id: string) => void; onSettings: () => void; onClose: () => void }) {

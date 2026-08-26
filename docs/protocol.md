@@ -98,11 +98,9 @@ MCP resolves workspace from client working directory or explicit trusted config,
 | `check_coordination(workstream_id, trigger?, since_cursor?, approximate_token_budget?)` | Return a relevant `CoordinationBrief`; budget range 128–800, default 400. |
 | `report_checkpoint(checkpoint_id, workstream_id, summary, discoveries?, affected_interfaces?, dependencies?, verification?, manifest_revision?, based_on_brief_id?)` | Publish idempotent progress/change/verification state and return newly relevant context. |
 | `acknowledge_context(brief_id, considered_item_ids)` | Record delivery consideration without claiming compliance/correctness. |
-| `finish_work(idempotency_key, workstream_id, outcome, summary, verification?, manifest_revision?, based_on_brief_id?)` | Close/handoff work, release claims as requested, and return unresolved items. |
+| `finish_work(idempotency_key, workstream_id, outcome, summary, verification?, manifest_revision?, based_on_brief_id?)` | Close/handoff work and return unresolved items. |
 | `report_event(kind, summary)` | Report decision/completion/blocker. |
-| `get_plan()` / `propose_plan_items(items)` | P1 project plan read/proposal. |
-| `claim(patterns)` / `release(...)` | P1 soft claims. |
-| `get_decisions(since_revision?)` | P1 affected decisions. |
+| `get_resolutions(since_revision?)` | Read collision resolutions relevant to the workstream. |
 
 Tools never mutate Git/worktrees or control the external agent loop. `CoordinationBrief` prioritizes directly relevant unresolved decisions/findings, then evidence/dependency changes and workstreams. It includes `briefId`, `contextRevision`, trigger, budget/size/truncation, stable item IDs/revisions/relevance reasons, and cursor. Findings carry kind, confidence band, severity, provenance, and lifecycle state; raw vector scores are not the user contract. Raw test output/commands are forbidden; verification is bounded structured metadata.
 

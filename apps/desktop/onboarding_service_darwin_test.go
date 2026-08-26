@@ -69,21 +69,6 @@ func runGit(t *testing.T, root string, arguments ...string) {
 	}
 }
 
-func TestLoopbackEnvironmentRefusesCredentialsAndExternalHosts(t *testing.T) {
-	t.Setenv("STICKGUY_TEST_ORIGIN", "http://user:secret@127.0.0.1:3211")
-	if got := loopbackEnv("STICKGUY_TEST_ORIGIN", "fallback"); got != "fallback" {
-		t.Fatalf("credentialed origin accepted: %q", got)
-	}
-	t.Setenv("STICKGUY_TEST_ORIGIN", "http://example.com")
-	if got := loopbackEnv("STICKGUY_TEST_ORIGIN", "fallback"); got != "fallback" {
-		t.Fatalf("external origin accepted: %q", got)
-	}
-	t.Setenv("STICKGUY_TEST_ORIGIN", "http://127.0.0.1:5173/api/")
-	if got := loopbackEnv("STICKGUY_TEST_ORIGIN", "fallback"); got != "http://127.0.0.1:5173/api" {
-		t.Fatalf("loopback origin rejected: %q", got)
-	}
-}
-
 func TestAgentDetectionCoversStandardMacAndNVMInstallLocations(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

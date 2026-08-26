@@ -23,7 +23,10 @@ type Request struct {
 	AgentVendor, AgentCWD, AgentWorkstreamID, AgentSessionAlias                         string
 	AgentEvent, AgentStatus, AgentAction, AgentTool, AgentType, AgentSubagentAlias      string
 	AgentPaths                                                                          []string
+	AgentTranscriptPath, AgentVendorSessionID                                           string
+	SinceRevision                                                                       int64
 }
+type AgentMessage struct{ Kind, Text string }
 type VerificationSummary struct {
 	State, CheckKind, Label, Summary, AffectedComponent, Source, ObservedAt string
 	ManifestRevision                                                        int64
