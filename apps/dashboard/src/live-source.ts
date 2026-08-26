@@ -1,6 +1,6 @@
 import { FixtureProjectSource } from "./fixture-source";
 import { nativeOnboarding } from "./native";
-import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, SessionMessageKind, SessionSharingSnapshot } from "./model";
+import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
 
@@ -105,19 +105,7 @@ export class LiveProjectSource extends FixtureProjectSource {
     }
   }
 
-  override async getSessionSharing(workstreamId: string): Promise<SessionSharingSnapshot> {
-    return request<SessionSharingSnapshot>(`/workstreams/${encodeURIComponent(workstreamId)}/session-sharing`);
-  }
-
-  override async updateSessionSharing(workstreamId: string, audience: "self" | "project", allowedKinds: SessionMessageKind[]): Promise<SessionSharingSnapshot> {
-    return request<SessionSharingSnapshot>(`/workstreams/${encodeURIComponent(workstreamId)}/session-sharing`, {
-      method: "PUT",
-      body: JSON.stringify({ profile: "conversation", audience, consentVersion: "session-share/v1", allowedKinds, expiresInSeconds: 604800 }),
-    });
-  }
-
-  override async deleteSessionSharing(workstreamId: string): Promise<SessionSharingSnapshot> {
-    await request<void>(`/workstreams/${encodeURIComponent(workstreamId)}/session-sharing`, { method: "DELETE" });
-    return this.getSessionSharing(workstreamId);
+  override async getSessionMessages(workstreamId: string): Promise<SessionMessagesSnapshot> {
+    return request<SessionMessagesSnapshot>(`/workstreams/${encodeURIComponent(workstreamId)}/session-sharing`);
   }
 }
