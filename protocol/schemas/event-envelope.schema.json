@@ -22,7 +22,8 @@
       "enum": [
         "workspace.registered", "workspace.manifest_started", "workspace.manifest_chunk", "workspace.manifest_completed",
         "workspace.paused", "workspace.resumed", "workstream.intent_reported", "workstream.checkpoint_reported",
-        "workstream.status_changed", "context.acknowledged", "activity.reported", "agent.activity_reported", "agent.conversation_shared"
+        "workstream.status_changed", "context.acknowledged", "activity.reported", "agent.activity_reported", "agent.conversation_shared",
+        "workspace.contract_fingerprints_reported", "session.read_set_reported"
       ]
     },
     "payload": { "type": "object", "maxProperties": 24 }
@@ -40,7 +41,9 @@
     { "$ref": "#/$defs/contextAcknowledged" },
     { "$ref": "#/$defs/activityReported" },
     { "$ref": "#/$defs/agentActivityReported" },
-    { "$ref": "#/$defs/agentConversationShared" }
+    { "$ref": "#/$defs/agentConversationShared" },
+    { "$ref": "#/$defs/contractFingerprintsReported" },
+    { "$ref": "#/$defs/readSetReported" }
   ],
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" },
@@ -48,6 +51,18 @@
     "manifestId": { "type": "string", "pattern": "^mft_[A-Za-z0-9_-]{1,80}$" },
     "gitRef": { "type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$" },
     "boundedStringList": { "type": "array", "maxItems": 32, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+    "safePath": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "contractSymbol": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "kind", "signature", "signatureHash"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "kind": { "enum": ["func", "method", "type", "field", "interface_member", "const", "var", "function", "class", "interface", "enum"] },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "signatureHash": { "$ref": "#/$defs/contentHash" }
+      }
+    },
     "workspaceRegistered": {
       "if": { "properties": { "type": { "const": "workspace.registered" } }, "required": ["type"] },
       "then": { "properties": { "payload": {
@@ -175,6 +190,52 @@
           "sessionTitle": { "type": "string", "minLength": 1, "maxLength": 160 },
           "branch": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\x00-\\x20\\x7f~^:?*\\[\\\\-][^\\x00-\\x20\\x7f~^:?*\\[\\\\]*$" },
           "paths": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+        }
+      } } }
+    },
+    "contractFingerprintsReported": {
+      "if": { "properties": { "type": { "const": "workspace.contract_fingerprints_reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["workspaceId", "entries"],
+        "properties": {
+          "workspaceId": { "$ref": "#/$defs/id" },
+          "workstreamId": { "$ref": "#/$defs/workstreamId" },
+          "entries": {
+            "type": "array", "minItems": 1, "maxItems": 20,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["path", "fileContractHash", "symbols"],
+              "properties": {
+                "path": { "$ref": "#/$defs/safePath" },
+                "fileContractHash": { "$ref": "#/$defs/contentHash" },
+                "symbols": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/contractSymbol" } }
+              }
+            }
+          }
+        }
+      } } }
+    },
+    "readSetReported": {
+      "if": { "properties": { "type": { "const": "session.read_set_reported" } }, "required": ["type"] },
+      "then": { "properties": { "payload": {
+        "type": "object", "additionalProperties": false,
+        "required": ["workspaceId", "sessionWorkstreamId", "entries"],
+        "properties": {
+          "workspaceId": { "$ref": "#/$defs/id" },
+          "sessionWorkstreamId": { "$ref": "#/$defs/workstreamId" },
+          "entries": {
+            "type": "array", "minItems": 1, "maxItems": 100,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["path", "fileContractHashAtRead", "observedAt"],
+              "properties": {
+                "path": { "$ref": "#/$defs/safePath" },
+                "fileContractHashAtRead": { "$ref": "#/$defs/contentHash" },
+                "observedAt": { "type": "string", "format": "date-time" }
+              }
+            }
+          }
         }
       } } }
     },

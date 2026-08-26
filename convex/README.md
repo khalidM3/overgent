@@ -33,7 +33,10 @@ CI=true pnpm test:live
 The live suite retains every L2 regression assertion and adds the L6 two-device
 duplicate-behavior, pre-edit assumption conflict, scoped shared dependency,
 unrelated routing, staleness, cross-Project vector isolation, and radar-feedback
-exit cases.
+exit cases. It also covers the M2 contract-watch loop: a changed exported
+signature invalidates another live session's read set and reaches that session's
+brief, while a body-only edit, a redelivered fingerprint, and a newly added
+exported symbol raise nothing.
 
 `.env.local`, local deployment state, generated Convex bindings, dependencies,
 and build output are ignored and must not be committed.
