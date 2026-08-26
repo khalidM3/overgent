@@ -126,6 +126,9 @@ func (s *Service) scanAll(ctx context.Context) {
 		}
 		if _, e = s.store.PublishManifest(ctx, store.ManifestPublication{WorkspaceID: w.ID, ManifestID: newID("mft_"), Baseline: m.Baseline, Head: m.Head, Hash: contentHash, Entries: m.Entries, EventID: newID("evt_")}); e == nil {
 			s.scans++
+			// Contract extraction runs where changed paths are already known.
+			// It publishes only files whose exported surface moved (ADR-048).
+			s.publishContractFingerprints(ctx, w, m.Entries)
 		}
 	}
 }
@@ -496,6 +499,11 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if err := s.store.RecordAgentObservation(ctx, workspace.ID, event.Vendor, time.Now()); err != nil {
 		return daemon.Response{Error: err.Error()}
 	}
+	// A read set is fed by inspection tools only; an edit is a write, and the
+	// manifest pipeline already reports it.
+	if agentactivity.ReadTool(event.Tool) && len(event.CandidatePaths) > 0 {
+		s.publishReadSet(ctx, workspace, event.WorkstreamID, event.CandidatePaths)
+	}
 	shared := s.shareTranscript(ctx, workspace, event, transcript)
 	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared}}
 }
@@ -601,6 +609,7 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 	}
 	result := lifecycleResult{}
 	trigger := ""
+	var readSetPaths []string
 	var publication *store.LifecyclePublication
 	switch q.Method {
 	case "begin_work", "update_intent":
@@ -614,6 +623,10 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 			publication.ExpectedIntentRevision = &expected
 		} else {
 			trigger = "begin"
+			// The paths an MCP client reports consuming at begin_work join the
+			// session's read set alongside hook-observed inspections. They are
+			// published after the intent so the workstream exists first.
+			readSetPaths = q.AnticipatedPaths
 		}
 	case "check_coordination":
 		trigger = q.Trigger
@@ -701,6 +714,11 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 			return daemon.Response{Error: err.Error()}
 		}
 		result.IntentRevision, result.Duplicate = revision, duplicate
+	}
+	if len(readSetPaths) > 0 {
+		if workspace, found := workspaceByID(s.cfg, q.WorkspaceID); found {
+			s.publishReadSet(ctx, workspace, workstreamID, readSetPaths)
+		}
 	}
 	if trigger != "" {
 		budget := int(q.ApproximateTokenBudget)
@@ -806,6 +824,15 @@ func verificationPayload(values []daemon.VerificationSummary) []map[string]any {
 		out[i] = item
 	}
 	return out
+}
+
+func workspaceByID(cfg config.Config, workspaceID string) (config.Workspace, bool) {
+	for _, workspace := range cfg.Workspaces {
+		if workspace.ID == workspaceID {
+			return workspace, true
+		}
+	}
+	return config.Workspace{}, false
 }
 
 func workspaceWorkstream(cfg config.Config, workspaceID string) string {

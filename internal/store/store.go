@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -78,6 +79,8 @@ CREATE TABLE IF NOT EXISTS cursors(workspace_id TEXT PRIMARY KEY,last_acked_sequ
 CREATE TABLE IF NOT EXISTS service_state(id INTEGER PRIMARY KEY CHECK(id=1),boot_count INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS idempotency_keys(workspace_id TEXT NOT NULL,method TEXT NOT NULL,key TEXT NOT NULL,request_hash TEXT NOT NULL,response_revision INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,method,key));
 CREATE TABLE IF NOT EXISTS agent_observations(workspace_id TEXT NOT NULL,vendor TEXT NOT NULL,last_observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,vendor));
+CREATE TABLE IF NOT EXISTS contract_fingerprints(workspace_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,path));
+CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,PRIMARY KEY(workspace_id,session_workstream_id,path));
 INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
@@ -136,7 +139,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 			}
 		}
 	}
-	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5)`); err != nil {
+	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5),(6)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record sqlite migration: %w", err)
 	}
@@ -172,6 +175,107 @@ func (s *Store) AgentObserved(ctx context.Context, workspaceID, vendor string) (
 func (s *Store) ClearAgentObservation(ctx context.Context, workspaceID, vendor string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM agent_observations WHERE workspace_id=? AND vendor=?`, workspaceID, vendor)
 	return err
+}
+
+// ReadSetEntry is one observation of a fingerprintable path by one agent
+// session, carrying the file contract hash current when the session read it.
+type ReadSetEntry struct {
+	Path                   string `json:"path"`
+	FileContractHashAtRead string `json:"fileContractHashAtRead"`
+	ObservedAt             string `json:"observedAt"`
+}
+
+// ChangedFingerprints records the observed file contract hash of every path in
+// observed and returns, sorted, only the paths whose hash is new or different.
+// Publishing is therefore proportional to contract drift rather than to how
+// often the manifest pipeline runs.
+func (s *Store) ChangedFingerprints(ctx context.Context, workspaceID string, observed map[string]string, at time.Time) ([]string, error) {
+	if workspaceID == "" {
+		return nil, fmt.Errorf("contract fingerprint workspace is required")
+	}
+	if len(observed) == 0 {
+		return nil, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	paths := make([]string, 0, len(observed))
+	for path := range observed {
+		paths = append(paths, path)
+	}
+	slices.Sort(paths)
+	var changed []string
+	for _, path := range paths {
+		hash := observed[path]
+		var stored string
+		queryErr := tx.QueryRowContext(ctx, `SELECT file_contract_hash FROM contract_fingerprints WHERE workspace_id=? AND path=?`, workspaceID, path).Scan(&stored)
+		if queryErr != nil && !errors.Is(queryErr, sql.ErrNoRows) {
+			return nil, queryErr
+		}
+		if queryErr == nil && stored == hash {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO contract_fingerprints(workspace_id,path,file_contract_hash,observed_at) VALUES(?,?,?,?) ON CONFLICT(workspace_id,path) DO UPDATE SET file_contract_hash=excluded.file_contract_hash,observed_at=excluded.observed_at`, workspaceID, path, hash, at.UTC().UnixMilli()); err != nil {
+			return nil, err
+		}
+		changed = append(changed, path)
+	}
+	return changed, tx.Commit()
+}
+
+// FingerprintHash returns the last recorded file contract hash for a path. It
+// is the cache consulted when a read is observed for a file that cannot be read
+// from disk at that moment.
+func (s *Store) FingerprintHash(ctx context.Context, workspaceID, path string) (string, bool, error) {
+	var hash string
+	err := s.db.QueryRowContext(ctx, `SELECT file_contract_hash FROM contract_fingerprints WHERE workspace_id=? AND path=?`, workspaceID, path).Scan(&hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return hash, true, nil
+}
+
+// ChangedReadSet keeps exactly one entry per (session, path): re-observing a
+// path replaces its hash and time rather than appending. It returns only the
+// entries worth publishing, which are the ones that are new or whose hash moved.
+func (s *Store) ChangedReadSet(ctx context.Context, workspaceID, sessionWorkstreamID string, entries []ReadSetEntry) ([]ReadSetEntry, error) {
+	if workspaceID == "" || sessionWorkstreamID == "" {
+		return nil, fmt.Errorf("read set workspace and session workstream are required")
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var changed []ReadSetEntry
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		if entry.Path == "" || entry.FileContractHashAtRead == "" || seen[entry.Path] {
+			continue
+		}
+		seen[entry.Path] = true
+		var stored string
+		queryErr := tx.QueryRowContext(ctx, `SELECT file_contract_hash FROM session_read_sets WHERE workspace_id=? AND session_workstream_id=? AND path=?`, workspaceID, sessionWorkstreamID, entry.Path).Scan(&stored)
+		if queryErr != nil && !errors.Is(queryErr, sql.ErrNoRows) {
+			return nil, queryErr
+		}
+		unchanged := queryErr == nil && stored == entry.FileContractHashAtRead
+		if _, err = tx.ExecContext(ctx, `INSERT INTO session_read_sets(workspace_id,session_workstream_id,path,file_contract_hash,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,session_workstream_id,path) DO UPDATE SET file_contract_hash=excluded.file_contract_hash,observed_at=excluded.observed_at`, workspaceID, sessionWorkstreamID, entry.Path, entry.FileContractHashAtRead, entry.ObservedAt); err != nil {
+			return nil, err
+		}
+		if !unchanged {
+			changed = append(changed, entry)
+		}
+	}
+	return changed, tx.Commit()
 }
 
 func (s *Store) PublishLifecycle(ctx context.Context, publication LifecyclePublication) (revision int64, duplicate bool, err error) {

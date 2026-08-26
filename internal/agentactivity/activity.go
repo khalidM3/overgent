@@ -274,6 +274,22 @@ func validateSafePath(value string) error {
 	return nil
 }
 
+// ReadTool reports whether a tool observation is a file inspection rather than
+// a mutation. It matches exactly the tools toolLabel already categorizes as
+// inspecting files, which is the read-set source under ADR-048.
+func ReadTool(tool string) bool {
+	switch strings.ToLower(tool) {
+	case "read", "glob", "grep":
+		return true
+	}
+	return false
+}
+
+// SafeRepositoryPath reports whether a repository-relative path may be shared.
+// It is the same rule NormalizePaths applies, exposed for callers that filter
+// individual candidates instead of rejecting a whole observation.
+func SafeRepositoryPath(value string) bool { return validateSafePath(value) == nil }
+
 func toolAction(tool string, completed bool) string {
 	verb := "Using"
 	if completed {
