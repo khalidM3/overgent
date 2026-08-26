@@ -39,6 +39,7 @@ type briefProvider interface {
 type collaborationProvider interface {
 	Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error)
 }
+
 const (
 	injectionFetchTimeout = 1500 * time.Millisecond
 	injectionBudget       = 800

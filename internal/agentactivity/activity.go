@@ -205,7 +205,7 @@ func NormalizePaths(event Event, repositoryRoot string) (Event, error) {
 		if !filepath.IsAbs(absolute) {
 			absolute = filepath.Join(event.CWD, absolute)
 		}
-		absolute = filepath.Clean(absolute)
+		absolute = canonicalizeExisting(filepath.Clean(absolute))
 		relative, err := filepath.Rel(root, absolute)
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			return Event{}, errors.New("activity path escapes the registered repository")
@@ -231,6 +231,37 @@ func NormalizePaths(event Event, repositoryRoot string) (Event, error) {
 		}
 	}
 	return event, nil
+}
+
+// canonicalizeExisting resolves symlinks in an absolute path so it can be
+// compared against the already-resolved repository root. A vendor reports the
+// path it was given, which on macOS routinely travels through a symlinked
+// ancestor such as /tmp; comparing that textually against a resolved root
+// rejects every path in the event and silently empties the safe-path set.
+//
+// The file itself need not exist — a write names a path before creating it — so
+// resolution falls back to the deepest existing ancestor and re-joins the rest.
+// Resolving before the containment check also narrows the boundary rather than
+// widening it: a symlink pointing outside the repository now resolves outside
+// and is rejected, where a textual comparison accepted it.
+func canonicalizeExisting(absolute string) string {
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return resolved
+	}
+	remainder := ""
+	current := absolute
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			return absolute
+		}
+		remainder = filepath.Join(filepath.Base(current), remainder)
+		current = parent
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			return filepath.Join(resolved, remainder)
+		}
+	}
 }
 
 func candidatePaths(tool string, input map[string]any) []string {

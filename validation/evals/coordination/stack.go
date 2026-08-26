@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,6 +30,40 @@ type backendProcess struct {
 	command *exec.Cmd
 	done    chan error
 	logPath string
+
+	environmentPath     string
+	environmentSnapshot []byte
+	environmentExisted  bool
+}
+
+// setAsideDeveloperEnvironment removes a pre-existing convex/.env.local for
+// the duration of the run. A configured deployment in that file overrides
+// CONVEX_AGENT_MODE=anonymous, silently attaching the suite to a real cloud
+// deployment, which the loopback-only gate then refuses. The original file
+// contents are restored in stop.
+func (process *backendProcess) setAsideDeveloperEnvironment(path string) error {
+	process.environmentPath = path
+	contents, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("snapshot developer convex environment: %w", err)
+	}
+	process.environmentSnapshot = contents
+	process.environmentExisted = true
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("set aside developer convex environment: %w", err)
+	}
+	return nil
+}
+
+func (process *backendProcess) restoreDeveloperEnvironment() {
+	if !process.environmentExisted {
+		return
+	}
+	_ = os.WriteFile(process.environmentPath, process.environmentSnapshot, 0o600)
+	process.environmentExisted = false
 }
 
 func startBackend(ctx context.Context, repositoryRoot, temporaryRoot string) (*backendProcess, string, error) {
@@ -41,17 +76,25 @@ func startBackend(ctx context.Context, repositoryRoot, temporaryRoot string) (*b
 	command.Dir = repositoryRoot
 	command.Env = append(os.Environ(), "CI=true", "CONVEX_AGENT_MODE=anonymous")
 	command.Stdout, command.Stderr = logFile, logFile
+	// The pnpm wrapper spawns the actual convex-local backend. Interrupting
+	// only the wrapper leaks the backend and its port; signal the whole
+	// process group on stop instead.
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	environmentPath := filepath.Join(repositoryRoot, "convex", ".env.local")
+	process := &backendProcess{command: command, done: make(chan error, 1), logPath: logPath}
+	if err := process.setAsideDeveloperEnvironment(environmentPath); err != nil {
+		_ = logFile.Close()
+		return nil, "", err
+	}
 	if err := command.Start(); err != nil {
+		process.restoreDeveloperEnvironment()
 		_ = logFile.Close()
 		return nil, "", fmt.Errorf("start loopback backend: %w", err)
 	}
-	process := &backendProcess{command: command, done: make(chan error, 1), logPath: logPath}
 	go func() {
 		process.done <- command.Wait()
 		_ = logFile.Close()
 	}()
-
-	environmentPath := filepath.Join(repositoryRoot, "convex", ".env.local")
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		select {
@@ -73,16 +116,17 @@ func (process *backendProcess) stop() {
 	if process == nil || process.command == nil || process.command.Process == nil {
 		return
 	}
-	_ = process.command.Process.Signal(os.Interrupt)
+	_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGINT)
 	select {
 	case <-process.done:
 	case <-time.After(5 * time.Second):
-		_ = process.command.Process.Kill()
+		_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGKILL)
 		select {
 		case <-process.done:
 		case <-time.After(2 * time.Second):
 		}
 	}
+	process.restoreDeveloperEnvironment()
 }
 
 func readLoopbackSiteURL(path string) (string, error) {
@@ -370,6 +414,19 @@ type scenarioEnvironment struct {
 	agentA     *mcpAgent
 	agentB     *mcpAgent
 	projectID  string
+
+	// readerWorkstreamA is the stable hook-session workstream identity for
+	// workspace A's scripted agent. A real vendor session keeps one hashed
+	// workstream for its whole life (ADR-033), so read-set evidence and the
+	// findings it produces target this identity, not a fresh id per event.
+	readerWorkstreamA string
+}
+
+func (environment *scenarioEnvironment) readerWorkstream() string {
+	if environment.readerWorkstreamA == "" {
+		environment.readerWorkstreamA = newPublicID("wrk_agent_")
+	}
+	return environment.readerWorkstreamA
 }
 
 func newEvaluationEnvironment(ctx context.Context, fixtureRoot, siteURL, temporaryRoot string) (*evaluationEnvironment, error) {
@@ -535,10 +592,9 @@ func (environment *scenarioEnvironment) hookRead(workspace config.Workspace, ven
 	}
 	response, err := daemon.Call(environment.ctx, paths.Socket, daemon.Request{
 		Method: "agent_event", AgentVendor: vendor, AgentCWD: workspace.Root,
-		// Hook sessions are independent first-class workstreams in the current
-		// service. Reusing the MCP workspace workstream is rejected by the hosted
-		// boundary, so the future read-set linker must join these identities.
-		AgentWorkstreamID: newPublicID("wrk_agent_"), AgentSessionAlias: vendor + "-a1b2c3",
+		// Hook sessions are independent first-class workstreams (ADR-033) with
+		// one stable identity per session; stale-assumption findings target it.
+		AgentWorkstreamID: environment.readerWorkstream(), AgentSessionAlias: vendor + "-a1b2c3",
 		AgentEvent: "PostToolUse", AgentStatus: "active", AgentAction: "read " + relativePath,
 		AgentTool: "Read", AgentPaths: []string{filepath.Join(workspace.Root, relativePath)},
 	})
@@ -591,11 +647,21 @@ func (environment *scenarioEnvironment) findings() ([]actualFinding, error) {
 	if err := json.Unmarshal(encoded, &findings); err != nil {
 		return nil, err
 	}
+	// A scenario's own workstreams are its two MCP workstreams plus the hook
+	// session workstream that carries its read set. Contract findings target
+	// the reading session (ADR-033/048), so excluding it would hide exactly
+	// the evidence scenarios A and C assert on.
+	own := []string{environment.workspaceA.WorkstreamID, environment.workspaceB.WorkstreamID}
+	if environment.readerWorkstreamA != "" {
+		own = append(own, environment.readerWorkstreamA)
+	}
 	relevant := make([]actualFinding, 0, len(findings))
 	for _, finding := range findings {
-		if includesAll(finding.WorkstreamIDs, []string{environment.workspaceA.WorkstreamID}) ||
-			includesAll(finding.WorkstreamIDs, []string{environment.workspaceB.WorkstreamID}) {
-			relevant = append(relevant, finding)
+		for _, workstream := range own {
+			if includesAll(finding.WorkstreamIDs, []string{workstream}) {
+				relevant = append(relevant, finding)
+				break
+			}
 		}
 	}
 	return relevant, nil

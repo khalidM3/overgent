@@ -1,6 +1,7 @@
 package agentactivity
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +20,66 @@ func TestParseAndNormalizeClaudeEdit(t *testing.T) {
 	}
 	if event.WorkstreamID[:10] != "wrk_agent_" || event.SessionAlias == "session-raw-secret" || len(event.CandidatePaths) != 1 || event.CandidatePaths[0] != "src/nav.tsx" {
 		t.Fatalf("event=%+v", event)
+	}
+}
+
+// A vendor reports the path it was handed, which commonly travels through a
+// symlinked ancestor (on macOS, /tmp is a symlink to /private/tmp). Comparing
+// that against the resolved registered root used to reject the whole event, so
+// a session's safe paths and read set silently disappeared.
+func TestPathsReachingTheRootThroughASymlinkAreAccepted(t *testing.T) {
+	actual := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(actual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(resolved, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(resolved, "backend"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resolved, "backend", "refresh.go"), []byte("package backend\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	event, err := Parse("claude", []byte(`{"session_id":"s","cwd":"`+link+`","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"`+filepath.Join(link, "backend/refresh.go")+`"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err = NormalizePaths(event, resolved)
+	if err != nil {
+		t.Fatalf("symlinked path rejected: %v", err)
+	}
+	if len(event.CandidatePaths) != 1 || event.CandidatePaths[0] != "backend/refresh.go" {
+		t.Fatalf("paths=%v", event.CandidatePaths)
+	}
+}
+
+// Resolution must narrow the boundary, never widen it: a symlink inside the
+// repository that points outside it is rejected rather than accepted because
+// its textual path looked contained.
+func TestSymlinkEscapingTheRootIsStillRejected(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	event, err := Parse("claude", []byte(`{"session_id":"s","cwd":"`+root+`","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"`+filepath.Join(root, "escape/secret.txt")+`"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = NormalizePaths(event, root); err == nil {
+		t.Fatal("accepted a path escaping the repository through a symlink")
 	}
 }
 

@@ -33,7 +33,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("create evaluation temp root: %w", err)
 	}
-	defer os.RemoveAll(temporaryRoot)
+	if os.Getenv("STICKGUY_EVAL_KEEP") == "" {
+		defer os.RemoveAll(temporaryRoot)
+	} else {
+		fmt.Fprintf(os.Stderr, "keeping evaluation state in %s\n", temporaryRoot)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
