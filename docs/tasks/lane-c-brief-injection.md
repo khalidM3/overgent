@@ -37,22 +37,41 @@ context out. No more waiting for the agent to call `check_coordination`.
   "Coordination update: backend.Refresh signature changed after you read it
   — old: …, new: …, changed by <member>'s session. Re-read the file before
   continuing dependent work."
-- **No repeat delivery.** Mark items delivered using the existing
-  delivery/acknowledgement state at their current revision. The same
-  revision is never injected twice; a revised item may be injected again.
-  Track the channel (`injection` vs `mcp_pull`) **locally only** — do not
-  add protocol fields (Lane B owns protocol; if you believe a wire change is
-  required, stop and report instead).
-- **Local pending cache.** The local service already syncs brief state; the
-  hook handler reads pending items from the local service over the existing
-  user IPC socket, never directly from the hosted API, so the 2 s budget is
-  realistic offline.
-- **Codex: verify, then implement or narrow.** Check the current installed
-  Codex CLI's hook/config surface for any supported context-injection
-  response. If none exists, implement nothing for Codex and document the
-  narrowing in the handoff and in `docs/development.md` (MCP pull +
-  dashboard remains Codex's channel). Do not simulate injection through
-  unsupported channels.
+- **Fetch-through, not a cache.** (Amended 2026-08-26 after inspection
+  showed no local brief cache exists.) Add one new method to the existing
+  current-user IPC socket surface, following its existing naming/dispatch
+  conventions (see `cmd/stickguy/main.go` hook handling and the IPC methods
+  in `internal/app`): given the hook payload's session/workspace identity,
+  the service resolves the workstream (reusing the existing agent-activity
+  resolution) and fetches the current brief from the hosted API using the
+  same retrieval path the MCP lifecycle already uses
+  (`internal/app/app.go` brief fetch via `hosted_sender.go`), under a hard
+  1500 ms context timeout. Any error, timeout, or offline state returns an
+  empty result — the fail-open budget covers the offline case; no local
+  brief mirror is built in this lane.
+- **No repeat delivery.** Add one SQLite table via the existing migration
+  mechanism in `internal/store`: `injection_deliveries` with columns
+  (workstream/session key, brief item id, item revision, delivered_at) and
+  a uniqueness constraint on (session key, item id, revision). Before
+  emitting, filter out items whose current revision is already recorded;
+  after emitting, record what was injected. A revised item may be injected
+  again. If the existing hosted delivery/acknowledgement API is callable
+  from the local service, also mark delivery through it with channel
+  semantics unchanged; if that requires new wire fields, skip it, rely on
+  the local table alone, and note it in the handoff. Do not modify
+  `protocol/`.
+- **Hook handler output.** The current hook handler emits no stdout. Extend
+  it to emit the vendor JSON only when items pass the dedup filter;
+  otherwise keep emitting nothing, preserving current observation behavior
+  byte-for-byte.
+- **Both vendors.** Claude Code (verified 2.1.197) and current Codex CLI
+  both document `hookSpecificOutput.additionalContext` for `SessionStart`
+  and `UserPromptSubmit`. Implement injection for both, verifying each
+  vendor's exact documented JSON shape against its current official
+  documentation at implementation time. If Codex verification fails in
+  practice, narrow Codex honestly in the handoff and
+  `docs/development.md` (MCP pull + dashboard remains its channel); never
+  simulate injection through unsupported channels.
 
 ## Acceptance criteria
 
