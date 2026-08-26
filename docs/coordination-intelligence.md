@@ -95,7 +95,7 @@ Every material manifest or semantic-object revision runs an incremental, project
 3. **Lexical retrieval:** compare bounded summaries/tags for exact terms and rare identifiers.
 4. **Semantic retrieval:** embed approved coordination summaries and retrieve nearby active objects within the project/repository.
 5. **Evidence fusion:** combine independent signals, recency, workstream state, change breadth, and source fidelity into a versioned risk score.
-6. **Adjudication:** for ambiguous high-value candidates only, a replaceable model may classify a bounded pair into a strict schema. It receives coordination summaries/evidence, never source or diffs.
+6. **Adjudication:** the judgment layer in section 6 decides relationship, confidence, severity, explanation, and delivery for every candidate. For ambiguous candidates only, a replaceable model may refine that verdict against a strict schema. It receives coordination summaries/evidence, never source or diffs.
 7. **Finding lifecycle:** upsert a stable finding fingerprint; notify only on meaningful severity/evidence changes; allow dismiss, snooze, acknowledge, convert to sync card, resolve, and feedback.
 8. **Context routing:** deliver the finding only to workstreams with a supported relevance edge, using the budgeted/versioned brief contract in `coordination-harness.md`.
 
@@ -118,7 +118,87 @@ Every visible finding includes: kind, severity, confidence band, affected workst
 
 Broad changes receive increased observation priority, not automatic severity. Touching hundreds of files may be a generated or mechanical change; severity requires intersection or semantic evidence.
 
-## 6. V1 semantic engine
+## 6. Judgment layer
+
+ADR-045 splits the engine in two. Deterministic evidence — path overlap,
+contract-fingerprint drift, manifest state — is the trigger layer and always
+operates offline. The judgment layer decides what a candidate *means*, how
+certain that reading is, and where the answer belongs.
+
+### The adjudicator is a provider behind an interface
+
+`JudgmentProvider` mirrors `EmbeddingProvider`: one operation that takes a
+bounded, policy-passed description of two or more candidate workstream states
+and returns a structured verdict.
+
+```text
+{ relationship, confidence, severity, explanation, delivery }
+```
+
+`relationship` is one of `contract_drift`, `duplicate_behavior`,
+`shared_dependency`, `path_overlap`, `assumption_conflict`,
+`downstream_impact`, or `unrelated`. `delivery` is `next_turn`, `dashboard`, or
+`silent`.
+
+- **Managed provider.** Anthropic Claude Sonnet, called only from a hosted
+  asynchronous Convex action. Adjudication runs on every ambiguous candidate in
+  every project, so it is high volume and cost-sensitive; Sonnet is the
+  default. `ANTHROPIC_API_KEY` is a hosted deployment secret exactly as
+  ADR-040 defines it for embeddings: it is never available to the local core,
+  the dashboard, agent configuration, logs, or Project records, and the
+  provider class never reads a process environment itself.
+- **Deterministic fallback.** With no key configured, on provider failure, on a
+  bounded timeout, or on a response this service cannot validate, the offline
+  verdict stands. Failure marks semantic processing degraded; it never removes
+  or downgrades a deterministic finding. A managed verdict may refine severity
+  and wording, and it is never allowed to silence deterministic evidence.
+
+The deterministic verdict is computed synchronously and is durable before any
+managed request is made, so provider latency or outage cannot delay a finding.
+The managed request is skipped entirely when a candidate is structurally
+unambiguous — an exact same-path collision explains itself — or when the
+verdict is already silent, and it is bounded per project per hour. A late
+result is discarded when the finding has moved on to a newer revision.
+
+### What the judgment layer produces
+
+**Duplication.** A `redundant_work` finding names both workstreams and the
+behavior words they actually shared, drawn from the versioned public
+coordination vocabulary, so the reason says *what* is duplicated rather than
+that a similarity score was high. It is delivered at a severity that does not
+ask either agent to stop.
+
+**Work in progress.** A checkpoint reports what verification it ran. Structured
+verification entries are authoritative; a bounded summary that declares its own
+state, or that describes work-in-progress, is read only when the publisher sent
+none. When the workstream that moved a contract reported an unverified
+checkpoint, the resulting drift finding says so explicitly and carries a
+severity strictly below the verified case: the reader is told the new shape is
+provisional rather than told to stop and adapt to it. Contract evidence usually
+arrives before its context does — the scanner publishes the fingerprint change,
+and the checkpoint that says whether the change is finished follows it — so
+open contract findings are re-judged when their author's verification state
+lands. A later passing checkpoint takes the qualifier back off.
+
+**Redundant notices.** A coarse "you both name this contract" notice adds
+nothing when the contract-fingerprint engine already reports every change to
+that exact symbol with old and new signatures. The judgment layer silences it
+and lets the exact evidence carry the finding. It also holds a shared-contract
+candidate that rests only on two anticipated contract lists until at least one
+side reports actual work: overlapping plans are a candidate, not a finding.
+
+### The delivery decision
+
+Every finding is routed through one function. `silent` means the candidate
+never becomes a coordination object at all — it is not a low-priority item, it
+is one nobody should be asked to read. `dashboard` is delivered and labeled
+`review_recommended`. `next_turn` is delivered and labeled
+`coordination_required`, which is what a receiving agent sees as the action on
+an injected item. No supported vendor exposes a mid-turn interrupt channel
+(ADR-033/046), so `next_turn` describes urgency and labeling, not a separate
+transport.
+
+## 7. V1 semantic engine
 
 The managed V1 implementation uses a provider-neutral `EmbeddingProvider` plus a `SemanticIndex` domain interface. The initial hosted adapter uses Convex vector search because shared coordination state already lives there. Store vectors separately from readable objects. Use an opaque composite project-and-repository `scopeKey` as the mandatory indexed filter; inactive objects have no searchable vector. Reauthorize and reload current objects after retrieval before creating a finding.
 
@@ -126,7 +206,7 @@ Only approved summaries are sent to the embedding provider. The provider name/mo
 
 TurboVec is not required for V1. It remains a possible local/self-hosted `SemanticIndex` adapter after real corpus benchmarks justify a Rust sidecar. The product contract must not expose Convex-, model-, or TurboVec-specific IDs.
 
-## 7. Precision and evaluation gate
+## 8. Precision and evaluation gate
 
 Ship fixtures and a labeled evaluation corpus before enabling proactive semantic notifications. It must include:
 
@@ -142,7 +222,7 @@ Ship fixtures and a labeled evaluation corpus before enabling proactive semantic
 
 Measure candidate recall separately from alert precision. Low-confidence candidates stay in a quiet radar view; only precision-qualified findings interrupt members. Feedback (`useful`, `not_related`, `already_coordinated`, `missed_severity`) is versioned evaluation data and never silently trains a model on private project content.
 
-## 8. Delivery latency
+## 9. Delivery latency
 
 The coordination evaluation records `deliveryMillis` per scenario: how long an affected session waited, across real turn boundaries, before a stale-contract correction was injected into its next turn. Delivery is a latency contract, not only a correctness one. A correction that always arrives but arrives late is a correction the agent has already worked past.
 
@@ -166,7 +246,7 @@ Two adjacent limits share the root cause and are recorded here rather than chang
 
 Across thirty-four runs after the rate-limit fix, scenario A ranged 46–96 ms and scenario C 47–172 ms, with a single 2997 ms outlier. That outlier is not a rate-limit artifact: `CreateBrief` returned successfully with zero items for three attempts before the finding appeared, on a run loaded enough that one hook invocation took 1.58 seconds — the shape the `forceScan` precondition above produces. It has not recurred; the ten runs after that precondition was corrected all landed between 46 and 80 ms. Runs on a shared machine are also perturbed by the anonymous deployment's fixed ports 3210/3211, which a second checkout of the repository will take, so a concurrent eval elsewhere on the machine either blocks the run outright or competes for CPU with it.
 
-## 9. Privacy boundary
+## 10. Privacy boundary
 
 Coordination summaries, symbol/path metadata, and embeddings are sensitive project metadata. Enrollment and settings disclose their processing and retention. Source, diffs, prompts, transcripts, and environment values remain prohibited as intelligence/embedding inputs. Optional visible conversation events under ADR-027 remain separate activity history unless another focused ADR and evaluation gate permits a bounded derived coordination summary.
 
