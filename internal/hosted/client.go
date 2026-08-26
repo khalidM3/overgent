@@ -66,17 +66,6 @@ type SyncCard struct {
 	Comments                                        []SyncComment
 	Resolution                                      *Resolution
 }
-type SessionSharingPolicy struct {
-	Profile, Audience, ConsentVersion, ExpiresAt, UpdatedAt string
-	AllowedKinds                                            []string
-	Enabled, CanManage                                      bool
-}
-type SessionMessage struct{ ID, Kind, Text, Vendor, CapturedAt, ExpiresAt string }
-type SessionSharingSnapshot struct {
-	WorkstreamID string               `json:"workstreamId"`
-	Policy       SessionSharingPolicy `json:"policy"`
-	Messages     []SessionMessage     `json:"messages"`
-}
 type CoordinationBrief struct {
 	BriefID         string      `json:"briefId"`
 	ProjectID       string      `json:"projectId"`
@@ -235,26 +224,6 @@ func (c *Client) ResolveSyncCard(ctx context.Context, cardID string, expectedRev
 	body := map[string]any{"expectedRevision": expectedRevision, "summary": summary, "affectedMemberIds": memberIDs, "affectedWorkstreamIds": workstreamIDs}
 	err := c.request(ctx, http.MethodPost, "/v1/sync-cards/"+url.PathEscape(cardID)+"/resolve", body, &out, http.StatusOK)
 	return out, err
-}
-
-func (c *Client) SessionSharing(ctx context.Context, workstreamID string) (SessionSharingSnapshot, error) {
-	var out SessionSharingSnapshot
-	err := c.request(ctx, http.MethodGet, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", nil, &out, http.StatusOK)
-	return out, err
-}
-
-func (c *Client) UpdateSessionSharing(ctx context.Context, workstreamID, profile, audience string, kinds []string, expiresInSeconds int) (SessionSharingSnapshot, error) {
-	var out SessionSharingSnapshot
-	body := map[string]any{"profile": profile, "audience": audience, "consentVersion": "session-share/v1", "allowedKinds": kinds}
-	if expiresInSeconds > 0 {
-		body["expiresInSeconds"] = expiresInSeconds
-	}
-	err := c.request(ctx, http.MethodPut, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", body, &out, http.StatusOK)
-	return out, err
-}
-
-func (c *Client) DeleteSharedSessionMessages(ctx context.Context, workstreamID string) error {
-	return c.request(ctx, http.MethodDelete, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", nil, nil, http.StatusNoContent)
 }
 
 func (c *Client) CreateBrief(ctx context.Context, workstreamID, trigger, sinceCursor string, approximateTokenBudget int) (CoordinationBrief, error) {

@@ -135,27 +135,6 @@ http.route({ pathPrefix: "/v1/workstreams/", method: "GET", handler: httpAction(
   return json(await ctx.runQuery(internal.service.sessionSharingSnapshot, { ...auth, workstreamPublicId: expectId(match[1]), now: Date.now() }));
 })) });
 
-http.route({ pathPrefix: "/v1/workstreams/", method: "PUT", handler: httpAction(async (ctx, request) => withErrors(async () => {
-  const match = new URL(request.url).pathname.match(/^\/v1\/workstreams\/([^/]+)\/session-sharing$/);
-  if (!match) throw new HttpFailure("not_found", 404);
-  const body = expectObject(await readJson(request));
-  expectExactKeys(body, ["profile", "audience", "consentVersion", "allowedKinds"], ["expiresInSeconds"]);
-  const profile = expectString(body.profile, 7, 12);
-  const audience = expectString(body.audience, 4, 7);
-  const consentVersion = expectString(body.consentVersion, 16, 16);
-  if (!["private", "conversation"].includes(profile) || !["self", "project"].includes(audience) || consentVersion !== "session-share/v1") throw new ValidationError("validation_failed");
-  const allowedKinds = boundedStrings(body.allowedKinds, profile === "conversation" ? 1 : 0, 4, 32);
-  if (allowedKinds.some((kind) => !["user", "assistant", "thinking", "system"].includes(kind)) || (profile === "private" && allowedKinds.length > 0)) throw new ValidationError("validation_failed");
-  const now = Date.now();
-  const expiresInSeconds = body.expiresInSeconds === undefined ? undefined : expectInteger(body.expiresInSeconds, 300, 2_592_000);
-  const auth = collaborationAuth(request);
-  await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "session-sharing.update", 30);
-  return json(await ctx.runMutation(internal.service.updateSessionSharing, {
-    ...auth, workstreamPublicId: expectId(match[1]), profile, audience, consentVersion, allowedKinds,
-    ...(expiresInSeconds !== undefined ? { expiresAt: now + expiresInSeconds * 1000 } : {}), now,
-  }));
-})) });
-
 http.route({ pathPrefix: "/v1/workstreams/", method: "DELETE", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const match = new URL(request.url).pathname.match(/^\/v1\/workstreams\/([^/]+)\/session-sharing$/);
   if (!match) throw new HttpFailure("not_found", 404);

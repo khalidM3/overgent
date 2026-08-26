@@ -376,15 +376,6 @@ type CreateCoordinationBriefJSONBody struct {
 	Trigger                string  `json:"trigger"`
 }
 
-// UpdateSessionSharingJSONBody defines parameters for UpdateSessionSharing.
-type UpdateSessionSharingJSONBody struct {
-	AllowedKinds     []interface{} `json:"allowedKinds"`
-	Audience         interface{}   `json:"audience"`
-	ConsentVersion   interface{}   `json:"consentVersion"`
-	ExpiresInSeconds *int          `json:"expiresInSeconds,omitempty"`
-	Profile          interface{}   `json:"profile"`
-}
-
 // ActivateDashboardBrowserFormdataRequestBody defines body for ActivateDashboardBrowser for application/x-www-form-urlencoded ContentType.
 type ActivateDashboardBrowserFormdataRequestBody ActivateDashboardBrowserFormdataBody
 
@@ -426,9 +417,6 @@ type ResolveSyncCardJSONRequestBody ResolveSyncCardJSONBody
 
 // CreateCoordinationBriefJSONRequestBody defines body for CreateCoordinationBrief for application/json ContentType.
 type CreateCoordinationBriefJSONRequestBody CreateCoordinationBriefJSONBody
-
-// UpdateSessionSharingJSONRequestBody defines body for UpdateSessionSharing for application/json ContentType.
-type UpdateSessionSharingJSONRequestBody UpdateSessionSharingJSONBody
 
 // AsGetContextItem200JSONResponseBody0 returns the union data inside the GetContextItem200JSONResponseBody as a GetContextItem200JSONResponseBody0
 func (t GetContextItem200JSONResponseBody) AsGetContextItem200JSONResponseBody0() (GetContextItem200JSONResponseBody0, error) {
