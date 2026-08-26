@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalAction, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { OpenAIEmbeddingProvider } from "@stickguy/coordination";
@@ -78,8 +78,8 @@ export const recordOpenAIEmbeddingFailure = internalMutation({
 
 export const embedSemanticObject = internalAction({
   args: { semanticObjectPublicId: v.string(), expectedRevision: v.number() },
-  handler: async (ctx, args) => {
-    const input = await ctx.runQuery(internal.intelligence.semanticEmbeddingInput, args);
+  handler: async (ctx, args): Promise<{ applied: boolean; mode: "stale" | "fallback" | "openai" }> => {
+    const input: { publicId: string; revision: number; text: string; scopeKey: string } | null = await ctx.runQuery(internal.intelligence.semanticEmbeddingInput, args);
     if (!input) return { applied: false, mode: "stale" as const };
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -90,7 +90,7 @@ export const embedSemanticObject = internalAction({
       const provider = new OpenAIEmbeddingProvider(apiKey, OPENAI_EMBEDDING_DIMENSIONS);
       const [embedded] = await provider.embed([{ projectId: "internal", repositoryId: input.scopeKey, objectId: input.publicId, revision: input.revision, text: input.text }], AbortSignal.timeout(10_000));
       if (!embedded) throw new Error("openai_embedding_missing");
-      const applied = await ctx.runMutation(internal.intelligence.applyOpenAIEmbedding, {
+      const applied: boolean = await ctx.runMutation(internal.intelligence.applyOpenAIEmbedding, {
         semanticObjectPublicId: input.publicId, expectedRevision: input.revision, providerName: provider.name, modelVersion: "text-embedding-3-large/1024", vector: [...embedded.vector], now: Date.now(),
       });
       if (applied) await ctx.runMutation(internal.service.refreshSemanticFindings, { scopeKey: input.scopeKey, now: Date.now() });

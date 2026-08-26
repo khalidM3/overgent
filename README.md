@@ -23,6 +23,11 @@ stickguy setup remove --agent claude --project-root /path/to/project
 
 Stickguy does not bypass either client's trust boundary or claim an unsupported interrupt channel. See [L5 evidence](validation/evidence/l5-mcp.md) and the current adapter limitations in [`docs/development.md`](docs/development.md).
 
+Adapter setup is profile-aware: partial current-profile entries are repaired,
+bindings owned by another Stickguy profile get an explicit reconnect preview,
+and the desktop waits for a real provider event before labeling observation as
+verified.
+
 For the native hot-reload stack and the two-worktree Codex/Claude collision
 exercise, see [`docs/development.md`](docs/development.md).
 

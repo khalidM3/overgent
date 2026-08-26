@@ -144,6 +144,13 @@ or environment values.
   vendor tool does not expose path metadata or an adapter is disconnected.
 - Existing sessions must restart once after adapter installation. Hook coverage
   is honest: unsupported hosted or specialized tool paths are not inferred.
+- Adapter readiness distinguishes configuration from runtime proof. “Configured
+  · restart required” remains visible until the current Stickguy profile
+  receives a real session event from that provider.
+- If the repository contains a valid Stickguy binding for another local
+  profile, onboarding shows **Reconnect to this Project** with an old/new
+  preview. It never silently detaches the other profile. Partial entries for the
+  current profile are repaired automatically; unknown drift still fails closed.
 - Stickguy may read the supported vendor session record locally to show the
   session owner their own bounded conversation and to prepare an explicitly
   consented share. It never uploads the transcript file itself, scans process
@@ -202,3 +209,13 @@ configuration:
 ./bin/stickguy setup remove --development --agent codex --project-root /absolute/path/to/codex-worktree
 ./bin/stickguy setup remove --development --agent claude --project-root /absolute/path/to/claude-worktree
 ```
+
+For a repository intentionally moved between local profiles, use the desktop
+reconnect preview or the equivalent explicit CLI recovery:
+
+```bash
+./bin/stickguy --config-root "/absolute/path/to/current/profile" setup reconnect --development --agent codex --project-root /absolute/path/to/repository
+```
+
+After reconnecting, restart the provider and begin a new task in the enrolled
+repository. Stickguy keeps the adapter pending until that first event arrives.

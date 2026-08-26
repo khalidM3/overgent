@@ -1,6 +1,7 @@
 package codexsetup
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,15 +18,20 @@ const (
 )
 
 type Status struct {
-	Configured bool   `json:"configured"`
-	ConfigPath string `json:"configPath"`
-	Hooks      string `json:"hooks"`
+	Configured      bool   `json:"configured"`
+	ConfigPath      string `json:"configPath"`
+	Hooks           string `json:"hooks"`
+	Binding         string `json:"binding"`
+	PreviousProfile string `json:"previousProfile,omitempty"`
+	RestartRequired bool   `json:"restartRequired"`
 }
 
 type Manager struct {
 	ProjectRoot, ConfigRoot, Executable string
 	Portable                            bool
 }
+
+var rebindHooks = hookconfig.Rebind
 
 func (m Manager) Setup() (Status, error) {
 	resolved, expected, err := m.resolve()
@@ -39,6 +45,9 @@ func (m Manager) Setup() (Status, error) {
 	state, err := inspect(current, expected)
 	if err != nil {
 		return Status{}, err
+	}
+	if state.Binding == "other_profile" {
+		return state, errors.New("Codex is connected to another Stickguy profile; explicit reconnect is required")
 	}
 	if !state.Configured {
 		if strings.Contains(current, "[mcp_servers.stickguy]") {
@@ -65,7 +74,7 @@ func (m Manager) Setup() (Status, error) {
 	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
 		return Status{}, fmt.Errorf("install Codex activity hooks: %w", err)
 	}
-	return Status{Configured: true, ConfigPath: resolved, Hooks: "active"}, nil
+	return Status{Configured: true, ConfigPath: resolved, Hooks: "active", Binding: "current", RestartRequired: true}, nil
 }
 
 func (m Manager) Status() (Status, error) {
@@ -85,18 +94,87 @@ func (m Manager) Status() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	hooks, err := hookconfig.Status(hookPath, hookCommand)
+	hooks, err := hookconfig.Inspect(hookPath, hookCommand)
 	if err != nil {
 		return Status{}, err
 	}
-	status.Configured = status.Configured && hooks
 	status.ConfigPath = resolved
-	if hooks {
-		status.Hooks = "active"
-	} else {
-		status.Hooks = "not_configured"
+	switch {
+	case status.Binding == "current" && hooks.State == hookconfig.BindingCurrent:
+		status.Configured, status.Hooks, status.RestartRequired = true, "active", true
+	case status.Binding == "other_profile" && (hooks.State == hookconfig.BindingOtherProfile || hooks.State == hookconfig.BindingNotConfigured):
+		status.Configured, status.Hooks, status.RestartRequired = false, "other_profile", true
+	case status.Binding == "current" && hooks.State == hookconfig.BindingOtherProfile:
+		status.Configured, status.Binding, status.Hooks, status.RestartRequired = false, "other_profile", "other_profile", true
+	case status.Binding == "not_configured" && hooks.State == hookconfig.BindingOtherProfile:
+		status.Binding, status.Hooks, status.RestartRequired = "other_profile", "other_profile", true
+	case hooks.State == hookconfig.BindingPartial || status.Binding == "current" || hooks.State == hookconfig.BindingCurrent:
+		status.Configured, status.Binding, status.Hooks, status.RestartRequired = false, "partial", "partial", true
+	default:
+		status.Configured, status.Binding, status.Hooks = false, "not_configured", "not_configured"
 	}
 	return status, nil
+}
+
+// Rebind transactionally replaces a structurally recognized Stickguy binding
+// from another profile. Unknown drift remains an error. Both config files are
+// restored if either managed rewrite fails.
+func (m Manager) Rebind() (Status, error) {
+	resolved, expected, err := m.resolve()
+	if err != nil {
+		return Status{}, err
+	}
+	current, err := readOptional(resolved)
+	if err != nil {
+		return Status{}, err
+	}
+	state, err := inspect(current, expected)
+	if err != nil {
+		return Status{}, err
+	}
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
+		return Status{}, err
+	}
+	configSnapshot, err := capture(resolved)
+	if err != nil {
+		return Status{}, err
+	}
+	hookSnapshot, err := capture(hookPath)
+	if err != nil {
+		return Status{}, err
+	}
+	next := current
+	if state.Binding == "other_profile" {
+		start := strings.Index(current, beginMarker)
+		end := strings.Index(current, endMarker) + len(endMarker)
+		next = current[:start] + expected + current[end:]
+	} else if state.Binding == "not_configured" {
+		separator := ""
+		if len(next) > 0 && !strings.HasSuffix(next, "\n") {
+			separator = "\n"
+		}
+		if len(next) > 0 {
+			separator += "\n"
+		}
+		next += separator + expected
+	}
+	if next != current {
+		if err = atomicWrite(resolved, []byte(next), 0o644); err != nil {
+			return Status{}, err
+		}
+	}
+	if err = rebindHooks(hookPath, hookCommand); err != nil {
+		restoreErr := restore(resolved, configSnapshot)
+		if hookRestoreErr := restore(hookPath, hookSnapshot); restoreErr == nil {
+			restoreErr = hookRestoreErr
+		}
+		if restoreErr != nil {
+			return Status{}, fmt.Errorf("rebind Codex hooks: %v; rollback: %w", err, restoreErr)
+		}
+		return Status{}, fmt.Errorf("rebind Codex hooks: %w", err)
+	}
+	return Status{Configured: true, ConfigPath: resolved, Hooks: "active", Binding: "current", RestartRequired: true}, nil
 }
 
 func (m Manager) Remove() (Status, error) {
@@ -133,7 +211,7 @@ func (m Manager) Remove() (Status, error) {
 			return Status{}, hookErr
 		}
 	}
-	return Status{ConfigPath: resolved, Hooks: "not_configured"}, nil
+	return Status{ConfigPath: resolved, Hooks: "not_configured", Binding: "not_configured"}, nil
 }
 
 func (m Manager) hookDetails() (string, string, error) {
@@ -192,17 +270,95 @@ func (m Manager) resolve() (string, string, error) {
 func inspect(current, expected string) (Status, error) {
 	starts, ends := strings.Count(current, beginMarker), strings.Count(current, endMarker)
 	if starts == 0 && ends == 0 {
-		return Status{}, nil
+		return Status{Binding: "not_configured"}, nil
 	}
 	if starts != 1 || ends != 1 {
 		return Status{}, errors.New("managed Codex MCP block markers are incomplete or duplicated")
 	}
 	start := strings.Index(current, beginMarker)
 	end := strings.Index(current, endMarker) + len(endMarker)
-	if start < 0 || end < start || current[start:end] != expected {
+	if start < 0 || end < start {
 		return Status{}, errors.New("managed Codex MCP block drifted; refusing to overwrite or remove it")
 	}
-	return Status{Configured: true}, nil
+	block := current[start:end]
+	if block != expected {
+		currentManaged, currentOK := parseManagedBlock(block)
+		expectedManaged, expectedOK := parseManagedBlock(expected)
+		if !currentOK || !expectedOK || currentManaged.cwd != expectedManaged.cwd {
+			return Status{}, errors.New("managed Codex MCP block drifted; refusing to overwrite or remove it")
+		}
+		return Status{Binding: "other_profile", PreviousProfile: currentManaged.profile, RestartRequired: true}, nil
+	}
+	return Status{Configured: true, Binding: "current", RestartRequired: true}, nil
+}
+
+type managedBlock struct{ cwd, profile string }
+
+func parseManagedBlock(block string) (managedBlock, bool) {
+	lines := strings.Split(block, "\n")
+	if len(lines) != 10 || lines[0] != strings.TrimSuffix(beginMarker, "\n") || lines[1] != "[mcp_servers.stickguy]" ||
+		lines[5] != "required = false" || lines[6] != "startup_timeout_sec = 10" || lines[7] != "tool_timeout_sec = 60" ||
+		lines[8] != strings.TrimSuffix(endMarker, "\n") || lines[9] != "" {
+		return managedBlock{}, false
+	}
+	command, ok := unquoteField(lines[2], "command = ")
+	if !ok || command != "stickguy" && !filepath.IsAbs(command) {
+		return managedBlock{}, false
+	}
+	var args []string
+	if !strings.HasPrefix(lines[3], "args = [") || !strings.HasSuffix(lines[3], "]") || json.Unmarshal([]byte(strings.TrimPrefix(lines[3], "args = ")), &args) != nil {
+		return managedBlock{}, false
+	}
+	cwd, ok := unquoteField(lines[4], "cwd = ")
+	if !ok || !filepath.IsAbs(cwd) {
+		return managedBlock{}, false
+	}
+	if len(args) == 1 && args[0] == "mcp" && command == "stickguy" {
+		return managedBlock{cwd: cwd}, true
+	}
+	if len(args) != 3 || args[0] != "--config-root" || !filepath.IsAbs(args[1]) || args[2] != "mcp" || !filepath.IsAbs(command) {
+		return managedBlock{}, false
+	}
+	return managedBlock{cwd: cwd, profile: filepath.Clean(args[1])}, true
+}
+
+func unquoteField(line, prefix string) (string, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	value, err := strconv.Unquote(strings.TrimPrefix(line, prefix))
+	return value, err == nil
+}
+
+type fileSnapshot struct {
+	exists bool
+	data   []byte
+	mode   os.FileMode
+}
+
+func capture(path string) (fileSnapshot, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return fileSnapshot{}, nil
+	}
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	data, err := os.ReadFile(path)
+	return fileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, err
+}
+
+func restore(path string, snapshot fileSnapshot) error {
+	if !snapshot.exists {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, snapshot.data, snapshot.mode)
 }
 
 func readOptional(path string) (string, error) {

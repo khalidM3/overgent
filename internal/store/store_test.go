@@ -54,6 +54,32 @@ func TestRegistrationEventIDIncludesDeviceScope(t *testing.T) {
 	}
 }
 
+func TestAgentObservationPersistsRuntimeVerification(t *testing.T) {
+	ctx := context.Background()
+	state, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	observedAt := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	if err = state.RecordAgentObservation(ctx, "wsp_fixture", "codex", observedAt); err != nil {
+		t.Fatal(err)
+	}
+	got, observed, err := state.AgentObserved(ctx, "wsp_fixture", "codex")
+	if err != nil || !observed || !got.Equal(observedAt) {
+		t.Fatalf("got=%v observed=%v err=%v", got, observed, err)
+	}
+	if _, observed, err = state.AgentObserved(ctx, "wsp_fixture", "claude"); err != nil || observed {
+		t.Fatalf("unexpected Claude observation observed=%v err=%v", observed, err)
+	}
+	if err = state.ClearAgentObservation(ctx, "wsp_fixture", "codex"); err != nil {
+		t.Fatal(err)
+	}
+	if _, observed, err = state.AgentObserved(ctx, "wsp_fixture", "codex"); err != nil || observed {
+		t.Fatalf("cleared Codex observation remained observed=%v err=%v", observed, err)
+	}
+}
+
 func TestLifecyclePublicationIsAtomicRevisionedAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))

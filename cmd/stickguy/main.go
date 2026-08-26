@@ -172,8 +172,8 @@ func run(args []string) error {
 		}
 		return nil
 	case "setup":
-		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true}[rest[1]] {
-			return errors.New("setup requires codex, claude, status, or remove")
+		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true, "reconnect": true}[rest[1]] {
+			return errors.New("setup requires codex, claude, status, reconnect, or remove")
 		}
 		setupFlags := flag.NewFlagSet("setup "+rest[1], flag.ContinueOnError)
 		projectRoot := setupFlags.String("project-root", ".", "trusted coding-agent project root")
@@ -190,7 +190,7 @@ func run(args []string) error {
 			return executableErr
 		}
 		selected := rest[1]
-		if selected == "status" || selected == "remove" {
+		if selected == "status" || selected == "remove" || selected == "reconnect" {
 			selected = *agent
 		}
 		if selected != "codex" && selected != "claude" {
@@ -207,6 +207,8 @@ func run(args []string) error {
 				status, setupErr = manager.Status()
 			case "remove":
 				status, setupErr = manager.Remove()
+			case "reconnect":
+				status, setupErr = manager.Rebind()
 			default:
 				return errors.New("setup command and agent do not match")
 			}
@@ -219,6 +221,8 @@ func run(args []string) error {
 				status, setupErr = manager.Status()
 			case "remove":
 				status, setupErr = manager.Remove()
+			case "reconnect":
+				status, setupErr = manager.Rebind()
 			default:
 				return errors.New("setup command and agent do not match")
 			}

@@ -19,16 +19,23 @@ import (
 	"github.com/stickguy/stickguy/internal/credential"
 	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/onboarding"
+	"github.com/stickguy/stickguy/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"unicode/utf8"
 )
 
 type AdapterState struct {
-	Name       string `json:"name"`
-	Installed  bool   `json:"installed"`
-	Configured bool   `json:"configured"`
-	Fidelity   string `json:"fidelity"`
-	Detail     string `json:"detail"`
+	Name             string `json:"name"`
+	Installed        bool   `json:"installed"`
+	Configured       bool   `json:"configured"`
+	Fidelity         string `json:"fidelity"`
+	Detail           string `json:"detail"`
+	Binding          string `json:"binding"`
+	PreviousProfile  string `json:"previousProfile,omitempty"`
+	CurrentProfile   string `json:"currentProfile"`
+	RuntimeVerified  bool   `json:"runtimeVerified"`
+	RestartRequired  bool   `json:"restartRequired"`
+	ReconnectAllowed bool   `json:"reconnectAllowed"`
 }
 
 type OnboardingState struct {
@@ -167,6 +174,75 @@ func (service *OnboardingService) ConfigureAdapters(repositoryRoot string, enabl
 		return states, errors.New(strings.Join(warnings, "; "))
 	}
 	return states, nil
+}
+
+func (service *OnboardingService) ReconnectAdapter(repositoryRoot, agent string) (AdapterState, error) {
+	root, err := canonicalRepository(repositoryRoot)
+	if err != nil {
+		return AdapterState{}, err
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return AdapterState{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return AdapterState{}, err
+	}
+	registered := false
+	for _, workspace := range cfg.Workspaces {
+		if workspace.Root == root {
+			registered = true
+			break
+		}
+	}
+	if !registered {
+		return AdapterState{}, errors.New("adapter reconnect requires a repository registered to this Project")
+	}
+	executable, err := service.resolveCLI()
+	if err != nil {
+		return AdapterState{}, err
+	}
+	switch agent {
+	case "codex":
+		if _, err = (codexsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Rebind(); err != nil {
+			return AdapterState{}, err
+		}
+		if err = service.clearAgentRuntimeVerification(cfg, root, "codex"); err != nil {
+			return AdapterState{}, err
+		}
+		return service.adapterStates([]string{root})[0], nil
+	case "claude":
+		if _, err = (claudesetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Rebind(); err != nil {
+			return AdapterState{}, err
+		}
+		if err = service.clearAgentRuntimeVerification(cfg, root, "claude"); err != nil {
+			return AdapterState{}, err
+		}
+		return service.adapterStates([]string{root})[1], nil
+	default:
+		return AdapterState{}, errors.New("agent must be codex or claude")
+	}
+}
+
+func (service *OnboardingService) clearAgentRuntimeVerification(cfg config.Config, root, vendor string) error {
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return err
+	}
+	db, err := store.Open(paths.DB)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, workspace := range cfg.Workspaces {
+		if workspace.Root == root {
+			return db.ClearAgentObservation(ctx, workspace.ID, vendor)
+		}
+	}
+	return nil
 }
 
 func (service *OnboardingService) ConnectAgentWorktree(repositoryRoot, agent string) (AdapterState, error) {
@@ -313,9 +389,10 @@ func (service *OnboardingService) configureAdapters(root string, codex, claude b
 
 func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	executable, cliErr := service.resolveCLI()
+	currentProfile := filepath.Base(service.configRoot)
 	states := []AdapterState{
-		{Name: "Codex", Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Project hooks share the vendor-visible session title as intent; approved titles may use the configured semantic provider. Brief delivery is MCP pull."},
-		{Name: "Claude Code", Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Project hooks share the vendor-visible session title as intent; approved titles may use the configured semantic provider. Brief delivery is MCP pull."},
+		{Name: "Codex", Binding: "not_configured", CurrentProfile: currentProfile, Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Not connected to this Project yet."},
+		{Name: "Claude Code", Binding: "not_configured", CurrentProfile: currentProfile, Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Not connected to this Project yet."},
 	}
 	for index, command := range []string{"codex", "claude"} {
 		_, states[index].Installed = agentExecutable(command)
@@ -325,17 +402,94 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	}
 	for _, root := range roots {
 		if status, statusErr := (codexsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil {
-			states[0].Configured = states[0].Configured || status.Configured
+			applyAdapterBinding(&states[0], status.Configured, status.Binding, status.PreviousProfile)
 		} else if !states[0].Configured {
+			states[0].Binding = "drifted"
 			states[0].Detail = "Configuration needs review: " + statusErr.Error()
 		}
 		if status, statusErr := (claudesetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil {
-			states[1].Configured = states[1].Configured || status.Configured
+			applyAdapterBinding(&states[1], status.Configured, status.Binding, status.PreviousProfile)
 		} else if !states[1].Configured {
+			states[1].Binding = "drifted"
 			states[1].Detail = "Configuration needs review: " + statusErr.Error()
 		}
 	}
+	for index, vendor := range []string{"codex", "claude"} {
+		states[index].RuntimeVerified = service.agentRuntimeVerified(roots, vendor)
+		states[index].RestartRequired = states[index].Configured && !states[index].RuntimeVerified
+		states[index].ReconnectAllowed = states[index].Binding == "other_profile"
+		if states[index].RuntimeVerified {
+			states[index].Detail = "Verified by a live session event from this Project. Relevant briefs use MCP pull."
+		} else if states[index].RestartRequired {
+			states[index].Detail = "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection."
+		}
+	}
 	return states
+}
+
+func applyAdapterBinding(state *AdapterState, configured bool, binding, previousProfile string) {
+	state.Configured = state.Configured || configured
+	if bindingPriority(binding) < bindingPriority(state.Binding) {
+		return
+	}
+	state.Binding = binding
+	if previousProfile != "" {
+		state.PreviousProfile = filepath.Base(previousProfile)
+	}
+	switch binding {
+	case "other_profile":
+		state.Detail = "Connected to a different Stickguy profile. Reconnect explicitly to move only Stickguy-managed configuration to this Project."
+	case "partial":
+		state.Detail = "Stickguy found an incomplete connection and can repair the managed entries automatically."
+	case "not_configured":
+		state.Detail = "Not connected to this Project yet."
+	}
+}
+
+func bindingPriority(binding string) int {
+	switch binding {
+	case "drifted":
+		return 5
+	case "other_profile":
+		return 4
+	case "partial":
+		return 3
+	case "current":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (service *OnboardingService) agentRuntimeVerified(roots []string, vendor string) bool {
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return false
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return false
+	}
+	db, err := store.Open(paths.DB)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	allowed := map[string]bool{}
+	for _, root := range roots {
+		allowed[root] = true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, workspace := range cfg.Workspaces {
+		if !allowed[workspace.Root] {
+			continue
+		}
+		if _, observed, observationErr := db.AgentObserved(ctx, workspace.ID, vendor); observationErr == nil && observed {
+			return true
+		}
+	}
+	return false
 }
 
 func requireLinkedWorktree(primary, candidate string) error {

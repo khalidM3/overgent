@@ -3,12 +3,16 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/stickguy/stickguy/internal/codexsetup"
 	"github.com/stickguy/stickguy/internal/config"
+	"github.com/stickguy/stickguy/internal/store"
 )
 
 func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
@@ -32,6 +36,79 @@ func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
 	}
 	if len(state.Adapters) != 2 {
 		t.Fatalf("adapter count=%d", len(state.Adapters))
+	}
+}
+
+func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
+	sharedRoot, oldRoot, repository := t.TempDir(), t.TempDir(), t.TempDir()
+	repository, _ = filepath.EvalSymlinks(repository)
+	paths, err := config.Resolve(sharedRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
+	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = (codexsetup.Manager{ProjectRoot: repository, ConfigRoot: oldRoot, Executable: executable}).Setup(); err != nil {
+		t.Fatal(err)
+	}
+	service := &OnboardingService{configRoot: sharedRoot, apiBaseURL: "https://example.convex.site", cliBinary: executable}
+	state, err := service.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := state.Adapters[0]
+	if codex.Binding != "other_profile" || codex.Configured || !codex.ReconnectAllowed {
+		t.Fatalf("other profile was not actionable: %#v", codex)
+	}
+	if _, err = service.ReconnectAdapter(repository, "codex"); err != nil {
+		t.Fatal(err)
+	}
+	state, err = service.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex = state.Adapters[0]
+	if !codex.Configured || codex.Binding != "current" || !codex.RestartRequired || codex.RuntimeVerified {
+		t.Fatalf("reconnected state is dishonest: %#v", codex)
+	}
+}
+
+func TestOnboardingRequiresLiveEventBeforeAdapterReady(t *testing.T) {
+	root, repository := t.TempDir(), t.TempDir()
+	repository, _ = filepath.EvalSymlinks(repository)
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
+	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+		t.Fatal(err)
+	}
+	executable, _ := os.Executable()
+	if _, err = (codexsetup.Manager{ProjectRoot: repository, ConfigRoot: root, Executable: executable}).Setup(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.RecordAgentObservation(context.Background(), workspace.ID, "codex", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	service := &OnboardingService{configRoot: root, apiBaseURL: "https://example.convex.site", cliBinary: executable}
+	state, err := service.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Adapters[0].RuntimeVerified || state.Adapters[0].RestartRequired {
+		t.Fatalf("live event did not verify adapter: %#v", state.Adapters[0])
 	}
 }
 

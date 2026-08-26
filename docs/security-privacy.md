@@ -31,6 +31,12 @@ Protect against token theft/replay, unauthorized project access, hostile website
   ADR-042 classifier and hosted semantic policy both accept it. The UI discloses
   that an approved title may reach the configured embedding provider; a rejected
   title never blocks safe lifecycle/path observation.
+- Agent profile reconnect recognizes only Stickguy's exact managed MCP/hook
+  shapes, previews the previous and target local profiles, and requires explicit
+  confirmation before detaching another profile. Both files are snapshotted for
+  rollback, unrelated provider configuration is preserved, and unknown or
+  conflicting managed-looking entries fail closed. Runtime verification stores
+  only workspace ID, vendor, and observation time in local SQLite.
 - Opaque public IDs; separate dev/preview/prod data and credentials.
 - Audit security events without secrets; implement retention and deletion jobs.
 

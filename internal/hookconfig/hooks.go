@@ -32,6 +32,20 @@ type group struct {
 	Hooks   []handler `json:"hooks"`
 }
 
+type BindingState string
+
+const (
+	BindingNotConfigured BindingState = "not_configured"
+	BindingCurrent       BindingState = "current"
+	BindingPartial       BindingState = "partial"
+	BindingOtherProfile  BindingState = "other_profile"
+)
+
+type Inspection struct {
+	State           BindingState
+	ExistingCommand string
+}
+
 // Install structurally adds Stickguy's exact managed hooks while preserving all
 // unrelated settings and hooks. The command is intentionally a fixed string
 // assembled from application-owned absolute paths, never user input.
@@ -92,31 +106,118 @@ func Install(path, command string) error {
 }
 
 func Status(path, command string) (bool, error) {
+	inspection, err := Inspect(path, command)
+	return inspection.State == BindingCurrent, err
+}
+
+// Inspect distinguishes a complete current binding from a partial install and
+// from a structurally valid Stickguy binding owned by another local profile.
+// Unknown or conflicting managed-looking commands fail closed.
+func Inspect(path, command string) (Inspection, error) {
 	_, hooks, err := read(path)
 	if err != nil {
-		return false, err
+		return Inspection{}, err
 	}
+	vendor := commandVendor(command)
+	if vendor == "" {
+		return Inspection{}, errors.New("invalid expected Stickguy activity hook command")
+	}
+	existingCommands := map[string]bool{}
+	present := map[string]bool{}
 	for _, event := range configuredEvents(command) {
 		groups, err := groupsFor(hooks[event])
 		if err != nil {
-			return false, fmt.Errorf("decode %s hooks: %w", event, err)
+			return Inspection{}, fmt.Errorf("decode %s hooks: %w", event, err)
 		}
-		found := false
 		for _, existing := range groups {
 			for _, candidate := range existing.Hooks {
 				if managed(candidate.Command) {
-					if candidate.Command != command {
-						return false, errors.New("managed Stickguy activity hook drifted")
+					if !managedForVendor(candidate.Command, vendor) {
+						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
 					}
-					found = true
+					existingCommands[candidate.Command] = true
+					present[event] = true
 				}
 			}
 		}
-		if !found {
-			return false, nil
+	}
+	if len(existingCommands) == 0 {
+		return Inspection{State: BindingNotConfigured}, nil
+	}
+	if len(existingCommands) != 1 {
+		return Inspection{}, errors.New("conflicting managed Stickguy activity hooks")
+	}
+	var existingCommand string
+	for value := range existingCommands {
+		existingCommand = value
+	}
+	if existingCommand != command {
+		return Inspection{State: BindingOtherProfile, ExistingCommand: existingCommand}, nil
+	}
+	if len(present) != len(configuredEvents(command)) {
+		return Inspection{State: BindingPartial, ExistingCommand: existingCommand}, nil
+	}
+	return Inspection{State: BindingCurrent, ExistingCommand: existingCommand}, nil
+}
+
+// Rebind replaces only structurally recognized Stickguy hooks for this vendor.
+// Unrelated hook groups and handlers are preserved byte-semantically through
+// JSON decoding/re-encoding, and unknown managed-looking commands fail closed.
+func Rebind(path, command string) error {
+	document, hooks, err := read(path)
+	if err != nil {
+		return err
+	}
+	vendor := commandVendor(command)
+	if vendor == "" {
+		return errors.New("invalid Stickguy activity hook command")
+	}
+	inspection, err := Inspect(path, command)
+	if err != nil {
+		return err
+	}
+	if inspection.State != BindingCurrent && inspection.State != BindingPartial && inspection.State != BindingOtherProfile && inspection.State != BindingNotConfigured {
+		return errors.New("unsupported Stickguy activity hook binding")
+	}
+	for event, raw := range hooks {
+		groups, decodeErr := groupsFor(raw)
+		if decodeErr != nil {
+			return fmt.Errorf("decode %s hooks: %w", event, decodeErr)
+		}
+		keptGroups := make([]group, 0, len(groups))
+		for _, existing := range groups {
+			keptHandlers := make([]handler, 0, len(existing.Hooks))
+			for _, candidate := range existing.Hooks {
+				if managed(candidate.Command) {
+					if !managedForVendor(candidate.Command, vendor) {
+						return errors.New("managed Stickguy activity hook drifted; refusing rebind")
+					}
+					continue
+				}
+				keptHandlers = append(keptHandlers, candidate)
+			}
+			if len(keptHandlers) > 0 {
+				existing.Hooks = keptHandlers
+				keptGroups = append(keptGroups, existing)
+			}
+		}
+		if len(keptGroups) == 0 {
+			delete(hooks, event)
+		} else if hooks[event], err = json.Marshal(keptGroups); err != nil {
+			return err
 		}
 	}
-	return true, nil
+	for _, event := range configuredEvents(command) {
+		groups, decodeErr := groupsFor(hooks[event])
+		if decodeErr != nil {
+			return fmt.Errorf("decode %s hooks: %w", event, decodeErr)
+		}
+		groups = append(groups, expected(event, command))
+		if hooks[event], err = json.Marshal(groups); err != nil {
+			return err
+		}
+	}
+	return write(path, document, hooks)
 }
 
 func Remove(path, command string) error {
@@ -197,6 +298,23 @@ func expected(event, command string) group {
 
 func managed(command string) bool {
 	return strings.Contains(command, " agent-hook --vendor ")
+}
+
+func commandVendor(command string) string {
+	for _, vendor := range []string{"codex", "claude"} {
+		if strings.HasSuffix(command, " agent-hook --vendor "+vendor) {
+			return vendor
+		}
+	}
+	return ""
+}
+
+func managedForVendor(command, vendor string) bool {
+	if commandVendor(command) != vendor || strings.ContainsAny(command, "\r\n\x00") {
+		return false
+	}
+	prefix := strings.TrimSuffix(command, " agent-hook --vendor "+vendor)
+	return prefix == "'stickguy'" || strings.HasPrefix(prefix, "'") && strings.Contains(prefix, "' --config-root '")
 }
 
 func shellQuote(value string) string {

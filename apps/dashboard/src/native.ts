@@ -4,6 +4,12 @@ export interface AdapterState {
   configured: boolean;
   fidelity: string;
   detail: string;
+  binding: "not_configured" | "current" | "partial" | "other_profile" | "drifted";
+  previousProfile?: string;
+  currentProfile: string;
+  runtimeVerified: boolean;
+  restartRequired: boolean;
+  reconnectAllowed: boolean;
 }
 
 export interface OnboardingState {
@@ -70,6 +76,7 @@ export const nativeOnboarding = {
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
   configureAdapters: (root: string, codex: boolean, claude: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude),
+  reconnectAdapter: (root: string, agent: "codex" | "claude") => call<AdapterState>("ReconnectAdapter", root, agent),
   connectAgentWorktree: (root: string, agent: "codex" | "claude") => call<AdapterState>("ConnectAgentWorktree", root, agent),
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
   sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),

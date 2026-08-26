@@ -493,6 +493,9 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if err := s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "hook", "agent.activity_reported", payload); err != nil {
 		return daemon.Response{Error: err.Error()}
 	}
+	if err := s.store.RecordAgentObservation(ctx, workspace.ID, event.Vendor, time.Now()); err != nil {
+		return daemon.Response{Error: err.Error()}
+	}
 	shared := s.shareTranscript(ctx, workspace, event, transcript)
 	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared}}
 }

@@ -140,6 +140,9 @@ func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
 	if !response.OK {
 		t.Fatalf("response=%#v", response)
 	}
+	if _, observed, observationErr := db.AgentObserved(ctx, workspace.ID, "codex"); observationErr != nil || !observed {
+		t.Fatalf("runtime observation was not persisted: observed=%v err=%v", observed, observationErr)
+	}
 	queue, err := db.Pending(ctx)
 	if err != nil || len(queue) != 2 {
 		t.Fatalf("queue=%d err=%v", len(queue), err)

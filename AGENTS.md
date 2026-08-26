@@ -2,7 +2,7 @@
 
 ## Mission and required reading
 
-Build a persistent air-traffic-control layer for teams working with coding agents. Deterministic live coordination is the foundation; V1 also requires semantic candidate retrieval and evidence-backed collision findings over bounded shared summaries. Optional model adjudication may improve ambiguous findings but must not be required for structural detection.
+Build a persistent air-traffic-control layer for teams working with coding agents. The product maintains a live shared world model of what every agent session believes and is building (intents, read sets, write sets, contract fingerprints, dependency claims), detects divergence (stale contracts, semantic duplication, collisions, dependency readiness), and routes corrections into affected agent turns before work is wasted. Deterministic evidence is the trigger layer and always works offline; a hosted LLM is the judgment layer (ADR-045). See ADR-044 through ADR-048 for the V2 reboot.
 
 Stickguy is a coordination harness, not a coding-agent harness. Do not absorb model loops, repository editing, shell/test execution, coding-model routing, or coding-agent permission management. Implement the lifecycle and context-router contracts in `docs/coordination-harness.md`.
 
@@ -15,15 +15,16 @@ Before implementation, read every document in `docs/README.md` order. Do not rep
 - One per-user service manages multiple projects/workspaces.
 - Go calls hosted backend only through versioned Stickguy HTTP contracts.
 - OpenAPI/JSON Schema is external contract source of truth; never hand-edit generated code.
-- Never upload Git objects, environment values, credentials, tokens, cookies,
-  private keys, protected credential paths, raw tool results, or command output.
-  ADR-036 permits reading the vendor transcript named by a supported hook for a
-  session in a registered repository: it is read locally, bounded, never copied
-  to a second store, and always shown to that session's own member. Projecting it
-  to other members stays off by default and requires per-session preview and
-  versioned consent; quoted code and file *names* are allowed in a consented
-  conversation, the secret material above is not, and sharing is revocable with
-  deletion. Each vendor needs its own adapter (ADR-039).
+- The privacy boundary is the wire, not local reads (ADR-044). The local
+  service may read source, diffs, and vendor transcripts on the member's
+  machine. What syncs is derived, structured coordination facts: contract
+  fingerprints, bounded diff summaries, intents, dependency claims, manifests,
+  finding evidence, and classified session content. Never upload Git objects,
+  raw source files, raw diffs, environment values, credentials, tokens,
+  cookies, private keys, protected credential paths, raw tool results, or
+  command output; the secret classifier (ADR-038 semantics) is a mandatory
+  non-disableable wire gate. Project membership plus the pause switch is the
+  sharing consent model (ADR-047). Each vendor needs its own adapter (ADR-039).
 - Never automatically merge/rebase/cherry-pick/reset/checkout/apply patches or mutate teammate work.
 - Never shell-concatenate Git/user input; use argument arrays and validate refs/paths.
 - Never bind local servers beyond loopback.

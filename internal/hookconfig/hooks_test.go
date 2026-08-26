@@ -1,6 +1,7 @@
 package hookconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,5 +48,64 @@ func TestDriftFailsClosed(t *testing.T) {
 	other, _ := Command("/b/stickguy", "/state", "codex")
 	if err := Install(path, other); err == nil {
 		t.Fatal("expected drift error")
+	}
+}
+
+func TestInspectAndRebindOtherProfilePreservesUnrelatedHooks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
+	oldCommand, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/old profile", "codex")
+	newCommand, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/shared profile", "codex")
+	if err := Install(path, oldCommand); err != nil {
+		t.Fatal(err)
+	}
+	document, hooks, err := read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, _ := groupsFor(hooks["Stop"])
+	groups = append(groups, group{Hooks: []handler{{Type: "command", Command: "other-hook"}}})
+	hooks["Stop"], _ = json.Marshal(groups)
+	if err = write(path, document, hooks); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(path, newCommand)
+	if err != nil || inspection.State != BindingOtherProfile || inspection.ExistingCommand != oldCommand {
+		t.Fatalf("inspection=%#v err=%v", inspection, err)
+	}
+	if err = Rebind(path, newCommand); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err = Inspect(path, newCommand)
+	if err != nil || inspection.State != BindingCurrent {
+		t.Fatalf("rebound inspection=%#v err=%v", inspection, err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "/tmp/old profile") || !strings.Contains(string(data), "/tmp/shared profile") || !strings.Contains(string(data), "other-hook") {
+		t.Fatalf("rebound hooks lost or retained wrong state: %s", data)
+	}
+}
+
+func TestInstallAutomaticallyRepairsPartialCurrentBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
+	command, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/shared profile", "codex")
+	if err := Install(path, command); err != nil {
+		t.Fatal(err)
+	}
+	document, hooks, err := read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(hooks, "SessionStart")
+	if err = write(path, document, hooks); err != nil {
+		t.Fatal(err)
+	}
+	if inspection, inspectErr := Inspect(path, command); inspectErr != nil || inspection.State != BindingPartial {
+		t.Fatalf("partial inspection=%#v err=%v", inspection, inspectErr)
+	}
+	if err = Install(path, command); err != nil {
+		t.Fatal(err)
+	}
+	if inspection, inspectErr := Inspect(path, command); inspectErr != nil || inspection.State != BindingCurrent {
+		t.Fatalf("repaired inspection=%#v err=%v", inspection, inspectErr)
 	}
 }
