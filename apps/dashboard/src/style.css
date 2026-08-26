@@ -452,10 +452,21 @@ button.settings-row:hover { background: var(--surface-hover); }
 .connected-card .repo-path { overflow: hidden; margin: -.15rem 0 1.2rem; color: var(--muted); font-family: monospace; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
 .connection-line { display: grid; grid-template-columns: 1.8rem 1fr; gap: .65rem; color: var(--green); background: var(--green-soft); }
 .connection-line > span { width: 1.65rem; height: 1.65rem; display: grid; place-items: center; color: white; background: var(--green); border-radius: 50%; }
+.connection-line.needs-attention { color: var(--amber); background: var(--amber-soft); }
+.connection-line.needs-attention > span { background: var(--amber); }
 .adapter-list { margin: .9rem 0; border-top: 1px solid var(--line); }
-.adapter-list > div { display: grid; grid-template-columns: .6rem 1fr; align-items: center; gap: .55rem; padding: .7rem .15rem; border-bottom: 1px solid var(--line); }
+.adapter-list > div { display: grid; grid-template-columns: .6rem minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .7rem .15rem; border-bottom: 1px solid var(--line); }
 .adapter-list > div > span:last-child { display: grid; }
 .adapter-list small, .invite-code p, .milestone-note { color: var(--muted); font-size: .66rem; }
+.adapter-dot.pending { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+.adapter-row.other_profile small, .adapter-row.drifted small { color: var(--amber); }
+.reconnect-preview { margin: 1rem 0; padding: 1rem; border: 1px solid var(--amber); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 18px 48px rgb(0 0 0 / .18); }
+.reconnect-preview h2 { margin: .25rem 0 .8rem; font-size: 1rem; }
+.reconnect-preview > p:not(.eyebrow) { color: var(--muted); font-size: .72rem; line-height: 1.55; }
+.reconnect-preview dl { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; margin: 0 0 .8rem; }
+.reconnect-preview dl div { padding: .65rem; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-subtle); }
+.reconnect-preview dt { color: var(--muted); font-size: .61rem; text-transform: uppercase; letter-spacing: .06em; }
+.reconnect-preview dd { margin: .25rem 0 0; font-size: .76rem; font-weight: 650; overflow-wrap: anywhere; }
 .adapter-dot { width: .48rem; height: .48rem; background: var(--muted); border-radius: 50%; }
 .adapter-dot.connected { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 .onboarding-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }

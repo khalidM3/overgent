@@ -12,15 +12,20 @@ import (
 )
 
 type Status struct {
-	Configured bool   `json:"configured"`
-	ConfigPath string `json:"configPath"`
-	Approval   string `json:"approval"`
+	Configured      bool   `json:"configured"`
+	ConfigPath      string `json:"configPath"`
+	Approval        string `json:"approval"`
+	Binding         string `json:"binding"`
+	PreviousProfile string `json:"previousProfile,omitempty"`
+	RestartRequired bool   `json:"restartRequired"`
 }
 
 type Manager struct {
 	ProjectRoot, ConfigRoot, Executable string
 	Portable                            bool
 }
+
+var rebindHooks = hookconfig.Rebind
 
 func (m Manager) Setup() (Status, error) {
 	path, expected, document, err := m.resolve()
@@ -32,8 +37,12 @@ func (m Manager) Setup() (Status, error) {
 		return Status{}, err
 	}
 	if current, exists := servers["stickguy"]; exists {
-		if !reflect.DeepEqual(current, expected) {
-			return Status{}, errors.New("Claude stickguy MCP entry exists but differs; refusing to overwrite it")
+		binding, _, bindingErr := classifyServer(current, expected)
+		if bindingErr != nil {
+			return Status{}, bindingErr
+		}
+		if binding == "other_profile" {
+			return Status{Binding: binding}, errors.New("Claude Code is connected to another Stickguy profile; explicit reconnect is required")
 		}
 	} else {
 		servers["stickguy"] = expected
@@ -48,7 +57,9 @@ func (m Manager) Setup() (Status, error) {
 	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
 		return Status{}, fmt.Errorf("install Claude activity hooks: %w", err)
 	}
-	return status(path, true), nil
+	result := status(path, true)
+	result.RestartRequired = true
+	return result, nil
 }
 
 func (m Manager) Status() (Status, error) {
@@ -61,18 +72,85 @@ func (m Manager) Status() (Status, error) {
 		return Status{}, err
 	}
 	current, exists := servers["stickguy"]
-	if exists && !reflect.DeepEqual(current, expected) {
-		return Status{}, errors.New("Claude stickguy MCP entry drifted")
+	binding, previous := "not_configured", ""
+	if exists {
+		binding, previous, err = classifyServer(current, expected)
+		if err != nil {
+			return Status{}, err
+		}
 	}
 	hookPath, hookCommand, err := m.hookDetails()
 	if err != nil {
 		return Status{}, err
 	}
-	hooks, err := hookconfig.Status(hookPath, hookCommand)
+	hooks, err := hookconfig.Inspect(hookPath, hookCommand)
 	if err != nil {
 		return Status{}, err
 	}
-	return status(path, exists && hooks), nil
+	result := status(path, false)
+	result.Binding, result.PreviousProfile, result.RestartRequired = binding, previous, binding != "not_configured" || hooks.State != hookconfig.BindingNotConfigured
+	switch {
+	case binding == "current" && hooks.State == hookconfig.BindingCurrent:
+		result.Configured, result.Binding = true, "current"
+	case binding == "other_profile" && (hooks.State == hookconfig.BindingOtherProfile || hooks.State == hookconfig.BindingNotConfigured):
+		result.Binding = "other_profile"
+	case binding == "current" && hooks.State == hookconfig.BindingOtherProfile:
+		result.Binding = "other_profile"
+	case binding == "not_configured" && hooks.State == hookconfig.BindingOtherProfile:
+		result.Binding = "other_profile"
+	case hooks.State == hookconfig.BindingPartial || binding == "current" || hooks.State == hookconfig.BindingCurrent:
+		result.Binding = "partial"
+	default:
+		result.Binding = "not_configured"
+	}
+	return result, nil
+}
+
+// Rebind transactionally moves only Stickguy's recognized MCP entry and hooks
+// from another profile to this one. Unrelated Claude configuration is retained.
+func (m Manager) Rebind() (Status, error) {
+	path, expected, document, err := m.resolve()
+	if err != nil {
+		return Status{}, err
+	}
+	servers, err := serverMap(document)
+	if err != nil {
+		return Status{}, err
+	}
+	if current, exists := servers["stickguy"]; exists {
+		if _, _, err = classifyServer(current, expected); err != nil {
+			return Status{}, err
+		}
+	}
+	hookPath, hookCommand, err := m.hookDetails()
+	if err != nil {
+		return Status{}, err
+	}
+	configSnapshot, err := capture(path)
+	if err != nil {
+		return Status{}, err
+	}
+	hookSnapshot, err := capture(hookPath)
+	if err != nil {
+		return Status{}, err
+	}
+	servers["stickguy"] = expected
+	if err = writeJSON(path, document); err != nil {
+		return Status{}, err
+	}
+	if err = rebindHooks(hookPath, hookCommand); err != nil {
+		restoreErr := restore(path, configSnapshot)
+		if hookRestoreErr := restore(hookPath, hookSnapshot); restoreErr == nil {
+			restoreErr = hookRestoreErr
+		}
+		if restoreErr != nil {
+			return Status{}, fmt.Errorf("rebind Claude hooks: %v; rollback: %w", err, restoreErr)
+		}
+		return Status{}, fmt.Errorf("rebind Claude hooks: %w", err)
+	}
+	result := status(path, true)
+	result.RestartRequired = true
+	return result, nil
 }
 
 func (m Manager) Remove() (Status, error) {
@@ -215,5 +293,73 @@ func writeJSON(path string, document map[string]any) error {
 }
 
 func status(path string, configured bool) Status {
-	return Status{Configured: configured, ConfigPath: path, Approval: "required_by_claude"}
+	binding := "not_configured"
+	if configured {
+		binding = "current"
+	}
+	return Status{Configured: configured, ConfigPath: path, Approval: "required_by_claude", Binding: binding}
+}
+
+func classifyServer(current, expected any) (string, string, error) {
+	if reflect.DeepEqual(current, expected) {
+		return "current", "", nil
+	}
+	entry, ok := current.(map[string]any)
+	if !ok || len(entry) != 3 || entry["type"] != "stdio" {
+		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+	}
+	command, ok := entry["command"].(string)
+	if !ok || command != "stickguy" && !filepath.IsAbs(command) {
+		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+	}
+	rawArgs, ok := entry["args"].([]any)
+	if !ok {
+		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+	}
+	args := make([]string, len(rawArgs))
+	for index, value := range rawArgs {
+		text, valid := value.(string)
+		if !valid {
+			return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+		}
+		args[index] = text
+	}
+	if len(args) == 1 && args[0] == "mcp" && command == "stickguy" {
+		return "other_profile", "", nil
+	}
+	if len(args) != 3 || args[0] != "--config-root" || !filepath.IsAbs(args[1]) || args[2] != "mcp" || !filepath.IsAbs(command) {
+		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+	}
+	return "other_profile", filepath.Clean(args[1]), nil
+}
+
+type fileSnapshot struct {
+	exists bool
+	data   []byte
+	mode   os.FileMode
+}
+
+func capture(path string) (fileSnapshot, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return fileSnapshot{}, nil
+	}
+	if err != nil {
+		return fileSnapshot{}, err
+	}
+	data, err := os.ReadFile(path)
+	return fileSnapshot{exists: true, data: data, mode: info.Mode().Perm()}, err
+}
+
+func restore(path string, snapshot fileSnapshot) error {
+	if !snapshot.exists {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, snapshot.data, snapshot.mode)
 }
