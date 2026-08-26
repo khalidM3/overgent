@@ -5,6 +5,7 @@ import {
   canActivateManifestRevision,
   RETENTION_TABLES,
   expiredRecordIds,
+  findDependencySatisfaction,
   manifestContentHash,
   scopeKey,
   sha256Hex,
@@ -128,6 +129,16 @@ describe("hosted boundary validation", () => {
     }
   });
 
+  it("accepts optional bounded dependency claims and rejects over-limit claims", () => {
+    const intent = (waitingOn: string[]) => ({
+      ...baseEvent, source: "mcp", type: "workstream.intent_reported",
+      payload: { workstreamId: "wrk_fixture", title: "Wait", intendedOutcome: "Continue when ready.", waitingOn },
+    });
+    expect(validateEventBatch({ events: [intent(["session-api"])] })[0].payload).toMatchObject({ waitingOn: ["session-api"] });
+    expect(() => validateEventBatch({ events: [intent(Array.from({ length: 9 }, (_, index) => `claim-${index}`))] })).toThrow(ValidationError);
+    expect(() => validateEventBatch({ events: [intent(["x".repeat(161)])] })).toThrow(ValidationError);
+  });
+
   it("rejects unknown and prohibited payload fields", () => {
     expect(() => validateEventBatch({
       events: [{ ...baseEvent, type: "workspace.resumed", payload: { sourceContent: "synthetic" } }],
@@ -245,6 +256,22 @@ describe("hosted boundary validation", () => {
 });
 
 describe("hosted deterministic helpers", () => {
+  it("matches dependency claims only to another live workstream in the same Project scope", () => {
+    const candidate = {
+      projectId: "prj_a", scopeKey: "scp_a", workstreamId: "wrk_producer", status: "active",
+      path: "backend/session_api.go", symbols: ["SessionAPI"], latestCheckpointPassed: false,
+    };
+    expect(findDependencySatisfaction("prj_a", "scp_a", "wrk_consumer", "session-api", [candidate])).toMatchObject({
+      claim: "session-api", satisfiedByWorkstreamId: "wrk_producer", state: "stable_wip",
+      satisfiedBy: { path: "backend/session_api.go", symbols: ["SessionAPI"] },
+    });
+    expect(findDependencySatisfaction("prj_a", "scp_a", "wrk_consumer", "missing-api", [candidate])).toBeUndefined();
+    expect(findDependencySatisfaction("prj_a", "scp_a", "wrk_producer", "session-api", [candidate])).toBeUndefined();
+    expect(findDependencySatisfaction("prj_b", "scp_a", "wrk_consumer", "session-api", [candidate])).toBeUndefined();
+    expect(findDependencySatisfaction("prj_a", "scp_b", "wrk_consumer", "session-api", [candidate])).toBeUndefined();
+    expect(findDependencySatisfaction("prj_a", "scp_a", "wrk_consumer", "session-api", [{ ...candidate, latestCheckpointPassed: true }])?.state).toBe("ready");
+  });
+
   it("implements SHA-256 and canonical layered manifest hashing", () => {
     expect(sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     const baseline = manifestContentHash([{ path: "a.ts", states: { baseline: { status: "modified" } } }]);

@@ -44,7 +44,7 @@ export type Evidence = Readonly<{
 
 export type IntelligenceFinding = Scope & Readonly<{
   id: string;
-  kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption";
+  kind: "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready";
   severity: "low" | "medium" | "high" | "critical";
   confidenceBand: "deterministic" | "high" | "medium" | "low";
   workstreamIds: readonly string[];
