@@ -101,7 +101,12 @@ type scenarioMetrics struct {
 	SilenceHonored      bool    `json:"silenceHonored"`
 	ContextSufficient   bool    `json:"contextSufficient"`
 	AdjustmentProbe     bool    `json:"adjustmentProbe"`
-	WallTimeMillis      int64   `json:"wallTimeMillis"`
+	// DeliveryMillis is how long the affected session waited, across turn
+	// boundaries, before the correction was injected. Hosted evaluation is
+	// asynchronous and its tail is the number this product is judged on, so it
+	// is measured rather than hidden behind a generous timeout.
+	DeliveryMillis int64 `json:"deliveryMillis"`
+	WallTimeMillis int64 `json:"wallTimeMillis"`
 }
 
 type scenarioReport struct {

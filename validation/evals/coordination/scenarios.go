@@ -70,9 +70,17 @@ var scenarioDefinitions = []scenarioDefinition{
 type scenarioObservation struct {
 	briefs          []hosted.CoordinationBrief
 	adjustmentProbe bool
+	// injectedContext is what the real turn-boundary hook delivered into the
+	// reading session's next turn. Empty means the hook injected nothing.
+	injectedContext string
+	deliveryWait    time.Duration
 }
 
 const queueDrainTimeout = 5 * time.Second
+
+// deliveryTimeout bounds how long a scenario keeps opening turn boundaries
+// while waiting for asynchronous hosted evaluation to produce a routed item.
+const deliveryTimeout = 25 * time.Second
 
 func runScenario(definition scenarioDefinition, evaluation *evaluationEnvironment, binary string, required map[capability]bool) scenarioReport {
 	started := time.Now()
@@ -158,7 +166,7 @@ func beginWork(environment *scenarioEnvironment, agent *mcpAgent, workspace conf
 func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutput, observation *scenarioObservation) error {
 	switch id {
 	case "A":
-		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
+		if err := environment.hookRead("backend/refresh.go"); err != nil {
 			return err
 		}
 		// The scenario means "read first, change later". Local queues flush per
@@ -171,7 +179,19 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		if err := changeRefreshContract(environment.repository.worktreeB); err != nil {
 			return err
 		}
-		return checkpointAndCheck(environment, observation, "a", "Changed backend.Refresh from userID to sessionID plus policy.", "passed")
+		if err := checkpointAndCheck(environment, observation, "a", "Changed backend.Refresh from userID to sessionID plus policy.", "passed"); err != nil {
+			return err
+		}
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
+			return err
+		}
+		injected, waited, err := environment.hookPromptUntilDelivered("Continue the frontend refresh flow.", deliveryTimeout)
+		if err != nil {
+			return err
+		}
+		observation.injectedContext = injected
+		observation.deliveryWait = waited
+		return nil
 	case "B":
 		if err := writeFixtureFile(environment.repository.worktreeA, "backend/revoke.go", "package backend\n\nfunc RevokeCredentials(memberID string) {}\n"); err != nil {
 			return err
@@ -190,7 +210,7 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		}
 		return checkBoth(environment, observation)
 	case "C":
-		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
+		if err := environment.hookRead("backend/refresh.go"); err != nil {
 			return err
 		}
 		// The scenario means "read first, change later". Local queues flush per
@@ -206,7 +226,18 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		if err := checkpointAndCheck(environment, observation, "c", "Changed the interface after the consumer session began.", "passed"); err != nil {
 			return err
 		}
-		if briefContains(observation.briefs, environment.workspaceA.WorkstreamID, "Refresh") {
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
+			return err
+		}
+		injected, waited, err := environment.hookPromptUntilDelivered("Continue the frontend refresh flow.", deliveryTimeout)
+		if err != nil {
+			return err
+		}
+		observation.injectedContext = injected
+		observation.deliveryWait = waited
+		// The agent adjusts because the correction arrived in its turn, not
+		// because a human relayed it.
+		if strings.Contains(injected, "Refresh") {
 			if _, err := os.ReadFile(filepath.Join(environment.repository.worktreeA, "backend", "refresh.go")); err != nil {
 				return fmt.Errorf("adjustment probe re-read contract: %w", err)
 			}
@@ -251,7 +282,17 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		if _, err := reportCheckpoint(environment, environment.agentB, environment.workspaceB, "e-b", "Backend access events now use the security-audit category.", "", ""); err != nil {
 			return err
 		}
-		return checkBoth(environment, observation)
+		if err := checkBoth(environment, observation); err != nil {
+			return err
+		}
+		// Silence has to hold on the delivery channel, so the turn-boundary
+		// hook runs here exactly as it does in A and C.
+		injected, err := environment.hookPrompt("Continue the palette work.")
+		if err != nil {
+			return err
+		}
+		observation.injectedContext = injected
+		return nil
 	case "F":
 		if err := writeFixtureFile(environment.repository.worktreeA, "shared/settings.ts", "export const navigationLabel = \"Active sessions\";\n\nexport const retryLimit = 3;\n"); err != nil {
 			return err
@@ -270,7 +311,7 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		}
 		return checkBoth(environment, observation)
 	case "G":
-		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
+		if err := environment.hookRead("backend/refresh.go"); err != nil {
 			return err
 		}
 		// The scenario means "read first, change later". Local queues flush per
@@ -417,15 +458,12 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 		}
 		return false
 	}
-	briefAContains := func(value string) bool {
-		return briefContains(observation.briefs, environment.workspaceA.WorkstreamID, value)
-	}
 	interrupts := falseInterruptCount(id, findings, observation.briefs)
 	switch id {
 	case "A":
 		return []assertionResult{
 			taggedAssertion("stale-assumption finding names old/new Refresh signature and targets WS1's session", capabilityContract, contains("stale_assumption", []string{environment.readerWorkstream()}, "Refresh"), "expected exact symbol evidence for backend.Refresh", required),
-			taggedAssertion("WS1 next coordination context contains the contract correction", capabilityInjection, briefAContains("Refresh"), "expected correction in WS1's next supported turn boundary", required),
+			taggedAssertion("WS1 next turn receives the injected contract correction", capabilityInjection, strings.Contains(observation.injectedContext, "Refresh"), "expected correction injected at WS1's next turn boundary", required),
 		}
 	case "B":
 		duplicate := contains("redundant_work", []string{environment.workspaceA.WorkstreamID, environment.workspaceB.WorkstreamID}, "")
@@ -443,7 +481,7 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 	case "C":
 		return []assertionResult{
 			taggedAssertion("contract drift appears within one publish cycle", capabilityContract, contains("stale_assumption", []string{environment.readerWorkstream()}, "Refresh"), "expected exact Refresh drift evidence", required),
-			taggedAssertion("contract correction reaches WS1 at the next turn boundary", capabilityInjection, briefAContains("Refresh"), "expected routed context", required),
+			taggedAssertion("contract correction reaches WS1 at the next turn boundary", capabilityInjection, strings.Contains(observation.injectedContext, "Refresh"), "expected routed context", required),
 			taggedAssertion("WS1 adjustment probe re-reads and changes intent", capabilityInjection, observation.adjustmentProbe, "expected intent revision after correction", required),
 		}
 	case "D":
@@ -463,6 +501,7 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 		return []assertionResult{
 			taggedAssertion("disjoint workstreams receive zero findings", capabilityStructural, len(findings) == 0, "any finding fails the silence scenario", required),
 			taggedAssertion("disjoint workstreams receive no routed brief item", capabilityStructural, findingBriefItemCount(observation.briefs) == 0, "silence is a hard assertion", required),
+			taggedAssertion("no context is injected into an independent session's turn", capabilityInjection, observation.injectedContext == "", "silence must hold on the delivery channel", required),
 		}
 	case "F":
 		overlap := false
@@ -516,6 +555,7 @@ func scenarioMetricValues(definition scenarioDefinition, environment *scenarioEn
 		FalseInterruptCount: falseInterruptCount(definition.ID, findings, observation.briefs),
 		SilenceHonored:      definition.ExpectedRouting == "silence" && len(findings) == 0 && findingBriefItemCount(observation.briefs) == 0,
 		ContextSufficient:   contextSufficient, AdjustmentProbe: observation.adjustmentProbe,
+		DeliveryMillis: observation.deliveryWait.Milliseconds(),
 		WallTimeMillis: elapsed.Milliseconds(),
 	}
 }

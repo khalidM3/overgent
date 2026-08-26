@@ -379,6 +379,15 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	for _, item := range selected {
 		selectedCandidates = append(selectedCandidates, store.InjectionItem{ID: item.ID, Revision: item.Revision})
 	}
+	// Claiming marks these revisions delivered so concurrent hooks cannot
+	// inject the same correction twice. That trade is only safe while the
+	// caller can still receive the payload: a claim written for a hook that has
+	// already given up would retire the correction without anyone reading it,
+	// and a stale-contract warning that is silently retired is worse than one
+	// delivered twice.
+	if fetchContext.Err() != nil {
+		return daemon.Response{OK: true, Data: result}
+	}
 	claimed, err := s.store.ClaimInjectionDeliveries(fetchContext, q.AgentWorkstreamID, selectedCandidates, time.Now())
 	if err != nil || len(claimed) == 0 {
 		return daemon.Response{OK: true, Data: result}

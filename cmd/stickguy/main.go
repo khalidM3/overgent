@@ -368,13 +368,23 @@ func runAgentHook(ctx context.Context, socket, vendor string, stdin io.Reader, s
 		AgentPaths:          event.CandidatePaths,
 		AgentTranscriptPath: event.TranscriptPath, AgentVendorSessionID: event.VendorSessionID,
 	}
+	// Observation and delivery get separate budgets inside the overall hook
+	// deadline. Sharing one budget let a slow observation — a cold service or a
+	// slow branch read — consume the whole window, so the turn that most needed
+	// a correction was the turn least likely to receive one.
 	request.Method = "agent_event"
-	response, err := call(hookContext, socket, request)
-	if err != nil || !response.OK || event.Kind != "SessionStart" && event.Kind != "UserPromptSubmit" {
+	observeContext, cancelObserve := context.WithTimeout(hookContext, 700*time.Millisecond)
+	_, err = call(observeContext, socket, request)
+	cancelObserve()
+	if event.Kind != "SessionStart" && event.Kind != "UserPromptSubmit" {
 		return nil
 	}
+	// A failed observation never suppresses a pending correction: the event is
+	// already durable service-side, and only the acknowledgement was lost.
 	request.Method = "agent_injection"
-	response, err = call(hookContext, socket, request)
+	injectContext, cancelInject := context.WithTimeout(hookContext, 1200*time.Millisecond)
+	response, err := call(injectContext, socket, request)
+	cancelInject()
 	if err != nil || !response.OK {
 		return nil
 	}

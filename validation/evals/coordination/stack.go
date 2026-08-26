@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/app"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
@@ -415,18 +417,79 @@ type scenarioEnvironment struct {
 	agentB     *mcpAgent
 	projectID  string
 
-	// readerWorkstreamA is the stable hook-session workstream identity for
-	// workspace A's scripted agent. A real vendor session keeps one hashed
-	// workstream for its whole life (ADR-033), so read-set evidence and the
-	// findings it produces target this identity, not a fresh id per event.
+	// binary is the built executable the scripted agents drive. Hook events run
+	// through it exactly as an installed vendor hook would, rather than calling
+	// the service directly, so the evaluated path is the shipped one.
+	binary string
+
+	// readerSessionID is workspace A's scripted vendor session. A real session
+	// keeps one identity for its whole life (ADR-033), and its workstream id is
+	// derived from that identity, so observation and injection address the same
+	// session and findings target a stable workstream.
+	readerSessionID   string
 	readerWorkstreamA string
 }
 
 func (environment *scenarioEnvironment) readerWorkstream() string {
 	if environment.readerWorkstreamA == "" {
-		environment.readerWorkstreamA = newPublicID("wrk_agent_")
+		environment.readerSessionID = newPublicID("session-")
+		// The workstream is derived by the same parser the hook uses, so the
+		// harness never invents an identity the product would not produce.
+		event, err := agentactivity.Parse("claude", environment.hookPayload("SessionStart", "", ""))
+		if err != nil {
+			environment.readerWorkstreamA = "wrk_agent_unparsed"
+			return environment.readerWorkstreamA
+		}
+		environment.readerWorkstreamA = event.WorkstreamID
 	}
 	return environment.readerWorkstreamA
+}
+
+// hookPayload builds a vendor hook payload for workspace A's reading session.
+func (environment *scenarioEnvironment) hookPayload(kind, relativePath, prompt string) []byte {
+	payload := map[string]any{
+		"session_id":      environment.readerSessionID,
+		"cwd":             environment.workspaceA.Root,
+		"hook_event_name": kind,
+	}
+	if relativePath != "" {
+		payload["tool_name"] = "Read"
+		payload["tool_input"] = map[string]any{"file_path": filepath.Join(environment.workspaceA.Root, relativePath)}
+	}
+	if prompt != "" {
+		payload["prompt"] = prompt
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return []byte("{}")
+	}
+	return encoded
+}
+
+// runHook executes the real agent-hook command and returns any context the
+// hook injected into the turn. A hook that injects nothing writes nothing.
+func (environment *scenarioEnvironment) runHook(payload []byte) (string, error) {
+	command := exec.CommandContext(environment.ctx, environment.binary, "--config-root", environment.stateRoot, "agent-hook", "--vendor", "claude")
+	command.Stdin = bytes.NewReader(payload)
+	var stdout bytes.Buffer
+	command.Stdout = &stdout
+	if err := command.Run(); err != nil {
+		return "", fmt.Errorf("run agent hook: %w", err)
+	}
+	trimmed := strings.TrimSpace(stdout.String())
+	if trimmed == "" {
+		return "", nil
+	}
+	var emitted struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &emitted); err != nil {
+		return "", fmt.Errorf("decode hook output %q: %w", trimmed, err)
+	}
+	return emitted.HookSpecificOutput.AdditionalContext, nil
 }
 
 func newEvaluationEnvironment(ctx context.Context, fixtureRoot, siteURL, temporaryRoot string) (*evaluationEnvironment, error) {
@@ -523,7 +586,7 @@ func (environment *evaluationEnvironment) openScenario(binary, scenarioID string
 		return nil, fmt.Errorf("unknown scenario %s", scenarioID)
 	}
 	scenario := &scenarioEnvironment{
-		ctx: environment.ctx, stateRoot: environment.stateRoot, repository: pair.repository,
+		ctx: environment.ctx, stateRoot: environment.stateRoot, repository: pair.repository, binary: binary,
 		workspaceA: pair.workspaceA, workspaceB: pair.workspaceB, client: environment.client, sender: environment.sender,
 		projectID: environment.projectID,
 	}
@@ -585,26 +648,36 @@ func (environment *scenarioEnvironment) forceScan() error {
 	return nil
 }
 
-func (environment *scenarioEnvironment) hookRead(workspace config.Workspace, vendor, relativePath string) error {
-	paths, err := config.Resolve(environment.stateRoot)
-	if err != nil {
+func (environment *scenarioEnvironment) hookRead(relativePath string) error {
+	environment.readerWorkstream()
+	if _, err := environment.runHook(environment.hookPayload("PostToolUse", relativePath, "")); err != nil {
 		return err
 	}
-	response, err := daemon.Call(environment.ctx, paths.Socket, daemon.Request{
-		Method: "agent_event", AgentVendor: vendor, AgentCWD: workspace.Root,
-		// Hook sessions are independent first-class workstreams (ADR-033) with
-		// one stable identity per session; stale-assumption findings target it.
-		AgentWorkstreamID: environment.readerWorkstream(), AgentSessionAlias: vendor + "-a1b2c3",
-		AgentEvent: "PostToolUse", AgentStatus: "active", AgentAction: "read " + relativePath,
-		AgentTool: "Read", AgentPaths: []string{filepath.Join(workspace.Root, relativePath)},
-	})
-	if err != nil {
-		return fmt.Errorf("publish hook-shaped read event: %w", err)
-	}
-	if !response.OK {
-		return fmt.Errorf("publish hook-shaped read event: %s", response.Error)
-	}
 	return nil
+}
+
+// hookPrompt runs the turn-boundary hook once and returns the coordination
+// context delivered into that turn, which is empty when nothing is pending.
+func (environment *scenarioEnvironment) hookPrompt(prompt string) (string, error) {
+	environment.readerWorkstream()
+	return environment.runHook(environment.hookPayload("UserPromptSubmit", "", prompt))
+}
+
+// hookPromptUntilDelivered opens successive turn boundaries until coordination
+// context arrives. Hosted finding evaluation is asynchronous, so the turn right
+// after a change can legitimately carry nothing; a real session simply receives
+// the correction at its next prompt instead. Delivery is deduped per item
+// revision, so an empty turn records nothing and cannot consume the delivery.
+func (environment *scenarioEnvironment) hookPromptUntilDelivered(prompt string, timeout time.Duration) (string, time.Duration, error) {
+	started := time.Now()
+	deadline := started.Add(timeout)
+	for {
+		injected, err := environment.hookPrompt(prompt)
+		if err != nil || injected != "" || time.Now().After(deadline) {
+			return injected, time.Since(started), err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 func (environment *scenarioEnvironment) waitForQueue(timeout time.Duration) error {
