@@ -316,7 +316,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getSessionSharing"];
-        put: operations["updateSessionSharing"];
+        put?: never;
         post?: never;
         delete: operations["deleteSharedSessionMessages"];
         options?: never;
@@ -637,16 +637,6 @@ export interface components {
             summary: string;
             affectedMemberIds: string[];
             affectedWorkstreamIds: string[];
-        };
-        UpdateSessionSharingRequest: {
-            /** @enum {unknown} */
-            profile: "private" | "conversation";
-            /** @enum {unknown} */
-            audience: "self" | "project";
-            /** @constant */
-            consentVersion: "session-share/v1";
-            allowedKinds: ("user" | "assistant" | "reasoning_summary" | "system")[];
-            expiresInSeconds?: number;
         };
         ContextItem: {
             id: string;
@@ -1390,21 +1380,6 @@ export interface components {
         };
         /** @enum {unknown} */
         messageKind: "user" | "assistant" | "thinking" | "system";
-        policy: {
-            /** @enum {unknown} */
-            profile: "private" | "conversation";
-            /** @enum {unknown} */
-            audience: "self" | "project";
-            /** @constant */
-            consentVersion: "session-share/v1";
-            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-            enabled: boolean;
-            canManage: boolean;
-            /** Format: date-time */
-            expiresAt?: string;
-            /** Format: date-time */
-            updatedAt?: string;
-        };
         message: {
             id: string;
             /** @enum {unknown} */
@@ -1420,21 +1395,6 @@ export interface components {
         /** Session sharing snapshot */
         "session-sharing.schema": {
             workstreamId: string;
-            policy: {
-                /** @enum {unknown} */
-                profile: "private" | "conversation";
-                /** @enum {unknown} */
-                audience: "self" | "project";
-                /** @constant */
-                consentVersion: "session-share/v1";
-                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                enabled: boolean;
-                canManage: boolean;
-                /** Format: date-time */
-                expiresAt?: string;
-                /** Format: date-time */
-                updatedAt?: string;
-            };
             messages: {
                 id: string;
                 /** @enum {unknown} */
@@ -1451,21 +1411,6 @@ export interface components {
                 id: string;
                 /** @enum {unknown} */
                 messageKind: "user" | "assistant" | "thinking" | "system";
-                policy: {
-                    /** @enum {unknown} */
-                    profile: "private" | "conversation";
-                    /** @enum {unknown} */
-                    audience: "self" | "project";
-                    /** @constant */
-                    consentVersion: "session-share/v1";
-                    allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                    enabled: boolean;
-                    canManage: boolean;
-                    /** Format: date-time */
-                    expiresAt?: string;
-                    /** Format: date-time */
-                    updatedAt?: string;
-                };
                 message: {
                     id: string;
                     /** @enum {unknown} */
@@ -2811,21 +2756,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         workstreamId: string;
-                        policy: {
-                            /** @enum {unknown} */
-                            profile: "private" | "conversation";
-                            /** @enum {unknown} */
-                            audience: "self" | "project";
-                            /** @constant */
-                            consentVersion: "session-share/v1";
-                            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                            enabled: boolean;
-                            canManage: boolean;
-                            /** Format: date-time */
-                            expiresAt?: string;
-                            /** Format: date-time */
-                            updatedAt?: string;
-                        };
                         messages: {
                             id: string;
                             /** @enum {unknown} */
@@ -2842,134 +2772,6 @@ export interface operations {
                             id: string;
                             /** @enum {unknown} */
                             messageKind: "user" | "assistant" | "thinking" | "system";
-                            policy: {
-                                /** @enum {unknown} */
-                                profile: "private" | "conversation";
-                                /** @enum {unknown} */
-                                audience: "self" | "project";
-                                /** @constant */
-                                consentVersion: "session-share/v1";
-                                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                                enabled: boolean;
-                                canManage: boolean;
-                                /** Format: date-time */
-                                expiresAt?: string;
-                                /** Format: date-time */
-                                updatedAt?: string;
-                            };
-                            message: {
-                                id: string;
-                                /** @enum {unknown} */
-                                kind: "user" | "assistant" | "thinking" | "system";
-                                text: string;
-                                /** @enum {unknown} */
-                                vendor: "codex" | "claude";
-                                /** Format: date-time */
-                                capturedAt: string;
-                                /** Format: date-time */
-                                expiresAt: string;
-                            };
-                        };
-                    };
-                };
-            };
-            /** @description Stable error envelope */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        error: {
-                            code: string;
-                            message: string;
-                            requestId: string;
-                            retryable: boolean;
-                            details?: Record<string, never>;
-                        };
-                    };
-                };
-            };
-        };
-    };
-    updateSessionSharing: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** @enum {unknown} */
-                    profile: "private" | "conversation";
-                    /** @enum {unknown} */
-                    audience: "self" | "project";
-                    /** @constant */
-                    consentVersion: "session-share/v1";
-                    allowedKinds: ("user" | "assistant" | "reasoning_summary" | "system")[];
-                    expiresInSeconds?: number;
-                };
-            };
-        };
-        responses: {
-            /** @description Updated policy and current messages */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        workstreamId: string;
-                        policy: {
-                            /** @enum {unknown} */
-                            profile: "private" | "conversation";
-                            /** @enum {unknown} */
-                            audience: "self" | "project";
-                            /** @constant */
-                            consentVersion: "session-share/v1";
-                            allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                            enabled: boolean;
-                            canManage: boolean;
-                            /** Format: date-time */
-                            expiresAt?: string;
-                            /** Format: date-time */
-                            updatedAt?: string;
-                        };
-                        messages: {
-                            id: string;
-                            /** @enum {unknown} */
-                            kind: "user" | "assistant" | "thinking" | "system";
-                            text: string;
-                            /** @enum {unknown} */
-                            vendor: "codex" | "claude";
-                            /** Format: date-time */
-                            capturedAt: string;
-                            /** Format: date-time */
-                            expiresAt: string;
-                        }[];
-                        $defs: {
-                            id: string;
-                            /** @enum {unknown} */
-                            messageKind: "user" | "assistant" | "thinking" | "system";
-                            policy: {
-                                /** @enum {unknown} */
-                                profile: "private" | "conversation";
-                                /** @enum {unknown} */
-                                audience: "self" | "project";
-                                /** @constant */
-                                consentVersion: "session-share/v1";
-                                allowedKinds: ("user" | "assistant" | "thinking" | "system")[];
-                                enabled: boolean;
-                                canManage: boolean;
-                                /** Format: date-time */
-                                expiresAt?: string;
-                                /** Format: date-time */
-                                updatedAt?: string;
-                            };
                             message: {
                                 id: string;
                                 /** @enum {unknown} */
