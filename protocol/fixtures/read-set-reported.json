@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "eventId": "evt_read_set_fixture",
+  "projectId": "prj_fixture",
+  "memberId": "mem_fixture",
+  "deviceId": "dev_fixture",
+  "workspaceId": "wsp_fixture",
+  "sessionId": "ses_fixture",
+  "sequence": 13,
+  "observedAt": "2026-08-26T09:00:02Z",
+  "sentAt": "2026-08-26T09:00:03Z",
+  "source": "hook",
+  "type": "session.read_set_reported",
+  "payload": {
+    "workspaceId": "wsp_fixture",
+    "sessionWorkstreamId": "wrk_agent_0123456789abcdef0123456789abcdef",
+    "entries": [
+      {
+        "path": "internal/session/rotate.go",
+        "fileContractHashAtRead": "1122334455667788990011223344556677889900112233445566778899001122",
+        "observedAt": "2026-08-26T08:59:00Z"
+      }
+    ]
+  }
+}

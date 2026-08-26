@@ -39,19 +39,21 @@ func (e PublishEventBatchJSONBodyEventsSource) Valid() bool {
 
 // Defines values for PublishEventBatchJSONBodyEventsType.
 const (
-	ActivityReported             PublishEventBatchJSONBodyEventsType = "activity.reported"
-	AgentActivityReported        PublishEventBatchJSONBodyEventsType = "agent.activity_reported"
-	AgentConversationShared      PublishEventBatchJSONBodyEventsType = "agent.conversation_shared"
-	ContextAcknowledged          PublishEventBatchJSONBodyEventsType = "context.acknowledged"
-	WorkspaceManifestChunk       PublishEventBatchJSONBodyEventsType = "workspace.manifest_chunk"
-	WorkspaceManifestCompleted   PublishEventBatchJSONBodyEventsType = "workspace.manifest_completed"
-	WorkspaceManifestStarted     PublishEventBatchJSONBodyEventsType = "workspace.manifest_started"
-	WorkspacePaused              PublishEventBatchJSONBodyEventsType = "workspace.paused"
-	WorkspaceRegistered          PublishEventBatchJSONBodyEventsType = "workspace.registered"
-	WorkspaceResumed             PublishEventBatchJSONBodyEventsType = "workspace.resumed"
-	WorkstreamCheckpointReported PublishEventBatchJSONBodyEventsType = "workstream.checkpoint_reported"
-	WorkstreamIntentReported     PublishEventBatchJSONBodyEventsType = "workstream.intent_reported"
-	WorkstreamStatusChanged      PublishEventBatchJSONBodyEventsType = "workstream.status_changed"
+	ActivityReported                      PublishEventBatchJSONBodyEventsType = "activity.reported"
+	AgentActivityReported                 PublishEventBatchJSONBodyEventsType = "agent.activity_reported"
+	AgentConversationShared               PublishEventBatchJSONBodyEventsType = "agent.conversation_shared"
+	ContextAcknowledged                   PublishEventBatchJSONBodyEventsType = "context.acknowledged"
+	SessionReadSetReported                PublishEventBatchJSONBodyEventsType = "session.read_set_reported"
+	WorkspaceContractFingerprintsReported PublishEventBatchJSONBodyEventsType = "workspace.contract_fingerprints_reported"
+	WorkspaceManifestChunk                PublishEventBatchJSONBodyEventsType = "workspace.manifest_chunk"
+	WorkspaceManifestCompleted            PublishEventBatchJSONBodyEventsType = "workspace.manifest_completed"
+	WorkspaceManifestStarted              PublishEventBatchJSONBodyEventsType = "workspace.manifest_started"
+	WorkspacePaused                       PublishEventBatchJSONBodyEventsType = "workspace.paused"
+	WorkspaceRegistered                   PublishEventBatchJSONBodyEventsType = "workspace.registered"
+	WorkspaceResumed                      PublishEventBatchJSONBodyEventsType = "workspace.resumed"
+	WorkstreamCheckpointReported          PublishEventBatchJSONBodyEventsType = "workstream.checkpoint_reported"
+	WorkstreamIntentReported              PublishEventBatchJSONBodyEventsType = "workstream.intent_reported"
+	WorkstreamStatusChanged               PublishEventBatchJSONBodyEventsType = "workstream.status_changed"
 )
 
 // Valid indicates whether the value is a known member of the PublishEventBatchJSONBodyEventsType enum.
@@ -64,6 +66,10 @@ func (e PublishEventBatchJSONBodyEventsType) Valid() bool {
 	case AgentConversationShared:
 		return true
 	case ContextAcknowledged:
+		return true
+	case SessionReadSetReported:
+		return true
+	case WorkspaceContractFingerprintsReported:
 		return true
 	case WorkspaceManifestChunk:
 		return true
@@ -129,6 +135,17 @@ type GetContextItem200JSONResponseBody0 struct {
 type GetContextItem200JSONResponseBody1 struct {
 	ConfidenceBand interface{} `json:"confidenceBand"`
 	Evidence       []struct {
+		Contract *struct {
+			ChangedAt             time.Time `json:"changedAt"`
+			ChangedByWorkstreamId string    `json:"changedByWorkstreamId"`
+			ChangedSymbols        []struct {
+				Name         string `json:"name"`
+				NewSignature string `json:"newSignature"`
+				OldSignature string `json:"oldSignature"`
+			} `json:"changedSymbols"`
+			Path   string    `json:"path"`
+			ReadAt time.Time `json:"readAt"`
+		} `json:"contract,omitempty"`
 		Fidelity string      `json:"fidelity"`
 		Kind     interface{} `json:"kind"`
 		Source   string      `json:"source"`
@@ -281,6 +298,17 @@ type GetProjectChanges200JSONResponseBodyItems0 struct {
 type GetProjectChanges200JSONResponseBodyItems1 struct {
 	ConfidenceBand interface{} `json:"confidenceBand"`
 	Evidence       []struct {
+		Contract *struct {
+			ChangedAt             time.Time `json:"changedAt"`
+			ChangedByWorkstreamId string    `json:"changedByWorkstreamId"`
+			ChangedSymbols        []struct {
+				Name         string `json:"name"`
+				NewSignature string `json:"newSignature"`
+				OldSignature string `json:"oldSignature"`
+			} `json:"changedSymbols"`
+			Path   string    `json:"path"`
+			ReadAt time.Time `json:"readAt"`
+		} `json:"contract,omitempty"`
 		Fidelity string      `json:"fidelity"`
 		Kind     interface{} `json:"kind"`
 		Source   string      `json:"source"`
