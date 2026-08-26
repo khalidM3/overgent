@@ -29,6 +29,11 @@ test("fixture conforms to the event envelope schema", async () => {
     chunkCount: 0,
   };
   assert.equal(validate(emptyStart), true, JSON.stringify(validate.errors));
-  const agentFixture = JSON.parse(await readFile(new URL("../../../protocol/fixtures/agent-activity-reported.json", import.meta.url)));
-  assert.equal(validate(agentFixture), true, JSON.stringify(validate.errors));
+  for (const name of ["agent-activity-reported", "contract-fingerprints-reported", "read-set-reported"]) {
+    const eventFixture = JSON.parse(await readFile(new URL(`../../../protocol/fixtures/${name}.json`, import.meta.url)));
+    assert.equal(validate(eventFixture), true, `${name}: ${JSON.stringify(validate.errors)}`);
+    const undeclared = structuredClone(eventFixture);
+    undeclared.payload.undeclared = "x";
+    assert.equal(validate(undeclared), false, `${name} accepted an undeclared payload field`);
+  }
 });
