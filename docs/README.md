@@ -17,6 +17,8 @@ Read in order:
 13. [`implementation-plan.md`](implementation-plan.md) — continuous order/exit gates.
 14. [`development.md`](development.md) — local desktop, service, backend, and two-agent dogfood workflow.
 15. [`openai-embeddings.md`](openai-embeddings.md) — optional managed semantic-provider setup and failure behavior.
+16. [`beta-release.md`](beta-release.md) — supported beta boundary, release credentials, publication, install, update, rollback, and uninstall.
+17. [`adapter-development.md`](adapter-development.md) — adding and qualifying a coding-agent adapter without widening the harness or wire boundary.
 
 Use [`external-references.md`](external-references.md) when implementing third-party contracts; it is informational and lower precedence than Stickguy's own contracts.
 

@@ -24,6 +24,7 @@ import (
 	updateclient "github.com/stickguy/stickguy/internal/update"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -99,7 +100,7 @@ func run(args []string) error {
 			return e
 		}
 		service := onboarding.New(*apiBase)
-		result, createErr := service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel})
+		result, createErr := service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version})
 		if createErr != nil {
 			return createErr
 		}
@@ -121,7 +122,7 @@ func run(args []string) error {
 			return errors.New("join requires one invite code")
 		}
 		service := onboarding.New(*apiBase)
-		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel}, joinFlags.Arg(0))
+		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version}, joinFlags.Arg(0))
 		if joinErr != nil {
 			return joinErr
 		}
@@ -170,8 +171,14 @@ func run(args []string) error {
 		}
 		return runAgentHook(ctx, paths.Socket, *vendor, os.Stdin, os.Stdout, daemon.Call)
 	case "setup":
-		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true, "reconnect": true}[rest[1]] {
-			return errors.New("setup requires codex, claude, status, reconnect, or remove")
+		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true, "remove-all": true, "reconnect": true}[rest[1]] {
+			return errors.New("setup requires codex, claude, status, reconnect, remove, or remove-all")
+		}
+		if rest[1] == "remove-all" {
+			if len(rest) != 2 {
+				return errors.New("setup remove-all accepts no arguments")
+			}
+			return removeAllAgentBindings(*root, paths, !customConfigRoot)
 		}
 		setupFlags := flag.NewFlagSet("setup "+rest[1], flag.ContinueOnError)
 		projectRoot := setupFlags.String("project-root", ".", "trusted coding-agent project root")
@@ -405,6 +412,9 @@ func run(args []string) error {
 			if rollbackErr != nil {
 				return rollbackErr
 			}
+			if activateErr := activateUpdatedExecutable(ctx, executable, paths); activateErr != nil {
+				return fmt.Errorf("rollback executable was restored but did not become healthy: %w", activateErr)
+			}
 			return json.NewEncoder(os.Stdout).Encode(result)
 		}
 		if updateFlags.NArg() != 0 {
@@ -425,6 +435,13 @@ func run(args []string) error {
 		result, applyErr := client.Apply(ctx, manifest, executable)
 		if applyErr != nil {
 			return applyErr
+		}
+		if activateErr := activateUpdatedExecutable(ctx, executable, paths); activateErr != nil {
+			if _, rollbackErr := updateclient.Rollback(executable); rollbackErr != nil {
+				return fmt.Errorf("updated executable failed validation (%v) and rollback failed: %w", activateErr, rollbackErr)
+			}
+			_ = restartInstalledService(ctx, executable, paths)
+			return fmt.Errorf("updated executable failed validation and was rolled back: %w", activateErr)
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
@@ -562,11 +579,101 @@ func writeDiagnostics(ctx context.Context, paths config.Paths) error {
 		report["databaseState"] = "unreadable"
 	}
 	if response, err := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "doctor"}); err == nil && response.OK {
-		report["service"] = response.Data
+		report["service"] = safeDoctorSummary(response.Data)
 	} else {
 		report["service"] = map[string]any{"status": "unavailable"}
 	}
 	// Project IDs, repository paths, environment values, credentials, event
 	// payloads, command output, and raw errors are deliberately absent.
 	return json.NewEncoder(os.Stdout).Encode(report)
+}
+
+func safeDoctorSummary(value any) map[string]any {
+	safe := map[string]any{"status": "unavailable"}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return safe
+	}
+	allowedStrings := []string{"status"}
+	allowedNumbers := []string{"bootCount", "workspaces", "pausedWorkspaces", "pending", "scans", "scanCycles"}
+	for _, key := range allowedStrings {
+		if item, ok := object[key].(string); ok && len(item) <= 40 {
+			safe[key] = item
+		}
+	}
+	for _, key := range allowedNumbers {
+		if item, ok := object[key].(float64); ok && item >= 0 {
+			safe[key] = item
+		} else if item, ok := object[key].(int); ok && item >= 0 {
+			safe[key] = item
+		} else if item, ok := object[key].(int64); ok && item >= 0 {
+			safe[key] = item
+		}
+	}
+	return safe
+}
+
+func removeAllAgentBindings(configRoot string, paths config.Paths, portable bool) error {
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	roots := map[string]bool{}
+	for _, workspace := range cfg.Workspaces {
+		if filepath.IsAbs(workspace.Root) {
+			roots[workspace.Root] = true
+		}
+	}
+	for root := range roots {
+		if _, err = (codexsetup.Manager{ProjectRoot: root, ConfigRoot: configRoot, Executable: executable, Portable: portable}).Remove(); err != nil {
+			return fmt.Errorf("remove managed Codex binding from %s: %w", root, err)
+		}
+		if _, err = (claudesetup.Manager{ProjectRoot: root, ConfigRoot: configRoot, Executable: executable, Portable: portable}).Remove(); err != nil {
+			return fmt.Errorf("remove managed Claude binding from %s: %w", root, err)
+		}
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"removed": true, "workspaceRoots": len(roots)})
+}
+
+func activateUpdatedExecutable(ctx context.Context, executable string, paths config.Paths) error {
+	validationCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(validationCtx, executable, "version", "--json")
+	output, err := command.Output()
+	if err != nil {
+		return fmt.Errorf("start updated executable: %w", err)
+	}
+	var info versionInfo
+	if err = json.Unmarshal(output, &info); err != nil || info.Version == "" || info.ArtifactSHA256 == "" {
+		return errors.New("updated executable returned invalid version identity")
+	}
+	return restartInstalledService(ctx, executable, paths)
+}
+
+func restartInstalledService(ctx context.Context, executable string, paths config.Paths) error {
+	home, uid, err := currentAccount()
+	if err != nil {
+		return err
+	}
+	manager := servicemanager.Manager{Executable: executable, ConfigRoot: paths.Root, Home: home, UID: uid}
+	status, err := manager.Status(ctx)
+	if err != nil || !status.Installed {
+		return nil
+	}
+	if err = manager.Install(ctx); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"})
+		if callErr == nil && response.OK {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return errors.New("updated service did not become healthy")
 }

@@ -44,7 +44,8 @@ command is required for this normal path. The app exchanges a one-time ticket
 through the loopback Vite proxy so the development session cookie remains
 same-origin while the Wails bridge stays attached during hot reload. The
 development app refuses non-loopback API/dashboard origins. Production builds
-ignore Vite and retain the separately gated preview behavior.
+ignore Vite and use the signed beta onboarding/API boundary described in
+`beta-release.md`.
 
 ## First local Project
 
@@ -165,9 +166,9 @@ or environment values.
   system/developer prompts.
 
 This single-Mac exercise validates attribution, live Git collisions, bounded
-semantic findings, briefs, and the dashboard. Inviting another member reuses
-the existing join code, but production multiplayer reliability and distribution
-remain later gates.
+semantic findings, briefs, and the dashboard. Invite another member by creating
+a fresh one-use code in Project Settings. Credentialed production distribution and the real-team
+second-session exit remain the owner-controlled L8 gates.
 
 ## Shared two-Mac dogfood
 

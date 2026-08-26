@@ -532,3 +532,39 @@ exists or stabilized in another workstream's write set, including a
 claims are observed machine-checkable state, which narrows but does not reverse
 ADR-037: no plan items, boards, or human planning surfaces return. Accepted by
 the owner 2026-08-25.
+
+## ADR-049: Re-enable production adapter setup from end-to-end evidence
+
+Supersedes ADR-026's production setup hold. The coordination evaluation suite
+now drives the built `agent-hook` executable and the official-SDK MCP bridge
+through all seven M1 scenarios, with durable observation, brief routing,
+revision-aware delivery, and fail-open behavior. Profile-aware binding status
+also stays pending until a real event from that vendor reaches the current
+local service. This is stronger evidence than the isolated client failure that
+caused ADR-026, and supports normal `setup codex` and `setup claude` in the
+macOS beta.
+
+The evidence does not prove every vendor release. Claude context injection was
+exercised against its real hook contract; Codex context injection was checked
+against its documented hook response contract and the shared executable path,
+not a separate live credentialed Codex run. Unknown vendor versions and drifted
+configuration still fail closed, while Git observation and MCP/dashboard
+delivery remain the honest fallback. Accepted 2026-08-26.
+
+## ADR-050: Qualify an Apple Silicon macOS beta, not a cross-platform release
+
+L8 qualifies the signed and notarized Stickguy CLI, per-user LaunchAgent, and
+desktop app for invited beta testers on Apple Silicon macOS 12 or newer.
+Install, update, health validation, automatic rollback, adapter cleanup, and
+recoverable local-state removal use the standalone Go executable. Linux,
+Windows, and Intel macOS archives remain unverified build artifacts under
+ADR-019 and must not be advertised as supported installs.
+
+Wails v3 is still a prerelease and its public beta train remains in progress.
+Keep the exact `v3.0.0-beta.12` dependency isolated in the desktop module. The
+desktop is qualified only as a labeled Stickguy beta on the tested macOS
+boundary; the hosted browser remains the fallback. This does not claim Wails
+GA stability or qualify another OS. Release publication remains owner-gated on
+Apple signing/notarization credentials, the offline update-signing key, a
+monitored private security channel, and a two-person second-session beta run.
+Accepted 2026-08-26; supersedes ADR-029's fixture-only production boundary.

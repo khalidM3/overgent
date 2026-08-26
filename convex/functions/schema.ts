@@ -59,7 +59,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_creator", ["createdByMemberId"])
+    .index("by_expiry", ["expiresAt"])
+    .index("by_project", ["projectId"]),
 
   dashboardTickets: defineTable({
     secretHash: v.string(),
@@ -70,7 +72,9 @@ export default defineSchema({
     usedAt: v.optional(v.number()),
   })
     .index("by_secret_hash", ["secretHash"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .index("by_member", ["memberId"])
+    .index("by_project", ["projectId"]),
 
   browserSessions: defineTable({
     secretHash: v.string(),
@@ -81,7 +85,9 @@ export default defineSchema({
     revokedAt: v.optional(v.number()),
   })
     .index("by_secret_hash", ["secretHash"])
-    .index("by_expiry", ["expiresAt"]),
+    .index("by_expiry", ["expiresAt"])
+    .index("by_project", ["projectId"])
+    .index("by_member", ["memberId"]),
 
   workspaces: defineTable({
     publicId: v.string(),
@@ -98,6 +104,7 @@ export default defineSchema({
   })
     .index("by_public_id", ["publicId"])
     .index("by_project", ["projectId"])
+    .index("by_member", ["memberId"])
     .index("by_device", ["deviceId"]),
 
   repositoryScopes: defineTable({
@@ -144,6 +151,7 @@ export default defineSchema({
   })
     .index("by_public_id", ["publicId"])
     .index("by_scope", ["scopeKey"])
+    .index("by_member", ["memberId"])
     .index("by_project", ["projectId"]),
 
   changeManifests: defineTable({
@@ -163,7 +171,9 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_workstream", ["workstreamId"])
     .index("by_scope_state", ["scopeKey", "state"])
+    .index("by_project", ["projectId"])
     .index("by_expiry", ["expiresAt"]),
 
   changeManifestChunks: defineTable({
@@ -199,6 +209,8 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_event_id", ["eventId"])
+    .index("by_member", ["memberId"])
+    .index("by_project", ["projectId"])
     .index("by_project_received", ["projectId", "receivedAt"])
     .index("by_expiry", ["expiresAt"]),
 
@@ -221,6 +233,7 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_scope_path", ["scopeKey", "path"])
+    .index("by_project", ["projectId"])
     .index("by_expiry", ["expiresAt"]),
 
   // One row per (session workstream, path): what the session read and the
@@ -238,6 +251,7 @@ export default defineSchema({
   })
     .index("by_workstream_path", ["workstreamId", "path"])
     .index("by_scope_path", ["scopeKey", "path"])
+    .index("by_project", ["projectId"])
     .index("by_expiry", ["expiresAt"]),
 
   findings: defineTable({
@@ -266,6 +280,7 @@ export default defineSchema({
     .index("by_public_id", ["publicId"])
     .index("by_fingerprint", ["fingerprint"])
     .index("by_scope", ["scopeKey"])
+    .index("by_project", ["projectId"])
     .index("by_project_seen", ["projectId", "lastSeenAt"])
     .index("by_expiry", ["expiresAt"]),
 
@@ -285,6 +300,7 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_project", ["projectId"])
     .index("by_scope_active", ["scopeKey", "active"])
     .index("by_workstream_active", ["workstreamId", "active"])
     .index("by_expiry", ["expiresAt"]),
@@ -318,6 +334,7 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_project", ["projectId"])
     .index("by_workstream", ["workstreamId"])
     .index("by_expiry", ["expiresAt"]),
 
@@ -332,6 +349,8 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_finding_member", ["findingId", "memberId"])
+    .index("by_member", ["memberId"])
+    .index("by_project", ["projectId"])
     .index("by_expiry", ["expiresAt"]),
 
   syncCards: defineTable({
@@ -347,6 +366,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_creator", ["createdByMemberId"])
+    .index("by_project", ["projectId"])
     .index("by_project_updated", ["projectId", "updatedAt"]),
 
   syncComments: defineTable({
@@ -358,6 +379,7 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_card_created", ["syncCardId", "createdAt"])
+    .index("by_member", ["memberId"])
     .index("by_project", ["projectId"]),
 
   decisions: defineTable({
@@ -373,6 +395,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_creator", ["createdByMemberId"])
     .index("by_project_updated", ["projectId", "updatedAt"]),
 
   decisionDeliveries: defineTable({
@@ -400,7 +423,9 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
+    .index("by_member", ["memberId"])
     .index("by_workstream_captured", ["workstreamId", "capturedAt"])
+    .index("by_project", ["projectId"])
     .index("by_expiry", ["expiresAt"]),
 
   deviceCursors: defineTable({
@@ -408,7 +433,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     lastAckedSequence: v.number(),
     cursor: v.string(),
-  }).index("by_device_project", ["deviceId", "projectId"]),
+  }).index("by_device_project", ["deviceId", "projectId"]).index("by_project", ["projectId"]),
 
   rateLimits: defineTable({
     key: v.string(),

@@ -16,7 +16,7 @@ import (
 )
 
 type API interface {
-	CreateProject(context.Context, string, string, string) (hosted.Project, error)
+	CreateProject(context.Context, string, string, string, string) (hosted.Project, error)
 	CreateInvite(context.Context, string, int, int) (hosted.Invite, error)
 	Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error)
 	Bootstrap(context.Context) (hosted.Bootstrap, error)
@@ -30,7 +30,7 @@ type CredentialStore interface {
 }
 
 type Options struct {
-	ConfigRoot, RepositoryRoot, APIBaseURL, ProjectLabel, DeviceLabel string
+	ConfigRoot, RepositoryRoot, APIBaseURL, ProjectLabel, DeviceLabel, AppVersion string
 	// DisplayName is optional; empty means the member has not chosen one yet.
 	DisplayName string
 }
@@ -78,7 +78,11 @@ func (s Service) Create(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	project, err := client.CreateProject(ctx, options.ProjectLabel, options.DeviceLabel, options.DisplayName)
+	appVersion := options.AppVersion
+	if appVersion == "" {
+		appVersion = "stickguy/dev"
+	}
+	project, err := client.CreateProject(ctx, options.ProjectLabel, options.DeviceLabel, options.DisplayName, appVersion)
 	if err != nil {
 		return Result{}, fmt.Errorf("create Project: %w", err)
 	}
@@ -107,7 +111,11 @@ func (s Service) Join(ctx context.Context, options Options, joinCode string) (Re
 	if err != nil {
 		return Result{}, err
 	}
-	enrollment, err := publicClient.Enroll(ctx, inviteID, inviteSecret, options.DeviceLabel, options.DisplayName, "stickguy/dev")
+	appVersion := options.AppVersion
+	if appVersion == "" {
+		appVersion = "stickguy/dev"
+	}
+	enrollment, err := publicClient.Enroll(ctx, inviteID, inviteSecret, options.DeviceLabel, options.DisplayName, appVersion)
 	if err != nil {
 		return Result{}, fmt.Errorf("enroll device: %w", err)
 	}

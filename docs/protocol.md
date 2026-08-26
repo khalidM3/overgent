@@ -12,6 +12,14 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 - Client sends app version and supported schema range.
 - Generated Go/TypeScript types are never hand-edited.
 
+L8 administration adds Project-scoped access snapshots, one-use invite
+creation/revocation, member removal, device revocation, member identity update,
+owner/member-scoped JSON export, ordinary-member self-deletion, and owner
+Project deletion. Browser-cookie and device-token callers both reauthorize
+against current server-side membership; client-supplied roles are never
+trusted. Revocation/removal takes effect on the next request, while data
+deletion proceeds in bounded scheduled batches after authorization is revoked.
+
 ## 2. Event envelope
 
 ```json
@@ -32,7 +40,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 }
 ```
 
-`eventId` survives retries; sequence is per workspace; server stores receipt time separately; source is `git`, `manual`, `mcp`, `hook`, or versioned adapter. Payload is selected by type. Secrets, file contents, diffs, prompts, transcripts, environment values, and raw command/test output are forbidden by this initial contract. ADR-027 authorizes an isolated L5A validation only; any later bounded visible-conversation event requires a separately reviewed versioned schema/generated-code change after that gate.
+`eventId` survives retries; sequence is per workspace; server stores receipt time separately; source is `git`, `manual`, `mcp`, `hook`, or versioned adapter. Payload is selected by type. Secrets, file contents, diffs, transcript files, system/developer prompts, hidden reasoning, environment values, and raw command/test output are forbidden. Classifier-approved visible user/assistant session messages use the explicit `agent.conversation_shared` event under ADR-036/ADR-047; the raw vendor record never crosses the wire.
 
 ## 3. Initial event types
 

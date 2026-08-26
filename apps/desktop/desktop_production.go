@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -27,7 +28,40 @@ func desktopCLIBinary() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "stickguy"))
+	bundled := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "stickguy"))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return bundled
+	}
+	directory := filepath.Join(home, ".local", "bin")
+	installed := filepath.Join(directory, "stickguy")
+	if info, statErr := os.Stat(installed); statErr == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		return installed
+	}
+	if err = os.MkdirAll(directory, 0o700); err != nil {
+		return bundled
+	}
+	input, err := os.Open(bundled)
+	if err != nil {
+		return bundled
+	}
+	defer input.Close()
+	temporary, err := os.CreateTemp(directory, ".stickguy-desktop-install-*")
+	if err != nil {
+		return bundled
+	}
+	if err = temporary.Chmod(0o755); err != nil {
+		_ = temporary.Close()
+		_ = os.Remove(temporary.Name())
+		return bundled
+	}
+	_, copyErr := io.Copy(temporary, input)
+	closeErr := temporary.Close()
+	if copyErr != nil || closeErr != nil || os.Rename(temporary.Name(), installed) != nil {
+		_ = os.Remove(temporary.Name())
+		return bundled
+	}
+	return installed
 }
 func desktopConfigRoot() string { root, _ := config.DefaultRoot(); return root }
 func openLocalProject(ctx context.Context, window *application.WebviewWindow) error {
