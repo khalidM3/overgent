@@ -42,6 +42,10 @@ type LifecycleEvent struct {
 	Kind    string
 	Payload any
 }
+type InjectionItem struct {
+	ID       string
+	Revision int
+}
 type eventEnvelope struct {
 	SchemaVersion int       `json:"schemaVersion"`
 	EventID       string    `json:"eventId"`
@@ -81,6 +85,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys(workspace_id TEXT NOT NULL,method TE
 CREATE TABLE IF NOT EXISTS agent_observations(workspace_id TEXT NOT NULL,vendor TEXT NOT NULL,last_observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,vendor));
 CREATE TABLE IF NOT EXISTS contract_fingerprints(workspace_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,path));
 CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,PRIMARY KEY(workspace_id,session_workstream_id,path));
+CREATE TABLE IF NOT EXISTS injection_deliveries(session_key TEXT NOT NULL,item_id TEXT NOT NULL,item_revision INTEGER NOT NULL,delivered_at INTEGER NOT NULL,PRIMARY KEY(session_key,item_id,item_revision));
 INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
@@ -150,6 +155,67 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		}
 	}
 	return s, nil
+}
+
+// ClaimInjectionDeliveries atomically returns and records only item revisions
+// this local agent session has not received before. Claiming before the hook
+// response prevents concurrent hook invocations from injecting one revision
+// twice; a newer revision remains independently eligible.
+func (s *Store) ClaimInjectionDeliveries(ctx context.Context, sessionKey string, items []InjectionItem, deliveredAt time.Time) ([]InjectionItem, error) {
+	if sessionKey == "" {
+		return nil, errors.New("injection delivery session key is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	claimed := make([]InjectionItem, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" || item.Revision < 1 {
+			return nil, errors.New("injection delivery item identity is invalid")
+		}
+		result, insertErr := tx.ExecContext(ctx, `INSERT OR IGNORE INTO injection_deliveries(session_key,item_id,item_revision,delivered_at) VALUES(?,?,?,?)`, sessionKey, item.ID, item.Revision, deliveredAt.UTC().UnixMilli())
+		if insertErr != nil {
+			return nil, insertErr
+		}
+		inserted, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+		if inserted == 1 {
+			claimed = append(claimed, item)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return claimed, nil
+}
+
+// UndeliveredInjectionItems returns item revisions absent from the local
+// session delivery set. ClaimInjectionDeliveries remains the atomic arbiter if
+// concurrent hook invocations race after this read.
+func (s *Store) UndeliveredInjectionItems(ctx context.Context, sessionKey string, items []InjectionItem) ([]InjectionItem, error) {
+	if sessionKey == "" {
+		return nil, errors.New("injection delivery session key is required")
+	}
+	pending := make([]InjectionItem, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" || item.Revision < 1 {
+			return nil, errors.New("injection delivery item identity is invalid")
+		}
+		var present int
+		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM injection_deliveries WHERE session_key=? AND item_id=? AND item_revision=?`, sessionKey, item.ID, item.Revision).Scan(&present)
+		if errors.Is(err, sql.ErrNoRows) {
+			pending = append(pending, item)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pending, nil
 }
 
 func (s *Store) RecordAgentObservation(ctx context.Context, workspaceID, vendor string, observedAt time.Time) error {
