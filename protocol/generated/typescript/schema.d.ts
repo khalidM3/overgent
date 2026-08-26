@@ -455,7 +455,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared" | "workspace.contract_fingerprints_reported" | "session.read_set_reported";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -463,6 +463,15 @@ export interface components {
                 manifestId: string;
                 gitRef: string;
                 boundedStringList: string[];
+                safePath: string;
+                contentHash: string;
+                contractSymbol: {
+                    name: string;
+                    /** @enum {unknown} */
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    signature: string;
+                    signatureHash: string;
+                };
                 workspaceRegistered: unknown;
                 manifestStarted: unknown;
                 manifestChunk: unknown;
@@ -475,9 +484,11 @@ export interface components {
                 contextAcknowledged: unknown;
                 activityReported: unknown;
                 agentActivityReported: unknown;
+                contractFingerprintsReported: unknown;
+                readSetReported: unknown;
                 agentConversationShared: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** @description A bounded batch from exactly one workspace; sequence and the returned cursor are workspace-scoped. */
         EventBatch: {
             events: ({
@@ -497,7 +508,7 @@ export interface components {
                 /** @enum {string} */
                 source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                 /** @enum {string} */
-                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
+                type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared" | "workspace.contract_fingerprints_reported" | "session.read_set_reported";
                 payload: Record<string, never>;
                 $defs: {
                     id: string;
@@ -505,6 +516,15 @@ export interface components {
                     manifestId: string;
                     gitRef: string;
                     boundedStringList: string[];
+                    safePath: string;
+                    contentHash: string;
+                    contractSymbol: {
+                        name: string;
+                        /** @enum {unknown} */
+                        kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                        signature: string;
+                        signatureHash: string;
+                    };
                     workspaceRegistered: unknown;
                     manifestStarted: unknown;
                     manifestChunk: unknown;
@@ -517,9 +537,11 @@ export interface components {
                     contextAcknowledged: unknown;
                     activityReported: unknown;
                     agentActivityReported: unknown;
+                    contractFingerprintsReported: unknown;
+                    readSetReported: unknown;
                     agentConversationShared: unknown;
                 };
-            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+            } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
         };
         EventBatchAck: {
             acceptedEventIds: string[];
@@ -566,6 +588,19 @@ export interface components {
                     summary: string;
                     source: string;
                     fidelity: string;
+                    contract?: {
+                        path: string;
+                        changedSymbols: {
+                            name: string;
+                            oldSignature: string;
+                            newSignature: string;
+                        }[];
+                        changedByWorkstreamId: string;
+                        /** Format: date-time */
+                        readAt: string;
+                        /** Format: date-time */
+                        changedAt: string;
+                    };
                 }[];
                 reason: string;
                 /** @enum {unknown} */
@@ -578,6 +613,32 @@ export interface components {
                         summary: string;
                         source: string;
                         fidelity: string;
+                        contract?: {
+                            path: string;
+                            changedSymbols: {
+                                name: string;
+                                oldSignature: string;
+                                newSignature: string;
+                            }[];
+                            changedByWorkstreamId: string;
+                            /** Format: date-time */
+                            readAt: string;
+                            /** Format: date-time */
+                            changedAt: string;
+                        };
+                    };
+                    contractEvidence: {
+                        path: string;
+                        changedSymbols: {
+                            name: string;
+                            oldSignature: string;
+                            newSignature: string;
+                        }[];
+                        changedByWorkstreamId: string;
+                        /** Format: date-time */
+                        readAt: string;
+                        /** Format: date-time */
+                        changedAt: string;
                     };
                 };
             } | {
@@ -669,6 +730,19 @@ export interface components {
                 summary: string;
                 source: string;
                 fidelity: string;
+                contract?: {
+                    path: string;
+                    changedSymbols: {
+                        name: string;
+                        oldSignature: string;
+                        newSignature: string;
+                    }[];
+                    changedByWorkstreamId: string;
+                    /** Format: date-time */
+                    readAt: string;
+                    /** Format: date-time */
+                    changedAt: string;
+                };
             }[];
             reason: string;
             /** @enum {unknown} */
@@ -681,6 +755,32 @@ export interface components {
                     summary: string;
                     source: string;
                     fidelity: string;
+                    contract?: {
+                        path: string;
+                        changedSymbols: {
+                            name: string;
+                            oldSignature: string;
+                            newSignature: string;
+                        }[];
+                        changedByWorkstreamId: string;
+                        /** Format: date-time */
+                        readAt: string;
+                        /** Format: date-time */
+                        changedAt: string;
+                    };
+                };
+                contractEvidence: {
+                    path: string;
+                    changedSymbols: {
+                        name: string;
+                        oldSignature: string;
+                        newSignature: string;
+                    }[];
+                    changedByWorkstreamId: string;
+                    /** Format: date-time */
+                    readAt: string;
+                    /** Format: date-time */
+                    changedAt: string;
                 };
             };
         } | {
@@ -991,6 +1091,7 @@ export interface components {
                 lastSeen: string;
             }[];
         };
+        contentHash: string;
         manifestId: string;
         workstreamId: string;
         gitRef: string;
@@ -1037,6 +1138,14 @@ export interface components {
             /** Format: date-time */
             observedAt: string;
         };
+        safePath: string;
+        contractSymbol: {
+            name: string;
+            /** @enum {unknown} */
+            kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+            signature: string;
+            signatureHash: string;
+        };
         workspaceRegistered: unknown;
         manifestStarted: unknown;
         manifestChunk: unknown;
@@ -1050,6 +1159,8 @@ export interface components {
         activityReported: unknown;
         agentActivityReported: unknown;
         agentConversationShared: unknown;
+        contractFingerprintsReported: unknown;
+        readSetReported: unknown;
         /** EventEnvelope */
         "event-envelope.schema": {
             /** @constant */
@@ -1068,7 +1179,7 @@ export interface components {
             /** @enum {string} */
             source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
             /** @enum {string} */
-            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
+            type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared" | "workspace.contract_fingerprints_reported" | "session.read_set_reported";
             payload: Record<string, never>;
             $defs: {
                 id: string;
@@ -1076,6 +1187,15 @@ export interface components {
                 manifestId: string;
                 gitRef: string;
                 boundedStringList: string[];
+                safePath: string;
+                contentHash: string;
+                contractSymbol: {
+                    name: string;
+                    /** @enum {unknown} */
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    signature: string;
+                    signatureHash: string;
+                };
                 workspaceRegistered: unknown;
                 manifestStarted: unknown;
                 manifestChunk: unknown;
@@ -1088,9 +1208,11 @@ export interface components {
                 contextAcknowledged: unknown;
                 activityReported: unknown;
                 agentActivityReported: unknown;
+                contractFingerprintsReported: unknown;
+                readSetReported: unknown;
                 agentConversationShared: unknown;
             };
-        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
+        } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown);
         /** SemanticObject */
         "semantic-object.schema": {
             id: string;
@@ -1109,12 +1231,38 @@ export interface components {
             manifestRevision?: number;
             tags?: string[];
         };
+        contractEvidence: {
+            path: string;
+            changedSymbols: {
+                name: string;
+                oldSignature: string;
+                newSignature: string;
+            }[];
+            changedByWorkstreamId: string;
+            /** Format: date-time */
+            readAt: string;
+            /** Format: date-time */
+            changedAt: string;
+        };
         evidence: {
             /** @enum {unknown} */
             kind: "path" | "symbol" | "claim" | "dependency" | "schema" | "route" | "lexical" | "semantic" | "decision";
             summary: string;
             source: string;
             fidelity: string;
+            contract?: {
+                path: string;
+                changedSymbols: {
+                    name: string;
+                    oldSignature: string;
+                    newSignature: string;
+                }[];
+                changedByWorkstreamId: string;
+                /** Format: date-time */
+                readAt: string;
+                /** Format: date-time */
+                changedAt: string;
+            };
         };
         /** Finding */
         "finding.schema": {
@@ -1132,6 +1280,19 @@ export interface components {
                 summary: string;
                 source: string;
                 fidelity: string;
+                contract?: {
+                    path: string;
+                    changedSymbols: {
+                        name: string;
+                        oldSignature: string;
+                        newSignature: string;
+                    }[];
+                    changedByWorkstreamId: string;
+                    /** Format: date-time */
+                    readAt: string;
+                    /** Format: date-time */
+                    changedAt: string;
+                };
             }[];
             reason: string;
             /** @enum {unknown} */
@@ -1144,6 +1305,32 @@ export interface components {
                     summary: string;
                     source: string;
                     fidelity: string;
+                    contract?: {
+                        path: string;
+                        changedSymbols: {
+                            name: string;
+                            oldSignature: string;
+                            newSignature: string;
+                        }[];
+                        changedByWorkstreamId: string;
+                        /** Format: date-time */
+                        readAt: string;
+                        /** Format: date-time */
+                        changedAt: string;
+                    };
+                };
+                contractEvidence: {
+                    path: string;
+                    changedSymbols: {
+                        name: string;
+                        oldSignature: string;
+                        newSignature: string;
+                    }[];
+                    changedByWorkstreamId: string;
+                    /** Format: date-time */
+                    readAt: string;
+                    /** Format: date-time */
+                    changedAt: string;
                 };
             };
         };
@@ -2015,7 +2202,7 @@ export interface operations {
                         /** @enum {string} */
                         source: "git" | "manual" | "mcp" | "hook" | "adapter/v1";
                         /** @enum {string} */
-                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared";
+                        type: "workspace.registered" | "workspace.manifest_started" | "workspace.manifest_chunk" | "workspace.manifest_completed" | "workspace.paused" | "workspace.resumed" | "workstream.intent_reported" | "workstream.checkpoint_reported" | "workstream.status_changed" | "context.acknowledged" | "activity.reported" | "agent.activity_reported" | "agent.conversation_shared" | "workspace.contract_fingerprints_reported" | "session.read_set_reported";
                         payload: Record<string, never>;
                         $defs: {
                             id: string;
@@ -2023,6 +2210,15 @@ export interface operations {
                             manifestId: string;
                             gitRef: string;
                             boundedStringList: string[];
+                            safePath: string;
+                            contentHash: string;
+                            contractSymbol: {
+                                name: string;
+                                /** @enum {unknown} */
+                                kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                                signature: string;
+                                signatureHash: string;
+                            };
                             workspaceRegistered: unknown;
                             manifestStarted: unknown;
                             manifestChunk: unknown;
@@ -2035,9 +2231,11 @@ export interface operations {
                             contextAcknowledged: unknown;
                             activityReported: unknown;
                             agentActivityReported: unknown;
+                            contractFingerprintsReported: unknown;
+                            readSetReported: unknown;
                             agentConversationShared: unknown;
                         };
-                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
+                    } & (unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown & unknown))[];
                 };
             };
         };
@@ -2167,6 +2365,19 @@ export interface operations {
                                 summary: string;
                                 source: string;
                                 fidelity: string;
+                                contract?: {
+                                    path: string;
+                                    changedSymbols: {
+                                        name: string;
+                                        oldSignature: string;
+                                        newSignature: string;
+                                    }[];
+                                    changedByWorkstreamId: string;
+                                    /** Format: date-time */
+                                    readAt: string;
+                                    /** Format: date-time */
+                                    changedAt: string;
+                                };
                             }[];
                             reason: string;
                             /** @enum {unknown} */
@@ -2179,6 +2390,32 @@ export interface operations {
                                     summary: string;
                                     source: string;
                                     fidelity: string;
+                                    contract?: {
+                                        path: string;
+                                        changedSymbols: {
+                                            name: string;
+                                            oldSignature: string;
+                                            newSignature: string;
+                                        }[];
+                                        changedByWorkstreamId: string;
+                                        /** Format: date-time */
+                                        readAt: string;
+                                        /** Format: date-time */
+                                        changedAt: string;
+                                    };
+                                };
+                                contractEvidence: {
+                                    path: string;
+                                    changedSymbols: {
+                                        name: string;
+                                        oldSignature: string;
+                                        newSignature: string;
+                                    }[];
+                                    changedByWorkstreamId: string;
+                                    /** Format: date-time */
+                                    readAt: string;
+                                    /** Format: date-time */
+                                    changedAt: string;
                                 };
                             };
                         } | {
@@ -2892,6 +3129,19 @@ export interface operations {
                             summary: string;
                             source: string;
                             fidelity: string;
+                            contract?: {
+                                path: string;
+                                changedSymbols: {
+                                    name: string;
+                                    oldSignature: string;
+                                    newSignature: string;
+                                }[];
+                                changedByWorkstreamId: string;
+                                /** Format: date-time */
+                                readAt: string;
+                                /** Format: date-time */
+                                changedAt: string;
+                            };
                         }[];
                         reason: string;
                         /** @enum {unknown} */
@@ -2904,6 +3154,32 @@ export interface operations {
                                 summary: string;
                                 source: string;
                                 fidelity: string;
+                                contract?: {
+                                    path: string;
+                                    changedSymbols: {
+                                        name: string;
+                                        oldSignature: string;
+                                        newSignature: string;
+                                    }[];
+                                    changedByWorkstreamId: string;
+                                    /** Format: date-time */
+                                    readAt: string;
+                                    /** Format: date-time */
+                                    changedAt: string;
+                                };
+                            };
+                            contractEvidence: {
+                                path: string;
+                                changedSymbols: {
+                                    name: string;
+                                    oldSignature: string;
+                                    newSignature: string;
+                                }[];
+                                changedByWorkstreamId: string;
+                                /** Format: date-time */
+                                readAt: string;
+                                /** Format: date-time */
+                                changedAt: string;
                             };
                         };
                     } | {

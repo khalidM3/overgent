@@ -73,16 +73,79 @@ func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
 	if len(batch.Events) != 1 || !batch.Events[0].Source.Valid() || !batch.Events[0].Type.Valid() {
 		t.Fatalf("generated Go type lost required enum semantics: %#v", batch.Events)
 	}
-	agentFixture, err := os.ReadFile("fixtures/agent-activity-reported.json")
+	for _, name := range []string{
+		"fixtures/agent-activity-reported.json",
+		"fixtures/contract-fingerprints-reported.json",
+		"fixtures/read-set-reported.json",
+	} {
+		eventFixture, readErr := os.ReadFile(name)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var eventValue any
+		if err := json.Unmarshal(eventFixture, &eventValue); err != nil {
+			t.Fatal(err)
+		}
+		if err := schema.Validate(eventValue); err != nil {
+			t.Fatalf("%s schema validation: %v", name, err)
+		}
+		payload := eventValue.(map[string]any)["payload"].(map[string]any)
+		payload["undeclared"] = "x"
+		if err := schema.Validate(eventValue); err == nil {
+			t.Fatalf("%s accepted an undeclared payload field", name)
+		}
+	}
+}
+
+// The stale-assumption contract extension must be an optional addition to the
+// existing evidence shape, not a second evidence contract.
+func TestContractEvidenceExtendsTheFindingContract(t *testing.T) {
+	compiler := jsonschema.NewCompiler()
+	schemaData, err := os.ReadFile("schemas/finding.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var agentValue any
-	if err := json.Unmarshal(agentFixture, &agentValue); err != nil {
+	var schemaDocument map[string]any
+	if err := json.Unmarshal(schemaData, &schemaDocument); err != nil {
 		t.Fatal(err)
 	}
-	if err := schema.Validate(agentValue); err != nil {
-		t.Fatalf("agent activity schema validation: %v", err)
+	const schemaURL = "https://schemas.stickguy.dev/v1/finding.schema.json"
+	if err := compiler.AddResource(schemaURL, schemaDocument); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding := map[string]any{
+		"id": "fnd_contract_fixture", "kind": "stale_assumption", "severity": "high",
+		"confidenceBand": "deterministic", "workstreamIds": []any{"wrk_reader"},
+		"reason": "Rotate changed after this session read it.", "state": "open", "revision": float64(1),
+		"evidence": []any{map[string]any{
+			"kind": "symbol", "summary": "Rotate changed signature.", "source": "git", "fidelity": "structural",
+			"contract": map[string]any{
+				"path": "internal/session/rotate.go",
+				"changedSymbols": []any{map[string]any{
+					"name": "Rotate", "oldSignature": "func Rotate(key string) error",
+					"newSignature": "func Rotate(ctx context.Context, key string) error",
+				}},
+				"changedByWorkstreamId": "wrk_writer",
+				"readAt":                "2026-08-26T08:59:00Z",
+				"changedAt":             "2026-08-26T09:00:00Z",
+			},
+		}},
+	}
+	if err := schema.Validate(finding); err != nil {
+		t.Fatalf("contract evidence rejected: %v", err)
+	}
+	evidence := finding["evidence"].([]any)[0].(map[string]any)
+	delete(evidence, "contract")
+	if err := schema.Validate(finding); err != nil {
+		t.Fatalf("contract evidence must stay optional: %v", err)
+	}
+	evidence["contract"] = map[string]any{"path": "internal/session/rotate.go"}
+	if err := schema.Validate(finding); err == nil {
+		t.Fatal("incomplete contract evidence was accepted")
 	}
 }
 

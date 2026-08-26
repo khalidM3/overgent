@@ -25,7 +25,34 @@
         "kind": {"enum": ["path", "symbol", "claim", "dependency", "schema", "route", "lexical", "semantic", "decision"]},
         "summary": {"type": "string", "maxLength": 500},
         "source": {"type": "string", "maxLength": 80},
-        "fidelity": {"type": "string", "maxLength": 80}
+        "fidelity": {"type": "string", "maxLength": 80},
+        "contract": {"$ref": "#/$defs/contractEvidence"}
+      }
+    },
+    "contractEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "changedSymbols", "changedByWorkstreamId", "readAt", "changedAt"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 512},
+        "changedSymbols": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "oldSignature", "newSignature"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 200},
+              "oldSignature": {"type": "string", "maxLength": 500},
+              "newSignature": {"type": "string", "maxLength": 500}
+            }
+          }
+        },
+        "changedByWorkstreamId": {"type": "string", "minLength": 1, "maxLength": 128},
+        "readAt": {"type": "string", "format": "date-time"},
+        "changedAt": {"type": "string", "format": "date-time"}
       }
     }
   }

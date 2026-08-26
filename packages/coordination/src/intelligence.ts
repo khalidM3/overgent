@@ -27,10 +27,19 @@ export type WorkstreamRecord = Scope & Readonly<{
 }>;
 
 export type Evidence = Readonly<{
-  kind: "path" | "dependency" | "schema" | "route" | "lexical" | "semantic" | "decision";
+  kind: "path" | "symbol" | "dependency" | "schema" | "route" | "lexical" | "semantic" | "decision";
   summary: string;
   source: string;
   fidelity: string;
+  // Contract drift carries the changed declarations alongside the summary so a
+  // brief can name what moved (ADR-048). Every other evidence kind omits it.
+  contract?: Readonly<{
+    path: string;
+    changedSymbols: readonly Readonly<{ name: string; oldSignature: string; newSignature: string }>[];
+    changedByWorkstreamId: string;
+    readAt: string;
+    changedAt: string;
+  }>;
 }>;
 
 export type IntelligenceFinding = Scope & Readonly<{

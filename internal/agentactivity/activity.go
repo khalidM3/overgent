@@ -179,6 +179,20 @@ func ClassifyMessage(candidate Message) (Message, error) {
 	return Message{Kind: candidate.Kind, Text: text}, nil
 }
 
+// ProhibitedContractSignature is the mandatory wire gate for derived contract
+// signature text (ADR-038 semantics, ADR-044). A denied signature is dropped
+// from the fingerprint entirely rather than redacted.
+//
+// It deliberately omits the environment-assignment pattern that guards prose:
+// an exported declaration such as `const MAX_RETRIES = 3` is ordinary API
+// surface, and rejecting it would silently blind contract comparison. Actual
+// credential material in a declaration — an API key, a token, a private key —
+// is still caught by the credential and private-key patterns.
+func ProhibitedContractSignature(signature string) bool {
+	return strings.ContainsRune(signature, '\x00') || privateKeyPattern.MatchString(signature) ||
+		credentialPattern.MatchString(signature) || toolOutputPattern.MatchString(signature)
+}
+
 func NormalizePaths(event Event, repositoryRoot string) (Event, error) {
 	root, err := filepath.EvalSymlinks(repositoryRoot)
 	if err != nil {
@@ -259,6 +273,22 @@ func validateSafePath(value string) error {
 	}
 	return nil
 }
+
+// ReadTool reports whether a tool observation is a file inspection rather than
+// a mutation. It matches exactly the tools toolLabel already categorizes as
+// inspecting files, which is the read-set source under ADR-048.
+func ReadTool(tool string) bool {
+	switch strings.ToLower(tool) {
+	case "read", "glob", "grep":
+		return true
+	}
+	return false
+}
+
+// SafeRepositoryPath reports whether a repository-relative path may be shared.
+// It is the same rule NormalizePaths applies, exposed for callers that filter
+// individual candidates instead of rejecting a whole observation.
+func SafeRepositoryPath(value string) bool { return validateSafePath(value) == nil }
 
 func toolAction(tool string, completed bool) string {
 	verb := "Using"

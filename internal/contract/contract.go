@@ -1,0 +1,146 @@
+// Package contract derives per-file API-surface fingerprints for the paths the
+// manifest pipeline already observes (ADR-044, ADR-048). A fingerprint names
+// only the exported surface of a file: symbol names, a normalized declaration
+// signature with the body and comments removed, and a hash per signature. Raw
+// source, bodies, and diffs never leave this package.
+//
+// Only .go, .ts, and .tsx files are fingerprintable. Every other extension has
+// no fingerprint and therefore never produces a contract finding.
+//
+// Go extraction uses the standard library go/parser and go/ast. TypeScript and
+// TSX extraction uses a bounded scanner written in pure Go: ADR-019 keeps the
+// root module free of CGO and of Node invocation, so no TypeScript parser is
+// linked in. The scanner is deliberately best-effort; see typescript.go for the
+// exact recognized forms and their limitations.
+//
+// Extraction never returns an error. A file that cannot be parsed, is too
+// large, or is not fingerprintable simply has no fingerprint, so manifest
+// publication is never blocked by a parse failure.
+package contract
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"slices"
+	"strings"
+	"unicode/utf8"
+)
+
+// MaxSignatureRunes bounds a normalized signature. A longer declaration is
+// truncated and marked so a reader can tell the text is not the whole header.
+const MaxSignatureRunes = 500
+
+// TruncationMarker terminates a signature that exceeded MaxSignatureRunes.
+const TruncationMarker = "…"
+
+// MaxSourceBytes refuses files large enough to make extraction unbounded work.
+const MaxSourceBytes = 1 << 20
+
+// MaxSymbols bounds the exported surface recorded for one file.
+const MaxSymbols = 200
+
+// Symbol is one exported declaration in a file's API surface.
+type Symbol struct {
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Signature     string `json:"signature"`
+	SignatureHash string `json:"signatureHash"`
+}
+
+// File is the fingerprint of one repository-relative path.
+type File struct {
+	Path             string   `json:"path"`
+	FileContractHash string   `json:"fileContractHash"`
+	Symbols          []Symbol `json:"symbols"`
+}
+
+// Fingerprintable reports whether a repository-relative path has a contract
+// fingerprint at all. Extraction and comparison are limited to these languages.
+func Fingerprintable(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".go", ".ts", ".tsx":
+		return true
+	}
+	return false
+}
+
+// Extract derives the fingerprint of one file. The second result is false when
+// the path is not fingerprintable, the source is too large, or the source could
+// not be parsed; callers treat that as "no fingerprint", never as an error.
+//
+// deny is the wire gate for derived signature text. A symbol whose normalized
+// signature is denied is omitted from the symbol list and from the file
+// contract hash, so a gated symbol can never desynchronize the hash from the
+// symbols that are actually published. A nil deny filters nothing.
+func Extract(path string, source []byte, deny func(signature string) bool) (File, bool) {
+	if !Fingerprintable(path) || len(source) > MaxSourceBytes {
+		return File{}, false
+	}
+	var symbols []Symbol
+	var ok bool
+	if strings.EqualFold(filepath.Ext(path), ".go") {
+		symbols, ok = extractGo(source)
+	} else {
+		symbols, ok = extractTypeScript(source)
+	}
+	if !ok {
+		return File{}, false
+	}
+	kept := symbols[:0]
+	for _, symbol := range symbols {
+		if deny != nil && deny(symbol.Signature) {
+			continue
+		}
+		kept = append(kept, symbol)
+	}
+	symbols = kept
+	slices.SortFunc(symbols, func(left, right Symbol) int {
+		if c := strings.Compare(left.Name, right.Name); c != 0 {
+			return c
+		}
+		if c := strings.Compare(left.Kind, right.Kind); c != 0 {
+			return c
+		}
+		return strings.Compare(left.SignatureHash, right.SignatureHash)
+	})
+	if len(symbols) > MaxSymbols {
+		symbols = symbols[:MaxSymbols]
+	}
+	if symbols == nil {
+		symbols = []Symbol{}
+	}
+	return File{Path: path, FileContractHash: fileContractHash(symbols), Symbols: symbols}, true
+}
+
+// fileContractHash is SHA-256 over the sorted symbol list. Each symbol
+// contributes exactly "name:signatureHash\n"; the empty surface hashes the
+// empty byte string. This encoding is the comparison key and must not be
+// inferred from ordinary JSON serialization.
+func fileContractHash(symbols []Symbol) string {
+	digest := sha256.New()
+	for _, symbol := range symbols {
+		digest.Write([]byte(symbol.Name + ":" + symbol.SignatureHash + "\n"))
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
+
+// newSymbol normalizes a raw declaration and hashes it.
+func newSymbol(name, kind, rawSignature string) Symbol {
+	signature := normalizeSignature(rawSignature)
+	sum := sha256.Sum256([]byte(signature))
+	return Symbol{Name: name, Kind: kind, Signature: signature, SignatureHash: hex.EncodeToString(sum[:])}
+}
+
+// normalizeSignature collapses every run of whitespace to a single space so
+// reformatting a declaration is not mistaken for a contract change, then bounds
+// the result to MaxSignatureRunes.
+func normalizeSignature(raw string) string {
+	signature := strings.Join(strings.Fields(raw), " ")
+	if utf8.RuneCountInString(signature) <= MaxSignatureRunes {
+		return signature
+	}
+	runes := []rune(signature)
+	keep := MaxSignatureRunes - utf8.RuneCountInString(TruncationMarker)
+	return string(runes[:keep]) + TruncationMarker
+}
