@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,7 +54,11 @@ type Service struct {
 	sender      Sender
 	mu          sync.Mutex
 	scans, boot int64
-	watch       *watcher.Watcher
+	// scanCycles counts completed scan passes, not published manifests. A
+	// caller that has to know a scan finished cannot use scans: an unchanged
+	// workspace publishes nothing and leaves that counter still.
+	scanCycles atomic.Int64
+	watch      *watcher.Watcher
 	// transcripts maps a session to its vendor transcript path. Only paths are
 	// held; content is read on demand and never copied (ADR-036).
 	transcriptMu sync.Mutex
@@ -111,6 +116,7 @@ func Run(ctx context.Context, root string, sender Sender) error {
 func (s *Service) scanAll(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.scanCycles.Add(1)
 	for _, w := range s.cfg.Workspaces {
 		m, e := git.Observe(ctx, git.Runner{}, w.Root, w.Baseline)
 		if e != nil {
@@ -269,7 +275,7 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 				paused++
 			}
 		}
-		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "pending": len(p), "scans": s.scans, "pid": os.Getpid()}}
+		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "pending": len(p), "scans": s.scans, "scanCycles": s.scanCycles.Load(), "pid": os.Getpid()}}
 	case "pause", "resume":
 		if e := s.store.SetPaused(ctx, q.WorkspaceID, q.Method == "pause"); e != nil {
 			return daemon.Response{Error: e.Error()}

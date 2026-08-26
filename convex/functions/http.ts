@@ -368,16 +368,26 @@ async function createBrief(ctx: ActionCtx, request: Request, workstreamId: strin
     throw new ValidationError("validation_failed");
   }
   if (body.sinceCursor !== undefined) expectString(body.sinceCursor, 1, 512);
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "workstreams.briefs"), "workstreams.briefs", 60);
+  const token = bearer(request);
+  const tokenHash = sha256Hex(token);
+  const workstreamPublicId = expectId(workstreamId);
+  // Brief creation carries every coordination correction into an agent's next
+  // turn, so its budget has to belong to the session that is waiting for one.
+  // A single deployment-wide bucket made that budget shared: one session
+  // polling for a correction spent the whole fleet's allowance, and every other
+  // session's correction was withheld until the fixed window rolled over. The
+  // shared bucket stays as a coarse guard on pre-authentication work, sized for
+  // a deployment rather than a caller.
+  await consumeEdgeRate(ctx, requestRateKey(request, "workstreams.briefs"), "workstreams.briefs.shared", SHARED_BRIEF_CEILING);
+  await consumeEdgeRate(ctx, authenticatedRateKey(`workstreams.briefs\0${workstreamPublicId}`, token), "workstreams.briefs", 60);
   const semantic = await ctx.runAction(internal.intelligence.searchSemantic, {
     tokenHash,
-    workstreamPublicId: expectId(workstreamId),
+    workstreamPublicId,
     limit: 16,
   });
   const result = await ctx.runMutation(internal.service.createBrief, {
     tokenHash,
-    workstreamPublicId: expectId(workstreamId),
+    workstreamPublicId,
     trigger,
     requestedBudget: expectInteger(body.approximateTokenBudget, 128, 800),
     briefPublicId: publicId("brf"),
@@ -459,6 +469,12 @@ function boundedIds(value: unknown, maximum: number): string[] {
   if (new Set(ids).size !== ids.length) throw new ValidationError("validation_failed");
   return ids;
 }
+
+// SHARED_BRIEF_CEILING bounds brief creation for a whole deployment, not for a
+// caller. It exists only so an unauthenticated flood cannot mint a fresh rate
+// bucket per forged credential; honest fleet traffic is governed by the
+// per-session bucket well below it.
+const SHARED_BRIEF_CEILING = 600;
 
 function requestRateKey(_request: Request, scope: string): string {
   // Convex does not document a trustworthy client-IP header at this boundary.

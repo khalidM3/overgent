@@ -632,6 +632,10 @@ func (environment *scenarioEnvironment) forceScan() error {
 	if err != nil {
 		return err
 	}
+	before, err := environment.scanCycles(paths.Socket)
+	if err != nil {
+		return err
+	}
 	response, err := daemon.Call(environment.ctx, paths.Socket, daemon.Request{Method: "scan"})
 	if err == nil {
 		if !response.OK {
@@ -639,13 +643,54 @@ func (environment *scenarioEnvironment) forceScan() error {
 		}
 		return nil
 	}
-	// The daemon keeps handling the scan after its fixed RPC read deadline.
-	// Waiting for the queue avoids stacking a second full scan behind it and
-	// proves the service became responsive after publishing pending evidence.
+	// A scan across every registered workspace routinely outlasts the fixed RPC
+	// read deadline while the daemon keeps running it, so the call above times
+	// out on a busy machine even though the work is fine. Draining the queue on
+	// its own proves nothing in that case: the queue is empty precisely because
+	// the scan has not published its evidence yet, and the scenario would start
+	// timing delivery before the change it waits for had been reported at all.
+	// Waiting for the scan pass to complete first, then draining what it
+	// enqueued, keeps the tolerance without accepting an empty queue as proof.
+	if cycleErr := environment.waitForScanCycle(paths.Socket, before, 20*time.Second); cycleErr != nil {
+		return fmt.Errorf("force service scan timed out (%v), then scan did not complete: %w", err, cycleErr)
+	}
 	if drainErr := environment.waitForQueue(8 * time.Second); drainErr != nil {
 		return fmt.Errorf("force service scan timed out (%v), then queue did not drain: %w", err, drainErr)
 	}
 	return nil
+}
+
+// scanCycles reads the service's completed-scan counter, which advances once
+// per scan pass whether or not that pass had anything to publish.
+func (environment *scenarioEnvironment) scanCycles(socket string) (float64, error) {
+	response, err := daemon.Call(environment.ctx, socket, daemon.Request{Method: "doctor"})
+	if err != nil {
+		return 0, fmt.Errorf("read service scan cycles: %w", err)
+	}
+	if !response.OK {
+		return 0, fmt.Errorf("read service scan cycles: response=%s", response.Error)
+	}
+	data, ok := response.Data.(map[string]any)
+	if !ok {
+		return 0, errors.New("read service scan cycles: unexpected doctor payload")
+	}
+	cycles, ok := data["scanCycles"].(float64)
+	if !ok {
+		return 0, errors.New("read service scan cycles: doctor payload has no scanCycles")
+	}
+	return cycles, nil
+}
+
+func (environment *scenarioEnvironment) waitForScanCycle(socket string, before float64, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cycles, err := environment.scanCycles(socket)
+		if err == nil && cycles > before {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return errors.New("service scan did not complete")
 }
 
 func (environment *scenarioEnvironment) hookRead(relativePath string) error {

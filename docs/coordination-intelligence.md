@@ -129,7 +129,31 @@ Ship fixtures and a labeled evaluation corpus before enabling proactive semantic
 
 Measure candidate recall separately from alert precision. Low-confidence candidates stay in a quiet radar view; only precision-qualified findings interrupt members. Feedback (`useful`, `not_related`, `already_coordinated`, `missed_severity`) is versioned evaluation data and never silently trains a model on private project content.
 
-## 8. Privacy boundary
+## 8. Delivery latency
+
+The coordination evaluation records `deliveryMillis` per scenario: how long an affected session waited, across real turn boundaries, before a stale-contract correction was injected into its next turn. Delivery is a latency contract, not only a correctness one. A correction that always arrives but arrives late is a correction the agent has already worked past.
+
+### Brief creation is per session, not per deployment
+
+Every turn boundary asks the hosted service for a brief, so `POST /v1/workstreams/{id}/briefs` is the delivery path for every correction. Its edge rate limit used to be keyed by `requestRateKey`, which returns one constant bucket — `shared-unauthenticated` — for all callers. Sixty briefs per minute was therefore the budget for an entire deployment rather than for a caller, and the window is a fixed one that resets only when it rolls over.
+
+The consequence was a delivery tail with a distinctive shape. Once any session had spent the deployment's allowance, every other session's brief request returned `429`, the hook injected nothing, and the correction waited out the remainder of the window. In the evaluation this appeared as `deliveryMillis` of roughly 8–15 seconds in scenario C and occasionally A, in about one run in three, against a normal value near 50 ms. The evidence is direct: in a slow run, the injection path logged an unbroken run of `rate_limited (429)` responses from 12:27:05.2 until 12:27:12.7, and the deployment's single `rateLimits` row for `edge.workstreams.briefs` shows a window opening at 12:27:12.691 immediately after the previous window had reached exactly its limit of 60. Delivery succeeded 20 ms into the new window. The document ID was identical across every eval run and every device, confirming one shared bucket; because the local anonymous deployment's SQLite file persists between runs, an exhausted window also carried over from one run into the next.
+
+The bucket is now keyed per `(credential, workstream)`, so a session's budget belongs to that session. The route keeps a shared bucket as a coarse guard on pre-authentication work under `edge.workstreams.briefs.shared`, sized for a deployment rather than a caller, so an unauthenticated flood still cannot mint a fresh bucket per forged credential. After the change the same suite shows per-session buckets peaking at 1–4 of 60 and the shared guard at 90 of 600, with no `429` on the delivery path in any run.
+
+Two related defects on the same path were fixed with it. `loadContext` in `intelligence.ts` threw bare `"unauthorized"`, `"not_found"`, and `"forbidden"` messages rather than the shared `E:` form the HTTP boundary classifies, so a brief for a session the service had not seen yet was reported as a retryable `500 internal_error` instead of `404`. And the evaluation's `forceScan` treated an empty local queue as proof that a forced scan had published its evidence; on a busy machine the scan outlives the fixed RPC read deadline, and the queue is empty precisely because the scan has not enqueued anything yet. The service now exposes a `scanCycles` counter in `doctor` that advances once per completed scan pass whether or not that pass published anything, and the harness waits for that before draining.
+
+### What the tail was not
+
+The suspects that the shape suggested were checked and ruled out with the same instrumentation. Hosted finding evaluation is synchronous inside the projection mutation: `upsertContractFindings` runs in the same mutation that records the changed fingerprint, so a finding exists as soon as its event is projected. `CreateBrief` itself was never the slow part: measured end to end from the local service it ran in 7–25 ms in normal runs, and during the throttled window every one of its `429` responses came back in under 13 ms. Convex scheduler and dev-deployment recompilation were not involved; the local backend was warm for the whole run and no scheduled function sits between the change and the finding. The local flush loop's exponential `retryDelay` never engaged on the delivery path, because the queue had already drained before each scenario started timing.
+
+Two adjacent limits share the root cause and are recorded here rather than changed, because neither is on the measured delivery path: `edge.events.batch` reached its deployment-wide ceiling of 120 during eval runs, and `edge.presence.heartbeat` sits pinned at its ceiling of 12 in every window, which means presence for a whole deployment is throttled well below the roughly 15-second heartbeat that `architecture.md` assumes. Both are keyed the same shared way on routes that carry a device credential.
+
+### Residual variance
+
+Across thirty-four runs after the rate-limit fix, scenario A ranged 46–96 ms and scenario C 47–172 ms, with a single 2997 ms outlier. That outlier is not a rate-limit artifact: `CreateBrief` returned successfully with zero items for three attempts before the finding appeared, on a run loaded enough that one hook invocation took 1.58 seconds — the shape the `forceScan` precondition above produces. It has not recurred; the ten runs after that precondition was corrected all landed between 46 and 80 ms. Runs on a shared machine are also perturbed by the anonymous deployment's fixed ports 3210/3211, which a second checkout of the repository will take, so a concurrent eval elsewhere on the machine either blocks the run outright or competes for CPU with it.
+
+## 9. Privacy boundary
 
 Coordination summaries, symbol/path metadata, and embeddings are sensitive project metadata. Enrollment and settings disclose their processing and retention. Source, diffs, prompts, transcripts, and environment values remain prohibited as intelligence/embedding inputs. Optional visible conversation events under ADR-027 remain separate activity history unless another focused ADR and evaluation gate permits a bounded derived coordination summary.
 
