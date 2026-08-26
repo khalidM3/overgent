@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { OpenAIEmbeddingProvider } from "@stickguy/coordination";
+import { AnthropicJudgmentProvider, OpenAIEmbeddingProvider, deterministicJudgment, judgeCandidate, needsManagedAdjudication, type JudgmentCandidate } from "@stickguy/coordination";
 
 const OPENAI_EMBEDDING_DIMENSIONS = 1024;
 
@@ -130,5 +131,113 @@ export const searchSemantic = internalAction({
       }
     }
     return { available: false, degraded: true, contextRevision: 0, objectIds: [] };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Managed adjudication (ADR-045)
+//
+// The deterministic verdict is already durable before this action runs: it set
+// the finding's severity, explanation, and delivery synchronously. A managed
+// adjudication only improves the wording and the precision of a verdict that
+// already exists, so provider latency, outage, or an absent key cannot delay
+// or remove a finding. A late result is discarded when the finding moved on.
+// ---------------------------------------------------------------------------
+
+const JUDGMENT_TIMEOUT_MILLIS = 10_000;
+// Bounded per project per hour. Adjudication is a cost, not a correctness
+// requirement, so the budget is enforced before the request is made.
+const JUDGMENT_BUDGET_PER_PROJECT = 60;
+const JUDGMENT_BUDGET_WINDOW = 3_600_000;
+
+export const judgmentInput = internalQuery({
+  args: { findingPublicId: v.string(), expectedRevision: v.number() },
+  handler: async (ctx, args) => {
+    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
+    if (!finding || finding.state !== "open" || finding.revision !== args.expectedRevision) return null;
+    return { scopeKey: finding.scopeKey, projectId: finding.projectId, severity: finding.severity, delivery: finding.delivery ?? "dashboard" };
+  },
+});
+
+export const claimJudgmentBudget = internalMutation({
+  args: { projectId: v.id("projects"), now: v.number() },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.status !== "active") return false;
+    const key = project.publicId;
+    const existing = await ctx.db.query("rateLimits").withIndex("by_key_route", (q) => q.eq("key", key).eq("route", "judgment.adjudicate")).unique();
+    if (!existing || existing.windowStartedAt + JUDGMENT_BUDGET_WINDOW <= args.now) {
+      const record = { windowStartedAt: args.now, count: 1, expiresAt: args.now + 2 * JUDGMENT_BUDGET_WINDOW };
+      if (existing) await ctx.db.patch(existing._id, record);
+      else await ctx.db.insert("rateLimits", { key, route: "judgment.adjudicate", ...record });
+      return true;
+    }
+    if (existing.count >= JUDGMENT_BUDGET_PER_PROJECT) return false;
+    await ctx.db.patch(existing._id, { count: existing.count + 1 });
+    return true;
+  },
+});
+
+export const applyJudgmentVerdict = internalMutation({
+  args: {
+    findingPublicId: v.string(), expectedRevision: v.number(), providerName: v.string(),
+    severity: v.string(), reason: v.string(), delivery: v.string(), now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
+    if (!finding || finding.state !== "open" || finding.revision !== args.expectedRevision) return false;
+    // A managed verdict refines an existing finding; it is never allowed to
+    // retract deterministic evidence by silencing it.
+    const delivery = args.delivery === "silent" ? (finding.delivery ?? "dashboard") : args.delivery;
+    if (finding.severity === args.severity && finding.reason === args.reason && (finding.delivery ?? "dashboard") === delivery) return false;
+    await ctx.db.patch(finding._id, {
+      severity: args.severity, reason: args.reason, delivery, judgmentProvider: args.providerName,
+      revision: finding.revision + 1, lastSeenAt: args.now,
+    });
+    return true;
+  },
+});
+
+export const recordJudgmentDegraded = internalMutation({
+  args: { scopeKey: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", args.scopeKey)).unique();
+    if (scope) await ctx.db.patch(scope._id, { semanticDegradedAt: args.now });
+  },
+});
+
+export const adjudicateFinding = internalAction({
+  args: { findingPublicId: v.string(), expectedRevision: v.number(), candidate: v.any() },
+  handler: async (ctx, args): Promise<{ applied: boolean; mode: "stale" | "skipped" | "budget" | "fallback" | "anthropic" }> => {
+    const candidate = args.candidate as JudgmentCandidate;
+    const input: { scopeKey: string; projectId: Id<"projects">; severity: string; delivery: string } | null =
+      await ctx.runQuery(internal.intelligence.judgmentInput, { findingPublicId: args.findingPublicId, expectedRevision: args.expectedRevision });
+    if (!input) return { applied: false, mode: "stale" as const };
+    const offline = deterministicJudgment(candidate);
+    if (!needsManagedAdjudication(candidate, offline)) return { applied: false, mode: "skipped" as const };
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied: false, mode: "fallback" as const };
+    }
+    const claimed: boolean = await ctx.runMutation(internal.intelligence.claimJudgmentBudget, { projectId: input.projectId, now: Date.now() });
+    if (!claimed) return { applied: false, mode: "budget" as const };
+    let provider;
+    try {
+      provider = new AnthropicJudgmentProvider(apiKey);
+    } catch {
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied: false, mode: "fallback" as const };
+    }
+    const judged = await judgeCandidate(provider, candidate, AbortSignal.timeout(JUDGMENT_TIMEOUT_MILLIS));
+    if (judged.degraded) {
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now() });
+      return { applied: false, mode: "fallback" as const };
+    }
+    const applied: boolean = await ctx.runMutation(internal.intelligence.applyJudgmentVerdict, {
+      findingPublicId: args.findingPublicId, expectedRevision: args.expectedRevision, providerName: judged.provider,
+      severity: judged.verdict.severity, reason: judged.verdict.explanation, delivery: judged.verdict.delivery, now: Date.now(),
+    });
+    return { applied, mode: "anthropic" as const };
   },
 });

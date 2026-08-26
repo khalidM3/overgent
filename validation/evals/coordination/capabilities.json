@@ -3,6 +3,7 @@
     "structural",
     "contract",
     "injection",
+    "semantic",
     "dependency"
   ]
 }
