@@ -1,6 +1,6 @@
 import { FixtureProjectSource } from "./fixture-source";
 import { nativeOnboarding } from "./native";
-import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
+import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
 
@@ -11,7 +11,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     error.status = response.status;
     throw error;
   }
-  return response.status === 204 ? undefined as T : await response.json() as T;
+  // An accepted-but-empty response is normal for administration and data-rights
+  // routes, which answer 202/204 with no body. Parsing unconditionally turned a
+  // successful delete into "Unexpected end of JSON input".
+  const body = await response.text();
+  return (body ? JSON.parse(body) : undefined) as T;
 }
 
 export async function loadSession(): Promise<DashboardSession> {
@@ -75,6 +79,37 @@ export class LiveProjectSource extends FixtureProjectSource {
 
   override async listMembers(projectId: string): Promise<ProjectMember[]> {
     return (await request<{ members: ProjectMember[] }>(`/projects/${encodeURIComponent(projectId)}/members`)).members;
+  }
+
+  override async getProjectAccess(projectId: string): Promise<ProjectAccess> {
+    return request<ProjectAccess>(`/projects/${encodeURIComponent(projectId)}/access`);
+  }
+
+  override async createInvite(projectId: string): Promise<{ code: string }> {
+    const invite = await request<{ id: string; secret: string }>(`/projects/${encodeURIComponent(projectId)}/invites`, { method: "POST", body: JSON.stringify({ expiresInSeconds: 600, maxUses: 1 }) });
+    return { code: `${invite.id}.${invite.secret}` };
+  }
+
+  override async revokeInvite(projectId: string, inviteId: string): Promise<void> {
+    await request<void>(`/projects/${encodeURIComponent(projectId)}/invites/${encodeURIComponent(inviteId)}/revoke`, { method: "POST" });
+  }
+
+  override async revokeDevice(_projectId: string, deviceId: string): Promise<void> {
+    await request<void>(`/devices/${encodeURIComponent(deviceId)}/revoke`, { method: "POST" });
+  }
+
+  override async removeMember(projectId: string, memberId: string): Promise<void> {
+    await request<void>(`/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}/remove`, { method: "POST" });
+  }
+
+  override exportURL(projectId: string): string { return `${prefix}/projects/${encodeURIComponent(projectId)}/export`; }
+
+  override async deleteProject(projectId: string): Promise<void> {
+    await request<void>(`/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+  }
+
+  override async deleteOwnProjectData(projectId: string): Promise<void> {
+    await request<void>(`/projects/${encodeURIComponent(projectId)}/member`, { method: "DELETE" });
   }
 
   override async updateDisplayName(projectId: string, displayName: string): Promise<{ memberName: string; memberNameSource: MemberNameSource }> {

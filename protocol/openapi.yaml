@@ -19,6 +19,12 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateInviteRequest' } } } }
       responses: { '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Invite' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/invites/{targetId}/revoke:
+    post:
+      operationId: revokeInvite
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/TargetId' } ]
+      responses: { '204': { description: Invite revoked }, default: { $ref: '#/components/responses/Error' } }
   /enrollments:
     post:
       operationId: createEnrollment
@@ -84,6 +90,18 @@ paths:
       security: [ { deviceToken: [] }, { browserSession: [] } ]
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses: { '200': { description: Project members and how each display name was chosen, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/members' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/access:
+    get:
+      operationId: getProjectAccess
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Authorized member, device, and invite management snapshot, content: { application/json: { schema: { $ref: './schemas/project-administration.schema.json#/$defs/access' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/members/{targetId}/remove:
+    post:
+      operationId: removeProjectMember
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/TargetId' } ]
+      responses: { '204': { description: Member removed from this Project }, default: { $ref: '#/components/responses/Error' } }
   /projects/{id}/member:
     patch:
       operationId: updateProjectMemberIdentity
@@ -91,6 +109,11 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateMemberIdentityRequest' } } } }
       responses: { '200': { description: Member-controlled display name applied, content: { application/json: { schema: { $ref: './schemas/dashboard.schema.json#/$defs/memberIdentity' } } } }, default: { $ref: '#/components/responses/Error' } }
+    delete:
+      operationId: deleteOwnProjectData
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { description: Membership revoked immediately and deletion of this member's retained Project data scheduled }, default: { $ref: '#/components/responses/Error' } }
   /projects/{id}/sync-cards:
     post:
       operationId: createSyncCard
@@ -141,9 +164,22 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FindingFeedbackRequest' } } } }
       responses: { '204': { description: Feedback recorded }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/export:
+    get:
+      operationId: exportProject
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Portable export of retained structured Project data; owners receive the Project and members receive records about their own work, content: { application/json: { schema: { $ref: './schemas/project-administration.schema.json#/$defs/projectExport' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}:
+    delete:
+      operationId: deleteProject
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '202': { description: Project authorization revoked and batched deletion scheduled }, default: { $ref: '#/components/responses/Error' } }
   /devices/{id}/revoke:
     post:
       operationId: revokeDevice
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses: { '204': { description: Revoked }, default: { $ref: '#/components/responses/Error' } }
 components:
@@ -152,6 +188,7 @@ components:
     browserSession: { type: apiKey, in: cookie, name: stickguy_session }
   parameters:
     Id: { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
+    TargetId: { name: targetId, in: path, required: true, schema: { $ref: '#/components/schemas/Id' } }
     Cursor: { name: cursor, in: query, required: false, schema: { type: string, maxLength: 512 } }
   responses:
     Error:
@@ -172,6 +209,7 @@ components:
           minLength: 2
           maxLength: 60
           description: Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
+        appVersion: { type: string, minLength: 1, maxLength: 64 }
     Project:
       type: object
       additionalProperties: false

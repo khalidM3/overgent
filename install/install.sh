@@ -19,8 +19,7 @@ fi
 
 case "$(uname -m)" in
   arm64) platform='darwin_arm64' ;;
-  x86_64) platform='darwin_amd64' ;;
-  *) echo "Unsupported macOS architecture." >&2; exit 1 ;;
+  *) echo "Stickguy beta is currently qualified only on Apple Silicon Macs." >&2; exit 1 ;;
 esac
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/stickguy-install.XXXXXX")"

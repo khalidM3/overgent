@@ -28,7 +28,7 @@ http.route({ path: "/v1/projects", method: "POST", handler: httpAction(async (ct
   if (token.length < 64) throw new HttpFailure("unauthorized", 401);
   await consumeEdgeRate(ctx, requestRateKey(request, "projects.create"), "projects.create", 5);
   const body = expectObject(await readJson(request));
-  expectExactKeys(body, ["label", "deviceLabel"], ["displayName"]);
+  expectExactKeys(body, ["label", "deviceLabel"], ["displayName", "appVersion"]);
   const label = expectString(body.label, 1, 120);
   const deviceLabel = expectString(body.deviceLabel, 1, 120);
   const displayName = body.displayName === undefined ? undefined : expectString(body.displayName, 2, 60);
@@ -39,6 +39,7 @@ http.route({ path: "/v1/projects", method: "POST", handler: httpAction(async (ct
     devicePublicId: publicId("dev"),
     label,
     deviceLabel,
+    appVersion: body.appVersion === undefined ? "creator/v1" : expectString(body.appVersion, 1, 64),
     ...(displayName !== undefined ? { displayName } : {}),
     now: Date.now(),
   });
@@ -49,8 +50,8 @@ http.route({ pathPrefix: "/v1/projects/", method: "POST", handler: httpAction(as
   const path = new URL(request.url).pathname;
   const inviteMatch = path.match(/^\/v1\/projects\/([^/]+)\/invites$/);
   if (inviteMatch) {
-    const token = bearer(request);
-    await consumeEdgeRate(ctx, requestRateKey(request, "invites.create"), "invites.create", 20);
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "invites.create", 20);
     const body = expectObject(await readJson(request));
     expectExactKeys(body, ["expiresInSeconds", "maxUses"]);
     const expiresInSeconds = expectInteger(body.expiresInSeconds, 60, 604_800);
@@ -59,7 +60,7 @@ http.route({ pathPrefix: "/v1/projects/", method: "POST", handler: httpAction(as
     const inviteId = publicId("inv");
     const now = Date.now();
     await ctx.runMutation(internal.service.createInvite, {
-      tokenHash: sha256Hex(token),
+      ...auth,
       projectPublicId: expectId(inviteMatch[1]),
       invitePublicId: inviteId,
       secretHash: sha256Hex(secret),
@@ -68,6 +69,22 @@ http.route({ pathPrefix: "/v1/projects/", method: "POST", handler: httpAction(as
       now,
     });
     return json({ id: inviteId, secret, expiresAt: new Date(now + expiresInSeconds * 1_000).toISOString() }, 201);
+  }
+  const inviteRevokeMatch = path.match(/^\/v1\/projects\/([^/]+)\/invites\/([^/]+)\/revoke$/);
+  if (inviteRevokeMatch) {
+    await assertEmptyBody(request);
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "invites.revoke", 30);
+    await ctx.runMutation(internal.service.revokeInvite, { ...auth, projectPublicId: expectId(inviteRevokeMatch[1]), invitePublicId: expectId(inviteRevokeMatch[2]), now: Date.now() });
+    return new Response(null, { status: 204, headers: JSON_HEADERS });
+  }
+  const memberRemoveMatch = path.match(/^\/v1\/projects\/([^/]+)\/members\/([^/]+)\/remove$/);
+  if (memberRemoveMatch) {
+    await assertEmptyBody(request);
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "members.remove", 20);
+    await ctx.runMutation(internal.service.removeProjectMember, { ...auth, projectPublicId: expectId(memberRemoveMatch[1]), memberPublicId: expectId(memberRemoveMatch[2]), now: Date.now() });
+    return new Response(null, { status: 204, headers: JSON_HEADERS });
   }
   const cardMatch = path.match(/^\/v1\/projects\/([^/]+)\/sync-cards$/);
   if (cardMatch) {
@@ -253,16 +270,18 @@ http.route({ pathPrefix: "/v1/dashboard/projects/", method: "GET", handler: http
 })) });
 
 http.route({ path: "/v1/device/bootstrap", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "device.bootstrap"), "device.bootstrap", 120);
+	const token = bearer(request);
+	const tokenHash = sha256Hex(token);
+	await consumeAuthenticatedEdge(ctx, request, "device.bootstrap", token, 120, 1200);
   const result = await ctx.runQuery(internal.service.bootstrap, { tokenHash });
   return json(result);
 })) });
 
 http.route({ path: "/v1/events/batch", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const events = validateEventBatch(await readJson(request));
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "events.batch"), "events.batch", 120);
+	const token = bearer(request);
+	const tokenHash = sha256Hex(token);
+	await consumeAuthenticatedEdge(ctx, request, "events.batch", token, 120, 1200);
   const result = await ctx.runMutation(internal.service.publishEvents, {
     tokenHash,
     events,
@@ -276,8 +295,9 @@ http.route({ path: "/v1/presence/heartbeat", method: "POST", handler: httpAction
   expectExactKeys(body, ["workspaceId", "state"]);
   const state = expectString(body.state, 4, 6);
   if (!["active", "idle", "paused"].includes(state)) throw new ValidationError("validation_failed");
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "presence.heartbeat"), "presence.heartbeat", 12);
+	const token = bearer(request);
+	const tokenHash = sha256Hex(token);
+	await consumeAuthenticatedEdge(ctx, request, "presence.heartbeat", token, 12, 2400);
   await ctx.runMutation(internal.service.heartbeat, {
     tokenHash,
     workspacePublicId: expectId(body.workspaceId),
@@ -289,6 +309,19 @@ http.route({ path: "/v1/presence/heartbeat", method: "POST", handler: httpAction
 
 http.route({ pathPrefix: "/v1/projects/", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const requestURL = new URL(request.url);
+  const accessMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/access$/);
+  if (accessMatch) {
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.access", 120);
+    return json(await ctx.runQuery(internal.service.projectAccess, { ...auth, projectPublicId: expectId(accessMatch[1]), now: Date.now() }));
+  }
+  const exportMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/export$/);
+  if (exportMatch) {
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.export", 3);
+    const exported = await ctx.runQuery(internal.service.exportProject, { ...auth, projectPublicId: expectId(exportMatch[1]), now: Date.now() });
+    return new Response(JSON.stringify(exported, null, 2), { status: 200, headers: { ...JSON_HEADERS, "content-disposition": `attachment; filename="stickguy-project-${expectId(exportMatch[1])}.json"` } });
+  }
   const collaborationMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/collaboration$/);
   if (collaborationMatch) {
     const cursor = requestURL.searchParams.get("cursor");
@@ -311,8 +344,9 @@ http.route({ pathPrefix: "/v1/projects/", method: "GET", handler: httpAction(asy
   if (cursor && cursor.length > 512) throw new ValidationError("validation_failed");
   const after = cursor?.startsWith("time:") ? Number(cursor.slice(5)) : 0;
   if (!Number.isSafeInteger(after) || after < 0) throw new ValidationError("validation_failed");
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "projects.changes"), "projects.changes", 120);
+	const token = bearer(request);
+	const tokenHash = sha256Hex(token);
+	await consumeAuthenticatedEdge(ctx, request, "projects.changes", token, 120, 1200);
   const result = await ctx.runQuery(internal.service.projectChanges, {
     tokenHash,
     projectPublicId: expectId(match[1]),
@@ -321,11 +355,30 @@ http.route({ pathPrefix: "/v1/projects/", method: "GET", handler: httpAction(asy
   return json(result);
 })) });
 
+http.route({ pathPrefix: "/v1/projects/", method: "DELETE", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  await assertEmptyBody(request);
+  const path = new URL(request.url).pathname;
+  const memberMatch = path.match(/^\/v1\/projects\/([^/]+)\/member$/);
+  if (memberMatch) {
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "members.delete_self", 3);
+    await ctx.runMutation(internal.service.beginMemberDataDeletion, { ...auth, projectPublicId: expectId(memberMatch[1]), now: Date.now() });
+    return new Response(null, { status: 202, headers: JSON_HEADERS });
+  }
+  const match = path.match(/^\/v1\/projects\/([^/]+)$/);
+  if (!match) throw new HttpFailure("not_found", 404);
+  const auth = collaborationAuth(request);
+  await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.delete", 3);
+  await ctx.runMutation(internal.service.beginProjectDeletion, { ...auth, projectPublicId: expectId(match[1]), now: Date.now() });
+  return new Response(null, { status: 202, headers: JSON_HEADERS });
+})) });
+
 http.route({ pathPrefix: "/v1/context-items/", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const match = new URL(request.url).pathname.match(/^\/v1\/context-items\/([^/]+)$/);
   if (!match) throw new HttpFailure("not_found", 404);
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "context-items.get"), "context-items.get", 120);
+	const token = bearer(request);
+	const tokenHash = sha256Hex(token);
+	await consumeAuthenticatedEdge(ctx, request, "context-items.get", token, 120, 1200);
   const result = await ctx.runQuery(internal.service.contextItem, {
     tokenHash,
     itemPublicId: expectId(match[1]),
@@ -350,10 +403,10 @@ http.route({ pathPrefix: "/v1/devices/", method: "POST", handler: httpAction(asy
   await assertEmptyBody(request);
   const match = new URL(request.url).pathname.match(/^\/v1\/devices\/([^/]+)\/revoke$/);
   if (!match) throw new HttpFailure("not_found", 404);
-  const tokenHash = sha256Hex(bearer(request));
-  await consumeEdgeRate(ctx, requestRateKey(request, "devices.revoke"), "devices.revoke", 20);
+  const auth = collaborationAuth(request);
+  await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "devices.revoke", 20);
   await ctx.runMutation(internal.service.revokeDevice, {
-    tokenHash,
+    ...auth,
     targetDevicePublicId: expectId(match[1]),
     now: Date.now(),
   });
@@ -484,6 +537,13 @@ function requestRateKey(_request: Request, scope: string): string {
 
 function authenticatedRateKey(scope: string, token: string): string {
   return sha256Hex(`${scope}\0credential\0${sha256Hex(token)}`);
+}
+
+async function consumeAuthenticatedEdge(ctx: ActionCtx, request: Request, scope: string, token: string, perCredentialLimit: number, sharedLimit: number): Promise<void> {
+  // The shared bucket bounds work performed before a forged credential is
+  // rejected. The second bucket gives every real device its own allowance.
+  await consumeEdgeRate(ctx, requestRateKey(request, `${scope}.shared`), `${scope}.shared`, sharedLimit);
+  await consumeEdgeRate(ctx, authenticatedRateKey(scope, token), scope, perCredentialLimit);
 }
 
 async function assertEmptyBody(request: Request): Promise<void> {
