@@ -11,6 +11,7 @@ const DAY = 86_400_000;
 const ACTIVITY_RETENTION = 30 * DAY;
 const DELIVERY_RETENTION = 30 * DAY;
 const DEFAULT_RETENTION_DAYS = 30;
+const CONTRACT_ENGINE_VERSION = "contract-watch/v1";
 
 type EventInput = {
   schemaVersion: 1;
@@ -950,6 +951,71 @@ async function applyProjection(
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
     }
+    case "workspace.contract_fingerprints_reported": {
+      if (event.sequence <= workspace.lastProjectedSequence) return;
+      if (String(payload.workspaceId) !== workspace.publicId) fail("forbidden");
+      // The wire shape is workspace-scoped, so attribution is the workspace's
+      // own most recently active workstream rather than a field on the event.
+      const changedBy = await changingWorkstream(ctx, workspace);
+      for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
+        const entry = raw as ContractFingerprintEntry;
+        const existing = await ctx.db.query("contractFingerprints")
+          .withIndex("by_scope_path", (q) => q.eq("scopeKey", workspace.scopeKey).eq("path", entry.path)).unique();
+        if (existing && existing.projectId !== project._id) fail("forbidden");
+        const record = {
+          fileContractHash: entry.fileContractHash, symbols: entry.symbols,
+          changedByWorkstreamPublicId: changedBy, updatedAt: now,
+          expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+        };
+        if (!existing) {
+          await ctx.db.insert("contractFingerprints", {
+            projectId: project._id, scopeKey: workspace.scopeKey, path: entry.path, revision: 1, ...record,
+          });
+          continue;
+        }
+        // A body-only edit leaves the hash alone; nothing is compared and
+        // nothing is written beyond the retention refresh.
+        if (existing.fileContractHash === entry.fileContractHash) {
+          await ctx.db.patch(existing._id, { updatedAt: now, expiresAt: record.expiresAt });
+          continue;
+        }
+        await ctx.db.patch(existing._id, { ...record, revision: existing.revision + 1 });
+        await upsertContractFindings(ctx, project, workspace, {
+          path: entry.path, previousSymbols: existing.symbols, nextSymbols: entry.symbols,
+          nextHash: entry.fileContractHash, changedByWorkstreamPublicId: changedBy, now,
+        });
+      }
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
+      await bumpScope(ctx, workspace.scopeKey, now);
+      return;
+    }
+    case "session.read_set_reported": {
+      if (event.sequence <= workspace.lastProjectedSequence) return;
+      if (String(payload.workspaceId) !== workspace.publicId) fail("forbidden");
+      const sessionPublicId = String(payload.sessionWorkstreamId);
+      const session = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", sessionPublicId)).unique();
+      if (session && (session.projectId !== project._id || session.workspaceId !== workspace._id)) fail("forbidden");
+      // A read set is passive observation. A session this device has not
+      // published yet is skipped rather than failing the batch behind it.
+      if (session) {
+        for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
+          const entry = raw as { path: string; fileContractHashAtRead: string; observedAt: string };
+          const existing = await ctx.db.query("sessionReadSets")
+            .withIndex("by_workstream_path", (q) => q.eq("workstreamId", session._id).eq("path", entry.path)).unique();
+          const record = {
+            fileContractHashAtRead: entry.fileContractHashAtRead, readAt: entry.observedAt,
+            updatedAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+          };
+          if (existing) await ctx.db.patch(existing._id, record);
+          else await ctx.db.insert("sessionReadSets", {
+            projectId: project._id, scopeKey: workspace.scopeKey, workstreamId: session._id,
+            workstreamPublicId: session.publicId, path: entry.path, ...record,
+          });
+        }
+      }
+      await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
+      return;
+    }
     case "agent.conversation_shared": {
       if (event.sequence <= workspace.lastProjectedSequence) return;
       const workstream = await requireWorkstream(ctx, String(payload.workstreamId), project._id, workspace._id);
@@ -1044,6 +1110,99 @@ async function applyProjection(
       return;
     }
   }
+}
+
+type ContractSymbol = { name: string; kind: string; signature: string; signatureHash: string };
+type ContractFingerprintEntry = { path: string; fileContractHash: string; symbols: ContractSymbol[] };
+type ChangedSymbol = { name: string; oldSignature: string; newSignature: string };
+
+// changingWorkstream attributes a workspace-scoped contract change to the
+// workstream most plausibly responsible: the workspace's most recently active
+// one. The wire contract carries no attribution field, so this is derived.
+async function changingWorkstream(ctx: MutationCtx, workspace: Doc<"workspaces">): Promise<string> {
+  const candidates = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).collect();
+  const owned = candidates.filter((candidate) => candidate.workspaceId === workspace._id);
+  const live = owned.filter((candidate) => candidate.status !== "done");
+  const ordered = (live.length > 0 ? live : owned).sort((left, right) => right.updatedAt - left.updatedAt);
+  return ordered[0]?.publicId ?? workspace.publicId;
+}
+
+// diffContractSymbols reports only the symbols a reader could already depend
+// on: those whose signature moved and those that disappeared. A file that only
+// gained symbols has nothing that can invalidate an earlier read.
+function diffContractSymbols(previous: readonly ContractSymbol[], next: readonly ContractSymbol[]): ChangedSymbol[] {
+  const key = (symbol: ContractSymbol) => `${symbol.kind}\u0000${symbol.name}`;
+  const nextByKey = new Map(next.map((symbol) => [key(symbol), symbol]));
+  const changed: ChangedSymbol[] = [];
+  for (const before of previous) {
+    const after = nextByKey.get(key(before));
+    if (!after) changed.push({ name: before.name, oldSignature: before.signature, newSignature: "" });
+    else if (after.signatureHash !== before.signatureHash) changed.push({ name: before.name, oldSignature: before.signature, newSignature: after.signature });
+  }
+  return changed.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+// upsertContractFindings raises one stale_assumption finding per (session,
+// path, new hash) for every other live session whose read set holds an older
+// contract for the path. The fingerprint makes redelivery a no-op.
+async function upsertContractFindings(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  workspace: Doc<"workspaces">,
+  change: {
+    path: string;
+    previousSymbols: readonly ContractSymbol[];
+    nextSymbols: readonly ContractSymbol[];
+    nextHash: string;
+    changedByWorkstreamPublicId: string;
+    now: number;
+  },
+): Promise<void> {
+  const changedSymbols = diffContractSymbols(change.previousSymbols, change.nextSymbols).slice(0, 16);
+  if (changedSymbols.length === 0) return;
+  const readers = await ctx.db.query("sessionReadSets")
+    .withIndex("by_scope_path", (q) => q.eq("scopeKey", workspace.scopeKey).eq("path", change.path)).take(129);
+  if (readers.length > 128) fail("read_set_scope_too_large");
+  const changedAt = new Date(change.now).toISOString();
+  for (const reader of readers) {
+    if (reader.workstreamPublicId === change.changedByWorkstreamPublicId) continue;
+    if (reader.fileContractHashAtRead === change.nextHash) continue;
+    const session = await ctx.db.get(reader.workstreamId);
+    if (!session || session.status === "done") continue;
+    const fingerprint = sha256Hex(`${workspace.scopeKey}\u0000contract\u0000${reader.workstreamPublicId}\u0000${change.path}\u0000${change.nextHash}`);
+    const primary = changedSymbols[0]!;
+    const others = changedSymbols.length > 1 ? ` ${changedSymbols.length - 1} other symbol(s) in the file also changed.` : "";
+    const reason = boundedText(
+      `${change.path}: ${primary.name} changed after this session read it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
+      500,
+    );
+    const evidence = [{
+      kind: "symbol",
+      summary: boundedText(`${change.path}: ${changedSymbols.map((symbol) => symbol.name).join(", ")} no longer match what this session read.`, 500),
+      source: "git",
+      fidelity: "structural",
+      contract: {
+        path: change.path, changedSymbols, changedByWorkstreamId: change.changedByWorkstreamPublicId,
+        readAt: reader.readAt, changedAt,
+      },
+    }];
+    const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+    if (existing) {
+      await ctx.db.patch(existing._id, { lastSeenAt: change.now, evidence, reason, state: "open", expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY });
+      continue;
+    }
+    await ctx.db.insert("findings", {
+      publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workspace.scopeKey,
+      kind: "stale_assumption", severity: "high", confidenceBand: "deterministic",
+      workstreamPublicIds: [reader.workstreamPublicId], evidence, reason, state: "open", fingerprint,
+      engineVersion: CONTRACT_ENGINE_VERSION, revision: 1, firstSeenAt: change.now, lastSeenAt: change.now,
+      expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY,
+    });
+  }
+}
+
+function boundedText(value: string, maximum: number): string {
+  return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
 }
 
 async function upsertPathFindings(
@@ -1401,7 +1560,7 @@ function relativeLabel(now: number, then: number): string {
 }
 
 function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" | "agent" {
-  if (type === "agent.activity_reported") return "agent";
+  if (type === "agent.activity_reported" || type === "session.read_set_reported") return "agent";
   if (type === "workstream.intent_reported") return "intent";
   if (type === "workstream.checkpoint_reported") return "checkpoint";
   if (type === "workspace.paused" || type === "workspace.resumed") return "pause";
@@ -1418,6 +1577,14 @@ function activitySummary(type: string, payload: unknown): string {
   if (type === "workspace.manifest_completed") return `published manifest revision ${String(object.revision ?? "")}`.trim();
   if (type === "workspace.registered") return "registered a workspace";
   if (type === "agent.activity_reported") return String(object.action ?? "reported agent activity");
+  if (type === "workspace.contract_fingerprints_reported") {
+    const entries = Array.isArray(object.entries) ? object.entries : [];
+    return `published contract fingerprints for ${entries.length} file${entries.length === 1 ? "" : "s"}`;
+  }
+  if (type === "session.read_set_reported") {
+    const entries = Array.isArray(object.entries) ? object.entries : [];
+    return `recorded ${entries.length} file${entries.length === 1 ? "" : "s"} in a session read set`;
+  }
   return type.replaceAll(".", " ").replaceAll("_", " ");
 }
 
@@ -1434,7 +1601,7 @@ function dashboardFindingState(state: string): "open" | "acknowledged" | "resolv
 function dashboardEvidenceKind(kind: string): "path" | "contract" | "dependency" | "intent" {
   if (kind === "path") return "path";
   if (kind === "dependency") return "dependency";
-  if (["schema", "route"].includes(kind)) return "contract";
+  if (["symbol", "schema", "route"].includes(kind)) return "contract";
   return "intent";
 }
 

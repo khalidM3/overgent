@@ -22,6 +22,11 @@ export const LIMITS = Object.freeze({
   summaryLength: 2_000,
   changesPage: 100,
   briefItems: 64,
+  contractEntriesPerEvent: 20,
+  contractSymbolsPerFile: 200,
+  contractSymbolNameLength: 200,
+  contractSignatureLength: 500,
+  readSetEntriesPerEvent: 100,
 });
 
 // Child/vector rows precede their owning rows so bounded sweeps cannot leave a
@@ -33,6 +38,8 @@ export const RETENTION_TABLES = [
   "changeManifestChunks",
   "changeManifests",
   "sessionMessages",
+  "sessionReadSets",
+  "contractFingerprints",
   "activityEvents",
   "findingFeedback",
   "findings",
@@ -58,6 +65,12 @@ const EVENT_TYPES = new Set<EventType>([
   "activity.reported",
   "agent.activity_reported",
   "agent.conversation_shared",
+  "workspace.contract_fingerprints_reported",
+  "session.read_set_reported",
+]);
+const CONTRACT_SYMBOL_KINDS = new Set([
+  "func", "method", "type", "field", "interface_member", "const", "var",
+  "function", "class", "interface", "enum",
 ]);
 const SOURCES = new Set(["git", "manual", "mcp", "hook", "adapter/v1"]);
 const PROHIBITED_KEYS = /^(source(Content)?|diff|patch|blob|gitObject|transcript|systemPrompt|prompt|environment|env|raw(Command|Output|Log|TestOutput))$/i;
@@ -276,7 +289,80 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       validateSessionMessageText(expectString(payload.text, 1, 8000));
       return;
     }
+    case "workspace.contract_fingerprints_reported": {
+      expectExactKeys(payload, ["workspaceId", "entries"]);
+      expectId(payload.workspaceId);
+      if (!Array.isArray(payload.entries) || payload.entries.length < 1 || payload.entries.length > LIMITS.contractEntriesPerEvent) {
+        throw new ValidationError("contract_entry_count_out_of_range");
+      }
+      payload.entries.forEach(validateContractFingerprintEntry);
+      return;
+    }
+    case "session.read_set_reported": {
+      expectExactKeys(payload, ["workspaceId", "sessionWorkstreamId", "entries"]);
+      expectId(payload.workspaceId);
+      expectWorkstreamId(payload.sessionWorkstreamId);
+      if (!Array.isArray(payload.entries) || payload.entries.length < 1 || payload.entries.length > LIMITS.readSetEntriesPerEvent) {
+        throw new ValidationError("read_set_count_out_of_range");
+      }
+      payload.entries.forEach(validateReadSetEntry);
+      return;
+    }
   }
+}
+
+function validateContractFingerprintEntry(value: unknown): void {
+  const entry = expectObject(value);
+  expectExactKeys(entry, ["path", "fileContractHash", "symbols"]);
+  validateFingerprintablePath(expectString(entry.path, 1, LIMITS.pathLength));
+  expectContentHash(entry.fileContractHash);
+  if (!Array.isArray(entry.symbols) || entry.symbols.length > LIMITS.contractSymbolsPerFile) {
+    throw new ValidationError("contract_symbol_count_out_of_range");
+  }
+  entry.symbols.forEach((symbol) => {
+    const declaration = expectObject(symbol);
+    expectExactKeys(declaration, ["name", "kind", "signature", "signatureHash"]);
+    expectString(declaration.name, 1, LIMITS.contractSymbolNameLength);
+    if (!CONTRACT_SYMBOL_KINDS.has(String(declaration.kind))) throw new ValidationError("validation_failed");
+    validateContractSignature(expectString(declaration.signature, 1, LIMITS.contractSignatureLength));
+    expectContentHash(declaration.signatureHash);
+  });
+}
+
+function validateReadSetEntry(value: unknown): void {
+  const entry = expectObject(value);
+  expectExactKeys(entry, ["path", "fileContractHashAtRead", "observedAt"]);
+  validateFingerprintablePath(expectString(entry.path, 1, LIMITS.pathLength));
+  expectContentHash(entry.fileContractHashAtRead);
+  expectTimestamp(entry.observedAt);
+}
+
+// Only Go and TypeScript paths carry a contract, so anything else on this wire
+// is a producer defect rather than an entry to store.
+function validateFingerprintablePath(path: string): void {
+  validateAgentPath(path);
+  if (!/\.(go|ts|tsx)$/i.test(path)) throw new ValidationError("path_not_fingerprintable");
+}
+
+// validateContractSignature is the receiving half of the ADR-038 wire gate for
+// derived declaration text. It deliberately omits the environment-assignment
+// pattern that guards prose: an exported declaration such as
+// `const MAX_RETRIES = 3` is ordinary API surface, and rejecting the batch for
+// it would stall a device queue over a false positive. Real credential
+// material, private keys, and raw tool output are still refused.
+export function validateContractSignature(signature: string): void {
+  const credential = /(bearer\s+[a-z0-9._~+/=-]{12,}|(?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret)\s*[:=]\s*\S+|\b(?:sk|ghp|github_pat|xox[baprs])[-_][a-z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b)/i;
+  const privateKey = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+  const rawOutput = /(\btool_result\b|\btranscript_path\b|^\s*(?:stdout|stderr)\s*:)/im;
+  if (privateKey.test(signature) || credential.test(signature) || rawOutput.test(signature) || signature.includes("\0")) {
+    throw new ValidationError("prohibited_data");
+  }
+}
+
+function expectContentHash(value: unknown): string {
+  const hash = expectString(value, 64, 64);
+  if (!HASH.test(hash)) throw new ValidationError("validation_failed");
+  return hash;
 }
 
 export function validateSessionMessageText(text: string): void {

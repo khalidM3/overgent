@@ -197,6 +197,44 @@ export default defineSchema({
     .index("by_project_received", ["projectId", "receivedAt"])
     .index("by_expiry", ["expiresAt"]),
 
+  // The latest known exported surface per (repository scope, path). A file is
+  // stored only while some workspace in the scope keeps reporting it.
+  contractFingerprints: defineTable({
+    projectId: v.id("projects"),
+    scopeKey: v.string(),
+    path: v.string(),
+    fileContractHash: v.string(),
+    symbols: v.array(v.object({
+      name: v.string(),
+      kind: v.string(),
+      signature: v.string(),
+      signatureHash: v.string(),
+    })),
+    changedByWorkstreamPublicId: v.string(),
+    revision: v.number(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_scope_path", ["scopeKey", "path"])
+    .index("by_expiry", ["expiresAt"]),
+
+  // One row per (session workstream, path): what the session read and the
+  // contract hash current when it read it.
+  sessionReadSets: defineTable({
+    projectId: v.id("projects"),
+    scopeKey: v.string(),
+    workstreamId: v.id("workstreams"),
+    workstreamPublicId: v.string(),
+    path: v.string(),
+    fileContractHashAtRead: v.string(),
+    readAt: v.string(),
+    updatedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_workstream_path", ["workstreamId", "path"])
+    .index("by_scope_path", ["scopeKey", "path"])
+    .index("by_expiry", ["expiresAt"]),
+
   findings: defineTable({
     publicId: v.string(),
     projectId: v.id("projects"),

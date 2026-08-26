@@ -8,6 +8,7 @@ import {
   manifestContentHash,
   scopeKey,
   sha256Hex,
+  validateContractSignature,
   validateEventBatch,
 } from "../src/domain.js";
 
@@ -48,6 +49,71 @@ describe("hosted boundary validation", () => {
     }] });
     expect(event.payload).toMatchObject({ chunkCount: 0 });
     expect(manifestContentHash([])).toBe(sha256Hex(""));
+  });
+
+  it("accepts bounded contract fingerprints and refuses unfingerprintable or protected paths", () => {
+    const entry = {
+      path: "internal/session/rotate.go",
+      fileContractHash: "a".repeat(64),
+      symbols: [{
+        name: "Rotate", kind: "func",
+        signature: "func Rotate(ctx context.Context, key string) (string, error)",
+        signatureHash: "b".repeat(64),
+      }],
+    };
+    const [event] = validateEventBatch({ events: [{
+      ...baseEvent, type: "workspace.contract_fingerprints_reported",
+      payload: { workspaceId: "wsp_fixture", entries: [entry] },
+    }] });
+    expect(event.type).toBe("workspace.contract_fingerprints_reported");
+
+    // A file with no exported surface is a valid, empty fingerprint.
+    expect(() => validateEventBatch({ events: [{
+      ...baseEvent, type: "workspace.contract_fingerprints_reported",
+      payload: { workspaceId: "wsp_fixture", entries: [{ ...entry, symbols: [] }] },
+    }] })).not.toThrow();
+
+    for (const invalid of [
+      { ...entry, path: "docs/readme.md" },
+      { ...entry, path: "config/secrets/keys.ts" },
+      { ...entry, path: "../outside/escape.go" },
+      { ...entry, fileContractHash: "not-a-hash" },
+      { ...entry, symbols: [{ ...entry.symbols[0], kind: "macro" }] },
+      { ...entry, symbols: [{ ...entry.symbols[0], signature: "const Token = \"ghp_aaaaaaaaaaaaaaaaaaaa\"" }] },
+      { ...entry, symbols: [{ ...entry.symbols[0], signature: "func Read() string", extra: 1 }] },
+    ]) {
+      expect(() => validateEventBatch({ events: [{
+        ...baseEvent, type: "workspace.contract_fingerprints_reported",
+        payload: { workspaceId: "wsp_fixture", entries: [invalid] },
+      }] }), JSON.stringify(invalid)).toThrowError(ValidationError);
+    }
+  });
+
+  it("keeps ordinary constant declarations off the credential gate", () => {
+    expect(() => validateContractSignature("const MAX_RETRIES = 3")).not.toThrow();
+    expect(() => validateContractSignature("export const LIMIT: number")).not.toThrow();
+    expect(() => validateContractSignature("const Token = \"ghp_aaaaaaaaaaaaaaaaaaaa\"")).toThrowError(ValidationError);
+  });
+
+  it("accepts a bounded session read set and refuses a malformed one", () => {
+    const [event] = validateEventBatch({ events: [{
+      ...baseEvent, source: "hook", type: "session.read_set_reported",
+      payload: {
+        workspaceId: "wsp_fixture",
+        sessionWorkstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        entries: [{ path: "internal/session/rotate.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z" }],
+      },
+    }] });
+    expect(event.type).toBe("session.read_set_reported");
+    for (const payload of [
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "not-a-workstream", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z" }] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64) }] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "yesterday" }] },
+    ]) {
+      expect(() => validateEventBatch({ events: [{ ...baseEvent, source: "hook", type: "session.read_set_reported", payload }] }),
+        JSON.stringify(payload)).toThrowError(ValidationError);
+    }
   });
 
   it("rejects unknown and prohibited payload fields", () => {
