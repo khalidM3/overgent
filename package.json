@@ -16,6 +16,7 @@
     "typecheck": "pnpm --recursive typecheck",
     "test": "pnpm --recursive test",
     "build": "pnpm --recursive build",
+    "eval:coordination": "go run ./validation/evals/coordination",
     "desktop:assets": "pnpm --dir apps/dashboard exec vite build --outDir ../desktop/frontend/embed/app --emptyOutDir",
     "desktop:test": "cd apps/desktop && MACOSX_DEPLOYMENT_TARGET=12.0 CGO_CFLAGS='-mmacosx-version-min=12.0' CGO_LDFLAGS='-mmacosx-version-min=12.0' go test ./... && MACOSX_DEPLOYMENT_TARGET=12.0 CGO_CFLAGS='-mmacosx-version-min=12.0' CGO_LDFLAGS='-mmacosx-version-min=12.0' go vet ./...",
     "desktop:build": "pnpm desktop:assets && node scripts/build-desktop.mjs",
