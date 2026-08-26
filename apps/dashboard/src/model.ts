@@ -10,6 +10,16 @@ export type ShellState =
 export type Presence = "online" | "idle" | "offline" | "paused";
 export type Fidelity = "mcp" | "git" | "manual" | "hook" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
+export type SemanticMode = "offline_fallback" | "managed_openai" | "managed_degraded";
+export interface HarnessCapabilities {
+  observeSession: boolean;
+  observeToolActivity: boolean;
+  observeSafePaths: boolean;
+  readExistingSession: boolean;
+  pollUpdates: boolean;
+  deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+  requestAttention: "advisory" | "unavailable";
+}
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
 export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
 export type Severity = "critical" | "high" | "medium" | "low";
@@ -19,6 +29,7 @@ export interface ProjectSummary {
   name: string;
   repositoryLabel: string;
   semanticStatus: SemanticStatus;
+  semanticMode: SemanticMode;
 }
 
 export interface Workstream {
@@ -36,8 +47,11 @@ export interface Workstream {
     vendor: "codex" | "claude";
     sessionAlias?: string;
     branch?: string;
+    /** What this chat session is actually about, from the vendor's own session record. */
+    sessionTitle?: string;
     status?: "active" | "waiting" | "idle" | "done" | "error";
     tool?: string;
+    capabilities: HarnessCapabilities;
     subagents: Array<{ alias: string; agentType: string; status: string }>;
     activity?: Array<{
       id: string;
@@ -99,6 +113,28 @@ export interface Device {
   status: Presence;
   lastSeen: string;
 }
+export interface SyncComment { id: string; memberName: string; body: string; createdAt: string }
+export interface Resolution {
+  id: string; syncCardId?: string; summary: string; affectedMemberIds: string[]; affectedWorkstreamIds: string[]; revision: number; createdAt: string;
+}
+export interface SyncCard {
+  id: string; findingId?: string; title: string; summary: string; state: "open" | "resolved"; revision: number; comments: SyncComment[]; resolution?: Resolution; updatedAt: string;
+}
+export interface CollaborationSnapshot {
+  projectId: string; syncCards: SyncCard[]; resolutions: Resolution[]; cursor: string;
+}
+export type SessionMessageKind = "user" | "assistant" | "thinking" | "system";
+/** One entry of the viewer's own session, read locally and never uploaded. */
+export interface LocalSessionMessage { kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string }
+export interface LocalSessionDetail { available: boolean; title?: string; branch?: string; messages: LocalSessionMessage[] }
+export interface SessionSharingSnapshot {
+  workstreamId: string;
+  policy: {
+    profile: "private" | "conversation"; audience: "self" | "project"; consentVersion: "session-share/v1";
+    allowedKinds: SessionMessageKind[]; enabled: boolean; canManage: boolean; expiresAt?: string; updatedAt?: string;
+  };
+  messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: "codex" | "claude"; capturedAt: string; expiresAt: string }>;
+}
 
 export interface ProjectSnapshot {
   project: ProjectSummary;
@@ -109,10 +145,18 @@ export interface ProjectSnapshot {
   activity: ActivityItem[];
   devices: Device[];
   workspacePaused: boolean;
+  collaboration: CollaborationSnapshot;
 }
 
+export type MemberNameSource = "device" | "member";
 export interface DashboardSession {
+  memberId: string;
   memberName: string;
+  /** "device" means the name is still the enrolling device label and the member has never chosen one. */
+  memberNameSource: MemberNameSource;
   projects: ProjectSummary[];
   selectedProjectId: string;
+}
+export interface ProjectMember {
+  id: string; name: string; nameSource: MemberNameSource; role: "owner" | "member"; isSelf: boolean; joinedAt: string;
 }

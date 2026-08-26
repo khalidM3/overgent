@@ -23,7 +23,7 @@ L5B macOS desktop preview
           ▼
 L6 coordination intelligence
           ▼
-L7 plan/sync/decisions
+L7 collisions/session detail
           ▼
 L8 distribution/beta hardening
           ▼
@@ -74,7 +74,12 @@ Deliver stdio bridge; pinned stable official Go SDK; idempotent/revisioned `begi
 
 Exit: real Codex begins work and receives a brief, preflights broad edits, reports/retries a checkpoint without duplication, acknowledges context, and finishes with verification state; MCP exit does not stop service; ambiguity never guesses; unsupported agents retain Git/manual fidelity.
 
-Current outcome: narrowed by ADR-026. The lifecycle core and official-SDK bridge pass, but production Codex/Claude setup remains withheld pending focused current-client compatibility evidence.
+Current outcome: complete for the supported dogfood adapters under ADR-033 and
+ADR-040. The lifecycle core and official-SDK bridge pass; Project-scoped Codex
+and Claude Code hooks provide bounded observation while MCP remains the
+documented brief-pull channel. The capability model explicitly reports that
+provider-native attention is unavailable, so urgent delivery targets the person
+in the dashboard and never pretends to interrupt an agent turn.
 
 ## L5A — Opt-in agent activity adapter validation
 
@@ -82,12 +87,12 @@ Before adding shared contracts, run isolated synthetic Codex App Server/SDK and 
 
 Exit: each vendor is separately passed, narrowed, or assigned an existing Git/manual/MCP fallback; `.env` variants, protected paths, tokens, transcript/system/reasoning/source/diff/tool-result/raw-command/output candidates provably never reach durable storage or a sender; supported activity is sufficient to explain what an agent is doing without Stickguy owning or controlling its loop. Only then may the integrator define versioned shared schemas/generated code and enable an opt-in adapter.
 
-Current outcome: NARROW complete under ADR-028. Authenticated Claude project
-hooks pass for supported lifecycle/tool/subagent activity. Codex App Server
-passes bounded existing-task enumeration/read but not cross-process realtime
-subscription, so MCP/Git/manual remains its live fallback. Production collection
-is still disabled pending reviewed contracts, generated code, consent controls,
-retention/deletion integration, and end-to-end security tests.
+Current outcome: complete for `activity/v1` under ADR-033, ADR-039, and ADR-042.
+Authenticated Project hooks pass for supported lifecycle/tool/subagent/safe-path
+activity. Each vendor has a separate session-record adapter; the record stays
+local except for separately previewed, versioned conversation sharing. A
+vendor-visible session title may become automatic bounded intent only after the
+local title classifier and hosted semantic policy both accept it.
 
 ## L5B — macOS desktop preview
 
@@ -112,11 +117,14 @@ Deliver bounded semantic-object validation; embedding-provider and semantic-inde
 
 Exit: two devices with different paths but duplicate behavior produce a justified `redundant_work` finding; incompatible intent is surfaced before either edits; shared schema/package impact reaches only affected workstreams; an unrelated fourth workstream gets no item; a relevant decision change marks an old dependent brief stale; briefs honor budget/truncation rules; independent large changes stay non-interruptive; cross-project retrieval fails; provider outage preserves structural routing. This is the first V1-complete coordination-harness loop.
 
-Current outcome: complete under ADR-030. The public labeled corpus and anonymous
-loopback two-device suite pass every exit case. The initial deterministic
-concept provider is intentionally vocabulary-bounded; semantic findings remain
-quiet radar/brief evidence, and a broader provider or proactive interruption
-requires the later precision/cost/privacy gate.
+Current outcome: complete under ADR-030 and extended with the optional managed
+OpenAI embedding adapter. The public labeled corpus and anonymous loopback
+two-device suite pass every exit case. Revision-matched 1024-dimension managed
+vectors now participate in finding evaluation and scoped brief candidate
+retrieval; successful embeddings trigger recomputation. Provider-only
+similarity remains advisory medium-severity evidence, while provider outage or
+absence falls back honestly to the deterministic concept engine and structural
+routing.
 
 ## L6A — Local dogfood developer loop
 
@@ -133,10 +141,12 @@ overlap in the live native dashboard, and exercise L6 semantic findings using
 bounded reported intents. Production adapter setup, transcript monitoring, and
 non-loopback development origins remain disabled.
 
-Current outcome: complete under ADR-031. Frozen Go/TypeScript/protocol and both
-desktop build modes pass; the real development bundle launches against Vite;
-and the anonymous loopback L6 live suite passes all structural, semantic,
-authorization, and dashboard assertions.
+Current outcome: complete under ADR-031 and extended by ADR-041. Frozen
+Go/TypeScript/protocol and both desktop build modes pass; the real development
+bundle launches against Vite; and the anonymous loopback L6 live suite passes
+all structural, semantic, authorization, and dashboard assertions. An isolated
+`dev:shared` profile may connect two Macs to the same HTTPS cloud Convex
+development deployment without weakening the ordinary loopback profile.
 
 ## L6B — Native Project and agent onboarding
 
@@ -159,11 +169,27 @@ checks, both desktop build modes, and the L6 live suite pass. Adding a second
 Project to one running local profile and signed production distribution remain
 L8 work.
 
-## L7 — Plan, claims, sync, decisions
+## L7 — Collision resolution and session detail
 
-Deliver revisioned plan items; ownership/status; normalized path/glob claims; sync-card create/comment/resolve; durable affected-member decisions; remaining MCP tools; optional untracked local context; structured while-away digest.
+Deliver sync-card create/comment/resolve over collisions; a resolution delivered
+once to every affected agent session; local session detail read from the vendor
+transcript; and per-session, previewed, revocable sharing of that content.
 
-Exit: two members resolve a finding and both agents receive the decision; concurrent plan edits conflict rather than overwrite; no tracked file auto-modified; decision delivery idempotent/cursor-based.
+Exit: two members resolve a collision and both agents receive the outcome;
+resolution delivery is idempotent and cursor-based; no tracked file is auto
+modified; a member always sees their own session content without sharing it;
+sharing is off by default and rejects every secret class as a whole.
+
+Current outcome: complete under ADR-034, ADR-036, and ADR-037. Plan items and
+advisory claims were removed rather than hidden: planning is a human process
+that competed with the product's actual value. Session detail no longer depends
+on hook payloads, which never carried assistant text or reasoning; it is read
+from the vendor transcript locally, so the owner sees prompts, replies,
+vendor-recorded reasoning, and tool names before deciding to share anything.
+Quoted code is allowed inside a consented conversation, and naming a file is not
+treated as disclosing it (ADR-038); environment values, credentials, tokens,
+keys, and raw tool output are rejected whole at both boundaries. Codex and
+Claude Code each have their own record adapter (ADR-039).
 
 ## L8 — Distribution and beta
 

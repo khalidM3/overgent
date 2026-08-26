@@ -11,6 +11,10 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("deleting")),
     createdAt: v.number(),
     retentionDays: v.number(),
+    // Legacy: written by the plan surface removed in ADR-037. Retained as
+    // optional so documents created before that ADR still validate. Never read
+    // or written by current code; drop it once no such rows remain.
+    planRevision: v.optional(v.number()),
   }).index("by_public_id", ["publicId"]),
 
   members: defineTable({
@@ -18,6 +22,9 @@ export default defineSchema({
     projectId: v.id("projects"),
     deviceId: v.id("devices"),
     displayName: v.string(),
+    // Absent means the name was seeded from the enrolling device label before
+    // ADR-035; those Projects still owe the member an explicit choice.
+    displayNameSource: v.optional(v.union(v.literal("device"), v.literal("member"))),
     role,
     joinedAt: v.number(),
     removedAt: v.optional(v.number()),
@@ -100,6 +107,7 @@ export default defineSchema({
     contextRevision: v.number(),
     semanticHealthyAt: v.optional(v.number()),
     semanticDegradedAt: v.optional(v.number()),
+    semanticProviderName: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_scope", ["scopeKey"])
@@ -123,6 +131,8 @@ export default defineSchema({
     activityKind: v.optional(v.string()),
     currentAction: v.optional(v.string()),
     toolName: v.optional(v.string()),
+    branch: v.optional(v.string()),
+    sessionTitle: v.optional(v.string()),
     safePaths: v.optional(v.array(v.string())),
     subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
     updatedAt: v.number(),
@@ -244,7 +254,7 @@ export default defineSchema({
     .index("by_object", ["objectId"])
     .index("by_scope_model", ["scopeKey", "modelVersion"])
     .index("by_expiry", ["expiresAt"])
-    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 32, filterFields: ["scopeKey"] }),
+    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 1024, filterFields: ["scopeKey"] }),
 
   contextDeliveries: defineTable({
     publicId: v.string(),
@@ -275,6 +285,90 @@ export default defineSchema({
     expiresAt: v.number(),
   })
     .index("by_finding_member", ["findingId", "memberId"])
+    .index("by_expiry", ["expiresAt"]),
+
+  syncCards: defineTable({
+    publicId: v.string(),
+    projectId: v.id("projects"),
+    findingId: v.optional(v.id("findings")),
+    title: v.string(),
+    summary: v.string(),
+    state: v.union(v.literal("open"), v.literal("resolved")),
+    revision: v.number(),
+    createdByMemberId: v.id("members"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_public_id", ["publicId"])
+    .index("by_project_updated", ["projectId", "updatedAt"]),
+
+  syncComments: defineTable({
+    publicId: v.string(),
+    syncCardId: v.id("syncCards"),
+    projectId: v.id("projects"),
+    memberId: v.id("members"),
+    body: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_card_created", ["syncCardId", "createdAt"])
+    .index("by_project", ["projectId"]),
+
+  decisions: defineTable({
+    publicId: v.string(),
+    projectId: v.id("projects"),
+    syncCardId: v.optional(v.id("syncCards")),
+    summary: v.string(),
+    affectedMemberIds: v.array(v.id("members")),
+    affectedWorkstreamIds: v.array(v.id("workstreams")),
+    revision: v.number(),
+    createdByMemberId: v.id("members"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_public_id", ["publicId"])
+    .index("by_project_updated", ["projectId", "updatedAt"]),
+
+  decisionDeliveries: defineTable({
+    decisionId: v.id("decisions"),
+    workstreamId: v.id("workstreams"),
+    decisionRevision: v.number(),
+    deliveredAt: v.number(),
+    acknowledgedAt: v.optional(v.number()),
+  })
+    .index("by_decision_workstream", ["decisionId", "workstreamId"])
+    .index("by_workstream", ["workstreamId"]),
+
+  sessionSharingPolicies: defineTable({
+    workstreamId: v.id("workstreams"),
+    projectId: v.id("projects"),
+    memberId: v.id("members"),
+    profile: v.union(v.literal("private"), v.literal("conversation")),
+    audience: v.union(v.literal("self"), v.literal("project")),
+    consentVersion: v.string(),
+    allowedKinds: v.array(v.string()),
+    enabled: v.boolean(),
+    expiresAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_workstream", ["workstreamId"])
+    .index("by_project", ["projectId"]),
+
+  sessionMessages: defineTable({
+    publicId: v.string(),
+    workstreamId: v.id("workstreams"),
+    projectId: v.id("projects"),
+    memberId: v.id("members"),
+    vendor: v.union(v.literal("codex"), v.literal("claude")),
+    // "reasoning_summary" and "system" are legacy: hooks never actually supplied
+    // them. Retained so pre-ADR-036 rows validate; current code writes only
+    // user, assistant, and thinking.
+    kind: v.union(v.literal("user"), v.literal("assistant"), v.literal("thinking"), v.literal("reasoning_summary"), v.literal("system")),
+    text: v.string(),
+    capturedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_public_id", ["publicId"])
+    .index("by_workstream_captured", ["workstreamId", "capturedAt"])
     .index("by_expiry", ["expiresAt"]),
 
   deviceCursors: defineTable({

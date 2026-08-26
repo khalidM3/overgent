@@ -2,7 +2,10 @@ import type { EmbeddedObject, EmbeddingProvider, Scope, SemanticIndex, SemanticI
 
 export const INTELLIGENCE_ENGINE_VERSION = "coordination/v1";
 export const ROUTER_VERSION = "brief-router/v1";
-export const CONCEPT_DIMENSIONS = 32;
+// Keep the offline provider index-compatible with the managed provider. This
+// is intentionally sparse; it remains an offline fallback, not a claim of
+// general semantic understanding.
+export const CONCEPT_DIMENSIONS = 1024;
 
 export type WorkstreamRecord = Scope & Readonly<{
   id: string;
@@ -18,6 +21,9 @@ export type WorkstreamRecord = Scope & Readonly<{
   changes?: readonly string[];
   assumptions?: readonly string[];
   pathCount?: number;
+  /** Current provider vector for the primary intent object, when available. */
+  semanticVector?: readonly number[];
+  semanticProvider?: string;
 }>;
 
 export type Evidence = Readonly<{
@@ -205,7 +211,13 @@ export function evaluatePair(left: WorkstreamRecord, right: WorkstreamRecord): I
   const components = overlap(left.components, right.components);
   const downstream = [...overlap(left.changes, [...(right.dependencies ?? []), ...(right.contracts ?? []), ...(right.schemas ?? [])]), ...overlap(right.changes, [...(left.dependencies ?? []), ...(left.contracts ?? []), ...(left.schemas ?? [])])];
   const assumptions = overlap(left.assumptions, right.assumptions);
-  const semantic = cosine(conceptVector(left.summary), conceptVector(right.summary));
+  const providerCompatible = left.semanticVector !== undefined && right.semanticVector !== undefined &&
+    left.semanticProvider !== undefined && left.semanticProvider === right.semanticProvider &&
+    left.semanticVector.length === right.semanticVector.length;
+  const semantic = providerCompatible
+    ? cosine(left.semanticVector!, right.semanticVector!)
+    : cosine(conceptVector(left.summary), conceptVector(right.summary));
+  const semanticSource = providerCompatible ? left.semanticProvider! : "stickguy-concepts/v1";
   const lexical = lexicalScore(left.summary, right.summary);
   const summaries = `${left.summary} ${right.summary}`.toLowerCase();
   const documentary = /\b(document|documentation|readme)\b/.test(summaries);
@@ -225,13 +237,17 @@ export function evaluatePair(left: WorkstreamRecord, right: WorkstreamRecord): I
     evidence.push({ kind: dependencies.length ? "dependency" : schemas.length ? "schema" : "route", summary: `Both workstreams report ${shared}.`, source: "reported", fidelity: "structural" });
   } else if ((assumptions.length && /incompatible|conflict|opposite/.test(summaries)) || (/remain valid until expiry/.test(summaries) && /rotate|revoke|invalidate/.test(summaries))) {
     kind = "assumption_conflict"; reason = "The workstreams report incompatible session-validity assumptions.";
-    evidence.push({ kind: "semantic", summary: "One intent preserves existing sessions while the other rotates or revokes them.", source: "stickguy-concepts/v1", fidelity: "semantic" });
+    evidence.push({ kind: "semantic", summary: "One intent preserves existing sessions while the other rotates or revokes them.", source: semanticSource, fidelity: "semantic" });
   } else if (components.length && (semantic >= 0.25 || lexical >= 0.05)) {
     kind = "likely_collision"; reason = `Active changes interact within ${components[0]}.`;
     evidence.push({ kind: "lexical", summary: `Both workstreams report the ${components[0]} component with interacting change language.`, source: "coordination/v1", fidelity: "reported" });
-  } else if (!documentary && !mechanical && semantic >= 0.50 && lexical >= 0.05) {
-    kind = "redundant_work"; reason = "Active workstreams appear to implement the same behavior under different paths.";
-    evidence.push({ kind: "semantic", summary: "Bounded intent summaries share a strong behavior concept.", source: "stickguy-concepts/v1", fidelity: "semantic" });
+  } else if (!documentary && !mechanical && ((providerCompatible && semantic >= 0.86) || (!providerCompatible && semantic >= 0.50 && lexical >= 0.05))) {
+    kind = "redundant_work"; reason = providerCompatible
+      ? "Active workstreams are strong semantic candidates for duplicate behavior; review their intended outcomes."
+      : "Active workstreams appear to implement the same behavior under different paths.";
+    evidence.push({ kind: "semantic", summary: providerCompatible
+      ? "Approved intent summaries are strongly related under the configured embedding provider; similarity is candidate evidence, not proof."
+      : "Bounded intent summaries share a strong behavior concept.", source: semanticSource, fidelity: "semantic" });
   }
   if (!kind) return null;
   const deterministic = kind === "direct_collision" || kind === "shared_dependency" || kind === "downstream_impact";

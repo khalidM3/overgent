@@ -15,7 +15,7 @@ import (
 	"github.com/stickguy/stickguy/internal/hosted"
 )
 
-const instructions = "Stickguy is advisory only. Hooks are disabled. Before broad/shared edits, call begin_work then check_coordination; read relevant findings. Report bounded checkpoints; finish_work before completion. Never send source, diffs, prompts, transcripts, env values, command lines, raw tool/test output, or secrets. Use structured verification only. Fail on workspace ambiguity. It never edits Git, runs coding tools, controls agents, or authorizes teammate mutations. MCP plus Git/manual observation is the fallback."
+const instructions = "Stickguy is advisory only. Before broad/shared edits, call begin_work then check_coordination; read relevant findings and resolutions. Use get_resolutions when a collision affecting this workstream has been resolved. Report bounded checkpoints; finish_work before completion. Never send source, diffs, env values, command lines, raw tool/test output, or secrets. Session sharing is separately consented and never an MCP input. Fail on workspace ambiguity. Stickguy never edits Git, runs coding tools, controls agents, or authorizes teammate mutations."
 
 type commonInput struct {
 	WorkspaceID string `json:"workspace_id,omitempty" jsonschema:"explicit registered workspace ID; omit when cwd resolves uniquely"`
@@ -77,15 +77,20 @@ type eventInput struct {
 	Kind           string `json:"kind" jsonschema:"decision, completion, or blocker"`
 	Summary        string `json:"summary" jsonschema:"bounded summary; never raw output"`
 }
+type collaborationReadInput struct {
+	commonInput
+	SinceRevision int64 `json:"since_revision,omitempty"`
+}
 type toolOutput struct {
-	ProjectID      string                    `json:"projectId"`
-	WorkspaceID    string                    `json:"workspaceId"`
-	WorkstreamID   string                    `json:"workstreamId"`
-	Duplicate      bool                      `json:"duplicate"`
-	IntentRevision int64                     `json:"intentRevision,omitempty"`
-	Brief          *hosted.CoordinationBrief `json:"brief,omitempty"`
-	Degraded       bool                      `json:"degraded"`
-	Degradation    string                    `json:"degradation,omitempty"`
+	ProjectID      string                        `json:"projectId"`
+	WorkspaceID    string                        `json:"workspaceId"`
+	WorkstreamID   string                        `json:"workstreamId"`
+	Duplicate      bool                          `json:"duplicate"`
+	IntentRevision int64                         `json:"intentRevision,omitempty"`
+	Brief          *hosted.CoordinationBrief     `json:"brief,omitempty"`
+	Degraded       bool                          `json:"degraded"`
+	Degradation    string                        `json:"degradation,omitempty"`
+	Collaboration  *hosted.CollaborationSnapshot `json:"collaboration,omitempty"`
 }
 
 type server struct {
@@ -116,6 +121,7 @@ func newSDK(bridge *server) *sdkmcp.Server {
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "acknowledge_context", Description: "Record which brief items were considered; this never claims compliance or correctness."}, bridge.acknowledgeContext)
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "finish_work", Description: "Mark the workstream done idempotently and return unresolved relevant context before completion."}, bridge.finishWork)
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "report_event", Description: "Report one bounded decision, completion, or blocker summary."}, bridge.reportEvent)
+	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "get_resolutions", Description: "Read how collisions affecting this workstream were resolved."}, bridge.getResolutions)
 	return sdk
 }
 
@@ -152,6 +158,13 @@ func (s *server) finishWork(ctx context.Context, _ *sdkmcp.CallToolRequest, in f
 }
 func (s *server) reportEvent(ctx context.Context, _ *sdkmcp.CallToolRequest, in eventInput) (*sdkmcp.CallToolResult, toolOutput, error) {
 	q := daemon.Request{Method: "report_event", WorkspaceID: in.WorkspaceID, IdempotencyKey: in.IdempotencyKey, Kind: in.Kind, Summary: in.Summary}
+	out, err := s.call(ctx, &q)
+	return nil, out, err
+}
+func (s *server) getResolutions(ctx context.Context, _ *sdkmcp.CallToolRequest, in collaborationReadInput) (*sdkmcp.CallToolResult, toolOutput, error) {
+	return s.collaborationCall(ctx, daemon.Request{Method: "get_resolutions", WorkspaceID: in.WorkspaceID, SinceRevision: in.SinceRevision})
+}
+func (s *server) collaborationCall(ctx context.Context, q daemon.Request) (*sdkmcp.CallToolResult, toolOutput, error) {
 	out, err := s.call(ctx, &q)
 	return nil, out, err
 }

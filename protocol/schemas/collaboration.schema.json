@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/collaboration.schema.json",
+  "$defs": {
+    "syncComment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "memberName", "body", "createdAt"],
+      "properties": {"id": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "body": {"type": "string", "minLength": 1, "maxLength": 2000}, "createdAt": {"type": "string", "format": "date-time"}}
+    },
+    "resolution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "summary", "affectedMemberIds", "affectedWorkstreamIds", "revision", "createdAt"],
+      "properties": {
+        "id": {"type": "string"}, "syncCardId": {"type": "string"}, "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "affectedMemberIds": {"type": "array", "maxItems": 100, "items": {"type": "string"}},
+        "affectedWorkstreamIds": {"type": "array", "maxItems": 100, "items": {"type": "string"}},
+        "revision": {"type": "integer", "minimum": 1}, "createdAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "syncCard": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "summary", "state", "revision", "comments", "updatedAt"],
+      "properties": {
+        "id": {"type": "string"}, "findingId": {"type": "string"}, "title": {"type": "string", "minLength": 1, "maxLength": 160},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000}, "state": {"enum": ["open", "resolved"]},
+        "revision": {"type": "integer", "minimum": 1}, "comments": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/syncComment"}},
+        "resolution": {"$ref": "#/$defs/resolution"}, "updatedAt": {"type": "string", "format": "date-time"}
+      }
+    }
+  },
+  "type": "object", "additionalProperties": false,
+  "required": ["projectId", "syncCards", "resolutions", "cursor"],
+  "properties": {
+    "projectId": {"type": "string"},
+    "syncCards": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/syncCard"}},
+    "resolutions": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/resolution"}},
+    "cursor": {"type": "string", "maxLength": 512}
+  }
+}

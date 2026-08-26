@@ -48,6 +48,35 @@ type ChangePage struct {
 	Items  []map[string]any
 	Cursor string
 }
+type CollaborationSnapshot struct {
+	ProjectID   string       `json:"projectId"`
+	SyncCards   []SyncCard   `json:"syncCards"`
+	Resolutions []Resolution `json:"resolutions"`
+	Cursor      string       `json:"cursor"`
+}
+type SyncComment struct{ ID, MemberName, Body, CreatedAt string }
+type Resolution struct {
+	ID, SyncCardID, Summary, CreatedAt       string
+	AffectedMemberIDs, AffectedWorkstreamIDs []string
+	Revision                                 int
+}
+type SyncCard struct {
+	ID, FindingID, Title, Summary, State, UpdatedAt string
+	Revision                                        int
+	Comments                                        []SyncComment
+	Resolution                                      *Resolution
+}
+type SessionSharingPolicy struct {
+	Profile, Audience, ConsentVersion, ExpiresAt, UpdatedAt string
+	AllowedKinds                                            []string
+	Enabled, CanManage                                      bool
+}
+type SessionMessage struct{ ID, Kind, Text, Vendor, CapturedAt, ExpiresAt string }
+type SessionSharingSnapshot struct {
+	WorkstreamID string               `json:"workstreamId"`
+	Policy       SessionSharingPolicy `json:"policy"`
+	Messages     []SessionMessage     `json:"messages"`
+}
 type CoordinationBrief struct {
 	BriefID         string      `json:"briefId"`
 	ProjectID       string      `json:"projectId"`
@@ -97,9 +126,15 @@ func New(rawBase, token string) (*Client, error) {
 	return &Client{base: base, token: token, http: &http.Client{Timeout: 15 * time.Second}}, nil
 }
 
-func (c *Client) CreateProject(ctx context.Context, label, deviceLabel string) (Project, error) {
+// CreateProject sends displayName only when the member chose one; omitting it
+// keeps the device label as a seed the member is later asked to replace.
+func (c *Client) CreateProject(ctx context.Context, label, deviceLabel, displayName string) (Project, error) {
 	var out struct{ ID, Label string }
-	err := c.request(ctx, http.MethodPost, "/v1/projects", protocoltypes.CreateProjectJSONBody{Label: label, DeviceLabel: deviceLabel}, &out, http.StatusCreated)
+	body := protocoltypes.CreateProjectJSONBody{Label: label, DeviceLabel: deviceLabel}
+	if displayName != "" {
+		body.DisplayName = &displayName
+	}
+	err := c.request(ctx, http.MethodPost, "/v1/projects", body, &out, http.StatusCreated)
 	return Project(out), err
 }
 
@@ -112,9 +147,12 @@ func (c *Client) CreateInvite(ctx context.Context, projectID string, expiresInSe
 	return Invite(out), err
 }
 
-func (c *Client) Enroll(ctx context.Context, inviteID, inviteSecret, deviceLabel, appVersion string) (Enrollment, error) {
+func (c *Client) Enroll(ctx context.Context, inviteID, inviteSecret, deviceLabel, displayName, appVersion string) (Enrollment, error) {
 	var out struct{ DeviceId, DeviceToken, DashboardTicket string }
 	body := protocoltypes.CreateEnrollmentJSONBody{InviteId: inviteID, InviteSecret: inviteSecret, DeviceLabel: deviceLabel, AppVersion: appVersion, SchemaMinimum: 1, SchemaMaximum: 1}
+	if displayName != "" {
+		body.DisplayName = &displayName
+	}
 	err := c.request(ctx, http.MethodPost, "/v1/enrollments", body, &out, http.StatusCreated)
 	return Enrollment{DeviceID: out.DeviceId, DeviceToken: out.DeviceToken, DashboardTicket: out.DashboardTicket}, err
 }
@@ -168,6 +206,55 @@ func (c *Client) ProjectChanges(ctx context.Context, projectID string) (ChangePa
 	}
 	err := c.request(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/changes", nil, &out, http.StatusOK)
 	return ChangePage(out), err
+}
+
+func (c *Client) Collaboration(ctx context.Context, projectID string) (CollaborationSnapshot, error) {
+	var out CollaborationSnapshot
+	err := c.request(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/collaboration", nil, &out, http.StatusOK)
+	return out, err
+}
+
+func (c *Client) CreateSyncCard(ctx context.Context, projectID, findingID, title, summary string) (SyncCard, error) {
+	var out SyncCard
+	body := map[string]any{"title": title, "summary": summary}
+	if findingID != "" {
+		body["findingId"] = findingID
+	}
+	err := c.request(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectID)+"/sync-cards", body, &out, http.StatusCreated)
+	return out, err
+}
+
+func (c *Client) CommentSyncCard(ctx context.Context, cardID, body string) (SyncComment, error) {
+	var out SyncComment
+	err := c.request(ctx, http.MethodPost, "/v1/sync-cards/"+url.PathEscape(cardID)+"/comments", map[string]string{"body": body}, &out, http.StatusCreated)
+	return out, err
+}
+
+func (c *Client) ResolveSyncCard(ctx context.Context, cardID string, expectedRevision int, summary string, memberIDs, workstreamIDs []string) (Resolution, error) {
+	var out Resolution
+	body := map[string]any{"expectedRevision": expectedRevision, "summary": summary, "affectedMemberIds": memberIDs, "affectedWorkstreamIds": workstreamIDs}
+	err := c.request(ctx, http.MethodPost, "/v1/sync-cards/"+url.PathEscape(cardID)+"/resolve", body, &out, http.StatusOK)
+	return out, err
+}
+
+func (c *Client) SessionSharing(ctx context.Context, workstreamID string) (SessionSharingSnapshot, error) {
+	var out SessionSharingSnapshot
+	err := c.request(ctx, http.MethodGet, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", nil, &out, http.StatusOK)
+	return out, err
+}
+
+func (c *Client) UpdateSessionSharing(ctx context.Context, workstreamID, profile, audience string, kinds []string, expiresInSeconds int) (SessionSharingSnapshot, error) {
+	var out SessionSharingSnapshot
+	body := map[string]any{"profile": profile, "audience": audience, "consentVersion": "session-share/v1", "allowedKinds": kinds}
+	if expiresInSeconds > 0 {
+		body["expiresInSeconds"] = expiresInSeconds
+	}
+	err := c.request(ctx, http.MethodPut, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", body, &out, http.StatusOK)
+	return out, err
+}
+
+func (c *Client) DeleteSharedSessionMessages(ctx context.Context, workstreamID string) error {
+	return c.request(ctx, http.MethodDelete, "/v1/workstreams/"+url.PathEscape(workstreamID)+"/session-sharing", nil, nil, http.StatusNoContent)
 }
 
 func (c *Client) CreateBrief(ctx context.Context, workstreamID, trigger, sinceCursor string, approximateTokenBudget int) (CoordinationBrief, error) {

@@ -8,9 +8,9 @@ Core decisions: persistent Projects; standalone Go local core; one service per u
 
 Implementation follows [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
-## Coding-agent MCP status
+## Coding-agent integration status
 
-The official-SDK lifecycle bridge is implemented and locally conformant, but production Codex and Claude setup remains withheld. The explicit `--development` setup path is available for local dogfooding; it installs only project MCP configuration and no hooks. Codex `0.148.0-alpha.15` still has Git/manual fallback fidelity because its current-client durable MCP delivery is narrowed. Authenticated Claude `2.1.197` passed the bounded project hook capability spike, while production optional activity collection remains disabled pending shared contracts and consent controls.
+The official-SDK MCP lifecycle bridge and bounded Project hook adapters are implemented and locally conformant for dogfooding. The explicit `--development` setup path installs Project-scoped MCP configuration plus supported Codex and Claude Code lifecycle hooks. Hooks observe session state, tool categories, safe repository-relative paths, and an approved bounded session title; relevant coordination briefs remain MCP pull, with the dashboard as the urgent human-attention surface.
 
 Status and cleanup remain available for isolated validation entries:
 
@@ -21,10 +21,24 @@ stickguy setup status --agent claude --project-root /path/to/project
 stickguy setup remove --agent claude --project-root /path/to/project
 ```
 
-Stickguy does not bypass either client's trust boundary. Hooks are not installed: L-1 accepted MCP plus Git/manual observation while hook delivery remains unverified. See [L5 evidence](validation/evidence/l5-mcp.md).
+Stickguy does not bypass either client's trust boundary or claim an unsupported interrupt channel. See [L5 evidence](validation/evidence/l5-mcp.md) and the current adapter limitations in [`docs/development.md`](docs/development.md).
 
 For the native hot-reload stack and the two-worktree Codex/Claude collision
 exercise, see [`docs/development.md`](docs/development.md).
+
+For a real two-Mac dogfood Project, configure one cloud Convex development
+deployment and run `pnpm dev:shared` on both Macs with the same HTTPS
+`STICKGUY_SHARED_API_ORIGIN`. This uses an isolated local profile; see the
+shared-development section in [`docs/development.md`](docs/development.md).
+
+## Optional managed semantic retrieval
+
+The default local dogfood profile includes the deterministic,
+vocabulary-bounded semantic fallback. A hosted deployment can enrich the same
+privacy-filtered intent/checkpoint summaries with OpenAI
+`text-embedding-3-large`; see [`docs/openai-embeddings.md`](docs/openai-embeddings.md).
+The API key is a hosted deployment secret only and is never part of the local
+client or agent configuration.
 
 ## Development checks
 

@@ -30,6 +30,46 @@ export type Candidate = Readonly<{
   score: number;
 }>;
 
+/**
+ * A provider capability is deliberately narrower than a product promise. The
+ * coordinator uses this record to select a delivery/observation path and must
+ * never infer that an adapter can steer a running agent just because it can
+ * observe a session.
+ */
+export type HarnessCapabilities = Readonly<{
+  observeSession: boolean;
+  observeToolActivity: boolean;
+  observeSafePaths: boolean;
+  readExistingSession: boolean;
+  pollUpdates: boolean;
+  deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
+  requestAttention: "advisory" | "unavailable";
+}>;
+
+export const NO_HARNESS_CAPABILITIES: HarnessCapabilities = {
+  observeSession: false,
+  observeToolActivity: false,
+  observeSafePaths: false,
+  readExistingSession: false,
+  pollUpdates: false,
+  deliverBrief: "unavailable",
+  requestAttention: "unavailable",
+};
+
+export const PROJECT_HOOK_MCP_CAPABILITIES: HarnessCapabilities = {
+  observeSession: true,
+  observeToolActivity: true,
+  observeSafePaths: true,
+  readExistingSession: true,
+  pollUpdates: true,
+  deliverBrief: "mcp_pull",
+  requestAttention: "unavailable",
+};
+
+export function canDeliverRelevantUpdate(capabilities: HarnessCapabilities): boolean {
+  return capabilities.deliverBrief !== "unavailable";
+}
+
 export type RouteInput = Scope & Readonly<{
   structural: readonly Candidate[];
   lexical: readonly Candidate[];
@@ -59,3 +99,4 @@ export class DeterministicCandidateRouter implements CandidateRouter {
 }
 
 export * from "./intelligence.js";
+export * from "./openai.js";

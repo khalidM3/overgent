@@ -17,6 +17,11 @@ func TestClientUsesVersionedContractAndBearer(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["label"] != "Fixture" || body["deviceLabel"] != "Device" {
 			t.Fatalf("request body=%#v err=%v", body, err)
 		}
+		// An unchosen display name must be omitted rather than sent as the
+		// device label, so the hosted side knows the member still owes a choice.
+		if _, present := body["displayName"]; present {
+			t.Fatalf("unchosen display name must not be sent: %#v", body)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"prj_fixture","label":"Fixture"}`))
@@ -26,7 +31,7 @@ func TestClientUsesVersionedContractAndBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := client.CreateProject(context.Background(), "Fixture", "Device")
+	project, err := client.CreateProject(context.Background(), "Fixture", "Device", "")
 	if err != nil || project.ID != "prj_fixture" {
 		t.Fatalf("project=%#v err=%v", project, err)
 	}
@@ -72,5 +77,28 @@ func TestCreateBriefUsesFrozenAuthenticatedContract(t *testing.T) {
 	brief, err := client.CreateBrief(context.Background(), "wrk_fixture", "checkpoint", "cur_fixture", 400)
 	if err != nil || brief.BriefID != "brf_fixture" || brief.NextCursor != "cur_next" || len(brief.Items) != 1 || brief.Items[0].ID != "itm_fixture" {
 		t.Fatalf("brief=%#v err=%v", brief, err)
+	}
+}
+
+func TestClientSendsChosenDisplayNameSeparatelyFromDeviceLabel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if body["deviceLabel"] != "Khalid's MacBook" || body["displayName"] != "Khalid M" {
+			t.Fatalf("device label and display name must stay distinct: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"prj_fixture","label":"Fixture"}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateProject(context.Background(), "Fixture", "Khalid's MacBook", "Khalid M"); err != nil {
+		t.Fatal(err)
 	}
 }

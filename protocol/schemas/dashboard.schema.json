@@ -4,18 +4,21 @@
   "$defs": {
     "project": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "name", "repositoryLabel", "semanticStatus"],
+      "required": ["id", "name", "repositoryLabel", "semanticStatus", "semanticMode"],
       "properties": {
         "id": {"type": "string"}, "name": {"type": "string", "maxLength": 120},
         "repositoryLabel": {"type": "string", "maxLength": 160},
-        "semanticStatus": {"enum": ["enabled", "degraded", "disabled"]}
+        "semanticStatus": {"enum": ["enabled", "degraded", "disabled"]},
+        "semanticMode": {"enum": ["offline_fallback", "managed_openai", "managed_degraded"]}
       }
     },
     "session": {
       "type": "object", "additionalProperties": false,
-      "required": ["memberName", "projects", "selectedProjectId"],
+      "required": ["memberId", "memberName", "memberNameSource", "projects", "selectedProjectId"],
       "properties": {
+        "memberId": {"type": "string"},
         "memberName": {"type": "string", "maxLength": 120},
+        "memberNameSource": {"enum": ["device", "member"]},
         "projects": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/project"}},
         "selectedProjectId": {"type": "string"}
       }
@@ -38,11 +41,50 @@
       "properties": {
         "id": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "initials": {"type": "string", "maxLength": 4},
         "title": {"type": "string", "maxLength": 160}, "outcome": {"type": "string", "maxLength": 2000},
-        "presence": {"enum": ["online", "idle", "offline", "paused"]}, "fidelity": {"enum": ["mcp", "git", "manual", "hook_unverified"]},
+        "presence": {"enum": ["online", "idle", "offline", "paused"]}, "fidelity": {"enum": ["mcp", "git", "manual", "hook", "hook_unverified"]},
         "updatedLabel": {"type": "string", "maxLength": 80}, "pathCount": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}},
+        "agent": {"$ref": "#/$defs/agentSession"},
         "largeChange": {"type": "object", "additionalProperties": false, "required": ["pathCount", "summary", "revision"], "properties": {"pathCount": {"type": "integer", "minimum": 1000}, "summary": {"type": "string", "maxLength": 500}, "revision": {"type": "integer", "minimum": 1}}}
       }
+    },
+    "agentSession": {
+      "type": "object", "additionalProperties": false,
+      "required": ["vendor", "sessionAlias", "status", "capabilities", "subagents", "activity"],
+      "properties": {
+        "vendor": {"enum": ["codex", "claude"]},
+        "sessionAlias": {"type": "string", "maxLength": 32},
+        "status": {"enum": ["active", "waiting", "idle", "done", "error"]},
+        "tool": {"type": "string", "maxLength": 64},
+        "branch": {"type": "string", "minLength": 1, "maxLength": 255},
+        "sessionTitle": {"type": "string", "minLength": 1, "maxLength": 160},
+        "capabilities": {"type": "object", "additionalProperties": false, "required": ["observeSession", "observeToolActivity", "observeSafePaths", "readExistingSession", "pollUpdates", "deliverBrief", "requestAttention"], "properties": {
+          "observeSession": {"type": "boolean"}, "observeToolActivity": {"type": "boolean"}, "observeSafePaths": {"type": "boolean"}, "readExistingSession": {"type": "boolean"}, "pollUpdates": {"type": "boolean"},
+          "deliverBrief": {"enum": ["mcp_pull", "native_pull", "native_push", "unavailable"]}, "requestAttention": {"enum": ["advisory", "unavailable"]}
+        }},
+        "subagents": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["alias", "agentType", "status"], "properties": {"alias": {"type": "string", "maxLength": 32}, "agentType": {"type": "string", "maxLength": 64}, "status": {"type": "string", "maxLength": 16}}}},
+        "activity": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "at", "kind", "status", "action", "paths"], "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "kind": {"type": "string", "maxLength": 32}, "status": {"enum": ["active", "waiting", "idle", "done", "error"]}, "action": {"type": "string", "maxLength": 300}, "tool": {"type": "string", "maxLength": 64}, "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}}}}}
+      }
+    },
+    "members": {
+      "type": "object", "additionalProperties": false,
+      "required": ["members"],
+      "properties": {
+        "members": {"type": "array", "maxItems": 100, "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "name", "nameSource", "role", "isSelf", "joinedAt"],
+          "properties": {
+            "id": {"type": "string"}, "name": {"type": "string", "maxLength": 120},
+            "nameSource": {"enum": ["device", "member"]}, "role": {"enum": ["owner", "member"]},
+            "isSelf": {"type": "boolean"}, "joinedAt": {"type": "string", "format": "date-time"}
+          }
+        }}
+      }
+    },
+    "memberIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["memberId", "memberName", "memberNameSource"],
+      "properties": {"memberId": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "memberNameSource": {"enum": ["device", "member"]}}
     },
     "finding": {
       "type": "object", "additionalProperties": false,

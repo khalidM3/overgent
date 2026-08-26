@@ -15,7 +15,15 @@ Before implementation, read every document in `docs/README.md` order. Do not rep
 - One per-user service manages multiple projects/workspaces.
 - Go calls hosted backend only through versioned Stickguy HTTP contracts.
 - OpenAPI/JSON Schema is external contract source of truth; never hand-edit generated code.
-- Never upload source/diffs, Git objects, raw transcripts, system prompts, or environment values in V1.
+- Never upload Git objects, environment values, credentials, tokens, cookies,
+  private keys, protected credential paths, raw tool results, or command output.
+  ADR-036 permits reading the vendor transcript named by a supported hook for a
+  session in a registered repository: it is read locally, bounded, never copied
+  to a second store, and always shown to that session's own member. Projecting it
+  to other members stays off by default and requires per-session preview and
+  versioned consent; quoted code and file *names* are allowed in a consented
+  conversation, the secret material above is not, and sharing is revocable with
+  deletion. Each vendor needs its own adapter (ADR-039).
 - Never automatically merge/rebase/cherry-pick/reset/checkout/apply patches or mutate teammate work.
 - Never shell-concatenate Git/user input; use argument arrays and validate refs/paths.
 - Never bind local servers beyond loopback.

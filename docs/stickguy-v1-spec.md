@@ -73,7 +73,7 @@ Median target: under 60 seconds from command to mutual visibility.
 2. Both dashboards show a finding with provenance, severity, and a plain-language reason.
 3. A member creates/opens a sync card.
 4. Members record a decision.
-5. The decision becomes visible in the project and through `get_decisions`.
+5. The resolution becomes visible in the Project and through `get_resolutions`.
 
 ### Return or join later
 

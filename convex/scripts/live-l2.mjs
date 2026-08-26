@@ -155,7 +155,9 @@ assert.equal(consumedInvite.body.error.code, "invite_consumed");
 
 const projectC = (await request("POST", "/v1/projects", {
   token: tokenC,
-  body: { label: `Synthetic Project C ${suffix}`, deviceLabel: "Synthetic Device C" },
+  // Project C is created with a chosen name, proving enrollment can set identity
+  // directly so a new Project never starts device-named.
+  body: { label: `Synthetic Project C ${suffix}`, deviceLabel: "Synthetic Device C", displayName: "Ravi P" },
   expected: 201,
 })).body;
 const bootstrapC = (await request("GET", "/v1/device/bootstrap", { token: tokenC })).body;
@@ -423,6 +425,209 @@ assert(agentSnapshot.workstreams.some((workstream) => workstream.agent?.vendor =
 assert(agentSnapshot.workstreams.some((workstream) => workstream.agent?.vendor === "claude" && workstream.paths.includes("synthetic/agent-shared.ts")));
 assert(agentSnapshot.findings.some((finding) => finding.workstreamIds.includes(codexAgentId) && finding.workstreamIds.includes(claudeAgentId)));
 
+// ---------------------------------------------------------------------------
+// L7 exit gate: plan revisions, advisory claims, sync/decision delivery, and
+// the explicit session-sharing consent boundary from ADR-034.
+// ---------------------------------------------------------------------------
+
+// ADR-037 removed plan items and advisory claims; those endpoints must be gone.
+for (const [method, path, body] of [
+  ["POST", `/v1/projects/${projectA.id}/plan-items`, { expectedPlanRevision: 0, items: [{ title: "Removed surface" }] }],
+  ["POST", `/v1/projects/${projectA.id}/claims`, { workstreamId: ids.workstreamA, patterns: ["src/**"] }],
+]) {
+  const gone = await request(method, path, { token: tokenA, body, expected: 404 });
+  assert.equal(gone.body.error.code, "not_found", `${path} must no longer exist`);
+}
+const collaborationShape = (await request("GET", `/v1/projects/${projectA.id}/collaboration`, { cookie: creatorCookie })).body;
+assert.deepEqual(Object.keys(collaborationShape).sort(), ["cursor", "projectId", "resolutions", "syncCards"]);
+
+// Two members resolve a finding together and the decision reaches both agents.
+const card = (await request("POST", `/v1/projects/${projectA.id}/sync-cards`, {
+  cookie: creatorCookie, body: { findingId, title: "Who owns the rotation boundary?", summary: "Both sessions are editing the same session-validity path." }, expected: 201,
+})).body;
+assert.equal(card.state, "open");
+const commented = (await request("POST", `/v1/sync-cards/${card.id}/comments`, {
+  cookie, body: { body: "Session B will stop editing the shared path and consume the rotation boundary instead." }, expected: 201,
+})).body;
+assert.equal(commented.body.length > 0, true);
+const cardBeforeResolve = (await request("GET", `/v1/projects/${projectA.id}/collaboration`, { cookie: creatorCookie })).body.syncCards.find((entry) => entry.id === card.id);
+assert.equal(cardBeforeResolve.comments.length, 1);
+const staleResolve = await request("POST", `/v1/sync-cards/${card.id}/resolve`, {
+  cookie: creatorCookie,
+  body: { expectedRevision: card.revision, summary: "Stale attempt", affectedMemberIds: [], affectedWorkstreamIds: [ids.workstreamA] },
+  expected: 409,
+});
+assert.equal(staleResolve.body.error.code, "revision_conflict");
+const decision = (await request("POST", `/v1/sync-cards/${card.id}/resolve`, {
+  cookie: creatorCookie,
+  body: {
+    expectedRevision: cardBeforeResolve.revision,
+    summary: "Session A owns the rotation boundary; Session B consumes it and stops editing the shared path.",
+    affectedMemberIds: [], affectedWorkstreamIds: [ids.workstreamA, ids.workstreamB],
+  },
+})).body;
+assert.equal(decision.affectedWorkstreamIds.length, 2);
+
+const resolvedCollaboration = (await request("GET", `/v1/projects/${projectA.id}/collaboration`, { cookie: creatorCookie })).body;
+assert.equal(resolvedCollaboration.syncCards.find((entry) => entry.id === card.id).state, "resolved");
+assert.equal(resolvedCollaboration.syncCards.find((entry) => entry.id === card.id).resolution.id, decision.id);
+assert(resolvedCollaboration.resolutions.some((entry) => entry.id === decision.id));
+// Resolving the card also resolves the finding it came from.
+const changesAfterDecision = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+assert.equal(changesAfterDecision.items.find((item) => item.id === findingId).state, "resolved");
+
+const decisionBriefA = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, { token: tokenA, body: { trigger: "manual", approximateTokenBudget: 800 } })).body;
+const decisionBriefB = (await request("POST", `/v1/workstreams/${ids.workstreamB}/briefs`, { token: tokenB, body: { trigger: "manual", approximateTokenBudget: 800 } })).body;
+const deliveredA = decisionBriefA.items.find((item) => item.kind === "decision" && item.id === decision.id);
+const deliveredB = decisionBriefB.items.find((item) => item.kind === "decision" && item.id === decision.id);
+assert(deliveredA, "member A's agent must receive the decision");
+assert(deliveredB, "member B's agent must receive the decision");
+assert.equal(deliveredA.advisoryAction, "coordination_required");
+
+// Redelivery is idempotent: the same decision id and revision, never a duplicate item.
+const redelivered = (await request("POST", `/v1/workstreams/${ids.workstreamA}/briefs`, { token: tokenA, body: { trigger: "manual", approximateTokenBudget: 800 } })).body;
+const repeats = redelivered.items.filter((item) => item.kind === "decision" && item.id === decision.id);
+assert.equal(repeats.length, 1, "decision delivery must not duplicate");
+assert.equal(repeats[0].revision, deliveredA.revision);
+
+// An unaffected workstream never receives the decision.
+const unaffectedBrief = (await request("POST", `/v1/workstreams/${ids.workstreamUnrelated}/briefs`, { token: tokenB, body: { trigger: "manual", approximateTokenBudget: 800 } })).body;
+assert(!unaffectedBrief.items.some((item) => item.kind === "decision"));
+
+// The collaboration cursor advances and does not replay settled work.
+const cursored = (await request("GET", `/v1/projects/${projectA.id}/collaboration`, { cookie: creatorCookie })).body;
+assert(cursored.cursor.startsWith("time:"));
+const afterCursor = (await request("GET", `/v1/projects/${projectA.id}/collaboration?cursor=${encodeURIComponent(cursored.cursor)}`, { cookie: creatorCookie })).body;
+assert.equal(afterCursor.cursor, cursored.cursor, "a consumed cursor must not move on its own");
+
+// Project isolation still holds for every collaboration surface.
+const crossProjectCollaboration = await request("GET", `/v1/projects/${projectA.id}/collaboration`, { token: tokenC, expected: 403 });
+assert.equal(crossProjectCollaboration.body.error.code, "forbidden");
+
+// --- ADR-034 session sharing -----------------------------------------------
+const sharingDefault = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
+assert.equal(sharingDefault.policy.enabled, false, "session sharing must be off by default");
+assert.equal(sharingDefault.policy.profile, "private");
+assert.equal(sharingDefault.messages.length, 0);
+
+// A message published before consent is refused outright.
+const beforeConsent = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_share_early_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 31, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_early_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary.", consentVersion: "session-share/v1" } }),
+] }, expected: 409 });
+assert.equal(beforeConsent.body.error.code, "sharing_not_enabled");
+
+const enabled = (await request("PUT", `/v1/workstreams/${codexAgentId}/session-sharing`, {
+  cookie: creatorCookie,
+  body: { profile: "conversation", audience: "project", consentVersion: "session-share/v1", allowedKinds: ["user", "thinking"], expiresInSeconds: 604800 },
+})).body;
+assert.equal(enabled.policy.enabled, true);
+assert.equal(enabled.policy.audience, "project");
+assert.deepEqual(enabled.policy.allowedKinds.slice().sort(), ["thinking", "user"]);
+
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_share_ok_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 32, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_ok_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary before editing.", consentVersion: "session-share/v1" } }),
+] } });
+// ADR-036: quoted code belongs in a consented conversation, and vendor-recorded
+// reasoning is shareable content under the same consent.
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_share_code_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 33, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_code_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "thinking", text: "The boundary is in session.ts:\n```ts\nconst rotate = true;\n```\nI will keep expiry untouched.", consentVersion: "session-share/v1" } }),
+] } });
+const shared = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
+assert.equal(shared.messages.length, 2);
+assert.deepEqual(shared.messages.map((message) => message.kind).sort(), ["thinking", "user"]);
+assert(shared.messages.some((message) => message.text.includes("```ts")), "quoted code must survive a consented share");
+
+// A kind outside the consented set is refused even while sharing is on.
+const disallowedKind = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_share_kind_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 34, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_kind_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "assistant", text: "An assistant reply that was never consented to.", consentVersion: "session-share/v1" } }),
+] }, expected: 409 });
+assert.equal(disallowedKind.body.error.code, "sharing_not_enabled");
+
+// Secret-bearing and source-like candidates are rejected as a whole, not redacted.
+let badSequence = 35;
+for (const [label, text] of [
+  ["env assignment", "Update this in .env.local: DATABASE_URL=postgres://user:pw@host/db"],
+  ["environment value", "Set this first:\nSTICKGUY_TOKEN=abcdef0123456789"],
+  ["credential", "Use api_key: sk-abcdef0123456789abcdef for the call."],
+  ["tool result", "tool_result: the command returned 3 rows"],
+  ["command output", "stdout: total 12"],
+  ["pasted env file", "Here it is:\nSTRIPE_KEY=sk_live_abcdefghijklmno\nDB_PASS=hunter2"],
+]) {
+  const rejected = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+    event({ eventId: `evt_share_bad_${label.replace(/\W/g, "")}_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: badSequence++, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_bad_${label.replace(/\W/g, "")}_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text, consentVersion: "session-share/v1" } }),
+  ] }, expected: 400 });
+  assert.equal(rejected.body.error.code, "prohibited_data", `${label} must reject the whole candidate`);
+}
+// ADR-038: naming a configuration file is ordinary conversation and must share.
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_share_mention_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 39, source: "hook", type: "agent.conversation_shared", payload: { messageId: `msg_mention_${suffix}`, workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "check the .env.local file to see which variables are set", consentVersion: "session-share/v1" } }),
+] } });
+const afterMention = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
+assert(afterMention.messages.some((message) => message.text.includes(".env.local")), "a filename mention must not be treated as its contents");
+
+const afterRejections = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
+assert.equal(afterRejections.messages.length, 3, "no rejected candidate may reach durable storage");
+
+// Another member cannot manage someone else's session sharing.
+const peerManage = await request("PUT", `/v1/workstreams/${codexAgentId}/session-sharing`, {
+  cookie, body: { profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [] }, expected: 403,
+});
+assert.equal(peerManage.body.error.code, "forbidden");
+
+// Revoking deletes the shared content, not just the visibility flag.
+await request("DELETE", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie, expected: 204 });
+const afterDelete = (await request("GET", `/v1/workstreams/${codexAgentId}/session-sharing`, { cookie: creatorCookie })).body;
+assert.equal(afterDelete.policy.enabled, false);
+assert.equal(afterDelete.messages.length, 0, "revocation must delete shared messages");
+
+// --- ADR-035 member identity and real branch collection --------------------
+const membersBefore = (await request("GET", `/v1/projects/${projectA.id}/members`, { cookie: creatorCookie })).body;
+const selfBefore = membersBefore.members.find((member) => member.isSelf);
+assert.equal(selfBefore.nameSource, "device", "a new Project starts with the device-derived name");
+assert.equal(selfBefore.name, "Synthetic Device A");
+
+const emailIdentity = await request("PATCH", `/v1/projects/${projectA.id}/member`, {
+  cookie: creatorCookie, body: { displayName: "khalid@example.invalid" }, expected: 400,
+});
+assert.equal(emailIdentity.body.error.code, "email_identity_rejected");
+
+const renamed = (await request("PATCH", `/v1/projects/${projectA.id}/member`, {
+  cookie: creatorCookie, body: { displayName: "Khalid M" },
+})).body;
+assert.equal(renamed.memberName, "Khalid M");
+assert.equal(renamed.memberNameSource, "member");
+const sessionAfterRename = (await request("GET", "/v1/dashboard/session", { cookie: creatorCookie })).body;
+assert.equal(sessionAfterRename.memberName, "Khalid M");
+assert.equal(sessionAfterRename.memberNameSource, "member");
+const snapshotAfterRename = (await request("GET", `/v1/dashboard/projects/${projectA.id}`, { cookie: creatorCookie })).body;
+assert(snapshotAfterRename.workstreams.some((workstream) => workstream.memberName === "Khalid M"));
+assert(!snapshotAfterRename.workstreams.some((workstream) => workstream.memberName === "Synthetic Device A"));
+// The device name survives, but only as security surface.
+assert(snapshotAfterRename.devices.some((device) => device.label === "Synthetic Device A"));
+
+// A Project enrolled with a chosen name never shows the device-derived source.
+const membersC = (await request("GET", `/v1/projects/${projectC.id}/members`, { token: tokenC })).body;
+const selfC = membersC.members.find((member) => member.isSelf);
+assert.equal(selfC.name, "Ravi P");
+assert.equal(selfC.nameSource, "member", "a name chosen at enrollment must not be marked device-derived");
+const emailAtEnrollment = await request("POST", "/v1/projects", {
+  token: randomBytes(32).toString("hex"),
+  body: { label: `Synthetic Email Project ${suffix}`, deviceLabel: "Synthetic Device", displayName: "someone@example.invalid" },
+  expected: 400,
+});
+assert.equal(emailAtEnrollment.body.error.code, "email_identity_rejected");
+
+// Live sessions carry the real checked-out branch.
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_agent_branch_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 40, source: "hook", type: "agent.activity_reported", payload: { workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "PreToolUse", status: "active", action: "editing synthetic/agent-shared.ts", tool: "apply_patch", branch: "feature/session-rotation", paths: ["synthetic/agent-shared.ts"] } }),
+] } });
+const branchSnapshot = (await request("GET", `/v1/dashboard/projects/${projectA.id}`, { cookie: creatorCookie })).body;
+assert.equal(branchSnapshot.workstreams.find((workstream) => workstream.id === codexAgentId).agent.branch, "feature/session-rotation");
+const unsafeBranch = await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({ eventId: `evt_agent_branch_bad_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId, workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 41, source: "hook", type: "agent.activity_reported", payload: { workstreamId: codexAgentId, vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "PreToolUse", status: "active", action: "editing", tool: "apply_patch", branch: "../etc/passwd" } }),
+] }, expected: 400 });
+assert.equal(unsafeBranch.body.error.code, "validation_failed");
+
 const crossProjectItem = await request("GET", `/v1/context-items/${findingId}`, { token: tokenC, expected: 403 });
 assert.equal(crossProjectItem.body.error.code, "forbidden");
 const crossProjectChanges = await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenC, expected: 403 });
@@ -475,7 +680,7 @@ const revokedBootstrap = await request("GET", "/v1/device/bootstrap", { token: t
 assert.equal(revokedBootstrap.body.error.code, "credential_revoked");
 
 console.log(JSON.stringify({
-  level: "L2 hosted Project service with L6 intelligence",
+  level: "L2 hosted Project service with L6 intelligence and collision coordination",
   result: "PASS",
   deployment: "anonymous-local-loopback-redacted",
   assertions: {
@@ -508,6 +713,26 @@ console.log(JSON.stringify({
     radarFeedbackRecorded: true
     ,automaticAgentSessionsVisible: true
     ,sameCheckoutAgentPathCollision: true
+    ,syncCardCommentAndResolve: true
+    ,decisionReachesBothAgents: true
+    ,decisionDeliveryIdempotent: true
+    ,unaffectedWorkstreamGetsNoDecision: true
+    ,collaborationCursorDoesNotReplay: true
+    ,planningSurfacesRemoved: true
+    ,collaborationProjectIsolation: true
+    ,sessionSharingOffByDefault: true
+    ,sessionSharingRequiresConsentAndKind: true
+    ,sessionSecretCandidatesRejectedWhole: true
+    ,quotedCodeAllowedInConsentedShare: true
+    ,filenameMentionIsNotDisclosure: true
+    ,vendorReasoningShareableUnderConsent: true
+    ,sessionSharingPeerCannotManage: true
+    ,sessionSharingRevocationDeletesContent: true
+    ,memberIdentityIsMemberControlled: true
+    ,emailRejectedAsIdentity: true
+    ,deviceNameIsSecuritySurfaceOnly: true
+    ,identityChosenAtEnrollment: true
+    ,realBranchCollectedForLiveSessions: true
   },
   timings,
 }, null, 2));

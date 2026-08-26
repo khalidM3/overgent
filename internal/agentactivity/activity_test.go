@@ -2,6 +2,7 @@ package agentactivity
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,70 @@ func TestUnknownEventAndOversizeFailClosed(t *testing.T) {
 	}
 	if _, err := Parse("claude", make([]byte, MaxInputBytes+1)); err == nil {
 		t.Fatal("oversize input accepted")
+	}
+}
+
+func TestHookNamesTheTranscriptRatherThanCarryingContent(t *testing.T) {
+	event, err := Parse("claude", []byte(`{"session_id":"s","cwd":"/tmp","hook_event_name":"UserPromptSubmit","prompt":"Explain the navigation architecture","transcript_path":"/tmp/session.jsonl"}`))
+	if err != nil || event.TranscriptPath != "/tmp/session.jsonl" {
+		t.Fatalf("event=%+v err=%v", event, err)
+	}
+}
+
+func TestClassifyAllowsQuotedCodeButRejectsSecretsAndRawOutput(t *testing.T) {
+	// ADR-036: an agent conversation is unreadable without quoted code, and the
+	// member explicitly chose to share it.
+	for _, text := range []string{
+		"Explain the navigation architecture",
+		"```ts\nconst source = true\n```",
+		"diff --git a/nav.tsx b/nav.tsx\n+const x = 1",
+		"Use the sessionRotation() helper in src/auth.ts",
+	} {
+		if _, err := ClassifyMessage(Message{Kind: "assistant", Text: text}); err != nil {
+			t.Fatalf("rejected allowed message %q: %v", text, err)
+		}
+	}
+	// Vendor-recorded reasoning is shareable content under the same consent.
+	if _, err := ClassifyMessage(Message{Kind: "thinking", Text: "I should read the session module first."}); err != nil {
+		t.Fatalf("thinking must be shareable: %v", err)
+	}
+	// ADR-038: naming a credential file is ordinary conversation. Only the
+	// material itself rejects a message.
+	for _, text := range []string{
+		"read .env.local to see which variables are set",
+		"check the .env file before running the migration",
+		"I added the key to .env.production; restart the service",
+		"Compare with MAX_RETRIES == 5 before changing it",
+		"The stdout of that command looked fine to me",
+	} {
+		if _, err := ClassifyMessage(Message{Kind: "assistant", Text: text}); err != nil {
+			t.Fatalf("rejected a harmless mention %q: %v", text, err)
+		}
+	}
+	for _, text := range []string{
+		"API_KEY=super-secret", "export DATABASE_URL=postgres://x",
+		"Update this in .env.local: DATABASE_URL=postgres://user:pw@host/db",
+		"Here is the file:\nSTRIPE_KEY=sk_live_abcdefghijklmno\nDB_PASS=hunter2",
+		"Bearer abcdefghijklmnopqrstuvwxyz", "-----BEGIN RSA PRIVATE KEY-----", "password: hunter2hunter2",
+		"tool_result: 42 rows", "stdout: total 12", "transcript_path /tmp/x.jsonl",
+	} {
+		if _, err := ClassifyMessage(Message{Kind: "user", Text: text}); err == nil {
+			t.Fatalf("accepted prohibited message %q", text)
+		}
+	}
+	// Tool names are activity metadata, never shareable conversation.
+	if _, err := ClassifyMessage(Message{Kind: "tool", Text: "Read"}); err == nil {
+		t.Fatal("tool messages must never be shareable content")
+	}
+}
+
+func TestClassifyCoordinationTitleIsBoundedBeforeUpload(t *testing.T) {
+	if got, err := ClassifyCoordinationTitle("  Rotate   browser sessions  "); err != nil || got != "Rotate browser sessions" {
+		t.Fatalf("title=%q err=%v", got, err)
+	}
+	for _, value := range []string{"", "API_KEY=super-secret", "Bearer abcdefghijklmnopqrstuvwxyz", strings.Repeat("x", 161)} {
+		if _, err := ClassifyCoordinationTitle(value); err == nil {
+			t.Fatalf("accepted prohibited title %q", value)
+		}
 	}
 }
