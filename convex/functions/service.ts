@@ -3,7 +3,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { conceptVector, evaluateWorkstreams, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type WorkstreamRecord } from "@stickguy/coordination";
+import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
 import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
@@ -456,6 +456,7 @@ export const createBrief = internalMutation({
       reason: finding.reason,
       revision: finding.revision,
       priority: severityRank(finding.severity) * 25,
+      ...(finding.delivery ? { delivery: finding.delivery as "next_turn" | "dashboard" | "silent" } : {}),
     })), args.requestedBudget);
     const items = [...rendered.items];
     let renderedSize = rendered.renderedSize;
@@ -851,7 +852,17 @@ async function applyProjection(
         ...stringValues(payload.affectedInterfaces).map((value) => `changes:${value}`),
         ...stringValues(payload.dependencies).map((value) => `dependency:${value}`),
       ];
-      await upsertSemanticIntelligence(ctx, project, checkpointWorkstream, boundedSemanticText([String(payload.summary), ...stringValues(payload.discoveries)]), "change", checkpointTags, event.source, now);
+      const checkpointSummary = String(payload.summary);
+      await upsertSemanticIntelligence(ctx, project, checkpointWorkstream, boundedSemanticText([checkpointSummary, ...stringValues(payload.discoveries)]), "change", checkpointTags, event.source, now);
+      // What the reporting workstream says about its own verification decides
+      // whether a contract change it caused reads as settled or provisional
+      // (ADR-045). Structured verification entries win; the bounded summary is
+      // read only when the publisher sent none.
+      const verificationState = reportedVerificationState(payload.verification) ?? readVerificationState(checkpointSummary);
+      if (checkpointWorkstream.verificationState !== verificationState) {
+        await ctx.db.patch(checkpointWorkstream._id, { verificationState, updatedAt: now });
+      }
+      await readjudicateContractFindings(ctx, checkpointWorkstream, verificationState, now);
       const basedOnBriefId = typeof payload.basedOnBriefId === "string" ? payload.basedOnBriefId : "";
       if (basedOnBriefId) await upsertStaleAssumption(ctx, project, checkpointWorkstream, basedOnBriefId, now);
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
@@ -1142,6 +1153,9 @@ async function upsertContractFindings(
     .withIndex("by_scope_path", (q) => q.eq("scopeKey", workspace.scopeKey).eq("path", change.path)).take(129);
   if (readers.length > 128) fail("read_set_scope_too_large");
   const changedAt = new Date(change.now).toISOString();
+  const changer = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", change.changedByWorkstreamPublicId)).unique();
+  const changerTitle = changer?.title ?? change.changedByWorkstreamPublicId;
+  const changerVerification = (changer?.verificationState as VerificationState | undefined) ?? "unknown";
   for (const reader of readers) {
     if (reader.workstreamPublicId === change.changedByWorkstreamPublicId) continue;
     if (reader.fileContractHashAtRead === change.nextHash) continue;
@@ -1164,23 +1178,194 @@ async function upsertContractFindings(
         readAt: reader.readAt, changedAt,
       },
     }];
+    const candidate = contractCandidate(reason, session, reader.workstreamPublicId, change.changedByWorkstreamPublicId, changerTitle, changerVerification, change.path);
+    const verdict = deterministicJudgment(candidate);
     const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { lastSeenAt: change.now, evidence, reason, state: "open", expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY });
+      await ctx.db.patch(existing._id, { lastSeenAt: change.now, evidence, reason: verdict.explanation, severity: verdict.severity, delivery: verdict.delivery, state: "open", expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY });
       continue;
     }
+    const publicId = `fnd_${fingerprint.slice(0, 32)}`;
     await ctx.db.insert("findings", {
-      publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workspace.scopeKey,
-      kind: "stale_assumption", severity: "high", confidenceBand: "deterministic",
-      workstreamPublicIds: [reader.workstreamPublicId], evidence, reason, state: "open", fingerprint,
-      engineVersion: CONTRACT_ENGINE_VERSION, revision: 1, firstSeenAt: change.now, lastSeenAt: change.now,
+      publicId, projectId: project._id, scopeKey: workspace.scopeKey,
+      kind: "stale_assumption", severity: verdict.severity, confidenceBand: "deterministic",
+      workstreamPublicIds: [reader.workstreamPublicId], evidence, reason: verdict.explanation, state: "open", fingerprint,
+      engineVersion: CONTRACT_ENGINE_VERSION, delivery: verdict.delivery, revision: 1, firstSeenAt: change.now, lastSeenAt: change.now,
       expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY,
     });
+    await scheduleAdjudication(ctx, publicId, 1, candidate, verdict);
+  }
+}
+
+// contractCandidate frames a contract drift for the judgment layer. The reader
+// and the changer are distinct roles: whether the change is settled or
+// work-in-progress is a fact about the changer, and it is what separates an
+// urgent correction from a provisional heads-up.
+function contractCandidate(
+  reason: string,
+  session: Doc<"workstreams">,
+  readerPublicId: string,
+  changerPublicId: string,
+  changerTitle: string,
+  changerVerification: VerificationState,
+  path: string,
+): JudgmentCandidate {
+  return {
+    kind: "stale_assumption", severity: "high", confidence: "high", reason,
+    signalKind: "symbol", sharedSignals: [path],
+    workstreams: [
+      { id: readerPublicId, title: session.title, summary: session.summary, status: session.status, reportedChange: false, verification: "unknown", role: "read" },
+      { id: changerPublicId, title: changerTitle, summary: changerTitle, status: "active", reportedChange: true, verification: changerVerification, role: "changed" },
+    ],
+    trackedContractSymbols: [], structurallyUnambiguous: false,
+  };
+}
+
+// readjudicateContractFindings re-runs judgment for open contract drift a
+// workstream caused, after that workstream reports what verification it ran.
+// Evidence usually arrives before its context does: the fingerprint change is
+// published by the scanner, and the checkpoint that says whether the change is
+// finished follows it.
+async function readjudicateContractFindings(
+  ctx: MutationCtx,
+  workstream: Doc<"workstreams">,
+  verification: VerificationState,
+  now: number,
+): Promise<void> {
+  const findings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).take(513);
+  if (findings.length > 512) fail("finding_scope_too_large");
+  for (const finding of findings) {
+    if (finding.engineVersion !== CONTRACT_ENGINE_VERSION || finding.state !== "open") continue;
+    const evidence = Array.isArray(finding.evidence) ? finding.evidence as Array<{ contract?: { changedByWorkstreamId?: string; path?: string } }> : [];
+    const contract = evidence.find((item) => item.contract?.changedByWorkstreamId === workstream.publicId)?.contract;
+    if (!contract) continue;
+    const reader = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", finding.workstreamPublicIds[0] ?? "")).unique();
+    if (!reader) continue;
+    const candidate = contractCandidate(finding.reason, reader, reader.publicId, workstream.publicId, workstream.title, verification, contract.path ?? "");
+    const verdict = deterministicJudgment(candidate);
+    if (finding.severity === verdict.severity && finding.reason === verdict.explanation && finding.delivery === verdict.delivery) continue;
+    await ctx.db.patch(finding._id, {
+      severity: verdict.severity, reason: verdict.explanation, delivery: verdict.delivery,
+      revision: finding.revision + 1, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+    });
+    await scheduleAdjudication(ctx, finding.publicId, finding.revision + 1, candidate, verdict);
   }
 }
 
 function boundedText(value: string, maximum: number): string {
   return value.length <= maximum ? value : `${value.slice(0, maximum - 1)}…`;
+}
+
+// ---------------------------------------------------------------------------
+// Judgment layer (ADR-045)
+//
+// Deterministic evidence decides that something happened; these helpers decide
+// what it means and where the answer belongs. Every verdict on this path is
+// computed offline and synchronously, so a finding is never delayed by, or
+// dependent on, a hosted model. The managed adjudicator is scheduled after the
+// coordination object is durable and only improves the wording.
+// ---------------------------------------------------------------------------
+
+const TRACKED_CONTRACT_SYMBOL_LIMIT = 512;
+
+// trackedContractSymbols lists the symbols the contract-fingerprint engine
+// already reports exactly for a scope. A coarse notice about one of them
+// repeats work the exact engine does better, so the judgment layer silences it.
+async function trackedContractSymbols(ctx: MutationCtx, key: string): Promise<string[]> {
+  const rows = await ctx.db.query("contractFingerprints").withIndex("by_scope_path", (q) => q.eq("scopeKey", key)).take(257);
+  if (rows.length > 256) fail("contract_scope_too_large");
+  const symbols = new Set<string>();
+  for (const row of rows) {
+    for (const symbol of row.symbols) {
+      if (symbols.size >= TRACKED_CONTRACT_SYMBOL_LIMIT) break;
+      symbols.add(symbol.name);
+    }
+  }
+  return [...symbols];
+}
+
+// scheduleAdjudication asks the managed provider to improve an explanation
+// after the coordination object is durable. It is skipped for candidates that
+// explain themselves and for verdicts nobody will read.
+async function scheduleAdjudication(
+  ctx: MutationCtx,
+  findingPublicId: string,
+  revision: number,
+  candidate: JudgmentCandidate,
+  verdict: JudgmentVerdict,
+): Promise<void> {
+  if (candidate.structurallyUnambiguous || verdict.delivery === "silent" || candidate.workstreams.length < 2) return;
+  await ctx.scheduler.runAfter(0, internal.intelligence.adjudicateFinding, {
+    findingPublicId, expectedRevision: revision, candidate: candidate as unknown as Record<string, unknown>,
+  });
+}
+
+function judgmentSeverity(value: string): JudgmentSeverity {
+  return (["low", "medium", "high", "critical"].includes(value) ? value : "medium") as JudgmentSeverity;
+}
+
+function judgmentConfidence(band: string): "high" | "medium" | "low" {
+  return band === "deterministic" || band === "high" ? "high" : band === "low" ? "low" : "medium";
+}
+
+// reportedVerificationState reads the structured verification summaries a
+// checkpoint carried, when it carried any. A single failing or unfinished
+// check is enough to call the whole checkpoint unverified.
+function reportedVerificationState(reported: unknown): VerificationState | undefined {
+  if (!Array.isArray(reported) || reported.length === 0) return undefined;
+  const states = reported.map((entry) => String((entry as { state?: unknown }).state ?? ""));
+  if (states.some((state) => state !== "passed")) return "unverified";
+  return "passed";
+}
+
+function overlapValues(left: readonly string[] = [], right: readonly string[] = []): string[] {
+  const lowered = new Set(right.map((value) => value.toLowerCase()));
+  return [...new Set(left.filter((value) => lowered.has(value.toLowerCase())))].sort();
+}
+
+// pairCandidate restates a deterministic pair finding as something the
+// judgment layer can reason about: which concrete signal the two workstreams
+// share, and what each of them has actually reported so far.
+function pairCandidate(
+  finding: IntelligenceFinding,
+  records: Map<string, WorkstreamRecord>,
+  states: Map<string, { title: string; reportedChange: boolean; verification: VerificationState }>,
+  tracked: readonly string[],
+): JudgmentCandidate {
+  const left = records.get(finding.workstreamIds[0] ?? "");
+  const right = records.get(finding.workstreamIds[1] ?? "");
+  let signalKind: JudgmentSignalKind = "semantic";
+  let sharedSignals: string[] = [];
+  if (left && right) {
+    const paths = overlapValues(left.paths, right.paths);
+    const dependencies = overlapValues(left.dependencies, right.dependencies);
+    // evaluatePair folds declared contracts into the schema comparison, so the
+    // judgment layer reads the same union back out.
+    const contracts = overlapValues([...(left.schemas ?? []), ...(left.contracts ?? [])], [...(right.schemas ?? []), ...(right.contracts ?? [])]);
+    const routes = overlapValues(left.routes, right.routes);
+    if (finding.kind === "direct_collision" && paths.length > 0) { signalKind = "path"; sharedSignals = paths; }
+    else if (finding.kind === "shared_dependency") {
+      if (dependencies.length > 0) { signalKind = "dependency"; sharedSignals = dependencies; }
+      else if (contracts.length > 0) { signalKind = "contract"; sharedSignals = contracts; }
+      else { signalKind = "dependency"; sharedSignals = routes; }
+    } else if (finding.kind === "downstream_impact") { signalKind = "dependency"; sharedSignals = [...dependencies, ...contracts]; }
+    else if (finding.kind === "assumption_conflict") { signalKind = "assumption"; sharedSignals = overlapValues(left.assumptions, right.assumptions); }
+    else { signalKind = "semantic"; sharedSignals = overlapValues(left.components, right.components); }
+  }
+  const workstreams = finding.workstreamIds.map((id) => {
+    const record = records.get(id);
+    const state = states.get(id);
+    return {
+      id, title: state?.title ?? id, summary: record?.summary ?? "", status: record?.status ?? "active",
+      reportedChange: state?.reportedChange ?? false, verification: state?.verification ?? "unknown",
+      role: "peer" as const,
+    };
+  });
+  return {
+    kind: finding.kind, severity: judgmentSeverity(finding.severity), confidence: judgmentConfidence(finding.confidenceBand),
+    reason: finding.reason, signalKind, sharedSignals, workstreams, trackedContractSymbols: tracked,
+    structurallyUnambiguous: finding.kind === "direct_collision" && sharedSignals.length > 0,
+  };
 }
 
 async function upsertPathFindings(
@@ -1223,6 +1408,7 @@ async function upsertPathFindings(
           evidence,
           reason: `Active workstreams overlap on ${path}.`,
           state: "open",
+          delivery: decideDelivery(relationshipForKind("direct_collision"), "medium"),
           fingerprint,
           engineVersion: "structural/v1",
           revision: 1,
@@ -1259,6 +1445,7 @@ async function upsertAgentPathFindings(
           publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey,
           kind: "direct_collision", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: workstreamIds,
           evidence, reason: `Active ${workstream.vendor} and ${peer.vendor} sessions overlap on ${path}.`, state: "open",
+          delivery: decideDelivery(relationshipForKind("direct_collision"), "high"),
           fingerprint, engineVersion: "agent-path/v1", revision: 1, firstSeenAt: now, lastSeenAt: now,
           expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
         });
@@ -1332,23 +1519,42 @@ async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"project
   const grouped = new Map<Id<"workstreams">, Array<Doc<"semanticObjects">>>();
   for (const object of objects) grouped.set(object.workstreamId, [...(grouped.get(object.workstreamId) ?? []), object]);
   const records: WorkstreamRecord[] = [];
+  const states = new Map<string, { title: string; reportedChange: boolean; verification: VerificationState }>();
   for (const [workstreamId, group] of grouped) {
     const current = await ctx.db.get(workstreamId);
     if (!current || current.status === "done") continue;
+    const change = group.find((object) => object.kind === "change");
+    states.set(current.publicId, {
+      title: current.title,
+      reportedChange: change !== undefined,
+      verification: (current.verificationState as VerificationState | undefined) ?? (change ? readVerificationState(change.text) : "unknown"),
+    });
     records.push(await semanticRecord(ctx, project.publicId, current, group));
   }
+  const tracked = await trackedContractSymbols(ctx, key);
+  const recordById = new Map(records.map((record) => [record.id, record]));
   const activeFingerprints = new Set<string>();
   const revisionByWorkstream = new Map(records.map((record) => [record.id, record.revision]));
   for (const finding of evaluateWorkstreams(records)) {
+    const candidate = pairCandidate(finding, recordById, states, tracked);
+    const verdict = deterministicJudgment(candidate);
+    // A silent verdict never becomes a coordination object. Leaving the
+    // fingerprint out of the active set also resolves an earlier row that the
+    // judgment layer has since decided adds nothing.
+    if (verdict.delivery === "silent") continue;
     const fingerprint = sha256Hex(`${key}\0${finding.workstreamIds.join("\0")}\0${finding.kind}`);
     activeFingerprints.add(fingerprint);
     const inputRevisions = Object.fromEntries(finding.workstreamIds.map((id) => [id, revisionByWorkstream.get(id) ?? 0]));
     const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
     if (existing) {
-      const material = existing.kind !== finding.kind || existing.severity !== finding.severity || existing.confidenceBand !== finding.confidenceBand || existing.reason !== finding.reason || existing.state !== "open" || JSON.stringify(existing.evidence) !== JSON.stringify(finding.evidence) || JSON.stringify(existing.inputRevisions ?? {}) !== JSON.stringify(inputRevisions);
-      await ctx.db.patch(existing._id, { kind: finding.kind, severity: finding.severity, confidenceBand: finding.confidenceBand, evidence: finding.evidence, reason: finding.reason, state: "open", inputRevisions, revision: existing.revision + (material ? 1 : 0), lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY, engineVersion: INTELLIGENCE_ENGINE_VERSION });
+      const material = existing.kind !== finding.kind || existing.severity !== verdict.severity || existing.confidenceBand !== finding.confidenceBand || existing.reason !== verdict.explanation || existing.state !== "open" || existing.delivery !== verdict.delivery || JSON.stringify(existing.evidence) !== JSON.stringify(finding.evidence) || JSON.stringify(existing.inputRevisions ?? {}) !== JSON.stringify(inputRevisions);
+      await ctx.db.patch(existing._id, { kind: finding.kind, severity: verdict.severity, confidenceBand: finding.confidenceBand, evidence: finding.evidence, reason: verdict.explanation, state: "open", delivery: verdict.delivery, inputRevisions, revision: existing.revision + (material ? 1 : 0), lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY, engineVersion: INTELLIGENCE_ENGINE_VERSION });
+      if (material) await scheduleAdjudication(ctx, existing.publicId, existing.revision + 1, candidate, verdict);
+      continue;
     }
-    else await ctx.db.insert("findings", { publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: key, kind: finding.kind, severity: finding.severity, confidenceBand: finding.confidenceBand, workstreamPublicIds: [...finding.workstreamIds], evidence: finding.evidence, reason: finding.reason, state: "open", fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, inputRevisions, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+    const publicId = `fnd_${fingerprint.slice(0, 32)}`;
+    await ctx.db.insert("findings", { publicId, projectId: project._id, scopeKey: key, kind: finding.kind, severity: verdict.severity, confidenceBand: finding.confidenceBand, workstreamPublicIds: [...finding.workstreamIds], evidence: finding.evidence, reason: verdict.explanation, state: "open", delivery: verdict.delivery, fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, inputRevisions, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+    await scheduleAdjudication(ctx, publicId, 1, candidate, verdict);
   }
   const previous = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", key)).take(513);
   if (previous.length > 512) fail("finding_scope_too_large");
@@ -1408,7 +1614,7 @@ async function upsertStaleAssumption(ctx: MutationCtx, project: Doc<"projects">,
   const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
   const evidence = [{ kind: "decision", summary: `${changed.publicId} materially changed after ${briefPublicId}.`, source: "context_delivery", fidelity: "structural" }];
   if (existing) await ctx.db.patch(existing._id, { lastSeenAt: now, revision: existing.revision + 1, state: "open", evidence, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
-  else await ctx.db.insert("findings", { publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey, kind: "stale_assumption", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: [workstream.publicId], evidence, reason: "This checkpoint relied on a brief that was materially superseded for this workstream.", state: "open", fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
+  else await ctx.db.insert("findings", { publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey, kind: "stale_assumption", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: [workstream.publicId], evidence, reason: "This checkpoint relied on a brief that was materially superseded for this workstream.", state: "open", delivery: decideDelivery(relationshipForKind("stale_assumption"), "high"), fingerprint, engineVersion: INTELLIGENCE_ENGINE_VERSION, revision: 1, firstSeenAt: now, lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
 }
 
 async function requireDevice(ctx: QueryCtx | MutationCtx, tokenHash: string): Promise<Doc<"devices">> {
