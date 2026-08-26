@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { conceptVector, evaluateWorkstreams, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type WorkstreamRecord } from "@stickguy/coordination";
-import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, validateSessionMessageText, ValidationError } from "../src/domain";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, findDependencySatisfaction, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
 const DAY = 86_400_000;
@@ -12,6 +12,7 @@ const ACTIVITY_RETENTION = 30 * DAY;
 const DELIVERY_RETENTION = 30 * DAY;
 const DEFAULT_RETENTION_DAYS = 30;
 const CONTRACT_ENGINE_VERSION = "contract-watch/v1";
+const DEPENDENCY_ENGINE_VERSION = "dependency-readiness/v1";
 
 type EventInput = {
   schemaVersion: 1;
@@ -448,7 +449,7 @@ export const createBrief = internalMutation({
       projectId: project.publicId,
       repositoryId: workspace.repoFingerprint,
       id: finding.publicId,
-      kind: finding.kind as "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption",
+      kind: finding.kind as "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready",
       severity: finding.severity as "low" | "medium" | "high" | "critical",
       confidenceBand: finding.confidenceBand as "deterministic" | "high" | "medium" | "low",
       workstreamIds: finding.workstreamPublicIds,
@@ -795,23 +796,29 @@ async function applyProjection(
       const workstreamPublicId = String(payload.workstreamId);
       const current = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       const summary = String(payload.intendedOutcome);
+      const hasWaitingOn = Array.isArray(payload.waitingOn);
+      const waitingOn = hasWaitingOn ? stringValues(payload.waitingOn) : undefined;
       if (!current) {
         await ctx.db.insert("workstreams", {
           publicId: workstreamPublicId, projectId: project._id, memberId: member._id, workspaceId: workspace._id,
           scopeKey: workspace.scopeKey, title: String(payload.title), summary, status: "active", revision: 1, updatedAt: now,
+          ...(waitingOn !== undefined ? { waitingOn } : {}),
         });
         await bumpScope(ctx, workspace.scopeKey, now);
       } else {
         if (current.projectId !== project._id || current.workspaceId !== workspace._id) fail("forbidden");
-        const material = current.title !== String(payload.title) || current.summary !== summary;
+        const material = current.title !== String(payload.title) || current.summary !== summary ||
+          waitingOn !== undefined && JSON.stringify(current.waitingOn ?? []) !== JSON.stringify(waitingOn);
         await ctx.db.patch(current._id, {
           title: String(payload.title), summary, revision: current.revision + 1, status: "active", updatedAt: now,
+          ...(waitingOn !== undefined ? { waitingOn } : {}),
         });
         if (material) await bumpScope(ctx, workspace.scopeKey, now);
       }
       await ctx.db.patch(workspace._id, { lastProjectedSequence: Math.max(workspace.lastProjectedSequence, event.sequence), updatedAt: now });
       const projected = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       if (!projected) fail("workstream_not_found");
+      await recomputeDependencyReadiness(ctx, project, projected, now);
       const tags = [
         ...stringValues(payload.components).map((value) => `component:${value}`),
         ...stringValues(payload.contracts).map((value) => `contract:${value}`),
@@ -828,6 +835,7 @@ async function applyProjection(
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       if (status !== workstream.status) await bumpScope(ctx, workspace.scopeKey, now);
       if (status === "done") {
+        await resolveDependencyFindings(ctx, workstream, now);
         await deactivateWorkstreamSemantics(ctx, workstream._id);
         await recomputeSemanticFindings(ctx, project, workspace.scopeKey, now);
       }
@@ -851,9 +859,13 @@ async function applyProjection(
         ...stringValues(payload.affectedInterfaces).map((value) => `changes:${value}`),
         ...stringValues(payload.dependencies).map((value) => `dependency:${value}`),
       ];
+      const verification = Array.isArray(payload.verification) ? payload.verification as Array<Record<string, unknown>> : [];
+      const latestCheckpointPassed = verification.length > 0 && verification.every((item) => item.state === "passed");
+      await ctx.db.patch(checkpointWorkstream._id, { latestCheckpointPassed });
       await upsertSemanticIntelligence(ctx, project, checkpointWorkstream, boundedSemanticText([String(payload.summary), ...stringValues(payload.discoveries)]), "change", checkpointTags, event.source, now);
       const basedOnBriefId = typeof payload.basedOnBriefId === "string" ? payload.basedOnBriefId : "";
       if (basedOnBriefId) await upsertStaleAssumption(ctx, project, checkpointWorkstream, basedOnBriefId, now);
+      await recomputeDependencyClaimsForProducer(ctx, project, checkpointWorkstream, now);
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
@@ -934,12 +946,14 @@ async function applyProjection(
           await ctx.db.insert("contractFingerprints", {
             projectId: project._id, scopeKey: workspace.scopeKey, path: entry.path, revision: 1, ...record,
           });
+          await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
           continue;
         }
         // A body-only edit leaves the hash alone; nothing is compared and
         // nothing is written beyond the retention refresh.
         if (existing.fileContractHash === entry.fileContractHash) {
           await ctx.db.patch(existing._id, { updatedAt: now, expiresAt: record.expiresAt });
+          await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
           continue;
         }
         await ctx.db.patch(existing._id, { ...record, revision: existing.revision + 1 });
@@ -947,6 +961,7 @@ async function applyProjection(
           path: entry.path, previousSymbols: existing.symbols, nextSymbols: entry.symbols,
           nextHash: entry.fileContractHash, changedByWorkstreamPublicId: changedBy, now,
         });
+        await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
       }
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       await bumpScope(ctx, workspace.scopeKey, now);
@@ -1176,6 +1191,136 @@ async function upsertContractFindings(
       engineVersion: CONTRACT_ENGINE_VERSION, revision: 1, firstSeenAt: change.now, lastSeenAt: change.now,
       expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY,
     });
+  }
+}
+
+// Dependency readiness mirrors contract drift but targets the declaring
+// workstream. Its fingerprint excludes readiness state so verification upgrades
+// the same finding revision instead of producing a second notification.
+async function recomputeDependencyReadiness(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  claimant: Doc<"workstreams">,
+  now: number,
+): Promise<void> {
+  const claims = claimant.status === "done" ? [] : claimant.waitingOn ?? [];
+  const scopedFindings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", claimant.scopeKey)).take(513);
+  if (scopedFindings.length > 512) fail("finding_scope_too_large");
+  const dependencyFindings = scopedFindings.filter((finding) =>
+    finding.engineVersion === DEPENDENCY_ENGINE_VERSION && finding.workstreamPublicIds.length === 1 && finding.workstreamPublicIds[0] === claimant.publicId);
+  const activeClaims = new Set(claims.map((claim) => claim.toLocaleLowerCase("en-US")));
+  for (const finding of dependencyFindings) {
+    const claim = typeof finding.inputRevisions === "object" && finding.inputRevisions !== null &&
+      typeof (finding.inputRevisions as Record<string, unknown>).claim === "string"
+      ? String((finding.inputRevisions as Record<string, unknown>).claim) : "";
+    if (finding.state === "open" && !activeClaims.has(claim.toLocaleLowerCase("en-US"))) {
+      await ctx.db.patch(finding._id, { state: "resolved", revision: finding.revision + 1, lastSeenAt: now });
+    }
+  }
+  if (claims.length === 0) return;
+
+  const fingerprints = await ctx.db.query("contractFingerprints")
+    .withIndex("by_scope_path", (q) => q.eq("scopeKey", claimant.scopeKey)).take(513);
+  if (fingerprints.length > 512) fail("contract_scope_too_large");
+  const workstreams = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", claimant.scopeKey)).take(257);
+  if (workstreams.length > 256) fail("workstream_scope_too_large");
+  const workstreamByPublicId = new Map(workstreams.map((workstream) => [workstream.publicId, workstream]));
+  const candidates = fingerprints.flatMap((fingerprint) => {
+    const producer = workstreamByPublicId.get(fingerprint.changedByWorkstreamPublicId);
+    if (!producer) return [];
+    return [{
+      projectId: project.publicId,
+      scopeKey: fingerprint.scopeKey,
+      workstreamId: producer.publicId,
+      status: producer.status,
+      path: fingerprint.path,
+      symbols: fingerprint.symbols.map((symbol) => symbol.name),
+      latestCheckpointPassed: producer.latestCheckpointPassed,
+    }];
+  });
+
+  for (const claim of claims) {
+    const satisfaction = findDependencySatisfaction(project.publicId, claimant.scopeKey, claimant.publicId, claim, candidates);
+    const fingerprint = sha256Hex(`${claimant.scopeKey}\0dependency\0${claimant.publicId}\0${claim.toLocaleLowerCase("en-US")}`);
+    const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+    if (!satisfaction) {
+      if (existing?.state === "open") await ctx.db.patch(existing._id, { state: "resolved", revision: existing.revision + 1, lastSeenAt: now });
+      continue;
+    }
+    const ready = satisfaction.state === "ready";
+    const severity = ready ? "high" : "medium";
+    const reason = ready
+      ? `${claim} is ready: ${satisfaction.satisfiedBy.path} now exposes the matching contract and its producer reports passing verification.`
+      : `${claim} has a stable work-in-progress contract at ${satisfaction.satisfiedBy.path}, but the producing workstream is unverified.`;
+    const evidence = [{
+      kind: "dependency",
+      summary: `${claim} is satisfied by ${satisfaction.satisfiedBy.path} (${satisfaction.state}).`,
+      source: "git",
+      fidelity: "structural",
+      dependency: satisfaction,
+    }];
+    if (existing) {
+      const previousState = Array.isArray(existing.evidence)
+        ? (existing.evidence as Array<{ dependency?: { state?: string } }>)[0]?.dependency?.state : undefined;
+      const material = existing.state !== "open" || previousState !== satisfaction.state || existing.reason !== reason || existing.severity !== severity;
+      await ctx.db.patch(existing._id, {
+        severity, evidence, reason, state: "open", revision: existing.revision + (material ? 1 : 0),
+        lastSeenAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+      });
+      continue;
+    }
+    await ctx.db.insert("findings", {
+      publicId: `fnd_${fingerprint.slice(0, 32)}`,
+      projectId: project._id,
+      scopeKey: claimant.scopeKey,
+      kind: "dependency_ready",
+      severity,
+      confidenceBand: "deterministic",
+      workstreamPublicIds: [claimant.publicId],
+      evidence,
+      reason,
+      state: "open",
+      fingerprint,
+      engineVersion: DEPENDENCY_ENGINE_VERSION,
+      inputRevisions: { claim },
+      revision: 1,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+    });
+  }
+}
+
+async function recomputeDependencyClaimsForScope(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  scopeKeyValue: string,
+  now: number,
+): Promise<void> {
+  const workstreams = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", scopeKeyValue)).take(257);
+  if (workstreams.length > 256) fail("workstream_scope_too_large");
+  for (const workstream of workstreams) {
+    if ((workstream.waitingOn?.length ?? 0) > 0) await recomputeDependencyReadiness(ctx, project, workstream, now);
+  }
+}
+
+async function recomputeDependencyClaimsForProducer(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
+  producer: Doc<"workstreams">,
+  now: number,
+): Promise<void> {
+  await recomputeDependencyClaimsForScope(ctx, project, producer.scopeKey, now);
+}
+
+async function resolveDependencyFindings(ctx: MutationCtx, claimant: Doc<"workstreams">, now: number): Promise<void> {
+  const findings = await ctx.db.query("findings").withIndex("by_scope", (q) => q.eq("scopeKey", claimant.scopeKey)).take(513);
+  if (findings.length > 512) fail("finding_scope_too_large");
+  for (const finding of findings) {
+    if (finding.engineVersion === DEPENDENCY_ENGINE_VERSION && finding.state === "open" &&
+      finding.workstreamPublicIds.length === 1 && finding.workstreamPublicIds[0] === claimant.publicId) {
+      await ctx.db.patch(finding._id, { state: "resolved", revision: finding.revision + 1, lastSeenAt: now });
+    }
   }
 }
 
@@ -1566,8 +1711,8 @@ function activitySummary(type: string, payload: unknown): string {
   return type.replaceAll(".", " ").replaceAll("_", " ");
 }
 
-function dashboardFindingKind(kind: string): "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" {
-  if (["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption"].includes(kind)) return kind as ReturnType<typeof dashboardFindingKind>;
+function dashboardFindingKind(kind: string): "direct_collision" | "likely_collision" | "redundant_work" | "shared_dependency" | "assumption_conflict" | "downstream_impact" | "stale_assumption" | "dependency_ready" {
+  if (["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption", "dependency_ready"].includes(kind)) return kind as ReturnType<typeof dashboardFindingKind>;
   return "likely_collision";
 }
 
