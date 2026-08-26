@@ -428,3 +428,107 @@ transcript message, source, diff, tool payload, command, or output becomes
 semantic input. This gives passive sessions a useful early trajectory while
 preserving honest fidelity and the coordination-harness boundary. Accepted by
 the owner 2026-08-25 as part of completing automatic traffic-control dogfood.
+
+## ADR-043: Make agent bindings profile-aware and runtime-verified
+
+Codex and Claude Code adapter readiness has two independent dimensions:
+configuration ownership and observed runtime delivery. A managed MCP/hook entry
+is classified as `current`, `partial`, `other_profile`, `not_configured`, or
+`drifted`. A partial current-profile installation may be repaired
+automatically. A structurally recognized binding to another Stickguy profile
+must be shown explicitly and requires a member-confirmed **Reconnect to this
+Project** action. Unknown or conflicting managed-looking configuration remains
+fail-closed and is never overwritten automatically.
+
+Reconnect snapshots both provider files, replaces only Stickguy's recognized
+MCP entry and activity hooks, preserves unrelated settings and hooks, and
+restores both snapshots if either managed update fails. The preview identifies
+the old and new local profiles before mutation. The CLI exposes the same
+operation as `setup reconnect` for recovery without the desktop UI.
+
+A configured adapter is not presented as live-ready until the current local
+profile records an accepted event from that vendor in the enrolled workspace.
+Until then, the UI says that a provider restart and a new task in the repository
+are required. Runtime evidence is cleared on reconnect and stored only as local
+workspace/vendor/timestamp metadata; no prompt, source, diff, command, output,
+or credential is added. Accepted by the owner 2026-08-25 after a shared-profile
+dogfood run exposed a valid Codex binding left on the loopback profile.
+
+## ADR-044: Relocate the privacy boundary from abstention to the device
+
+Supersedes ADR-006's collection-abstention model. The local Go service may read
+anything on the member's machine that serves coordination: source files, diffs,
+Git objects, and vendor transcripts. The privacy boundary is what crosses the
+wire, not what the local process reads. Synced data is limited to derived,
+structured coordination facts: contract fingerprints (exported symbol names and
+signature hashes), bounded diff summaries, intents, dependency claims, path
+manifests, and finding evidence. Raw source, raw diffs, environment values,
+credentials, and secrets never sync; the existing secret classifier guards the
+wire as a hard gate, not a consent feature.
+
+Rationale: every high-value coordination signal — stale contracts, semantic
+duplication, architectural conflict — lives in code content. Abstention-based
+privacy starved the intelligence while providing a weaker story than
+local-first analysis with bounded sync, where raw material stays on the device
+by architecture. Accepted by the owner 2026-08-25.
+
+## ADR-045: An LLM is the judgment layer; determinism is the evidence layer
+
+Deterministic signals (path overlap, contract-fingerprint drift, manifest
+state) remain the trigger layer and always operate offline. A hosted LLM
+(Anthropic Claude, called only from the hosted service like the ADR-040
+embedding provider) becomes the judgment layer: it summarizes diff facts,
+compares workstream trajectories for duplication and architectural conflict,
+adjudicates whether a candidate finding is worth an interruption, and renders
+briefs in language a receiving agent can act on. LLM outage degrades to
+deterministic findings and dashboard delivery, never to silence about
+deterministic evidence. `stickguy-concepts/v1` is demoted to a test fixture.
+Proactive interruption requires passing the M1 eval-harness precision gate.
+Accepted by the owner 2026-08-25.
+
+## ADR-046: Coordination context is pushed into agent turns via hooks
+
+Supersedes the pull-only brief posture of ADR-033. Adapter hooks become
+bidirectional: observation in, coordination context out. Pending high-relevance
+brief items are injected at vendor-supported turn boundaries (for Claude Code,
+hook JSON `additionalContext`/context-injection responses on
+`UserPromptSubmit`/`SessionStart`; for Codex, the equivalent supported surface,
+verified before claiming it). Injection never blocks or fails the agent's turn:
+hook handlers time-bound their work and fail open. Delivery and subsequent
+behavioral adjustment are tracked so routing precision is measurable. Where a
+vendor offers no injection surface, MCP pull plus dashboard remains the honest
+fallback. Accepted by the owner 2026-08-25.
+
+## ADR-047: Project membership is the sharing consent
+
+Supersedes the per-session consent machinery of ADR-034 and its preview/
+versioning ceremony. Installing Stickguy in a Project and connecting an adapter
+is the consent to share activity and session context with that Project; a
+single synchronous pause switch (existing) stops sharing. The secret classifier
+(credentials, tokens, environment assignments, private keys, raw tool output —
+ADR-038 semantics) remains a mandatory wire gate under every mode and is not
+user-disableable. Per-session consent records, preview flows, versioned consent
+schemas, and their dashboard surfaces are deleted rather than hidden. Rationale:
+governance built for enterprise procurement was taxing iteration before
+product-market fit; teams installing a coordination tool expect intra-team
+sharing. Accepted by the owner 2026-08-25.
+
+## ADR-048: Read sets, contract fingerprints, and dependency readiness
+
+The world model gains three objects. A **read set** records, per agent session,
+which repository files/symbols the session observed (from hook file events)
+with the contract fingerprint current at observation time. A **contract
+fingerprint** is derived structural metadata per file: exported symbol names
+and signature hashes, extracted locally by language analyzers. A **dependency
+claim** (`waiting_on`) is declared via MCP or inferred by the LLM from intent
+text, naming a path, symbol, or contract description another workstream is
+expected to produce.
+
+These power two finding kinds: `stale_assumption` (a fingerprint in a live
+session's read set changed after the session read it — deterministic, includes
+old/new signature) and `dependency_ready` (a claimed dependency's contract now
+exists or stabilized in another workstream's write set, including a
+"stable-but-WIP" intermediate state from checkpoint evidence). Dependency
+claims are observed machine-checkable state, which narrows but does not reverse
+ADR-037: no plan items, boards, or human planning surfaces return. Accepted by
+the owner 2026-08-25.

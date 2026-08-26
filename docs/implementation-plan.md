@@ -25,9 +25,16 @@ L6 coordination intelligence
           ▼
 L7 collisions/session detail
           ▼
-L8 distribution/beta hardening
+M1 coordination eval harness
+  ├── M2 read sets/contract fingerprints
+  ├── M3 push delivery via hooks
+  ├── M6 sharing simplification (parallel)
           ▼
-L9 intelligence expansion/adapters
+M4 LLM judgment layer
+          ▼
+M5 dependency readiness
+          ▼
+L8 distribution/beta hardening
 ```
 
 Complete the gates in `prebuild-validation.md` before production implementation; its isolated spike lanes may run in parallel after bootstrap under one integrator. L1–L3 may run in parallel only after L0 contracts generate successfully. L4 integrates them.
@@ -169,6 +176,11 @@ checks, both desktop build modes, and the L6 live suite pass. Adding a second
 Project to one running local profile and signed production distribution remain
 L8 work.
 
+ADR-043 extends onboarding with profile-aware binding states, explicit
+transactional reconnect with rollback, partial-install repair, and first-event
+runtime verification. A stale loopback/shared-profile binding can no longer be
+reported as ready merely because provider config files exist.
+
 ## L7 — Collision resolution and session detail
 
 Deliver sync-card create/comment/resolve over collisions; a resolution delivered
@@ -191,17 +203,93 @@ treated as disclosing it (ADR-038); environment values, credentials, tokens,
 keys, and raw tool output are rejected whole at both boundaries. Codex and
 Claude Code each have their own record adapter (ADR-039).
 
+## V2 reboot — coordination intelligence that closes the loop
+
+ADR-044 through ADR-048 reorient the product around three layers: a shared
+world model (intents, read sets, write sets, contract fingerprints, dependency
+claims), a divergence engine (contract drift, semantic collision/duplication,
+path overlap, dependency readiness), and routing/actuation (LLM-adjudicated
+findings pushed into agent turns via hooks). M-levels below replace the former
+L8/L9 ordering; distribution moves after the loop is proven. Task briefs for
+parallel execution live in `docs/tasks/`.
+
+## M1 — Coordination eval harness
+
+Deliver scenario-based two-agent coordination evaluations on top of the
+existing loopback two-device suite and two-worktree Codex/Claude exercise.
+Scenarios: (A) backend changes a response type while frontend builds against
+it; (B) two agents independently implement semantically similar functionality
+in different files; (C) agent B changes an interface agent A started from;
+(D) agent A requires something agent B has not finished; (E) genuinely
+independent tasks — silence required; (F) same file, unrelated regions — quiet
+warning only; (G) WIP change — uncertainty communicated, not treated as
+canonical. Each scenario is scripted, repeatable, and measures: correct
+relationship identified; correct workstream interrupted; sufficient context
+supplied; downstream agent adjusted; silence honored.
+
+Exit: all seven scenarios run headlessly against a real local stack with
+scripted agent behavior; per-scenario pass/fail and precision metrics are
+reported by one command; the suite is the gate for every later M-level.
+
+## M2 — Read sets, contract fingerprints, stale-assumption findings
+
+Deliver local language analyzers extracting per-file contract fingerprints
+(exported symbols and signature hashes; Go and TypeScript first); read-set
+capture from existing hook file events with fingerprint-at-observation;
+fingerprint sync as derived facts; deterministic `stale_assumption` finding
+with old/new signature evidence; dashboard and brief rendering.
+
+Exit: M1 scenarios A and C pass — a session that read a contract later changed
+by another workstream receives a `stale_assumption` finding naming the exact
+symbol, while unchanged-contract path touches (scenario F baseline) stay quiet.
+
+## M3 — Push delivery into agent turns
+
+Deliver hook-based context injection per ADR-046: pending relevant brief items
+render into bounded injected context at Claude Code turn boundaries; delivery
+and acknowledgement tracked; injection fails open and never blocks a turn;
+Codex surface verified then implemented or honestly narrowed to MCP/dashboard.
+
+Exit: in M1 scenario C, the stale agent receives the correction inside its next
+turn without human relay and measurably adjusts; scenario E injects nothing.
+
+## M4 — LLM judgment layer
+
+Deliver hosted LLM adjudication and diff-fact summarization per ADR-045:
+bounded diff summaries as derived facts; cross-workstream duplication and
+architectural-conflict candidates judged by the LLM with explanations;
+interrupt/queue/dashboard/silence routing decisions; cost budgets and outage
+degradation to deterministic findings.
+
+Exit: M1 scenarios B and G pass with explanations; scenario E/F false-interrupt
+rate meets the documented precision gate; provider outage preserves M2/M3
+behavior.
+
+## M5 — Dependency readiness
+
+Deliver `waiting_on` claims via MCP plus LLM inference from intent text;
+readiness detection from contract fingerprints and checkpoint evidence in other
+workstreams' write sets, including a stable-but-WIP intermediate state; routed
+unblock notices through the M3 channel.
+
+Exit: M1 scenario D passes — the waiting agent is notified within one turn
+boundary of the dependency contract appearing, with the contract included.
+
+## M6 — Sharing simplification
+
+Deliver ADR-047: delete per-session consent records, preview flows, versioned
+consent schemas, and their dashboard/MCP surfaces; project membership plus
+pause switch is the consent model; secret classifier remains a mandatory wire
+gate with its tests intact. May run in parallel with M2–M5; it only deletes.
+
+Exit: no consent-ceremony code path or UI remains; classifier and pause tests
+pass; enrollment-to-visible-activity requires zero additional consent steps.
+
 ## L8 — Distribution and beta
 
-Deliver signed cross-platform releases/checksums/SBOM; installers; update/rollback; OS service recovery; member/device/invite management; export/deletion; privacy-safe diagnostics; load/soak/reconnect/migration/security tests; contributor/adapter guides; re-evaluate the preview's Wails beta and qualify any supported desktop release.
+Unchanged in content; now gated on M1–M5. Deliver signed cross-platform releases/checksums/SBOM; installers; update/rollback; OS service recovery; member/device/invite management; export/deletion; privacy-safe diagnostics; load/soak/reconnect/migration/security tests; contributor/adapter guides; re-evaluate the preview's Wails beta and qualify any supported desktop release.
 
 Exit: clean install/update/uninstall; security checklist; no critical data loss in restart/network/update tests; a real team voluntarily completes a second session.
-
-## L9 — Intelligence expansion and adapters
-
-After the V1 intelligence loop. Candidates: richer local language analyzers, plan reconciliation, bounded narration, improved impact models, cost controls, additional adapters, explicit Git checkpoints, local/self-hosted semantic-index adapters including a benchmarked TurboVec sidecar.
-
-Each AI exit gate: validated structured output; documented offline threshold; useful/noisy instrumentation; outage-safe fallback; prohibited-data policy satisfied.
 
 ## Parallel agent lanes
 

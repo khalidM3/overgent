@@ -2,6 +2,7 @@ package claudesetup
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,5 +68,52 @@ func TestSetupStatusRemovalMergeAndRefuseDrift(t *testing.T) {
 	}
 	if _, err := portable.Remove(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOtherProfileRequiresExplicitRebindAndPreservesJSON(t *testing.T) {
+	project := t.TempDir()
+	path := filepath.Join(project, ".mcp.json")
+	if err := os.WriteFile(path, []byte(`{"other":{"preserved":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executable := "/usr/local/bin/stickguy"
+	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable}
+	newProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "shared"), Executable: executable}
+	if _, err := oldProfile.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	status, err := newProfile.Status()
+	if err != nil || status.Binding != "other_profile" || status.Configured || status.PreviousProfile == "" {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+	if _, err = newProfile.Setup(); err == nil || !strings.Contains(err.Error(), "explicit reconnect") {
+		t.Fatalf("ordinary setup should not detach another profile: %v", err)
+	}
+	beforeConfig, _ := os.ReadFile(path)
+	hookPath := filepath.Join(project, ".claude", "settings.local.json")
+	beforeHooks, _ := os.ReadFile(hookPath)
+	originalRebind := rebindHooks
+	rebindHooks = func(string, string) error { return errors.New("synthetic hook failure") }
+	if _, err = newProfile.Rebind(); err == nil {
+		t.Fatal("synthetic hook failure did not fail reconnect")
+	}
+	rebindHooks = originalRebind
+	afterConfig, _ := os.ReadFile(path)
+	afterHooks, _ := os.ReadFile(hookPath)
+	if string(afterConfig) != string(beforeConfig) || string(afterHooks) != string(beforeHooks) {
+		t.Fatal("failed reconnect did not restore both Claude files")
+	}
+	if _, err = newProfile.Rebind(); err != nil {
+		t.Fatal(err)
+	}
+	status, err = newProfile.Status()
+	if err != nil || !status.Configured || status.Binding != "current" {
+		t.Fatalf("rebound status=%#v err=%v", status, err)
+	}
+	data, _ := os.ReadFile(path)
+	var document map[string]any
+	if err = json.Unmarshal(data, &document); err != nil || document["other"].(map[string]any)["preserved"] != true || strings.Contains(string(data), oldProfile.ConfigRoot) || !strings.Contains(string(data), newProfile.ConfigRoot) {
+		t.Fatalf("rebind damaged unrelated JSON or retained old profile: %s err=%v", data, err)
 	}
 }
