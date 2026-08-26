@@ -26,6 +26,7 @@ type intentScript struct {
 	Outcome          string
 	Approach         string
 	Contracts        []string
+	WaitingOn        []string
 	AnticipatedPaths []string
 }
 
@@ -47,7 +48,7 @@ var scenarioDefinitions = []scenarioDefinition{
 	},
 	{
 		ID: "D", Name: "dependency wait", ExpectedRouting: "next-turn",
-		IntentA: intentScript{Title: "Wait for session API", Outcome: "Complete the frontend only after the session API contract exists.", Approach: "waiting_on session-api contract", Contracts: []string{"session-api"}, AnticipatedPaths: []string{"frontend/session.ts"}},
+		IntentA: intentScript{Title: "Wait for session API", Outcome: "Complete the frontend only after the session API contract exists.", WaitingOn: []string{"session-api"}, AnticipatedPaths: []string{"frontend/session.ts"}},
 		IntentB: intentScript{Title: "Create session API", Outcome: "Publish and verify the exported session API contract.", Contracts: []string{"session-api"}, AnticipatedPaths: []string{"backend/session_api.go"}},
 	},
 	{
@@ -72,8 +73,14 @@ type scenarioObservation struct {
 	adjustmentProbe bool
 	// injectedContext is what the real turn-boundary hook delivered into the
 	// reading session's next turn. Empty means the hook injected nothing.
-	injectedContext string
-	deliveryWait    time.Duration
+	injectedContext         string
+	deliveryWait            time.Duration
+	dependencyWIPID         string
+	dependencyWIPRevision   int
+	dependencyWIPState      string
+	dependencyReadyID       string
+	dependencyReadyRevision int
+	dependencyReadyState    string
 }
 
 const queueDrainTimeout = 5 * time.Second
@@ -149,6 +156,9 @@ func beginWork(environment *scenarioEnvironment, agent *mcpAgent, workspace conf
 	}
 	if len(script.Contracts) > 0 {
 		arguments["contracts"] = script.Contracts
+	}
+	if script.WaitingOn != nil {
+		arguments["waiting_on"] = script.WaitingOn
 	}
 	if len(script.AnticipatedPaths) > 0 {
 		arguments["anticipated_paths"] = script.AnticipatedPaths
@@ -253,17 +263,43 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		}
 		return nil
 	case "D":
-		if _, err := reportCheckpoint(environment, environment.agentB, environment.workspaceB, "d-wip", "Session API shape is drafted but remains unverified.", "not_run", ""); err != nil {
-			return err
-		}
 		if err := writeFixtureFile(environment.repository.worktreeB, "backend/session_api.go", "package backend\n\n// SessionAPI is the exported session contract.\ntype SessionAPI struct { ID string }\n"); err != nil {
 			return err
 		}
 		if err := environment.forceScan(); err != nil {
 			return err
 		}
+		if _, err := reportCheckpoint(environment, environment.agentB, environment.workspaceB, "d-wip", "Session API shape is drafted but remains unverified.", "not_run", ""); err != nil {
+			return err
+		}
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
+			return err
+		}
+		wipFindings, err := environment.findings()
+		if err != nil {
+			return err
+		}
+		for _, finding := range wipFindings {
+			if finding.Kind == "dependency_ready" && findingContains(finding, "session-api") {
+				observation.dependencyWIPID, observation.dependencyWIPRevision = finding.ID, finding.Revision
+				observation.dependencyWIPState = dependencyFindingState(finding)
+			}
+		}
 		if _, err := reportCheckpoint(environment, environment.agentB, environment.workspaceB, "d-ready", "Exported and verified the session API contract.", "passed", ""); err != nil {
 			return err
+		}
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
+			return err
+		}
+		readyFindings, err := environment.findings()
+		if err != nil {
+			return err
+		}
+		for _, finding := range readyFindings {
+			if finding.Kind == "dependency_ready" && findingContains(finding, "session-api") {
+				observation.dependencyReadyID, observation.dependencyReadyRevision = finding.ID, finding.Revision
+				observation.dependencyReadyState = dependencyFindingState(finding)
+			}
 		}
 		return checkAgentA(environment, observation)
 	case "E":
@@ -360,16 +396,15 @@ func checkpointAndCheck(environment *scenarioEnvironment, observation *scenarioO
 }
 
 func reportCheckpoint(environment *scenarioEnvironment, agent *mcpAgent, workspace config.Workspace, suffix, summary, state, briefID string) (mcpOutput, error) {
-	// The current local serializer adds verification[].source while the hosted
-	// wire gate rejects every nested key named source. Lane A cannot change
-	// either boundary, so the bounded summary carries the explicit state until
-	// the owning contract lane resolves that conflict.
-	if state != "" {
-		summary += " Verification state: " + state + "."
-	}
 	arguments := map[string]any{
 		"workspace_id": workspace.ID, "checkpoint_id": "chk_" + strings.ReplaceAll(suffix, "-", "_"),
 		"summary": summary,
+	}
+	if state != "" {
+		arguments["verification"] = []map[string]any{{
+			"state": state, "check_kind": "test", "label": "Coordination scenario verification",
+			"summary": "Scripted bounded verification state.", "observed_at": time.Now().UTC().Format(time.RFC3339Nano),
+		}}
 	}
 	if briefID != "" {
 		arguments["based_on_brief_id"] = briefID
@@ -486,16 +521,13 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 		}
 	case "D":
 		ready := contains("dependency_ready", []string{environment.workspaceA.WorkstreamID}, "session-api")
-		wip := false
-		for _, finding := range findings {
-			text := strings.ToLower(finding.Reason + " " + findingText(finding))
-			if strings.Contains(text, "wip") || strings.Contains(text, "unverified") || strings.Contains(text, "work-in-progress") {
-				wip = true
-			}
-		}
+		wip := observation.dependencyWIPState == "stable_wip"
+		upgraded := observation.dependencyWIPID != "" && observation.dependencyWIPID == observation.dependencyReadyID &&
+			observation.dependencyReadyState == "ready" && observation.dependencyReadyRevision > observation.dependencyWIPRevision
 		return []assertionResult{
 			taggedAssertion("dependency-ready notice targets WS1 and names session-api", capabilityDependency, ready, "expected session API contract evidence", required),
 			taggedAssertion("unverified checkpoint produces stable-but-WIP notice", capabilityDependency, wip, "expected uncertainty before verified readiness", required),
+			taggedAssertion("verified checkpoint upgrades the same finding at a new revision", capabilityDependency, upgraded, "expected stable finding id and increasing revision", required),
 		}
 	case "E":
 		return []assertionResult{
@@ -702,6 +734,18 @@ func findingContains(finding actualFinding, value string) bool {
 func findingText(finding actualFinding) string {
 	encoded, _ := json.Marshal(finding.Evidence)
 	return string(encoded)
+}
+
+func dependencyFindingState(finding actualFinding) string {
+	for _, evidence := range finding.Evidence {
+		dependency, ok := evidence["dependency"].(map[string]any)
+		if ok {
+			if state, ok := dependency["state"].(string); ok {
+				return state
+			}
+		}
+	}
+	return ""
 }
 
 func hasFindingKind(findings []actualFinding, kind string) bool {
