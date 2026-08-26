@@ -26,7 +26,13 @@ Protect against token theft/replay, unauthorized project access, hostile website
 - Authorize before semantic retrieval and before loading matched objects; filter by project/repository and test isolation.
 - Treat embedding/adjudication input as untrusted data, require structured outputs, and grant models no tools or authority.
 - Authorize every context item before ranking and again on item fetch; never use semantic relevance as authorization.
-- Agent adapters are event- and field-allowlisted by sharing profile. The activity/v1 hook process reduces vendor input immediately to a hashed session workstream, lifecycle/status, generated action label, allowlisted tool/subagent metadata, and safe repository-relative paths. Ignore transcript paths; reject protected paths and secret-bearing candidates as whole events; discard disallowed vendor fields before durable local storage or enqueue. Optional conversation processing remains disabled and requires the versioned owner/member consent and controls in `agent-activity-sharing.md`.
+- Project membership and the synchronous pause switch govern adapter sharing
+  (ADR-047). The activity hook reduces vendor input to a hashed session
+  workstream, lifecycle/status, generated action label, allowlisted
+  tool/subagent metadata, and safe repository-relative paths. Session messages
+  are independently classified before enqueue. Reject protected paths and
+  secret-bearing candidates whole; discard disallowed vendor fields before
+  durable local storage or enqueue.
 - A vendor-visible session title may seed automatic intent only after the local
   ADR-042 classifier and hosted semantic policy both accept it. The UI discloses
   that an approved title may reach the configured embedding provider; a rejected
@@ -54,14 +60,21 @@ Protect against token theft/replay, unauthorized project access, hostile website
 | Sensitive metadata | repo identity, paths/symbols/dependencies, intent/change/verification summaries, embeddings, findings, context deliveries/acknowledgements | Project-authorized, disclosed processing, bounded retention/deletion. |
 | Durable | plans, decisions, resolved sync cards | Project lifetime or deletion. |
 | Ephemeral | heartbeat/local health | Compact and expire quickly. |
-| Opt-in conversation | bounded user-authored prompt and visible assistant-message events | Owner-enabled plus member opt-in; locally classified; Project-authorized; inspectable/deletable; bounded retention. |
+| Project conversation | bounded user-authored prompt and visible assistant-message events | Membership-authorized; locally classified; pausable, inspectable/deletable, and bounded by hosted retention. |
 | Prohibited V1 | source/diff/file/tool-result content, Git objects, transcript files, system/developer prompts, hidden reasoning, env values, `.env` variants, credentials/tokens, raw commands/output/test logs | Never persist/transmit; reject the whole candidate event. |
 
 Secret scanning is defense in depth and never justifies prohibited collection.
 
 ## 4. Privacy UX
 
-Enrollment explains default coordination metadata leaving the device, including summaries being embedded by the configured provider. Optional agent activity remains off until the Project owner enables a profile and the member separately opts in with a representative local preview. UI always shows the effective profile, audience, sharing/fidelity, and semantic-processing degradation. Pause/downgrade is immediate from CLI/dashboard. Members can inspect and delete exactly what they shared, inspect recent events and semantic objects/findings, revoke devices, and clear local state. Owners can remove members/revoke invites. Retention/deletion is visible.
+Enrollment explains that connecting an adapter shares classifier-passing
+activity and session context with authorized Project members, including which
+approved summaries may reach the configured semantic provider. The UI shows
+sharing/fidelity and semantic-processing degradation. Pause is immediate from
+CLI/dashboard. Members can inspect and delete their shared messages, inspect
+recent events and semantic objects/findings, revoke devices, and clear local
+state. Owners can remove members, revoke invites, and delete shared messages.
+Retention/deletion is visible.
 
 ## 5. Required security tests
 
@@ -76,4 +89,7 @@ Enrollment explains default coordination metadata leaving the device, including 
 - cross-project/repository vector retrieval and deleted/superseded embeddings;
 - prompt-injection summaries, code/secret-like summary rejection, malformed model output, and provider outage.
 - unauthorized/unrelated context omission, critical-item truncation references, forged/stale brief IDs, and acknowledgement replay.
-- agent-profile default-off/consent-version tests; Project/member narrower-setting precedence; `.env` variants, protected paths, inline tokens, transcript/system/reasoning/source/diff/raw-output rejection before storage and enqueue; preview/pause/downgrade/deletion/retention; unknown vendor events fail closed; cross-Project activity isolation.
+- zero-step membership sharing; `.env` contents, protected paths, inline tokens,
+  raw transcript/tool/command output, environment assignments, credentials, and
+  private keys rejected before storage and enqueue; pause, member/owner
+  deletion, retention, unknown-vendor failure, and cross-Project isolation.

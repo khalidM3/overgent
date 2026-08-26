@@ -174,14 +174,11 @@ type eventEnvelopeForTest struct {
 	Payload map[string]any `json:"payload"`
 }
 
-type sharingTestSender struct{ policy hosted.SessionSharingSnapshot }
+type sharingTestSender struct{}
 
 func (s sharingTestSender) Send(context.Context, string, []byte) error { return nil }
-func (s sharingTestSender) SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error) {
-	return s.policy, nil
-}
 
-func TestSharedSessionContentComesFromTranscriptAndHonoursConsent(t *testing.T) {
+func TestProjectSessionContentComesFromTranscriptAndRejectsSecrets(t *testing.T) {
 	ctx := context.Background()
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
@@ -206,15 +203,11 @@ func TestSharedSessionContentComesFromTranscriptAndHonoursConsent(t *testing.T) 
 	}
 	sessionID := "wrk_agent_0123456789abcdef0123456789abcdef"
 
-	// Sharing off by default: no conversation event may be queued at all.
-	quiet := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{}}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{}}
 	base := daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: sessionID, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request", AgentTranscriptPath: transcript}
-	if response := quiet.handle(ctx, base); !response.OK || response.Data.(map[string]any)["sharedMessages"] != 0 {
-		t.Fatalf("sharing must be off by default: %#v", response)
-	}
-
-	// The owner still sees their own session locally, without sharing.
-	detail := quiet.handle(ctx, daemon.Request{Method: "session_detail", AgentWorkstreamID: sessionID})
+	response := service.handle(ctx, base)
+	// The owner still sees their own complete session locally.
+	detail := service.handle(ctx, daemon.Request{Method: "session_detail", AgentWorkstreamID: sessionID})
 	data := detail.Data.(map[string]any)
 	if !detail.OK || data["available"] != true || data["title"] != "Navigation layout" {
 		t.Fatalf("owner must always see their own session: %#v", data)
@@ -224,14 +217,12 @@ func TestSharedSessionContentComesFromTranscriptAndHonoursConsent(t *testing.T) 
 		t.Fatalf("owner detail should include the secret-bearing message too: %#v", own)
 	}
 
-	// With consent for user and thinking, only those kinds project, and the
-	// secret-bearing message is rejected as a whole.
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{policy: hosted.SessionSharingSnapshot{Policy: hosted.SessionSharingPolicy{Profile: "conversation", Audience: "project", ConsentVersion: "session-share/v1", AllowedKinds: []string{"user", "thinking"}, Enabled: true}}}}
-	response := service.handle(ctx, base)
+	// Project membership requires no additional ceremony; all content kinds
+	// project except tool metadata, and secret-bearing messages are rejected.
 	// ADR-038: the mention of .env.local is ordinary conversation and shares;
 	// the message carrying an actual key does not.
-	if !response.OK || response.Data.(map[string]any)["sharedMessages"] != 3 {
-		t.Fatalf("expected two prompts and the thinking part: %#v", response.Data)
+	if !response.OK || response.Data.(map[string]any)["sharedMessages"] != 4 {
+		t.Fatalf("expected classifier-passing conversation messages: %#v", response.Data)
 	}
 	queue, _ := db.Pending(ctx)
 	var kinds []string
@@ -248,7 +239,7 @@ func TestSharedSessionContentComesFromTranscriptAndHonoursConsent(t *testing.T) 
 		}
 		kinds = append(kinds, envelope.Payload["kind"].(string))
 	}
-	if strings.Join(kinds, ",") != "user,thinking,user" {
+	if strings.Join(kinds, ",") != "user,thinking,assistant,user" {
 		t.Fatalf("kinds=%v", kinds)
 	}
 
