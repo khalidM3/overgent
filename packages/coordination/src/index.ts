@@ -100,3 +100,5 @@ export class DeterministicCandidateRouter implements CandidateRouter {
 
 export * from "./intelligence.js";
 export * from "./openai.js";
+export * from "./judgment.js";
+export * from "./anthropic.js";
