@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "eventId": "evt_contract_fixture",
+  "projectId": "prj_fixture",
+  "memberId": "mem_fixture",
+  "deviceId": "dev_fixture",
+  "workspaceId": "wsp_fixture",
+  "sessionId": "ses_fixture",
+  "sequence": 12,
+  "observedAt": "2026-08-26T09:00:00Z",
+  "sentAt": "2026-08-26T09:00:01Z",
+  "source": "git",
+  "type": "workspace.contract_fingerprints_reported",
+  "payload": {
+    "workspaceId": "wsp_fixture",
+    "entries": [
+      {
+        "path": "internal/session/rotate.go",
+        "fileContractHash": "5f2b7c1d6a4e8093bb1c2d3e4f5061728394a5b6c7d8e9f00112233445566778",
+        "symbols": [
+          {
+            "name": "Rotate",
+            "kind": "func",
+            "signature": "func Rotate(ctx context.Context, key string) (string, error)",
+            "signatureHash": "aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899"
+          }
+        ]
+      }
+    ]
+  }
+}
