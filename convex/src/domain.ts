@@ -290,8 +290,11 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       return;
     }
     case "workspace.contract_fingerprints_reported": {
-      expectExactKeys(payload, ["workspaceId", "entries"]);
+      // workstreamId is optional so a device publishing the original shape
+      // stays acceptable; the hosted projection falls back to derivation.
+      expectExactKeys(payload, ["workspaceId", "entries"], ["workstreamId"]);
       expectId(payload.workspaceId);
+      if (payload.workstreamId !== undefined) expectWorkstreamId(payload.workstreamId);
       if (!Array.isArray(payload.entries) || payload.entries.length < 1 || payload.entries.length > LIMITS.contractEntriesPerEvent) {
         throw new ValidationError("contract_entry_count_out_of_range");
       }

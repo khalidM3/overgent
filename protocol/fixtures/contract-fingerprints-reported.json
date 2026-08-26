@@ -13,6 +13,7 @@
   "type": "workspace.contract_fingerprints_reported",
   "payload": {
     "workspaceId": "wsp_fixture",
+    "workstreamId": "wrk_fixture",
     "entries": [
       {
         "path": "internal/session/rotate.go",

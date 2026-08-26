@@ -49,7 +49,7 @@ Machine-readable contracts live in `protocol/openapi.yaml` and `protocol/schemas
 | `context.acknowledged` | briefId, consideredItemIds |
 | `activity.reported` | decision/completion/blocker and summary |
 | `agent.activity_reported` | hashed session workstream, vendor, lifecycle/status, bounded action label, safe paths, optional tool/subagent metadata |
-| `workspace.contract_fingerprints_reported` | workspace, bounded entries of safe path, `fileContractHash`, and exported symbols (`name`, `kind`, normalized `signature`, `signatureHash`) |
+| `workspace.contract_fingerprints_reported` | workspace, optional publishing workstream, bounded entries of safe path, `fileContractHash`, and exported symbols (`name`, `kind`, normalized `signature`, `signatureHash`) |
 | `session.read_set_reported` | workspace, hashed session workstream, bounded entries of safe path, `fileContractHashAtRead`, and observation time |
 | `claim.created` / `claim.released` | patterns / claim IDs or patterns |
 
@@ -58,6 +58,8 @@ Manifest revisions represent complete current state, not unreliable filesystem d
 The manifest content hash is SHA-256 over the ordered entry stream. For every entry, serialize these fields in order: `path`, then for each of `baseline`, `index`, and `worktree`, the literal layer name, its status or the empty string, and its old path or the empty string. Separate every field with one NUL byte and include the trailing NUL. The empty manifest hashes the empty byte string. This encoding is shared by Go and TypeScript and must not be inferred from ordinary JSON serialization.
 
 A contract fingerprint is derived structural metadata, never source (ADR-044, ADR-048). Only `.go`, `.ts`, and `.tsx` paths are fingerprinted; every other path has no fingerprint and can never produce a contract finding. A symbol signature is the normalized declaration with the body and comments removed, bounded to 500 characters and marked when truncated, and `signatureHash` is SHA-256 over that normalized text. `fileContractHash` is SHA-256 over the sorted symbol stream, where each symbol contributes exactly `name`, `:`, `signatureHash`, and a newline; the empty exported surface hashes the empty byte string. A body-only edit leaves `fileContractHash` unchanged and therefore produces no contract evidence. The secret classifier drops a denied signature from both the symbol list and the hash, so the two never disagree.
+
+A fingerprints event names the workstream that published it. That workstream is the change attribution once the service confirms it belongs to the publishing workspace; an event without it is attributed to the workspace's most recently active workstream instead.
 
 A read set is per session workstream and deduplicated by (session, path): re-observing a path replaces its hash and time rather than appending. Finding evidence of kind `symbol` may carry the optional `contract` object naming the path, the changed symbols with their old and new signatures, the workstream that changed them, and the read and change times.
 

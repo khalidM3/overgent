@@ -118,6 +118,9 @@ func TestContractFingerprintsPublishOnlyWhenTheExportedSurfaceMoves(t *testing.T
 	if len(files) != 1 {
 		t.Fatalf("entries=%v, want only the fingerprintable path", published[0]["entries"])
 	}
+	if published[0]["workstreamId"] != fixture.workspace.WorkstreamID {
+		t.Fatalf("publishing workstream=%v, want %s", published[0]["workstreamId"], fixture.workspace.WorkstreamID)
+	}
 	first := files[0].(map[string]any)
 	if first["path"] != "internal/session/rotate.go" {
 		t.Fatalf("path=%v", first["path"])

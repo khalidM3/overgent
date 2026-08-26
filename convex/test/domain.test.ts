@@ -67,6 +67,18 @@ describe("hosted boundary validation", () => {
     }] });
     expect(event.type).toBe("workspace.contract_fingerprints_reported");
 
+    // Naming the publishing workstream is accepted, and stays optional so a
+    // device on the original shape keeps publishing.
+    const [attributed] = validateEventBatch({ events: [{
+      ...baseEvent, type: "workspace.contract_fingerprints_reported",
+      payload: { workspaceId: "wsp_fixture", workstreamId: "wrk_fixture", entries: [entry] },
+    }] });
+    expect(attributed.payload).toMatchObject({ workstreamId: "wrk_fixture" });
+    expect(() => validateEventBatch({ events: [{
+      ...baseEvent, type: "workspace.contract_fingerprints_reported",
+      payload: { workspaceId: "wsp_fixture", workstreamId: "not-a-workstream", entries: [entry] },
+    }] })).toThrowError(ValidationError);
+
     // A file with no exported surface is a valid, empty fingerprint.
     expect(() => validateEventBatch({ events: [{
       ...baseEvent, type: "workspace.contract_fingerprints_reported",

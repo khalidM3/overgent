@@ -638,6 +638,7 @@ const readerAgentId = `wrk_agent_${suffix.padEnd(32, "c")}`;
 const contractPath = "synthetic/contract-watch.go";
 const additivePath = "synthetic/contract-additive.go";
 const bodyOnlyPath = "synthetic/contract-body.go";
+const fallbackPath = "synthetic/contract-fallback.go";
 const rotateBefore = "func Rotate(ctx context.Context, key string) (string, error)";
 const rotateAfter = "func Rotate(ctx context.Context, key string, at int64) (string, error)";
 
@@ -651,12 +652,15 @@ const hashes = {
   contractV1: "1".repeat(64), contractV2: "2".repeat(64),
   additiveV1: "3".repeat(64), additiveV2: "4".repeat(64),
   bodyOnly: "5".repeat(64),
+  fallbackV1: "6".repeat(64), fallbackV2: "7".repeat(64),
   rotateBefore: "a".repeat(64), rotateAfter: "b".repeat(64),
   alpha: "c".repeat(64), beta: "d".repeat(64), stable: "e".repeat(64),
+  legacyBefore: "f".repeat(64), legacyAfter: "9".repeat(64),
 };
 
-// B publishes the baseline surface for all three files. A first fingerprint is
-// never a change, so nothing is compared yet.
+// B publishes the baseline surface for all four files. A first fingerprint is
+// never a change, so nothing is compared yet. This event deliberately omits
+// workstreamId, proving a device on the original payload shape still publishes.
 await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
   event({
     eventId: `evt_fp_base_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
@@ -666,6 +670,7 @@ await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
       fingerprintEntry(contractPath, hashes.contractV1, [symbol("Rotate", "func", rotateBefore, hashes.rotateBefore)]),
       fingerprintEntry(additivePath, hashes.additiveV1, [symbol("Alpha", "func", "func Alpha() error", hashes.alpha)]),
       fingerprintEntry(bodyOnlyPath, hashes.bodyOnly, [symbol("Stable", "func", "func Stable() error", hashes.stable)]),
+      fingerprintEntry(fallbackPath, hashes.fallbackV1, [symbol("Legacy", "func", "func Legacy() error", hashes.legacyBefore)]),
     ] },
   }),
 ] } });
@@ -686,6 +691,7 @@ await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
       { path: contractPath, fileContractHashAtRead: hashes.contractV1, observedAt: "2026-08-26T08:59:00Z" },
       { path: additivePath, fileContractHashAtRead: hashes.additiveV1, observedAt: "2026-08-26T08:59:01Z" },
       { path: bodyOnlyPath, fileContractHashAtRead: hashes.bodyOnly, observedAt: "2026-08-26T08:59:02Z" },
+      { path: fallbackPath, fileContractHashAtRead: hashes.fallbackV1, observedAt: "2026-08-26T08:59:03Z" },
     ] },
   }),
 ] } });
@@ -698,14 +704,27 @@ assert.equal(
   "reading a file must not by itself produce a finding",
 );
 
-// 1. B changes an exported signature the reader already read.
+// Workspace B now has two active workstreams, and the agent session is the more
+// recently updated of the two. Attribution must therefore come from the event,
+// not from "whichever workstream moved last".
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_peer_touch_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 61, source: "hook",
+    type: "agent.activity_reported",
+    payload: { workstreamId: claudeAgentId, vendor: "claude", sessionAlias: "claude-d4e5f6", kind: "PreToolUse", status: "active", action: "editing synthetic/agent-shared.ts", tool: "Edit", paths: ["synthetic/agent-shared.ts"] },
+  }),
+] } });
+
+// 1. B changes an exported signature the reader already read, naming the
+//    workstream that made the change.
 const contractChangeStarted = performance.now();
 await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
   event({
     eventId: `evt_fp_changed_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
-    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 61,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 62,
     type: "workspace.contract_fingerprints_reported",
-    payload: { workspaceId: ids.workspaceB, entries: [
+    payload: { workspaceId: ids.workspaceB, workstreamId: ids.workstreamB, entries: [
       fingerprintEntry(contractPath, hashes.contractV2, [symbol("Rotate", "func", rotateAfter, hashes.rotateAfter)]),
     ] },
   }),
@@ -729,6 +748,14 @@ assert.equal(contractEvidence.contract.path, contractPath);
 assert.deepEqual(contractEvidence.contract.changedSymbols, [
   { name: "Rotate", oldSignature: rotateBefore, newSignature: rotateAfter },
 ]);
+assert.equal(
+  contractEvidence.contract.changedByWorkstreamId, ids.workstreamB,
+  "attribution must be the workstream the event named",
+);
+assert.notEqual(
+  contractEvidence.contract.changedByWorkstreamId, claudeAgentId,
+  "attribution must not fall back to the most recently updated workstream when the event names one",
+);
 assert.notEqual(contractEvidence.contract.changedByWorkstreamId, readerAgentId, "a session cannot invalidate its own read");
 assert.equal(contractEvidence.contract.readAt, "2026-08-26T08:59:00Z");
 assert(Number.isFinite(Date.parse(contractEvidence.contract.changedAt)));
@@ -753,9 +780,9 @@ assert(!changerBrief.items.some((item) => item.id === staleFinding.id));
 await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
   event({
     eventId: `evt_fp_redelivered_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
-    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 62,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 63,
     type: "workspace.contract_fingerprints_reported",
-    payload: { workspaceId: ids.workspaceB, entries: [
+    payload: { workspaceId: ids.workspaceB, workstreamId: ids.workstreamB, entries: [
       fingerprintEntry(contractPath, hashes.contractV2, [symbol("Rotate", "func", rotateAfter, hashes.rotateAfter)]),
       fingerprintEntry(bodyOnlyPath, hashes.bodyOnly, [symbol("Stable", "func", "func Stable() error", hashes.stable)]),
     ] },
@@ -774,9 +801,9 @@ assert(!afterBodyOnly.items.some((item) => item.kind === "stale_assumption" && J
 await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
   event({
     eventId: `evt_fp_additive_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
-    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 63,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 64,
     type: "workspace.contract_fingerprints_reported",
-    payload: { workspaceId: ids.workspaceB, entries: [
+    payload: { workspaceId: ids.workspaceB, workstreamId: ids.workstreamB, entries: [
       fingerprintEntry(additivePath, hashes.additiveV2, [
         symbol("Alpha", "func", "func Alpha() error", hashes.alpha),
         symbol("Beta", "func", "func Beta() error", hashes.beta),
@@ -795,13 +822,50 @@ assert.equal(
   "the only contract finding for the reader is the changed signature",
 );
 
+// 4. A publisher that does not name its workstream still gets a finding; only
+//    the attribution degrades, to the workspace's most recently active
+//    workstream, which here is the agent session touched above.
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_fp_unattributed_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 65,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry(fallbackPath, hashes.fallbackV2, [symbol("Legacy", "func", "func Legacy(at int64) error", hashes.legacyAfter)]),
+    ] },
+  }),
+] } });
+const afterUnattributed = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+const fallbackFinding = afterUnattributed.items.find((item) =>
+  item.kind === "stale_assumption" && item.workstreamIds.includes(readerAgentId) &&
+  JSON.stringify(item.evidence).includes(fallbackPath));
+assert(fallbackFinding, "an unattributed fingerprint must still invalidate a read set");
+const fallbackEvidence = fallbackFinding.evidence.find((entry) => entry.kind === "symbol");
+assert.equal(fallbackEvidence.contract.changedByWorkstreamId, claudeAgentId,
+  "without a named workstream, attribution falls back to the most recently active one");
+assert.notEqual(fallbackEvidence.contract.changedByWorkstreamId, readerAgentId);
+
+// A workstream that belongs to another workspace can never be claimed as the
+// author of this workspace's contract change.
+const forgedAttribution = await request("POST", "/v1/events/batch", { token: tokenB, expected: 403, body: { events: [
+  event({
+    eventId: `evt_fp_forged_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 67,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, workstreamId: readerAgentId, entries: [
+      fingerprintEntry(contractPath, "8".repeat(64), [symbol("Rotate", "func", rotateBefore, hashes.rotateBefore)]),
+    ] },
+  }),
+] } });
+assert.equal(forgedAttribution.body.error.code, "forbidden");
+
 // A path that carries no contract is refused at the boundary rather than stored.
 const unfingerprintable = await request("POST", "/v1/events/batch", { token: tokenB, expected: 400, body: { events: [
   event({
     eventId: `evt_fp_prose_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
-    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 64,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 66,
     type: "workspace.contract_fingerprints_reported",
-    payload: { workspaceId: ids.workspaceB, entries: [
+    payload: { workspaceId: ids.workspaceB, workstreamId: ids.workstreamB, entries: [
       fingerprintEntry("docs/readme.md", hashes.contractV1, []),
     ] },
   }),
@@ -920,6 +984,9 @@ console.log(JSON.stringify({
     ,contractFingerprintRedeliveryIsIdempotent: true
     ,addedExportedSymbolRaisesNoFinding: true
     ,unfingerprintablePathRefusedAtTheBoundary: true
+    ,contractChangeAttributionIsExactNotDerived: true
+    ,unattributedFingerprintFallsBackWithoutLosingTheFinding: true
+    ,crossWorkspaceAttributionRefused: true
   },
   timings,
 }, null, 2));
