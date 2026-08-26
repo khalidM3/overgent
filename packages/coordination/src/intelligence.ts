@@ -52,6 +52,9 @@ export type IntelligenceFinding = Scope & Readonly<{
   reason: string;
   revision: number;
   priority: number;
+  // Where the judgment layer routed this finding (ADR-045). Absent on records
+  // that predate a judged verdict; the brief then falls back to severity.
+  delivery?: "next_turn" | "dashboard" | "silent";
 }>;
 
 export class SemanticPolicyError extends Error {
@@ -107,7 +110,10 @@ export function validateSemanticTags(tags: readonly string[]): string[] {
   return [...new Set(normalized)].sort().slice(0, 32);
 }
 
-const concepts: ReadonlyArray<readonly string[]> = [
+// The versioned public coordination vocabulary. The judgment layer names the
+// words a pair of workstreams actually shared, so it reads from the same list
+// the offline concept vectors do.
+export const CONCEPT_GROUPS: ReadonlyArray<readonly string[]> = [
   ["auth", "authenticate", "authorization", "login", "session", "cookie", "credential", "token", "bearer"],
   ["member", "membership", "role", "privilege", "permission"],
   ["rotate", "revoke", "invalidate", "expiry", "expire"],
@@ -117,7 +123,7 @@ const concepts: ReadonlyArray<readonly string[]> = [
   ["generated", "regenerate", "reformat", "mechanical", "locale", "icon"],
   ["search", "ranking", "query"],
 ];
-const conceptByToken = new Map(concepts.flatMap((group, index) => group.map((word) => [word, `concept:${index}`] as const)));
+const conceptByToken = new Map(CONCEPT_GROUPS.flatMap((group, index) => group.map((word) => [word, `concept:${index}`] as const)));
 
 function tokens(text: string): string[] {
   return [...new Set(text.toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g)?.map((token) => conceptByToken.get(token) ?? token) ?? [])].sort();
@@ -273,12 +279,21 @@ export function evaluateWorkstreams(workstreams: readonly WorkstreamRecord[]): I
 
 export type BriefItem = Readonly<{ id: string; revision: number; kind: "finding" | "decision" | "dependency" | "workstream" | "truncation"; text: string; relevanceReason: string; fidelity: string; advisoryAction: "informational" | "review_recommended" | "coordination_required"; priority: number }>;
 
+function briefAdvisoryAction(finding: IntelligenceFinding): "coordination_required" | "review_recommended" {
+  if (finding.delivery) return finding.delivery === "next_turn" ? "coordination_required" : "review_recommended";
+  return finding.severity === "high" || finding.severity === "critical" ? "coordination_required" : "review_recommended";
+}
+
 export function renderBrief(workstreamId: string, findings: readonly IntelligenceFinding[], requestedBudget: number): { items: BriefItem[]; renderedSize: number; truncated: boolean } {
   if (!Number.isInteger(requestedBudget) || requestedBudget < 128 || requestedBudget > 800) throw new Error("brief_budget_invalid");
-  const candidates = findings.filter((finding) => finding.workstreamIds.includes(workstreamId)).sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+  // A silent verdict is not a low-priority item; it is one the judgment layer
+  // decided is not worth a receiving agent's attention at all.
+  const candidates = findings
+    .filter((finding) => finding.workstreamIds.includes(workstreamId) && finding.delivery !== "silent")
+    .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
   const items: BriefItem[] = []; let renderedSize = 0; let truncated = false;
   for (const finding of candidates) {
-    const item: BriefItem = { id: finding.id, revision: finding.revision, kind: "finding", text: finding.reason, relevanceReason: "This finding directly involves the current workstream.", fidelity: finding.confidenceBand === "deterministic" ? "structural" : "semantic", advisoryAction: finding.severity === "high" || finding.severity === "critical" ? "coordination_required" : "review_recommended", priority: finding.priority };
+    const item: BriefItem = { id: finding.id, revision: finding.revision, kind: "finding", text: finding.reason, relevanceReason: "This finding directly involves the current workstream.", fidelity: finding.confidenceBand === "deterministic" ? "structural" : "semantic", advisoryAction: briefAdvisoryAction(finding), priority: finding.priority };
     const size = Math.ceil(JSON.stringify(item).length / 4);
     if (renderedSize + size > requestedBudget) {
       truncated = true;
