@@ -31,7 +31,6 @@ const readPathsPerEvent = 20
 // contract actually moved. A file that cannot be read or parsed simply has no
 // fingerprint; extraction never fails manifest publication.
 func (s *Service) publishContractFingerprints(ctx context.Context, workspace config.Workspace, entries []git.Entry) {
-	observed := map[string]string{}
 	files := map[string]contract.File{}
 	for _, entry := range entries {
 		if !contract.Fingerprintable(entry.Path) {
@@ -41,8 +40,20 @@ func (s *Service) publishContractFingerprints(ctx context.Context, workspace con
 		if !ok {
 			continue
 		}
-		observed[entry.Path] = file.FileContractHash
 		files[entry.Path] = file
+	}
+	s.publishFingerprintFiles(ctx, workspace, files)
+}
+
+// publishFingerprintFiles publishes the subset of extracted files whose hash is
+// new or moved relative to this workspace's local fingerprint record.
+func (s *Service) publishFingerprintFiles(ctx context.Context, workspace config.Workspace, files map[string]contract.File) {
+	if len(files) == 0 {
+		return
+	}
+	observed := make(map[string]string, len(files))
+	for path, file := range files {
+		observed[path] = file.FileContractHash
 	}
 	changed, err := s.store.ChangedFingerprints(ctx, workspace.ID, observed, time.Now())
 	if err != nil || len(changed) == 0 {
@@ -121,6 +132,7 @@ func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace
 	}
 	observedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	entries := make([]store.ReadSetEntry, 0, len(candidates))
+	seeds := map[string]contract.File{}
 	for _, candidate := range candidates {
 		path, ok := repositoryRelative(workspace.Root, candidate)
 		if !ok || !contract.Fingerprintable(path) {
@@ -132,6 +144,7 @@ func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace
 		hash := ""
 		if file, ok := s.fingerprint(workspace.Root, path); ok {
 			hash = file.FileContractHash
+			seeds[path] = file
 		} else if cached, found, err := s.store.FingerprintHash(ctx, workspace.ID, path); err == nil && found {
 			hash = cached
 		}
@@ -140,6 +153,12 @@ func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace
 		}
 		entries = append(entries, store.ReadSetEntry{Path: path, FileContractHashAtRead: hash, ObservedAt: observedAt})
 	}
+	// A read makes a path coordination-relevant. Manifests carry only changed
+	// paths, so an unchanged file a session depends on would otherwise have no
+	// hosted baseline fingerprint, and the first change elsewhere would insert
+	// silently instead of comparing old against new. Seeding here gives the
+	// hosted comparison the surface this session actually read.
+	s.publishFingerprintFiles(ctx, workspace, seeds)
 	changed, err := s.store.ChangedReadSet(ctx, workspace.ID, sessionWorkstreamID, entries)
 	if err != nil || len(changed) == 0 {
 		return
