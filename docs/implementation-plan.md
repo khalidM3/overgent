@@ -231,6 +231,12 @@ Exit: all seven scenarios run headlessly against a real local stack with
 scripted agent behavior; per-scenario pass/fail and precision metrics are
 reported by one command; the suite is the gate for every later M-level.
 
+Current outcome: complete. `pnpm eval:coordination` boots the loopback stack,
+drives two scripted agents through all seven scenarios, and gates every later
+M-level. Scenarios now drive the real `agent-hook` executable rather than
+synthesized calls, and the report records routing precision, false interrupts,
+and per-scenario delivery latency.
+
 ## M2 — Read sets, contract fingerprints, stale-assumption findings
 
 Deliver local language analyzers extracting per-file contract fingerprints
@@ -243,6 +249,11 @@ Exit: M1 scenarios A and C pass — a session that read a contract later changed
 by another workstream receives a `stale_assumption` finding naming the exact
 symbol, while unchanged-contract path touches (scenario F baseline) stay quiet.
 
+Current outcome: complete under ADR-048. Go and TypeScript analyzers derive
+exported-surface fingerprints locally; read sets carry the fingerprint current
+when a session observed a file; contract changes are attributed to the
+publishing workstream rather than inferred.
+
 ## M3 — Push delivery into agent turns
 
 Deliver hook-based context injection per ADR-046: pending relevant brief items
@@ -252,6 +263,11 @@ Codex surface verified then implemented or honestly narrowed to MCP/dashboard.
 
 Exit: in M1 scenario C, the stale agent receives the correction inside its next
 turn without human relay and measurably adjusts; scenario E injects nothing.
+
+Current outcome: complete under ADR-046 for Claude Code and Codex, proven end
+to end in scenarios A, C, and E. Observation and delivery hold separate bounded
+budgets so a slow observation cannot starve a correction, and an item is never
+claimed as delivered unless the caller can still receive it.
 
 ## M4 — LLM judgment layer
 
@@ -265,6 +281,12 @@ Exit: M1 scenarios B and G pass with explanations; scenario E/F false-interrupt
 rate meets the documented precision gate; provider outage preserves M2/M3
 behavior.
 
+Current outcome: complete under ADR-045. Every finding is judged and routed
+through one delivery decision (`next_turn`, `dashboard`, `silent`). The managed
+adjudicator is Anthropic behind a provider interface with a deterministic
+fallback, so the eval suite passes with no API key present. Aggregate routing
+precision rose from 0.529 to 0.833 with zero false interrupts.
+
 ## M5 — Dependency readiness
 
 Deliver `waiting_on` claims via MCP plus LLM inference from intent text;
@@ -275,6 +297,11 @@ unblock notices through the M3 channel.
 Exit: M1 scenario D passes — the waiting agent is notified within one turn
 boundary of the dependency contract appearing, with the contract included.
 
+Current outcome: complete under ADR-048. Claims are declared through the
+`waiting_on` lifecycle argument and satisfied only by observed contract
+evidence from another live workstream; an unverified producer yields a
+stable-but-WIP notice that upgrades in place when verification lands.
+
 ## M6 — Sharing simplification
 
 Deliver ADR-047: delete per-session consent records, preview flows, versioned
@@ -284,6 +311,9 @@ gate with its tests intact. May run in parallel with M2–M5; it only deletes.
 
 Exit: no consent-ceremony code path or UI remains; classifier and pause tests
 pass; enrollment-to-visible-activity requires zero additional consent steps.
+
+Current outcome: complete under ADR-047. The per-session consent ceremony is
+deleted; the secret classifier and pause switch remain mandatory gates.
 
 ## L8 — Distribution and beta
 
