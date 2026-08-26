@@ -628,6 +628,186 @@ const unsafeBranch = await request("POST", "/v1/events/batch", { token: tokenA, 
 ] }, expected: 400 });
 assert.equal(unsafeBranch.body.error.code, "validation_failed");
 
+// ---------------------------------------------------------------------------
+// M2 contract watch (ADR-048): a session's read set goes stale when another
+// workstream changes a contract it already read. Workspaces A and B share one
+// repository scope, so B's fingerprints are compared against A's read sets.
+// ---------------------------------------------------------------------------
+
+const readerAgentId = `wrk_agent_${suffix.padEnd(32, "c")}`;
+const contractPath = "synthetic/contract-watch.go";
+const additivePath = "synthetic/contract-additive.go";
+const bodyOnlyPath = "synthetic/contract-body.go";
+const rotateBefore = "func Rotate(ctx context.Context, key string) (string, error)";
+const rotateAfter = "func Rotate(ctx context.Context, key string, at int64) (string, error)";
+
+function fingerprintEntry(path, hash, symbols) {
+  return { path, fileContractHash: hash, symbols };
+}
+function symbol(name, kind, signature, hash) {
+  return { name, kind, signature, signatureHash: hash };
+}
+const hashes = {
+  contractV1: "1".repeat(64), contractV2: "2".repeat(64),
+  additiveV1: "3".repeat(64), additiveV2: "4".repeat(64),
+  bodyOnly: "5".repeat(64),
+  rotateBefore: "a".repeat(64), rotateAfter: "b".repeat(64),
+  alpha: "c".repeat(64), beta: "d".repeat(64), stable: "e".repeat(64),
+};
+
+// B publishes the baseline surface for all three files. A first fingerprint is
+// never a change, so nothing is compared yet.
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_fp_base_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 60,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry(contractPath, hashes.contractV1, [symbol("Rotate", "func", rotateBefore, hashes.rotateBefore)]),
+      fingerprintEntry(additivePath, hashes.additiveV1, [symbol("Alpha", "func", "func Alpha() error", hashes.alpha)]),
+      fingerprintEntry(bodyOnlyPath, hashes.bodyOnly, [symbol("Stable", "func", "func Stable() error", hashes.stable)]),
+    ] },
+  }),
+] } });
+
+// A's agent session reads all three files at that baseline.
+await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
+  event({
+    eventId: `evt_reader_start_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 50, source: "hook",
+    type: "agent.activity_reported",
+    payload: { workstreamId: readerAgentId, vendor: "claude", sessionAlias: "claude-c1c2c3", kind: "SessionStart", status: "active", action: "Session started" },
+  }),
+  event({
+    eventId: `evt_reader_readset_${suffix}`, projectId: projectA.id, deviceId: bootstrapA.deviceId,
+    workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 51, source: "hook",
+    type: "session.read_set_reported",
+    payload: { workspaceId: ids.workspaceA, sessionWorkstreamId: readerAgentId, entries: [
+      { path: contractPath, fileContractHashAtRead: hashes.contractV1, observedAt: "2026-08-26T08:59:00Z" },
+      { path: additivePath, fileContractHashAtRead: hashes.additiveV1, observedAt: "2026-08-26T08:59:01Z" },
+      { path: bodyOnlyPath, fileContractHashAtRead: hashes.bodyOnly, observedAt: "2026-08-26T08:59:02Z" },
+    ] },
+  }),
+] } });
+
+const beforeContractChange = (await request("POST", `/v1/workstreams/${readerAgentId}/briefs`, {
+  token: tokenA, body: { trigger: "manual", approximateTokenBudget: 800 },
+})).body;
+assert.equal(
+  beforeContractChange.items.filter((item) => item.text.includes(contractPath)).length, 0,
+  "reading a file must not by itself produce a finding",
+);
+
+// 1. B changes an exported signature the reader already read.
+const contractChangeStarted = performance.now();
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_fp_changed_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 61,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry(contractPath, hashes.contractV2, [symbol("Rotate", "func", rotateAfter, hashes.rotateAfter)]),
+    ] },
+  }),
+] } });
+timings.contractDriftToFindingMs = Math.round(performance.now() - contractChangeStarted);
+
+const readerChanges = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+const staleFindings = readerChanges.items.filter((item) =>
+  item.kind === "stale_assumption" && item.workstreamIds.includes(readerAgentId));
+assert.equal(staleFindings.length, 1, `exactly one stale_assumption finding for the reader: ${JSON.stringify(staleFindings)}`);
+const staleFinding = staleFindings[0];
+assert.equal(staleFinding.severity, "high");
+assert.equal(staleFinding.confidenceBand, "deterministic");
+assert.deepEqual(staleFinding.workstreamIds, [readerAgentId], "the finding belongs to the session that read the file");
+assert(staleFinding.reason.includes("Rotate"), `the reason must name the symbol: ${staleFinding.reason}`);
+assert(staleFinding.reason.includes(rotateBefore), "the reason must carry the old signature");
+assert(staleFinding.reason.includes(rotateAfter), "the reason must carry the new signature");
+const contractEvidence = staleFinding.evidence.find((entry) => entry.kind === "symbol");
+assert(contractEvidence, "contract drift must carry symbol evidence");
+assert.equal(contractEvidence.contract.path, contractPath);
+assert.deepEqual(contractEvidence.contract.changedSymbols, [
+  { name: "Rotate", oldSignature: rotateBefore, newSignature: rotateAfter },
+]);
+assert.notEqual(contractEvidence.contract.changedByWorkstreamId, readerAgentId, "a session cannot invalidate its own read");
+assert.equal(contractEvidence.contract.readAt, "2026-08-26T08:59:00Z");
+assert(Number.isFinite(Date.parse(contractEvidence.contract.changedAt)));
+
+// The reader's brief carries it, which is how the correction reaches the agent.
+const briefAfterDrift = (await request("POST", `/v1/workstreams/${readerAgentId}/briefs`, {
+  token: tokenA, body: { trigger: "before_broad_edit", approximateTokenBudget: 800 },
+})).body;
+const deliveredDrift = briefAfterDrift.items.find((item) => item.id === staleFinding.id);
+assert(deliveredDrift, `the reader's brief must contain ${staleFinding.id}: ${JSON.stringify(briefAfterDrift.items)}`);
+assert.equal(deliveredDrift.advisoryAction, "coordination_required");
+assert(deliveredDrift.text.includes("Rotate"), "the delivered item must name the symbol");
+
+// The workstream that made the change is not told its own edit is stale.
+const changerBrief = (await request("POST", `/v1/workstreams/${ids.workstreamB}/briefs`, {
+  token: tokenB, body: { trigger: "manual", approximateTokenBudget: 800 },
+})).body;
+assert(!changerBrief.items.some((item) => item.id === staleFinding.id));
+
+// 2. Redelivering the same fingerprint, and a body-only edit that leaves the
+// contract hash alone, add no finding and no duplicate.
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_fp_redelivered_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 62,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry(contractPath, hashes.contractV2, [symbol("Rotate", "func", rotateAfter, hashes.rotateAfter)]),
+      fingerprintEntry(bodyOnlyPath, hashes.bodyOnly, [symbol("Stable", "func", "func Stable() error", hashes.stable)]),
+    ] },
+  }),
+] } });
+const afterBodyOnly = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+const staleAfterBodyOnly = afterBodyOnly.items.filter((item) =>
+  item.kind === "stale_assumption" && item.workstreamIds.includes(readerAgentId));
+assert.equal(staleAfterBodyOnly.length, 1, "a body-only edit and a redelivery must not add contract findings");
+assert.equal(staleAfterBodyOnly[0].id, staleFinding.id);
+assert(!afterBodyOnly.items.some((item) => item.kind === "stale_assumption" && JSON.stringify(item.evidence).includes(bodyOnlyPath)),
+  "a file whose contract hash never moved produces no contract finding");
+
+// 3. B adds a new exported symbol to a file the reader read. Nothing the reader
+// depends on moved, so there is no high-severity finding for that path.
+await request("POST", "/v1/events/batch", { token: tokenB, body: { events: [
+  event({
+    eventId: `evt_fp_additive_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 63,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry(additivePath, hashes.additiveV2, [
+        symbol("Alpha", "func", "func Alpha() error", hashes.alpha),
+        symbol("Beta", "func", "func Beta() error", hashes.beta),
+      ]),
+    ] },
+  }),
+] } });
+const afterAdditive = (await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenA })).body;
+const additiveFindings = afterAdditive.items.filter((item) =>
+  item.kind === "stale_assumption" && item.workstreamIds.includes(readerAgentId) &&
+  JSON.stringify(item.evidence).includes(additivePath));
+assert.equal(additiveFindings.length, 0, `adding an exported symbol must not raise a finding: ${JSON.stringify(additiveFindings)}`);
+assert.equal(
+  afterAdditive.items.filter((item) => item.kind === "stale_assumption" && item.workstreamIds.includes(readerAgentId)).length,
+  1,
+  "the only contract finding for the reader is the changed signature",
+);
+
+// A path that carries no contract is refused at the boundary rather than stored.
+const unfingerprintable = await request("POST", "/v1/events/batch", { token: tokenB, expected: 400, body: { events: [
+  event({
+    eventId: `evt_fp_prose_${suffix}`, projectId: projectA.id, deviceId: bootstrapB.deviceId,
+    workspaceId: ids.workspaceB, sessionId: ids.sessionB, sequence: 64,
+    type: "workspace.contract_fingerprints_reported",
+    payload: { workspaceId: ids.workspaceB, entries: [
+      fingerprintEntry("docs/readme.md", hashes.contractV1, []),
+    ] },
+  }),
+] } });
+assert.equal(unfingerprintable.body.error.code, "path_not_fingerprintable");
+
 const crossProjectItem = await request("GET", `/v1/context-items/${findingId}`, { token: tokenC, expected: 403 });
 assert.equal(crossProjectItem.body.error.code, "forbidden");
 const crossProjectChanges = await request("GET", `/v1/projects/${projectA.id}/changes`, { token: tokenC, expected: 403 });
@@ -680,7 +860,7 @@ const revokedBootstrap = await request("GET", "/v1/device/bootstrap", { token: t
 assert.equal(revokedBootstrap.body.error.code, "credential_revoked");
 
 console.log(JSON.stringify({
-  level: "L2 hosted Project service with L6 intelligence and collision coordination",
+  level: "L2 hosted Project service with L6 intelligence, collision coordination, and M2 contract watch",
   result: "PASS",
   deployment: "anonymous-local-loopback-redacted",
   assertions: {
@@ -733,6 +913,13 @@ console.log(JSON.stringify({
     ,deviceNameIsSecuritySurfaceOnly: true
     ,identityChosenAtEnrollment: true
     ,realBranchCollectedForLiveSessions: true
+    ,contractDriftInvalidatesAReadSet: true
+    ,contractFindingNamesOldAndNewSignature: true
+    ,contractFindingReachesTheReadersBrief: true
+    ,bodyOnlyEditProducesNoContractFinding: true
+    ,contractFingerprintRedeliveryIsIdempotent: true
+    ,addedExportedSymbolRaisesNoFinding: true
+    ,unfingerprintablePathRefusedAtTheBoundary: true
   },
   timings,
 }, null, 2));
