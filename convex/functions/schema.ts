@@ -135,6 +135,9 @@ export default defineSchema({
     sessionTitle: v.optional(v.string()),
     safePaths: v.optional(v.array(v.string())),
     subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
+    // What this workstream last said about verification of its own work
+    // (ADR-045). Absent until it reports a checkpoint that says.
+    verificationState: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
@@ -248,6 +251,10 @@ export default defineSchema({
     state: v.string(),
     fingerprint: v.string(),
     engineVersion: v.string(),
+    // Judgment-layer routing decision: next_turn, dashboard, or silent
+    // (ADR-045). Absent on rows written before a verdict existed.
+    delivery: v.optional(v.string()),
+    judgmentProvider: v.optional(v.string()),
     inputRevisions: v.optional(v.any()),
     revision: v.number(),
     firstSeenAt: v.number(),
