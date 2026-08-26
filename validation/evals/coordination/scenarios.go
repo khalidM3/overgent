@@ -161,6 +161,13 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
 			return err
 		}
+		// The scenario means "read first, change later". Local queues flush per
+		// workspace without cross-workspace ordering, so drain before changing
+		// or the read-set can arrive hosted-side after the change it must
+		// invalidate.
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
+			return err
+		}
 		if err := changeRefreshContract(environment.repository.worktreeB); err != nil {
 			return err
 		}
@@ -184,6 +191,13 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		return checkBoth(environment, observation)
 	case "C":
 		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
+			return err
+		}
+		// The scenario means "read first, change later". Local queues flush per
+		// workspace without cross-workspace ordering, so drain before changing
+		// or the read-set can arrive hosted-side after the change it must
+		// invalidate.
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
 			return err
 		}
 		if err := changeRefreshContract(environment.repository.worktreeB); err != nil {
@@ -257,6 +271,13 @@ func executeScenario(id string, environment *scenarioEnvironment, beginA mcpOutp
 		return checkBoth(environment, observation)
 	case "G":
 		if err := environment.hookRead(environment.workspaceA, "codex", "backend/refresh.go"); err != nil {
+			return err
+		}
+		// The scenario means "read first, change later". Local queues flush per
+		// workspace without cross-workspace ordering, so drain before changing
+		// or the read-set can arrive hosted-side after the change it must
+		// invalidate.
+		if err := environment.waitForQueue(queueDrainTimeout); err != nil {
 			return err
 		}
 		if err := changeRefreshContract(environment.repository.worktreeB); err != nil {
@@ -367,10 +388,11 @@ func finishScenario(environment *scenarioEnvironment) error {
 
 func expectedFindings(id string, environment *scenarioEnvironment) []expectedFinding {
 	targetA := environment.workspaceA.WorkstreamID
+	targetReader := environment.readerWorkstream()
 	targetBoth := environment.workspaceA.WorkstreamID + "+" + environment.workspaceB.WorkstreamID
 	switch id {
 	case "A", "C":
-		return []expectedFinding{{Kind: "stale_assumption", TargetWorkstream: targetA, Capability: capabilityContract, NamedEvidence: "Refresh"}}
+		return []expectedFinding{{Kind: "stale_assumption", TargetWorkstream: targetReader, Capability: capabilityContract, NamedEvidence: "Refresh"}}
 	case "B":
 		return []expectedFinding{{Kind: "redundant_work", TargetWorkstream: targetBoth, Capability: capabilitySemantic, NamedEvidence: "credential"}}
 	case "D":
@@ -380,7 +402,7 @@ func expectedFindings(id string, environment *scenarioEnvironment) []expectedFin
 	case "F":
 		return []expectedFinding{{Kind: "direct_collision", TargetWorkstream: targetBoth, Capability: capabilityStructural, NamedEvidence: "shared/settings.ts"}}
 	case "G":
-		return []expectedFinding{{Kind: "stale_assumption", TargetWorkstream: targetA, Capability: capabilityContract, NamedEvidence: "Refresh"}}
+		return []expectedFinding{{Kind: "stale_assumption", TargetWorkstream: targetReader, Capability: capabilitySemantic, NamedEvidence: "Refresh"}}
 	default:
 		return nil
 	}
@@ -402,7 +424,7 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 	switch id {
 	case "A":
 		return []assertionResult{
-			taggedAssertion("stale-assumption finding names old/new Refresh signature and targets WS1", capabilityContract, contains("stale_assumption", []string{environment.workspaceA.WorkstreamID}, "Refresh"), "expected exact symbol evidence for backend.Refresh", required),
+			taggedAssertion("stale-assumption finding names old/new Refresh signature and targets WS1's session", capabilityContract, contains("stale_assumption", []string{environment.readerWorkstream()}, "Refresh"), "expected exact symbol evidence for backend.Refresh", required),
 			taggedAssertion("WS1 next coordination context contains the contract correction", capabilityInjection, briefAContains("Refresh"), "expected correction in WS1's next supported turn boundary", required),
 		}
 	case "B":
@@ -420,7 +442,7 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 		}
 	case "C":
 		return []assertionResult{
-			taggedAssertion("contract drift appears within one publish cycle", capabilityContract, contains("stale_assumption", []string{environment.workspaceA.WorkstreamID}, "Refresh"), "expected exact Refresh drift evidence", required),
+			taggedAssertion("contract drift appears within one publish cycle", capabilityContract, contains("stale_assumption", []string{environment.readerWorkstream()}, "Refresh"), "expected exact Refresh drift evidence", required),
 			taggedAssertion("contract correction reaches WS1 at the next turn boundary", capabilityInjection, briefAContains("Refresh"), "expected routed context", required),
 			taggedAssertion("WS1 adjustment probe re-reads and changes intent", capabilityInjection, observation.adjustmentProbe, "expected intent revision after correction", required),
 		}
@@ -463,7 +485,10 @@ func scenarioAssertions(id string, environment *scenarioEnvironment, findings []
 			}
 		}
 		return []assertionResult{
-			taggedAssertion("unverified contract change is labeled uncertain and lower severity", capabilityContract, uncertain, "expected WIP fidelity below scenarios A/C", required),
+			// WIP labeling is judgment-layer work: the implementation plan
+			// gates scenario G under M4, not M2, so it carries the M4
+			// capability tag rather than the deterministic contract tag.
+			taggedAssertion("unverified contract change is labeled uncertain and lower severity", capabilitySemantic, uncertain, "expected WIP fidelity below scenarios A/C", required),
 		}
 	default:
 		return nil
@@ -499,7 +524,8 @@ func routingCounts(expected []expectedFinding, findings []actualFinding, environ
 	correct, routed := 0, 0
 	for _, finding := range findings {
 		for _, target := range finding.WorkstreamIDs {
-			if target != environment.workspaceA.WorkstreamID && target != environment.workspaceB.WorkstreamID {
+			if target != environment.workspaceA.WorkstreamID && target != environment.workspaceB.WorkstreamID &&
+				target != environment.readerWorkstreamA {
 				continue
 			}
 			routed++
@@ -546,17 +572,24 @@ func actualRouting(findings []actualFinding, briefs []hosted.CoordinationBrief) 
 	if len(findings) == 0 && findingBriefItemCount(briefs) == 0 {
 		return "silence"
 	}
+	// Severity says how much a finding matters, not how it is delivered. No
+	// supported vendor exposes a mid-turn interrupt channel (ADR-033/046), so
+	// even a high-severity correction reaches the agent at its next turn
+	// boundary. Labeling that "interrupt" would claim a channel that does not
+	// exist and would make an urgent-but-correctly-delivered finding look like
+	// a routing failure.
+	urgent := false
 	for _, finding := range findings {
 		if severityRank(finding.Severity) >= severityRank("high") {
-			return "interrupt"
+			urgent = true
 		}
 		for _, action := range finding.AdvisoryActions {
 			if action == "coordination_required" {
-				return "interrupt"
+				urgent = true
 			}
 		}
 	}
-	if findingBriefItemCount(briefs) > 0 {
+	if findingBriefItemCount(briefs) > 0 || urgent {
 		return "next-turn"
 	}
 	return "dashboard-only"

@@ -17,3 +17,6 @@ convex/functions/_generated/
 # Build artifacts.
 /bin/
 /release/dist/
+
+# Local build artifacts from go build ./validation/...
+/coordination
