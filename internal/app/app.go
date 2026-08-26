@@ -39,9 +39,6 @@ type briefProvider interface {
 type collaborationProvider interface {
 	Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error)
 }
-type sessionSharingProvider interface {
-	SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error)
-}
 type Service struct {
 	paths       config.Paths
 	store       *store.Store
@@ -337,30 +334,16 @@ func (s *Service) transcriptPath(workstreamID string) string {
 	return s.transcripts[workstreamID]
 }
 
-// shareTranscript projects consented session messages. It is a no-op unless the
-// member turned sharing on for this exact session under the current consent
-// version, and every candidate is classified before it can be enqueued.
+// shareTranscript projects session messages for an enrolled Project member.
+// The workspace pause gate is enforced synchronously by flush, and every
+// candidate is classified before it can be enqueued (ADR-047).
 func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspace, event agentactivity.Event, transcript sessiontranscript.Session) int {
 	if len(transcript.Messages) == 0 {
 		return 0
 	}
-	provider, ok := s.sender.(sessionSharingProvider)
-	if !ok {
-		return 0
-	}
-	policyContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-	sharing, sharingErr := provider.SessionSharing(policyContext, event.WorkstreamID)
-	cancel()
-	if sharingErr != nil || !sharing.Policy.Enabled || sharing.Policy.Profile != "conversation" || sharing.Policy.ConsentVersion != "session-share/v1" {
-		return 0
-	}
-	allowed := make(map[string]bool, len(sharing.Policy.AllowedKinds))
-	for _, kind := range sharing.Policy.AllowedKinds {
-		allowed[kind] = true
-	}
 	shared := 0
 	for index, candidate := range transcript.Messages {
-		if candidate.Kind == sessiontranscript.KindTool || !allowed[candidate.Kind] {
+		if candidate.Kind == sessiontranscript.KindTool {
 			continue
 		}
 		message, classifyErr := agentactivity.ClassifyMessage(agentactivity.Message{Kind: candidate.Kind, Text: candidate.Text})
@@ -373,7 +356,7 @@ func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspac
 		messagePayload := map[string]any{
 			"messageId": fmt.Sprintf("msg_%x", digest[:16]), "workstreamId": event.WorkstreamID,
 			"vendor": event.Vendor, "sessionAlias": event.SessionAlias,
-			"kind": message.Kind, "text": message.Text, "consentVersion": "session-share/v1",
+			"kind": message.Kind, "text": message.Text,
 		}
 		if s.store.EnqueueEvent(ctx, workspace.ID, newID("evt_"), "hook", "agent.conversation_shared", messagePayload) != nil {
 			continue

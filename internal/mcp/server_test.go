@@ -92,7 +92,7 @@ func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
 		}
 	}
 	front := instructions[:min(512, len(instructions))]
-	for _, phrase := range []string{"advisory", "begin_work", "check_coordination", "Never send source", "secrets", "separately consented"} {
+	for _, phrase := range []string{"advisory", "begin_work", "check_coordination", "Never send source", "secrets", "pause switch"} {
 		if !strings.Contains(front, phrase) {
 			t.Errorf("first 512 characters omit %q", phrase)
 		}

@@ -23,10 +23,6 @@ func (f fakePublisher) CreateBrief(context.Context, string, string, string, int)
 func (f fakePublisher) Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error) {
 	return hosted.CollaborationSnapshot{}, f.err
 }
-func (f fakePublisher) SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error) {
-	return hosted.SessionSharingSnapshot{}, f.err
-}
-
 func TestHostedSenderRequiresEveryAcknowledgement(t *testing.T) {
 	batch := []byte(`{"events":[{"eventId":"evt_a"},{"eventId":"evt_b"}]}`)
 	if err := (hostedSender{client: fakePublisher{ack: hosted.BatchAck{AcceptedEventIDs: []string{"evt_a", "evt_b"}, Cursor: "seq:2"}}}).Send(context.Background(), "wsp_fixture", batch); err != nil {

@@ -182,15 +182,14 @@
       "if": { "properties": { "type": { "const": "agent.conversation_shared" } }, "required": ["type"] },
       "then": { "properties": { "payload": {
         "type": "object", "additionalProperties": false,
-        "required": ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text", "consentVersion"],
+        "required": ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text"],
         "properties": {
           "messageId": { "$ref": "#/$defs/id" },
           "workstreamId": { "$ref": "#/$defs/workstreamId" },
           "vendor": { "enum": ["codex", "claude"] },
           "sessionAlias": { "type": "string", "pattern": "^(codex|claude)-[0-9a-f]{6}$" },
           "kind": { "enum": ["user", "assistant", "thinking", "system"] },
-          "text": { "type": "string", "minLength": 1, "maxLength": 8000 },
-          "consentVersion": { "const": "session-share/v1" }
+          "text": { "type": "string", "minLength": 1, "maxLength": 8000 }
         }
       } } }
     }

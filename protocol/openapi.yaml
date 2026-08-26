@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Stickguy Public API
   version: 1.0.0-alpha.1
-  description: Versioned coordination contracts. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require the explicit session-share/v1 contract.
+  description: Versioned coordination contracts. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require Project membership, an unpaused workspace, and classifier approval.
 servers:
   - url: https://api.stickguy.dev/v1
 security:
@@ -124,12 +124,6 @@ paths:
       security: [ { deviceToken: [] }, { browserSession: [] } ]
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses: { '200': { description: Authorized policy and shared messages, content: { application/json: { schema: { $ref: './schemas/session-sharing.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
-    put:
-      operationId: updateSessionSharing
-      security: [ { deviceToken: [] }, { browserSession: [] } ]
-      parameters: [ { $ref: '#/components/parameters/Id' } ]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateSessionSharingRequest' } } } }
-      responses: { '200': { description: Updated policy and current messages, content: { application/json: { schema: { $ref: './schemas/session-sharing.schema.json' } } } }, default: { $ref: '#/components/responses/Error' } }
     delete:
       operationId: deleteSharedSessionMessages
       security: [ { deviceToken: [] }, { browserSession: [] } ]
@@ -303,16 +297,6 @@ components:
         summary: { type: string, minLength: 1, maxLength: 2000 }
         affectedMemberIds: { type: array, maxItems: 100, uniqueItems: true, items: { $ref: '#/components/schemas/Id' } }
         affectedWorkstreamIds: { type: array, maxItems: 100, uniqueItems: true, items: { $ref: '#/components/schemas/Id' } }
-    UpdateSessionSharingRequest:
-      type: object
-      additionalProperties: false
-      required: [profile, audience, consentVersion, allowedKinds]
-      properties:
-        profile: { enum: [private, conversation] }
-        audience: { enum: [self, project] }
-        consentVersion: { const: session-share/v1 }
-        allowedKinds: { type: array, maxItems: 4, uniqueItems: true, items: { enum: [user, assistant, reasoning_summary, system] } }
-        expiresInSeconds: { type: integer, minimum: 300, maximum: 2592000 }
     ContextItem:
       oneOf:
         - { $ref: './schemas/semantic-object.schema.json' }

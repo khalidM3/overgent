@@ -87,17 +87,16 @@ describe("hosted boundary validation", () => {
     }
   });
 
-  it("accepts consented conversation content but rejects secrets and raw output", () => {
+  it("accepts Project conversation content but rejects secrets and raw output", () => {
     const base = {
       ...baseEvent, source: "hook", type: "agent.conversation_shared",
       payload: {
         messageId: "msg_0123456789abcdef0123456789abcdef", workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
         vendor: "codex", sessionAlias: "codex-a1b2c3", kind: "user", text: "Explain the rotation boundary.",
-        consentVersion: "session-share/v1",
       },
     };
     expect(validateEventBatch({ events: [base] })).toHaveLength(1);
-    // ADR-036: quoted code and diffs belong in a consented conversation.
+    // ADR-036: quoted code and diffs belong in a Project conversation.
     for (const text of ["```ts\nconst x = 1;\n```", "diff --git a/a.ts b/a.ts", "Call sessionRotation() in src/auth.ts"]) {
       expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, text } }] })).toHaveLength(1);
     }

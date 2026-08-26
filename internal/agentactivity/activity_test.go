@@ -65,7 +65,7 @@ func TestClassifyAllowsQuotedCodeButRejectsSecretsAndRawOutput(t *testing.T) {
 			t.Fatalf("rejected allowed message %q: %v", text, err)
 		}
 	}
-	// Vendor-recorded reasoning is shareable content under the same consent.
+	// Vendor-recorded reasoning is Project-shareable content.
 	if _, err := ClassifyMessage(Message{Kind: "thinking", Text: "I should read the session module first."}); err != nil {
 		t.Fatalf("thinking must be shareable: %v", err)
 	}

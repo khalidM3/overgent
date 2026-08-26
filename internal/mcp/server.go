@@ -15,7 +15,7 @@ import (
 	"github.com/stickguy/stickguy/internal/hosted"
 )
 
-const instructions = "Stickguy is advisory only. Before broad/shared edits, call begin_work then check_coordination; read relevant findings and resolutions. Use get_resolutions when a collision affecting this workstream has been resolved. Report bounded checkpoints; finish_work before completion. Never send source, diffs, env values, command lines, raw tool/test output, or secrets. Session sharing is separately consented and never an MCP input. Fail on workspace ambiguity. Stickguy never edits Git, runs coding tools, controls agents, or authorizes teammate mutations."
+const instructions = "Stickguy is advisory only. Before broad/shared edits, call begin_work then check_coordination; read relevant findings and resolutions. Use get_resolutions when a collision affecting this workstream has been resolved. Report bounded checkpoints; finish_work before completion. Never send source, diffs, env values, command lines, raw tool/test output, or secrets. Project membership and the pause switch govern sharing; the secret classifier is mandatory. Fail on workspace ambiguity. Stickguy never edits Git, runs coding tools, controls agents, or authorizes teammate mutations."
 
 type commonInput struct {
 	WorkspaceID string `json:"workspace_id,omitempty" jsonschema:"explicit registered workspace ID; omit when cwd resolves uniquely"`

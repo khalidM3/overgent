@@ -266,13 +266,12 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       return;
     }
     case "agent.conversation_shared": {
-      expectExactKeys(payload, ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text", "consentVersion"]);
+      expectExactKeys(payload, ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text"]);
       expectId(payload.messageId);
       expectWorkstreamId(payload.workstreamId);
       if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
       if (!/^(codex|claude)-[0-9a-f]{6}$/.test(expectString(payload.sessionAlias, 12, 13))) throw new ValidationError("validation_failed");
       if (!["user", "assistant", "thinking", "system"].includes(expectString(payload.kind, 1, 32))) throw new ValidationError("validation_failed");
-      if (payload.consentVersion !== "session-share/v1") throw new ValidationError("consent_version_invalid");
       validateSessionMessageText(expectString(payload.text, 1, 8000));
       return;
     }
@@ -280,7 +279,7 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
 }
 
 export function validateSessionMessageText(text: string): void {
-  // ADR-036: quoted code and diffs are allowed inside a consented conversation.
+  // ADR-036: quoted code and diffs are allowed inside a Project conversation.
   // Secrets, environment values, and raw tool output never are. A match rejects
   // the whole message; nothing here redacts. ADR-038 narrows this to the
   // material itself so a passing mention of a filename is not treated as one.

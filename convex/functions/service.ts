@@ -650,39 +650,6 @@ export const sessionSharingSnapshot = internalQuery({
   },
 });
 
-export const updateSessionSharing = internalMutation({
-  args: {
-    tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), workstreamPublicId: v.string(),
-    profile: v.string(), audience: v.string(), consentVersion: v.string(), allowedKinds: v.array(v.string()),
-    expiresAt: v.optional(v.number()), now: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
-    if (!workstream) fail("not_found");
-    const project = await ctx.db.get(workstream.projectId);
-    if (!project) fail("not_found");
-    const auth = await requireCollaborationActor(ctx, { projectPublicId: project.publicId, tokenHash: args.tokenHash, sessionHash: args.sessionHash, now: args.now });
-    if (workstream.memberId !== auth.member._id) fail("forbidden");
-    if (args.consentVersion !== "session-share/v1") fail("consent_version_invalid");
-    if (!['private', 'conversation'].includes(args.profile) || !['self', 'project'].includes(args.audience)) fail("validation_failed");
-    const allowedKinds = [...new Set(args.allowedKinds)];
-    if (allowedKinds.some((kind) => !['user', 'assistant', 'thinking', 'system'].includes(kind)) || allowedKinds.length > 4) fail("validation_failed");
-    if (args.profile === "conversation" && allowedKinds.length === 0) fail("validation_failed");
-    if (args.profile === "private" && allowedKinds.length !== 0) fail("validation_failed");
-    if (args.expiresAt !== undefined && (args.expiresAt < args.now + 300_000 || args.expiresAt > args.now + 30 * DAY)) fail("validation_failed");
-    const current = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
-    const record = {
-      projectId: project._id, memberId: auth.member._id,
-      profile: args.profile as "private" | "conversation", audience: args.audience as "self" | "project",
-      consentVersion: args.consentVersion, allowedKinds, enabled: args.profile === "conversation",
-      ...(args.expiresAt !== undefined ? { expiresAt: args.expiresAt } : {}), updatedAt: args.now,
-    };
-    if (current) await ctx.db.replace(current._id, { workstreamId: workstream._id, ...record });
-    else await ctx.db.insert("sessionSharingPolicies", { workstreamId: workstream._id, ...record });
-    return sessionSharingView(ctx, workstream, auth.member, args.now);
-  },
-});
-
 export const deleteSharedSessionMessages = internalMutation({
   args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), workstreamPublicId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
@@ -695,8 +662,6 @@ export const deleteSharedSessionMessages = internalMutation({
     const messages = await ctx.db.query("sessionMessages").withIndex("by_workstream_captured", (q) => q.eq("workstreamId", workstream._id)).take(101);
     if (messages.length > 100) fail("page_too_large");
     for (const message of messages) await ctx.db.delete(message._id);
-    const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
-    if (policy) await ctx.db.patch(policy._id, { profile: "private", audience: "self", allowedKinds: [], enabled: false, expiresAt: undefined, updatedAt: args.now });
     return true;
   },
 });
@@ -954,17 +919,14 @@ async function applyProjection(
       if (event.sequence <= workspace.lastProjectedSequence) return;
       const workstream = await requireWorkstream(ctx, String(payload.workstreamId), project._id, workspace._id);
       if (workstream.memberId !== member._id || workstream.vendor !== payload.vendor || workstream.sessionAlias !== payload.sessionAlias) fail("forbidden");
-      const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
       const kind = String(payload.kind);
-      if (!policy || !policy.enabled || policy.profile !== "conversation" || policy.consentVersion !== "session-share/v1" ||
-        policy.memberId !== member._id || (policy.expiresAt !== undefined && policy.expiresAt <= now) || !policy.allowedKinds.includes(kind)) fail("sharing_not_enabled");
       const text = String(payload.text);
       validateSessionMessageText(text);
       const existing = await ctx.db.query("sessionMessages").withIndex("by_public_id", (q) => q.eq("publicId", String(payload.messageId))).unique();
       if (existing) {
         if (existing.workstreamId !== workstream._id) fail("event_id_conflict");
       } else {
-        const expiresAt = Math.min(policy.expiresAt ?? now + project.retentionDays * DAY, now + project.retentionDays * DAY);
+        const expiresAt = now + project.retentionDays * DAY;
         await ctx.db.insert("sessionMessages", {
           publicId: String(payload.messageId), workstreamId: workstream._id, projectId: project._id, memberId: member._id,
           vendor: payload.vendor as "codex" | "claude", kind: kind as "user" | "assistant" | "thinking" | "system",
@@ -1465,30 +1427,14 @@ async function requireCollaborationActor(
 async function sessionSharingView(
   ctx: QueryCtx | MutationCtx,
   workstream: Doc<"workstreams">,
-  actor: Doc<"members">,
-  now: number,
+  _actor: Doc<"members">,
+  _now: number,
 ) {
-  const policy = await ctx.db.query("sessionSharingPolicies").withIndex("by_workstream", (q) => q.eq("workstreamId", workstream._id)).unique();
-  const canManage = actor._id === workstream.memberId;
-  const enabled = Boolean(policy?.enabled && policy.profile === "conversation" && (policy.expiresAt === undefined || policy.expiresAt > now));
-  const visible = enabled && (policy?.audience === "project" || canManage);
-  const messages = visible ? await ctx.db.query("sessionMessages")
+  const messages = await ctx.db.query("sessionMessages")
     .withIndex("by_workstream_captured", (q) => q.eq("workstreamId", workstream._id))
-    .order("asc").take(100) : [];
+    .order("asc").take(100);
   return {
     workstreamId: workstream.publicId,
-    policy: policy ? {
-      profile: enabled ? policy.profile : "private",
-      audience: enabled ? policy.audience : "self",
-      consentVersion: "session-share/v1",
-      allowedKinds: enabled ? policy.allowedKinds : [],
-      enabled,
-      canManage,
-      ...(enabled && policy.expiresAt !== undefined ? { expiresAt: new Date(policy.expiresAt).toISOString() } : {}),
-      updatedAt: new Date(policy.updatedAt).toISOString(),
-    } : {
-      profile: "private", audience: "self", consentVersion: "session-share/v1", allowedKinds: [], enabled: false, canManage,
-    },
     messages: messages.map((message) => ({
       id: message.publicId, kind: message.kind, text: message.text, vendor: message.vendor,
       capturedAt: new Date(message.capturedAt).toISOString(), expiresAt: new Date(message.expiresAt).toISOString(),

@@ -17,7 +17,6 @@ type batchPublisher interface {
 	Heartbeat(context.Context, string, string) error
 	CreateBrief(context.Context, string, string, string, int) (hosted.CoordinationBrief, error)
 	Collaboration(context.Context, string) (hosted.CollaborationSnapshot, error)
-	SessionSharing(context.Context, string) (hosted.SessionSharingSnapshot, error)
 }
 
 type hostedSender struct{ client batchPublisher }
@@ -86,7 +85,4 @@ func (s hostedSender) CreateBrief(ctx context.Context, workstreamID, trigger, si
 }
 func (s hostedSender) Collaboration(ctx context.Context, projectID string) (hosted.CollaborationSnapshot, error) {
 	return s.client.Collaboration(ctx, projectID)
-}
-func (s hostedSender) SessionSharing(ctx context.Context, workstreamID string) (hosted.SessionSharingSnapshot, error) {
-	return s.client.SessionSharing(ctx, workstreamID)
 }

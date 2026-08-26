@@ -338,21 +338,6 @@ export default defineSchema({
     .index("by_decision_workstream", ["decisionId", "workstreamId"])
     .index("by_workstream", ["workstreamId"]),
 
-  sessionSharingPolicies: defineTable({
-    workstreamId: v.id("workstreams"),
-    projectId: v.id("projects"),
-    memberId: v.id("members"),
-    profile: v.union(v.literal("private"), v.literal("conversation")),
-    audience: v.union(v.literal("self"), v.literal("project")),
-    consentVersion: v.string(),
-    allowedKinds: v.array(v.string()),
-    enabled: v.boolean(),
-    expiresAt: v.optional(v.number()),
-    updatedAt: v.number(),
-  })
-    .index("by_workstream", ["workstreamId"])
-    .index("by_project", ["projectId"]),
-
   sessionMessages: defineTable({
     publicId: v.string(),
     workstreamId: v.id("workstreams"),
