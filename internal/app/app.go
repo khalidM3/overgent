@@ -326,7 +326,13 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		s.scanAll(ctx)
 		return daemon.Response{OK: true}
 	case "add_development_workspace":
-		workspace, err := s.addDevelopmentWorkspace(ctx, q)
+		workspace, err := s.addWorkspace(ctx, q, true)
+		if err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		return daemon.Response{OK: true, Data: workspace}
+	case "add_project_workspace":
+		workspace, err := s.addWorkspace(ctx, q, false)
 		if err != nil {
 			return daemon.Response{Error: err.Error()}
 		}
@@ -662,7 +668,7 @@ func workspaceForCWD(cfg config.Config, cwd string) (config.Workspace, bool) {
 	return selected, selected.Root != ""
 }
 
-func (s *Service) addDevelopmentWorkspace(ctx context.Context, q daemon.Request) (config.Workspace, error) {
+func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExistingProjectMember bool) (config.Workspace, error) {
 	if q.Root == "" || q.ProjectID == "" || q.WorkspaceID == "" || q.WorkstreamID == "" || q.MemberID == "" || q.SessionID == "" {
 		return config.Workspace{}, errors.New("development workspace fields are required")
 	}
@@ -704,7 +710,7 @@ func (s *Service) addDevelopmentWorkspace(ctx context.Context, q daemon.Request)
 			projectMemberFound = true
 		}
 	}
-	if !projectMemberFound {
+	if requireExistingProjectMember && !projectMemberFound {
 		return config.Workspace{}, errors.New("development workspace must reuse an enrolled Project member")
 	}
 	if s.watch == nil {

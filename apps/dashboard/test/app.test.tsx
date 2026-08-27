@@ -1,9 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession } from "../src/fixtures";
 import { App, DesktopPreviewBanner } from "../src/main";
+import type { NativeOnboarding } from "../src/native";
 
 const renderReady = () => render(<App initialState="ready" source={new FixtureProjectSource()} />);
 
@@ -21,27 +22,30 @@ describe("Project Workroom behavior", () => {
     expect(screen.queryByText("stickguy/atlas")).toBeNull();
   });
 
-  it("centers people and live agent sessions with drill-down details", async () => {
+  it("separates your own sessions from nearby teammates, with drill-down details", async () => {
     const user = userEvent.setup();
     renderReady();
-    expect(screen.getByRole("heading", { name: "Now" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Khalid Working now/ }).getAttribute("aria-expanded")).toBe("true");
+    // The workroom answers "what is reaching me" before "what is everyone doing".
+    expect(screen.getByRole("heading", { name: "Converging on you" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your sessions" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Nearby" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
+
     const inspector = screen.getByLabelText("Details inspector");
     expect(within(inspector).getByRole("heading", { name: "Rotate the browser session boundary" })).toBeTruthy();
-    expect(within(inspector).getByText("Live agent")).toBeTruthy();
+    expect(within(inspector).getByText(/Live agent/)).toBeTruthy();
     expect(within(inspector).getByText("feature/session-rotation")).toBeTruthy();
-    expect(within(inspector).getByRole("heading", { name: "Recent actions 3" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Activity 3" })).toBeTruthy();
     expect(within(inspector).getByRole("heading", { name: "Subagents 1" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     expect(within(inspector).getByRole("heading", { name: "Audit session validity checks" })).toBeTruthy();
-    expect(within(inspector).getByText("Waiting for input")).toBeTruthy();
+    expect(within(inspector).getByText(/Waiting for input/)).toBeTruthy();
     expect(within(inspector).queryByRole("heading", { name: /Subagents/ })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Open Shared task session for Ravi" }));
-    expect(within(inspector).getByText("Git observed")).toBeTruthy();
+    expect(within(inspector).getByText(/Git observed/)).toBeTruthy();
     expect(within(inspector).getByText("1,000 paths")).toBeTruthy();
   });
 
@@ -65,7 +69,7 @@ describe("Project Workroom behavior", () => {
     expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Simulate activity" }));
     expect(screen.getByText("Published one new path-only manifest revision.")).toBeTruthy();
-    expect(screen.getByText("revision 185")).toBeTruthy();
+    expect(screen.getByText("rev 185")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
     const detail = screen.getByLabelText("Selected collision detail");
@@ -102,6 +106,51 @@ describe("Project Workroom behavior", () => {
     expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
   });
 
+  it("closes the command palette from its esc control and backdrop", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Search Projects and commands" }));
+    await user.click(screen.getByRole("button", { name: "Close command palette" }));
+    expect(screen.queryByRole("dialog", { name: "Search Projects and commands" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Search Projects and commands" }));
+    await user.click(screen.getByRole("dialog", { name: "Search Projects and commands" }));
+    expect(screen.queryByRole("dialog", { name: "Search Projects and commands" })).toBeNull();
+  });
+
+  it("restores the Projects sidebar after it is collapsed", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Collapse Projects sidebar" }));
+    const restore = screen.getByRole("button", { name: "Expand Projects sidebar" });
+    expect(restore).toBeTruthy();
+    await user.click(restore);
+    expect(screen.getByRole("button", { name: "Collapse Projects sidebar" })).toBeTruthy();
+  });
+
+  it("creates a new Project through the dedicated native dialog", async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn();
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => ({ available: true, development: true, enrolled: true, projectId: "prj_atlas", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters: [], limitation: "" })),
+      chooseRepository: vi.fn(async () => "/tmp/orbit"),
+      createProject: vi.fn(),
+      createAdditionalProject: vi.fn(async () => ({ projectId: "prj_orbit", joinCode: "inv_orbit.secret", warnings: [] })),
+      joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
+      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/orbit"), sessionDetail: vi.fn(),
+    };
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={navigate} />);
+    await user.click(screen.getByRole("button", { name: "Add a new Project" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a new Project" });
+    await user.click(within(dialog).getByRole("button", { name: "Choose…" }));
+    expect((within(dialog).getByPlaceholderText("Choose a local Git repository") as HTMLInputElement).value).toBe("/tmp/orbit");
+    await user.click(within(dialog).getByRole("button", { name: "Create Project" }));
+    expect(await screen.findByRole("heading", { name: "Project created" })).toBeTruthy();
+    expect(screen.getByText("inv_orbit.secret")).toBeTruthy();
+    expect(api.createAdditionalProject).toHaveBeenCalledWith(expect.objectContaining({ repositoryRoot: "/tmp/orbit", projectLabel: "orbit", displayName: "Khalid" }));
+    await user.click(screen.getByRole("button", { name: "Open Project" }));
+    expect(navigate).toHaveBeenCalledWith("http://127.0.0.1:49152/activate/orbit");
+  });
+
   it("activates a browser session without asking for a ticket value", async () => {
     const user = userEvent.setup();
     render(<App initialState="activation" source={new FixtureProjectSource()} />);
@@ -120,7 +169,7 @@ describe("member identity", () => {
     const source = new FixtureProjectSource();
     render(<App initialState="ready" initialSession={deviceNamedSession} source={source} />);
 
-    const prompt = screen.getByText("Choose how teammates see you").closest(".status-strip") as HTMLElement;
+    const prompt = screen.getByText("Choose how teammates see you").closest(".notice") as HTMLElement;
     expect(prompt).toBeTruthy();
     // The legacy name is shown as-is; migration is a prompt, never a rewrite.
     expect(within(prompt).getByText(/khalids-macbook-pro\.local/)).toBeTruthy();

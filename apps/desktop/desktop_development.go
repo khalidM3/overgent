@@ -49,17 +49,10 @@ func openLocalProject(ctx context.Context, window *application.WebviewWindow) er
 	if err != nil {
 		return err
 	}
-	projects := map[string]struct{}{}
-	for _, workspace := range cfg.Workspaces {
-		projects[workspace.ProjectID] = struct{}{}
+	if len(cfg.Workspaces) == 0 || cfg.DeviceID == "" || cfg.APIBaseURL == "" {
+		return errors.New("local live view requires an enrolled Project in the default development profile")
 	}
-	if len(projects) != 1 || cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return errors.New("local live view requires one enrolled Project in the default development profile")
-	}
-	var projectID string
-	for value := range projects {
-		projectID = value
-	}
+	projectID := cfg.Workspaces[len(cfg.Workspaces)-1].ProjectID
 	if !developmentOriginAllowed(cfg.APIBaseURL) {
 		return errors.New("development desktop requires loopback HTTP or an HTTPS shared-development API origin")
 	}
