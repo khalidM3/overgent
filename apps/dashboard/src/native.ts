@@ -75,6 +75,7 @@ export const nativeOnboarding = {
   state: () => call<OnboardingState>("State"),
   chooseRepository: () => call<string>("ChooseRepository"),
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
+  createAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateAdditionalProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
   configureAdapters: (root: string, codex: boolean, claude: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude),
   reconnectAdapter: (root: string, agent: "codex" | "claude") => call<AdapterState>("ReconnectAdapter", root, agent),
