@@ -96,6 +96,43 @@ func (s Service) Create(ctx context.Context, options Options) (Result, error) {
 	return s.finish(ctx, options, client, project.ID, bootstrap.DeviceID, token, "", true)
 }
 
+// CreateAdditional creates another Project for a device that is already
+// enrolled in the local profile. The existing credential is deliberately
+// reused: one per-user service has one device identity across its Projects.
+// Unlike first enrollment, a local registration failure must never revoke the
+// shared device and strand its existing Projects.
+func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID, token string) (Result, error) {
+	if err := validateOptions(options, true); err != nil {
+		return Result{}, err
+	}
+	if deviceID == "" || token == "" {
+		return Result{}, errors.New("existing device ID and credential are required")
+	}
+	if err := preflightRepository(ctx, options.RepositoryRoot); err != nil {
+		return Result{}, err
+	}
+	client, err := s.Client(token)
+	if err != nil {
+		return Result{}, err
+	}
+	appVersion := options.AppVersion
+	if appVersion == "" {
+		appVersion = "stickguy/dev"
+	}
+	project, err := client.CreateProject(ctx, options.ProjectLabel, options.DeviceLabel, options.DisplayName, appVersion)
+	if err != nil {
+		return Result{}, fmt.Errorf("create additional Project: %w", err)
+	}
+	bootstrap, err := client.Bootstrap(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("bootstrap existing device: %w", err)
+	}
+	if bootstrap.DeviceID != deviceID || !containsProject(bootstrap.Projects, project.ID) {
+		return Result{}, errors.New("existing device bootstrap did not contain the new Project")
+	}
+	return s.finishExisting(ctx, options, client, project.ID, deviceID)
+}
+
 func (s Service) Join(ctx context.Context, options Options, joinCode string) (Result, error) {
 	if err := validateOptions(options, false); err != nil {
 		return Result{}, err
@@ -189,6 +226,42 @@ func (s Service) finish(ctx context.Context, options Options, client API, projec
 	}
 	stored = false
 	return Result{ProjectID: projectID, DeviceID: deviceID, WorkspaceID: workspaceID, WorkstreamID: workstreamID, JoinCode: joinCode, DashboardTicket: dashboardTicket}, nil
+}
+
+func (s Service) finishExisting(ctx context.Context, options Options, client API, projectID, deviceID string) (Result, error) {
+	workspaceID, err := opaqueID("wsp_local_")
+	if err != nil {
+		return Result{}, err
+	}
+	workstreamID, err := opaqueID("wrk_local_")
+	if err != nil {
+		return Result{}, err
+	}
+	memberID, err := opaqueID("mem_local_")
+	if err != nil {
+		return Result{}, err
+	}
+	sessionID, err := opaqueID("ses_local_")
+	if err != nil {
+		return Result{}, err
+	}
+	ticket, err := client.CreateDashboardTicket(ctx, projectID)
+	if err != nil {
+		return Result{}, fmt.Errorf("create dashboard ticket: %w", err)
+	}
+	invite, err := client.CreateInvite(ctx, projectID, 600, 1)
+	if err != nil {
+		return Result{}, fmt.Errorf("create invite: %w", err)
+	}
+	workspace := config.Workspace{ID: workspaceID, ProjectID: projectID, WorkstreamID: workstreamID, MemberID: memberID, SessionID: sessionID, Root: options.RepositoryRoot}
+	if err := s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
+		return Result{}, fmt.Errorf("register additional workspace: %w", err)
+	}
+	return Result{
+		ProjectID: projectID, DeviceID: deviceID, WorkspaceID: workspaceID,
+		WorkstreamID: workstreamID, JoinCode: invite.ID + "." + invite.Secret,
+		DashboardTicket: ticket.Ticket,
+	}, nil
 }
 
 func validateOptions(options Options, requireLabel bool) error {

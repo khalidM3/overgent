@@ -1,0 +1,97 @@
+package onboarding
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/stickguy/stickguy/internal/config"
+	"github.com/stickguy/stickguy/internal/hosted"
+)
+
+type additionalProjectAPI struct {
+	deviceID string
+	project  hosted.Project
+	revoked  bool
+}
+
+func (api *additionalProjectAPI) CreateProject(context.Context, string, string, string, string) (hosted.Project, error) {
+	return api.project, nil
+}
+func (*additionalProjectAPI) CreateInvite(context.Context, string, int, int) (hosted.Invite, error) {
+	return hosted.Invite{ID: "inv_fixture", Secret: "fixture-secret"}, nil
+}
+func (*additionalProjectAPI) Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error) {
+	return hosted.Enrollment{}, nil
+}
+func (api *additionalProjectAPI) Bootstrap(context.Context) (hosted.Bootstrap, error) {
+	return hosted.Bootstrap{DeviceID: api.deviceID, Projects: []hosted.Project{api.project}}, nil
+}
+func (*additionalProjectAPI) CreateDashboardTicket(context.Context, string) (hosted.DashboardTicket, error) {
+	return hosted.DashboardTicket{Ticket: "dashboard-ticket-fixture"}, nil
+}
+func (api *additionalProjectAPI) RevokeDevice(context.Context, string) error {
+	api.revoked = true
+	return nil
+}
+
+func TestCreateAdditionalReusesDeviceAndRegistersWorkspace(t *testing.T) {
+	root := makeOnboardingRepository(t)
+	api := &additionalProjectAPI{deviceID: "dev_existing", project: hosted.Project{ID: "prj_second", Label: "Second"}}
+	var registered config.Workspace
+	service := Service{
+		Client: func(token string) (API, error) {
+			if token != "existing-token" {
+				t.Fatalf("token = %q", token)
+			}
+			return api, nil
+		},
+		Register: func(_ context.Context, _, _, deviceID string, workspace config.Workspace) error {
+			if deviceID != api.deviceID {
+				t.Fatalf("device = %q", deviceID)
+			}
+			registered = workspace
+			return nil
+		},
+	}
+	result, err := service.CreateAdditional(context.Background(), Options{
+		ConfigRoot: t.TempDir(), RepositoryRoot: root, APIBaseURL: "https://api.stickguy.dev",
+		ProjectLabel: "Second", DeviceLabel: "This Mac",
+	}, api.deviceID, "existing-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProjectID != api.project.ID || result.DeviceID != api.deviceID || registered.ProjectID != api.project.ID || registered.Root != root {
+		t.Fatalf("result=%+v registered=%+v", result, registered)
+	}
+	if result.JoinCode != "inv_fixture.fixture-secret" || result.DashboardTicket == "" {
+		t.Fatalf("missing activation material: %+v", result)
+	}
+	if api.revoked {
+		t.Fatal("shared existing device was revoked")
+	}
+}
+
+func makeOnboardingRepository(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", root}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	runGit("init")
+	runGit("config", "user.email", "fixture@example.test")
+	runGit("config", "user.name", "Fixture")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "README.md")
+	runGit("commit", "-m", "fixture")
+	runGit("remote", "add", "origin", "https://example.test/stickguy/fixture.git")
+	return root
+}

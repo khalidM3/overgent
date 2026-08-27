@@ -50,7 +50,9 @@ func main() {
 		URL:              desktopStartURL(),
 		BackgroundColour: application.NewRGB(244, 245, 240),
 		Mac: application.MacWindow{
-			TitleBar:    application.MacTitleBarHiddenInset,
+			// Keep the native title bar outside the web content. Full-size content
+			// places the traffic lights over the Project sidebar and brand mark.
+			TitleBar:    application.MacTitleBarDefault,
 			TabbingMode: application.MacWindowTabbingModeDisallowed,
 		},
 	})

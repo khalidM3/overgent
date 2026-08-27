@@ -13,18 +13,20 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stickguy/stickguy/internal/activation"
+	"github.com/stickguy/stickguy/internal/app"
 	"github.com/stickguy/stickguy/internal/claudesetup"
 	"github.com/stickguy/stickguy/internal/codexsetup"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/credential"
+	"github.com/stickguy/stickguy/internal/daemon"
 	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/onboarding"
 	servicemanager "github.com/stickguy/stickguy/internal/service"
 	"github.com/stickguy/stickguy/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"unicode/utf8"
 )
 
 type AdapterState struct {
@@ -108,17 +110,13 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 		state.Adapters = service.adapterStates(nil)
 		return state, nil
 	}
-	projects := map[string]struct{}{}
-	for _, workspace := range cfg.Workspaces {
-		projects[workspace.ProjectID] = struct{}{}
-	}
-	if len(projects) != 1 {
-		return state, errors.New("desktop onboarding cannot safely select among multiple enrolled Projects yet")
-	}
 	state.Enrolled = true
-	state.ProjectID = cfg.Workspaces[0].ProjectID
-	state.RepositoryRoot = cfg.Workspaces[0].Root
-	state.RepositoryLabel = filepath.Base(cfg.Workspaces[0].Root)
+	// The newest registration is the Project the member most recently added.
+	// A specific Project can always be opened through OpenLiveProject.
+	selected := cfg.Workspaces[len(cfg.Workspaces)-1]
+	state.ProjectID = selected.ProjectID
+	state.RepositoryRoot = selected.Root
+	state.RepositoryLabel = filepath.Base(selected.Root)
 	roots := make([]string, 0, len(cfg.Workspaces))
 	for _, workspace := range cfg.Workspaces {
 		roots = append(roots, workspace.Root)
@@ -129,6 +127,72 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 
 func (service *OnboardingService) CreateProject(request EnrollmentRequest) (EnrollmentResult, error) {
 	return service.enroll(request, true)
+}
+
+// CreateAdditionalProject reuses this Mac's enrolled device credential and
+// hot-registers the repository with the one running service. The webview sees
+// only the resulting Project ID and one-use invite, never the credential.
+func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	root, err := canonicalRepository(request.RepositoryRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
+		return EnrollmentResult{}, errors.New("add a Project after this Mac has completed enrollment")
+	}
+	for _, workspace := range cfg.Workspaces {
+		if workspace.Root == root {
+			return EnrollmentResult{}, errors.New("this repository is already connected to a Project")
+		}
+	}
+	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
+	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
+	request.DisplayName, err = boundedDisplayName(request.DisplayName)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	token, err := credential.Get(ctx, cfg.DeviceID)
+	if err != nil {
+		return EnrollmentResult{}, fmt.Errorf("read existing device credential: %w", err)
+	}
+	flow := onboarding.New(cfg.APIBaseURL)
+	flow.Register = func(registerContext context.Context, configRoot, apiBaseURL, deviceID string, workspace config.Workspace) error {
+		response, callErr := daemon.Call(registerContext, paths.Socket, daemon.Request{
+			Method: "add_project_workspace", WorkspaceID: workspace.ID, ProjectID: workspace.ProjectID,
+			WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID,
+			SessionID: workspace.SessionID, Root: workspace.Root,
+		})
+		if callErr == nil {
+			if !response.OK {
+				return errors.New(response.Error)
+			}
+			return nil
+		}
+		return app.Register(registerContext, configRoot, apiBaseURL, deviceID, workspace)
+	}
+	result, err := flow.CreateAdditional(ctx, onboarding.Options{
+		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
+		ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel,
+		DisplayName: request.DisplayName, AppVersion: "stickguy/desktop-beta",
+	}, cfg.DeviceID, token)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude)...)
+	if serviceErr := service.ensureService(ctx); serviceErr != nil {
+		warnings = append(warnings, "Background service: "+serviceErr.Error())
+	}
+	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
 }
 
 func (service *OnboardingService) JoinProject(request EnrollmentRequest) (EnrollmentResult, error) {

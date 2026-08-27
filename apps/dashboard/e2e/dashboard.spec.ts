@@ -3,13 +3,14 @@ import { expect, test } from "@playwright/test";
 test("Project Workroom shows people, Codex, Claude, and session drill-down", async ({ page }) => {
   await page.goto("/?state=ready");
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Now" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Khalid Working now/ })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { name: "Converging on you" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nearby" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Codex session for Khalid" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeVisible();
   await expect(page.getByLabel("Details inspector")).toContainText("Codex");
   await expect(page.getByLabel("Details inspector")).toContainText("feature/session-rotation");
-  await expect(page.getByLabel("Details inspector")).toContainText("Session activity");
+  await expect(page.getByLabel("Details inspector")).toContainText("Activity");
   await page.getByRole("button", { name: "Open Claude Code session for Mina" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("Claude Code");
   await expect(page.getByLabel("Details inspector")).toContainText("Waiting for input");
@@ -23,7 +24,7 @@ test("activity updates and Project switching remain isolated", async ({ page }) 
   await page.goto("/?state=ready");
   await page.getByRole("button", { name: "Simulate activity" }).click();
   await expect(page.getByText("Published one new path-only manifest revision.")).toBeVisible();
-  await expect(page.getByText("revision 185")).toBeVisible();
+  await expect(page.getByText("rev 185")).toBeVisible();
   await page.getByRole("button", { name: /Orchard mobile/ }).click();
   await expect(page.getByRole("heading", { name: "Orchard mobile" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Collision detected/ })).toHaveCount(0);
@@ -37,7 +38,7 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await expect(page.getByText("Workspace sharing is paused", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByText("Workspace sharing is paused", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /Collision detected Khalid and Mina/ }).click();
+  await page.getByRole("button", { name: "Collision detected Khalid and Mina" }).click();
   const detail = page.getByLabel("Selected collision detail");
   await expect(detail).toContainText("Codex");
   await expect(detail).toContainText("Claude Code");

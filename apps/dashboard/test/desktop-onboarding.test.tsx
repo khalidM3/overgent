@@ -19,6 +19,7 @@ describe("desktop onboarding", () => {
       state: vi.fn(async () => calls++ === 0 ? initial : enrolled),
       chooseRepository: vi.fn(async () => "/tmp/atlas"),
       createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })),
+      createAdditionalProject: vi.fn(),
       joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
@@ -35,7 +36,7 @@ describe("desktop onboarding", () => {
   it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
@@ -52,7 +53,7 @@ describe("desktop onboarding", () => {
   it("opens the authenticated live Project through a native one-time handoff", async () => {
     const navigate = vi.fn();
     const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
+      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
       openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
@@ -63,7 +64,7 @@ describe("desktop onboarding", () => {
 
   it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
     const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
+      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
       connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
@@ -75,7 +76,7 @@ describe("desktop onboarding", () => {
   it("previews and explicitly confirms a safe profile reconnect", async () => {
     const otherProfile: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, configured: false, binding: "other_profile", previousProfile: "Stickguy", runtimeVerified: false, restartRequired: false, reconnectAllowed: true, detail: "Connected to a different Stickguy profile." } : adapter) };
     const api: NativeOnboarding = {
-      state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
+      state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
       reconnectAdapter: vi.fn(async () => ({ ...otherProfile.adapters[0], configured: true, binding: "current" as const, reconnectAllowed: false, restartRequired: true })),
       connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
@@ -93,7 +94,7 @@ describe("desktop onboarding", () => {
   it("keeps a configured adapter pending until a live event verifies it", async () => {
     const pending: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, runtimeVerified: false, restartRequired: true, detail: "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection." } : adapter) };
     const api: NativeOnboarding = {
-      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     expect(await screen.findByText(/Restart the agent, then start a new task/)).toBeTruthy();
@@ -106,7 +107,7 @@ describe("first-run identity", () => {
     const user = userEvent.setup();
     const api: NativeOnboarding = {
       state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(), createProject: vi.fn(), joinProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);

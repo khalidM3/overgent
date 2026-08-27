@@ -31,6 +31,7 @@ Before implementation, read every document in `docs/README.md` order. Do not rep
 - Every public hosted operation authenticates, authorizes, validates, and applies size/rate guards.
 - Core behavior works with AI disabled.
 - Preserve honest fidelity: unsupported/disabled semantic processing degrades to structural evidence and is never presented as full intelligence.
+- Dashboard and desktop UI follows `docs/design-system.md`: hairlines and space instead of filled cards, `--alert` as the only colour and only for work converging on the viewer, no pulsing status dots, elapsed time always via `formatElapsed`, monospace for machine facts and sans for human statements.
 - Installed code, collection behavior, protocols, adapters, core dashboard/backend, installers, and release workflows are public; private cloud operations live in a separate repository.
 - Never add a production secret, private customer data, internal incident detail, or abuse-detection secret to the public repository.
 
