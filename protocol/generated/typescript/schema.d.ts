@@ -404,6 +404,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/findings/{id}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Acknowledge or dismiss a finding. Resolution is decision-backed and is recorded through sync card resolution, not here. */
+        post: operations["setFindingState"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/export": {
         parameters: {
             query?: never;
@@ -801,6 +818,10 @@ export interface components {
         FindingFeedbackRequest: {
             /** @enum {unknown} */
             value: "useful" | "not_related" | "already_coordinated" | "missed_severity";
+        };
+        SetFindingStateRequest: {
+            /** @enum {unknown} */
+            state: "acknowledged" | "dismissed";
         };
         CreateSyncCardRequest: {
             findingId?: string;
@@ -3887,6 +3908,50 @@ export interface operations {
         };
         responses: {
             /** @description Feedback recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    setFindingState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {unknown} */
+                    state: "acknowledged" | "dismissed";
+                };
+            };
+        };
+        responses: {
+            /** @description Finding state recorded */
             204: {
                 headers: {
                     [name: string]: unknown;
