@@ -94,7 +94,11 @@ func main() {
 			}
 		}()
 	})
-	pauseItem := menu.Add("Pause all sharing").SetEnabled(false)
+	pauseItem := menu.Add("Pause sharing everywhere").SetEnabled(false)
+	// A mute nobody remembers setting is the failure mode of muting, so this
+	// line exists only while something is actually muted and its whole job is
+	// to be noticed on the day it matters.
+	focusItem := menu.Add("").SetHidden(true)
 	scanItem := menu.Add("Scan now").SetEnabled(false)
 	menu.AddSeparator()
 	menu.Add("Quit Stickguy").OnClick(func(*application.Context) { app.Quit() })
@@ -115,6 +119,11 @@ func main() {
 		serviceItem.SetLabel(status.ServiceLabel())
 		activityItem.SetLabel(status.ActivityLabel())
 		pauseItem.SetLabel(status.PauseLabel()).SetEnabled(status.Connected && status.WorkspaceCount > 0)
+		if label := status.FocusLabel(); label == "" {
+			focusItem.SetHidden(true)
+		} else {
+			focusItem.SetLabel(label).SetHidden(false).SetEnabled(true)
+		}
 		scanItem.SetEnabled(status.Connected)
 		tray.SetTooltip(status.Tooltip())
 	}
@@ -124,6 +133,15 @@ func main() {
 		stateMu.RUnlock()
 		go func() {
 			if err := control.togglePause(context.Background(), status); err != nil {
+				return
+			}
+			refresh()
+		}()
+	})
+	focusItem.OnClick(func(*application.Context) {
+		go func() {
+			if err := control.clearFocus(context.Background()); err != nil {
+				slog.Warn("clear session focus", "error", err)
 				return
 			}
 			refresh()

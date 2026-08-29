@@ -17,6 +17,7 @@
     "test": "pnpm --recursive test",
     "build": "pnpm --recursive build",
     "eval:coordination": "go run ./validation/evals/coordination",
+    "eval:demo": "go run ./validation/evals/coordination -scenario A,C -narrate",
     "hardening": "node scripts/hardening.mjs",
     "hardening:live": "node scripts/hardening.mjs --live",
     "desktop:assets": "pnpm --dir apps/dashboard exec vite build --outDir ../desktop/frontend/embed/app --emptyOutDir",

@@ -1,11 +1,39 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { ChevronRight, FileCode2, Laptop2, Moon, Plus, ShieldCheck, Sun, UserPlus } from "lucide-react";
 import { Screen, ScreenSection } from "./screen";
 import type { FixtureProjectSource } from "./fixture-source";
 import type { MemberNameSource, ProjectAccess, ProjectSnapshot } from "./model";
 
 export function initialsFor(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  // A single-word name gave a single letter, so every mononym in the Project
+  // rendered as one character in a circle and told the reader almost nothing.
+  // Two letters from the one word carries far more and still fits the chip.
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return parts.slice(0, 2).map((part) => part[0]!.toUpperCase()).join("");
+}
+
+/**
+ * A stable hue for a member, so the same person is the same colour on every
+ * surface and in every session.
+ *
+ * Identity is a different colour system from status (design system rule 2): it
+ * lives only in small marks, never in text, so it cannot compete with the one
+ * orange sentence. The hues are spread evenly and rendered at a fixed low
+ * saturation defined in the stylesheet, which keeps any of them from reading as
+ * an alert on either theme.
+ */
+// The ramp starts past the alert band on purpose. `--alert` sits near hue 17 on
+// both themes, and a member whose chip landed at hue 8 read as a warning even
+// at this saturation, which is the one thing an identity mark must never do.
+const MEMBER_HUES = [52, 96, 142, 186, 210, 248, 284, 322];
+
+export function memberHue(name: string): number {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) hash = (hash * 31 + name.charCodeAt(index)) >>> 0;
+  return MEMBER_HUES[hash % MEMBER_HUES.length]!;
 }
 
 /**
@@ -165,7 +193,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
       <div className="screen-rows">
         {access
           ? access.members.map((member) => <div className="settings-row" key={member.id}>
-              <span className="avatar small">{initialsFor(member.name)}</span>
+              <span className="avatar small" style={{ "--member-hue": memberHue(member.name) } as CSSProperties}>{initialsFor(member.name)}</span>
               <span><strong>{member.name}{member.isSelf ? " · you" : ""}</strong><small>{member.role}{member.nameSource === "device" ? " · still using a device name" : ""}</small></span>
               {owner && !member.isSelf && <button className="text-button" disabled={pending || offline} onClick={() => run(() => source.removeMember(projectId, member.id), "That member could not be removed.")}>Remove</button>}
             </div>)
