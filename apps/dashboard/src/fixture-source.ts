@@ -1,5 +1,5 @@
 import { snapshotForProject } from "./fixtures";
-import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, Resolution, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
+import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, Resolution, SessionFocus, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
 
 export class FixtureProjectSource {
   readonly live: boolean = false;
@@ -8,6 +8,7 @@ export class FixtureProjectSource {
   private sessionMessages = new Map<string, SessionMessagesSnapshot>();
   private identity: { name: string; source: MemberNameSource } = { name: "Fixture device", source: "device" };
   private access = new Map<string, ProjectAccess>();
+  private focus = new Map<string, SessionFocus>();
   protected localSessions = new Map<string, LocalSessionDetail>([["wrk_agent_fixture_codex", {
     available: true, title: "Rotate the browser session boundary", branch: "feature/session-rotation",
     messages: [
@@ -43,6 +44,36 @@ export class FixtureProjectSource {
 
   togglePause(projectId: string): void {
     this.update(projectId, (snapshot) => ({ ...snapshot, workspacePaused: !snapshot.workspacePaused }));
+  }
+
+  /**
+   * Whether this dashboard can drive the local service directly.
+   *
+   * Pause and focus are local-service state, so a browser tab with no native
+   * bridge genuinely cannot set them. Probing once is what lets the toolbar
+   * offer a working control or an honest instruction, rather than a button
+   * that turns out to do nothing when pressed.
+   */
+  async localControl(): Promise<boolean> {
+    return true;
+  }
+
+  async setProjectPaused(projectId: string, paused: boolean): Promise<void> {
+    this.update(projectId, (snapshot) => ({ ...snapshot, workspacePaused: paused }));
+  }
+
+  async getSessionFocus(workstreamId: string): Promise<SessionFocus> {
+    return this.focus.get(workstreamId) ?? { sessionId: workstreamId, focused: false };
+  }
+
+  async setSessionFocus(workstreamId: string, minutes: number): Promise<SessionFocus> {
+    if (minutes <= 0) {
+      this.focus.delete(workstreamId);
+      return { sessionId: workstreamId, focused: false };
+    }
+    const state: SessionFocus = { sessionId: workstreamId, focused: true, until: new Date(Date.now() + minutes * 60_000).toISOString() };
+    this.focus.set(workstreamId, state);
+    return state;
   }
 
   setFindingState(projectId: string, findingId: string, state: FindingState): void {

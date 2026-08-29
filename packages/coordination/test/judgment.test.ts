@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicJudgmentProvider, ANTHROPIC_JUDGMENT_MODEL, contractSignalTracked, decideDelivery,
   deterministicJudgment, judgeCandidate, judgmentRequestText, needsManagedAdjudication,
-  parseJudgmentVerdict, readVerificationState, renderBrief, sharedBehaviorTerms, signalSymbol,
+  parseJudgmentVerdict, readVerificationState, readWorkIntentClass, renderBrief, sharedBehaviorTerms,
+  branchRelation, signalSymbol,
   type IntelligenceFinding, type JudgmentCandidate, type JudgmentProvider, type JudgmentVerdict,
 } from "../src/index.js";
 
@@ -261,5 +262,106 @@ describe("brief delivery", () => {
   it("falls back to severity for a finding written before a verdict existed", () => {
     const items = renderBrief("wrk_a", [finding("fnd_legacy", { severity: "high", priority: 75 })], 800).items;
     expect(items[0]!.advisoryAction).toBe("coordination_required");
+  });
+});
+
+describe("branch as evidence", () => {
+  it("reads a relation only when every workstream reported a branch", () => {
+    expect(branchRelation([workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "main" })])).toBe("shared");
+    expect(branchRelation([workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "feat/rotation" })])).toBe("divergent");
+    // A detached HEAD, a workstream with no agent, or a failed worktree read
+    // must read as no evidence rather than as agreement.
+    expect(branchRelation([workstream("wrk_a", { branch: "main" }), workstream("wrk_b")])).toBe("unknown");
+    expect(branchRelation([workstream("wrk_a", { branch: "  " }), workstream("wrk_b", { branch: "main" })])).toBe("unknown");
+    expect(branchRelation([workstream("wrk_a", { branch: "main" })])).toBe("unknown");
+  });
+
+  it("escalates a medium collision that only merge would otherwise reveal", () => {
+    const divergent = deterministicJudgment(candidate({
+      kind: "likely_collision", severity: "medium",
+      workstreams: [workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "feat/rotation" })],
+    }));
+    expect(divergent.severity).toBe("high");
+    expect(divergent.delivery).toBe("next_turn");
+    expect(divergent.explanation).toContain("until those branches meet at merge");
+    expect(divergent.explanation).toContain("feat/rotation");
+  });
+
+  it("keeps a shared branch at its own severity and says Git will also show it", () => {
+    const shared = deterministicJudgment(candidate({
+      kind: "likely_collision", severity: "medium",
+      workstreams: [workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "main" })],
+    }));
+    // A shared branch is not safer, so nothing is suppressed and nothing is
+    // downgraded; the reader is only told where else the same fact will appear.
+    expect(shared.severity).toBe("medium");
+    expect(shared.delivery).toBe("dashboard");
+    expect(shared.explanation).toContain("at the next pull, push, or shared write");
+  });
+
+  it("never lets a branch silence a finding or invent one", () => {
+    const unknown = deterministicJudgment(candidate({ kind: "likely_collision", severity: "medium" }));
+    expect(unknown.severity).toBe("medium");
+    expect(unknown.delivery).toBe("dashboard");
+    expect(unknown.explanation).not.toContain("branch");
+
+    // Divergence escalates one step and only one step.
+    const low = deterministicJudgment(candidate({
+      kind: "likely_collision", severity: "low",
+      workstreams: [workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "spike" })],
+    }));
+    expect(low.severity).toBe("low");
+    const high = deterministicJudgment(candidate({
+      kind: "direct_collision", severity: "high",
+      workstreams: [workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "other" })],
+    }));
+    expect(high.severity).toBe("high");
+  });
+
+  it("leaves a silent verdict silent whatever the branches say", () => {
+    const silent = deterministicJudgment(candidate({
+      kind: "shared_dependency", signalKind: "contract", sharedSignals: ["backend.Refresh"],
+      trackedContractSymbols: ["Refresh"],
+      workstreams: [workstream("wrk_a", { branch: "main" }), workstream("wrk_b", { branch: "feat/x" })],
+    }));
+    expect(silent.delivery).toBe("silent");
+    expect(silent.explanation).not.toContain("merge");
+  });
+});
+
+describe("declared exploratory work", () => {
+  it("reads only an explicit statement", () => {
+    expect(readWorkIntentClass("Throwaway spike to see whether the cache helps")).toBe("exploratory");
+    expect(readWorkIntentClass("Prototyping the new rotation boundary")).toBe("exploratory");
+    expect(readWorkIntentClass("Rotate the browser session on permission change")).toBe("standard");
+    // Silence is never a downgrade.
+    expect(readWorkIntentClass("")).toBe("standard");
+  });
+
+  it("keeps a spike on the dashboard instead of spending a turn on it", () => {
+    const spike = deterministicJudgment(candidate({
+      kind: "likely_collision", severity: "medium",
+      workstreams: [
+        workstream("wrk_a", { branch: "main", summary: "Rotate the browser session boundary." }),
+        workstream("wrk_b", { branch: "spike/cache", title: "Cache spike", summary: "Throwaway spike to measure the cache." }),
+      ],
+    }));
+    // Divergent branches escalated the severity, and the spike still keeps it
+    // off the turn: de-escalation is always safe, so it wins.
+    expect(spike.severity).toBe("high");
+    expect(spike.delivery).toBe("dashboard");
+    expect(spike.explanation).toContain("exploratory work");
+  });
+
+  it("does not downgrade a contract drift that a spike happened to cause", () => {
+    const drift = deterministicJudgment(candidate({
+      kind: "stale_assumption", severity: "high", reason: "A contract this session read has changed.",
+      workstreams: [
+        workstream("wrk_a", { role: "read", summary: "Consume the session contract." }),
+        workstream("wrk_b", { role: "changed", reportedChange: true, summary: "Spike on the session contract." }),
+      ],
+    }));
+    // The reader's assumption is stale whatever the changer intended to keep.
+    expect(drift.delivery).toBe("next_turn");
   });
 });

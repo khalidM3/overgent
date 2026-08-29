@@ -25,7 +25,14 @@ An adapter candidate may cross the wire only when all three conditions hold:
 3. the mandatory secret classifier accepts the complete candidate.
 
 Pause takes effect synchronously before success returns and stops new payload
-transmission. Unsupported or disconnected adapters degrade honestly to
+transmission. It is scoped to whatever the caller names: one workspace, one
+Project's workspaces on this device, or every workspace on the machine from the
+menu bar. Pause is outbound only. The separate, local, always-expiring per-
+session *focus* control stops coordination being injected into one agent's turns
+and never changes what that device publishes, so quieting yourself cannot make a
+teammate less able to avoid your work (ADR-061).
+
+Unsupported or disconnected adapters degrade honestly to
 Git/manual fidelity. Members and Project owners may delete retained session
 messages; hosted authorization, retention, and Project deletion continue to
 apply.

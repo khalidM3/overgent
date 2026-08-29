@@ -7,12 +7,19 @@
  *   2. Colour is status, and there are exactly two status colours. --alert marks
  *      work converging on you; --live marks a fact that is true right now (the
  *      file an agent is touching, a verified connection, a saved change).
- *      Presence and selection are still carried by type weight and spacing, and
- *      colour is never a background, a badge, or decoration.
+ *      Identity - member chips and vendor marks - is a separate channel that
+ *      lives only in small marks and never in text (ADR-055). Presence and
+ *      selection are carried by type weight and spacing, and status colour is
+ *      never a background, a badge, or decoration.
  *   3. Live work reads as a clock that counts and text that moves. There is no
  *      pulsing indicator dot anywhere in this app.
  *   4. Elapsed time is always "47s", "12m 16s", "1h 04m" - never mm:ss, which
  *      reads as a wall clock rather than time since.
+ *   5. One gutter (--row-icon + --row-gap) and one content edge for every row;
+ *      three type steps - primary 14.5/600, secondary 13.5/400, machine 11.5 mono.
+ *   6. Streams run down and follow their tail; lists rank, never insertion order.
+ *   7. One object, one place: status lives on the session, events in its stream.
+ *   8. Harness context folds; conversation does not.
  *
  * See docs/design-system.md before adding anything here.
  */
@@ -34,6 +41,22 @@
 
   --sans: Figtree, "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "Geist Mono", "SFMono-Regular", ui-monospace, Consolas, "Liberation Mono", monospace;
+
+  --claude-mark: #d97757;
+
+  --member-sat: 40%;
+  --member-bg-l: 90%;
+  --member-ink-l: 30%;
+  --member-line-l: 78%;
+
+  /* Every row in the main column hangs off one gutter, so the primary text of
+     a finding, a session and a teammate all start on the same vertical line.
+     Four components each inventing their own (22+10, 18+12, 26+12) is what
+     made a single column read as four unrelated lists. */
+  --row-icon: 22px;
+  --row-gap: 12px;
+  --row-text: 34px;      /* --row-icon + --row-gap, for anything not on the grid */
+  --row-inset: 10px;     /* hover bleed either side of the column */
 
   --side-width: 212px;
   --ctx-width: 436px;
@@ -58,6 +81,11 @@
     --live:    #5fcf93;
     --solid:   #ffffff;
     --onsolid: #0a0a0a;
+    --claude-mark: #d98668;
+    --member-sat: 34%;
+    --member-bg-l: 25%;
+    --member-ink-l: 78%;
+    --member-line-l: 34%;
   }
 }
 
@@ -74,6 +102,11 @@
   --live:    #5fcf93;
   --solid:   #ffffff;
   --onsolid: #0a0a0a;
+  --claude-mark: #d98668;
+  --member-sat: 34%;
+  --member-bg-l: 25%;
+  --member-ink-l: 78%;
+  --member-line-l: 34%;
 }
 
 * { box-sizing: border-box; }
@@ -183,12 +216,24 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .profile-button:hover { background: var(--hover); }
 .profile-button .who { min-width: 0; font-size: 13px; font-weight: 600; }
 .profile-button .who small { display: block; color: var(--ink-3); font-size: 11px; font-weight: 500; }
+/* Identity, not status. Colour lives only in the chip and never in a word, so
+   the one orange sentence on the screen still owns the reader's attention.
+   The hue arrives per element as --member-hue; saturation and lightness are
+   fixed per theme here so no member can render as an alarm. */
 .avatar {
   width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center;
-  border-radius: 50%; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line);
-  font-size: 10px; font-weight: 700;
+  border-radius: 50%; font-size: 10px; font-weight: 700; letter-spacing: .01em;
+  color: hsl(var(--member-hue, 0) var(--member-sat) var(--member-ink-l));
+  background: hsl(var(--member-hue, 0) var(--member-sat) var(--member-bg-l));
+  box-shadow: inset 0 0 0 1px hsl(var(--member-hue, 0) var(--member-sat) var(--member-line-l));
 }
 .avatar.small { width: 21px; height: 21px; font-size: 9px; }
+/* With no hue set the chip falls back to the neutral it always was. */
+.avatar:not([style*="--member-hue"]) { color: var(--ink-2); background: none; box-shadow: inset 0 0 0 1px var(--line); }
+
+/* Which agent, once the reader already knows who. Sits with the name rather
+   than replacing it, because these rows are about people. */
+.row-vendor { display: inline-flex; align-items: center; margin-left: 6px; vertical-align: -2px; color: var(--ink-3); }
 .sidebar-collapsed .profile-button { justify-content: center; padding: 8px 0; }
 
 /* ─────────────────────────── main column ───────────────────── */
@@ -236,9 +281,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 /* Section headings are the spine of the column, so they read as headings:
    sentence case at full ink weight, not small grey capitals. Uppercase
    tracking-out shrinks the x-height exactly where separation is needed most. */
-.block-head { display: flex; align-items: baseline; gap: 9px; margin: 40px 0 6px; }
-.block-head.lead { margin-top: 22px; }
-.block-head.ambient { margin-top: 44px; }
+.block-head { display: flex; align-items: baseline; gap: 9px; margin: 36px 0 8px; }
+.block-head.lead { margin-top: 20px; }
+.block-head.ambient { margin-top: 36px; }
 .block-head h2 { margin: 0; color: var(--ink); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
 .block-head .count { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 .block-head .count.hot { color: var(--alert); }
@@ -246,28 +291,54 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* ── converging: no tint, no panel. icon + red sentence + both sides ── */
 
-.converge { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 0 10px; width: 100%; padding: 14px 0 6px; text-align: left; }
+.converge { display: grid; grid-template-columns: var(--row-icon) minmax(0, 1fr); gap: 0 var(--row-gap); width: 100%; padding: 16px 0 8px; text-align: left; }
 .converge + .converge { border-top: 1px solid var(--line); }
 .converge > .converge-icon { color: var(--alert); margin-top: 1px; }
 .converge h3 { grid-column: 2; margin: 0; color: var(--alert); font-size: 15.5px; font-weight: 650; letter-spacing: -.015em; }
+.converge > .converge-icon { align-self: center; }
 .converge .why { grid-column: 2; margin: 5px 0 0; color: var(--ink-2); font-size: 13.5px; }
 .converge .pair { grid-column: 2; display: flex; flex-direction: column; margin-top: 12px; }
 .converge .evidence { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; margin-top: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 .converge .evidence .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .converge .evidence .v { text-align: right; white-space: nowrap; }
 .converge .evidence .v.fact { color: var(--alert); }
-.converge .converge-actions { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 15px; }
+.converge .converge-actions { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-top: 15px; }
+/* Confidence and age qualify the finding rather than evidencing it, so they sit
+   with the action instead of taking a row of their own. */
+.converge .converge-actions .converge-meta { margin: 0; margin-left: auto; }
+.converge-meta.solo { grid-column: 2; margin: 12px 0 0; }
+.converge-meta .strong { color: var(--ink-2); }
 .converge.quiet > .converge-icon, .converge.quiet h3 { color: var(--ink-2); }
 .converge.quiet h3 { font-size: 14px; }
 
+/* A stopped session of your own sits in the same block as a collision and uses
+   the same grid. Only the strength of the claim differs: a vendor-reported
+   block is alert like any converging work, while measured silence is not proof
+   of a fault and reads at ordinary weight. */
+.converge.health .evidence .v { color: var(--ink-2); }
+.converge.health.quiet > .converge-icon { color: var(--ink-3); }
+
+/* ── ledger: what was raised, and where it was delivered ── */
+
+.ledger { list-style: none; margin: 6px 0 0; padding: 0; }
+.ledger > li + li { border-top: 1px solid var(--line); }
+.ledger > li > button { display: grid; gap: 3px; width: 100%; padding: 12px 9px; margin: 0 -9px; border-radius: var(--radius); text-align: left; }
+.ledger > li > button:hover { background: var(--hover); }
+/* A record is the one screen with no colour at all. Nothing here is converging
+   on the reader and nothing here is happening now - both facts these two
+   colours exist to carry - so state is a word in the machine line instead. */
+.ledger .lt { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.ledger .lw { font-size: 13px; color: var(--ink-2); }
+.ledger .lf { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+
 /* the two colliding sessions, one compact clickable line each */
 .mini {
-  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; gap: 0 10px; align-items: start;
-  width: 100%; padding: 8px 9px; margin: 0 -9px; border-radius: var(--radius); text-align: left;
+  display: grid; grid-template-columns: var(--row-icon) minmax(0, 1fr) auto auto; gap: 0 var(--row-gap); align-items: center;
+  width: 100%; padding: 8px var(--row-inset); margin: 0 calc(-1 * var(--row-inset)); border-radius: var(--radius); text-align: left;
 }
 .mini:hover { background: var(--hover); }
 .mini .mini-icon { color: var(--ink-3); margin-top: 1px; }
-.mini .nm { min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini .nm { min-width: 0; font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini .nm em { font-style: normal; font-weight: 500; color: var(--ink-3); }
 .mini .doing { grid-column: 2; margin-top: 2px; color: var(--ink-2); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini .doing code { font-size: 11px; color: var(--ink-3); }
@@ -277,17 +348,20 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* ── your sessions: hierarchy and indentation, never a filled card ── */
 
-.rows { display: flex; flex-direction: column; padding-top: 4px; }
+/* Peer rows are separated by a hairline so one four-line session cannot run
+   into the next. Blocks are separated by space. */
+.rows { display: flex; flex-direction: column; padding-top: 2px; }
+.rows > * + * { border-top: 1px solid var(--line); }
 
 .session-row {
-  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 0 12px;
-  width: 100%; padding: 13px 10px 14px; margin: 0 -10px; border-radius: 12px; text-align: left;
+  display: grid; grid-template-columns: var(--row-icon) minmax(0, 1fr) auto; gap: 0 var(--row-gap);
+  width: 100%; padding: 13px var(--row-inset) 14px; margin: 0 calc(-1 * var(--row-inset)); border-radius: 12px; text-align: left;
 }
 .session-row:hover { background: var(--hover); }
 .session-row > span, .session-row .session-meta, .session-row .session-doing, .session-row .session-sub { display: block; }
 .session-row .session-icon { color: var(--ink-3); margin-top: 2px; }
 .session-row[aria-current="true"] .session-icon { color: var(--ink-2); }
-.session-row h3 { margin: 0; color: var(--ink-2); font-size: 14.5px; font-weight: 500; letter-spacing: -.012em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row h3 { margin: 0; color: var(--ink); font-size: 14.5px; font-weight: 600; letter-spacing: -.012em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row[aria-current="true"] h3 { color: var(--ink); font-weight: 650; }
 .session-row .session-meta { margin-top: 2px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row .session-doing { margin-top: 9px; color: var(--ink-2); font-size: 13px; }
@@ -312,12 +386,15 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* ── nearby: presence is type weight, and the intent is what matters ── */
 
-.person-row { display: grid; grid-template-columns: 18px 84px minmax(0, 1fr) auto; gap: 12px; align-items: baseline; width: 100%; padding: 9px 10px; margin: 0 -10px; border-radius: var(--radius); text-align: left; }
+/* The name column was a fixed 84px, so teammate names sat in a rigid column
+   nothing else in the app shared and long ones truncated early. It sizes to its
+   content now and the intent takes the remaining width. */
+.person-row { display: grid; grid-template-columns: var(--row-icon) auto minmax(0, 1fr) auto; gap: var(--row-gap); align-items: center; width: 100%; padding: 10px var(--row-inset); margin: 0 calc(-1 * var(--row-inset)); border-radius: var(--radius); text-align: left; }
 /* The mark identifies the agent without competing with the teammate's name. */
 .person-row .person-icon { display: flex; align-items: center; justify-content: center; color: var(--ink-3); align-self: center; }
 .person-row.offline .person-icon, .person-row.paused .person-icon { opacity: .5; }
 .person-row:hover { background: var(--hover); }
-.person-row .nm { color: var(--ink); font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-row .nm { display: flex; align-items: center; color: var(--ink); font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .person-row.idle .nm, .person-row.paused .nm { color: var(--ink-2); font-weight: 500; }
 .person-row.offline .nm { color: var(--ink-3); font-weight: 500; }
 .person-row .intent { min-width: 0; color: var(--ink-2); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -414,8 +491,15 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 .session-inspector-bar { gap: 11px; padding-top: 18px; padding-bottom: 13px; }
 .inspector-vendor { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px; }
+/* Vendor artwork in the colour it is supposed to be (ADR-055 amended). The
+   Codex icon is a blue-violet gradient near hue 230, nowhere near --alert.
+   Claude's mark is its brand terracotta, which does share --alert's hue family:
+   what keeps them apart is that identity is only ever a small filled glyph and
+   --alert is only ever a sentence, and the brand tone is markedly softer than
+   either theme's alert. */
 .vendor-mark { display: block; flex: 0 0 auto; }
-.vendor-mark-codex { object-fit: contain; filter: grayscale(1); }
+.vendor-mark-codex { object-fit: contain; }
+.vendor-mark-claude { color: var(--claude-mark); }
 .session-header-actions { position: relative; display: flex; align-items: center; gap: 5px; margin: -1px -3px 0 auto; }
 .session-complete { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .session-details-button[aria-expanded="true"] { color: var(--ink); }
@@ -431,15 +515,32 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .inspector-intent .src { margin-top: 5px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .muted-copy { margin: 0; color: var(--ink-3); font-size: 13px; }
 
-.session-live { flex: 0 0 auto; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 9px; align-items: start; padding: 11px 20px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.session-live-icon { height: 20px; display: grid; place-items: center; color: var(--ink-3); }
-.session-live-copy { min-width: 0; display: flex; flex-direction: column; }
-.session-live-facts { min-width: 0; display: flex; align-items: baseline; gap: 6px; color: var(--ink-3); }
-.session-live-facts small { flex: 0 0 auto; color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
-.session-live-facts code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
-.session-live-facts code::before { content: "·"; margin-right: 6px; }
-.session-live-copy > strong { margin-top: 2px; color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.45; }
-.session-live > .clock { margin-top: 1px; }
+/* What the session is right now, in the header beside its name. It is an
+   attribute of the session, not an entry in its stream. */
+.inspector-live { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; min-width: 0; color: var(--ink-3); }
+.inspector-live > svg { align-self: center; flex: 0 0 auto; }
+.inspector-live small { flex: 0 0 auto; color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+.inspector-live code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.inspector-live code::before { content: "·"; margin-right: 6px; }
+
+/* Shown only once the reader has scrolled away from the newest entry. */
+.jump-to-now {
+  flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center;
+  padding: 10px 20px 11px; text-align: left; border-top: 1px solid var(--line); color: var(--ink-2); background: var(--panel);
+}
+.jump-to-now:hover { background: var(--hover); }
+.jump-to-now > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--ink); }
+.jump-to-now > svg { color: var(--ink-3); }
+
+/* One line standing in for work that is over. Finished sessions are worth
+   keeping and not worth scrolling past. */
+.fold { margin-top: 6px; }
+.fold > summary { display: flex; align-items: center; gap: 7px; padding: 7px 0; cursor: pointer; list-style: none; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "›"; display: inline-block; font-size: 14px; transition: transform .12s ease; }
+.fold[open] > summary::before { transform: rotate(90deg); }
+.fold > summary:hover { color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .fold > summary::before { transition: none; } }
 
 .session-details-popover { position: absolute; z-index: 20; top: 36px; right: 0; width: 372px; max-width: calc(100vw - 32px); max-height: calc(100vh - 90px); display: flex; flex-direction: column; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 18px 44px rgba(0, 0, 0, .12); }
 .session-details-popover > header { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 11px 11px 10px 14px; border-bottom: 1px solid var(--line); }
@@ -580,6 +681,30 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .thread form { display: flex; gap: 6px; }
 .thread input { flex: 1; min-width: 0; padding: 7px 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
 .thread input::placeholder { color: var(--ink-3); }
+
+/* The decision leads the thread because it is the only part of it that reaches
+   an agent; the routing line under it says where, before it is written rather
+   than after it has been sent. Neither takes --alert: this is a control the
+   reader chose to look at, not work converging on them. */
+.thread .decision-form input { border-color: var(--ink-3); }
+.routing-note { display: flex; align-items: center; gap: 7px; margin: -4px 0 0; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+.routing-note svg { flex: 0 0 auto; }
+.thread-note { margin: 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+.branch-context { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+
+/* Branch is how a reader finds their own lane, so it groups rows rather than
+   trailing them. A Project on one branch never renders this. */
+.branch-group + .branch-group { margin-top: 14px; }
+.branch-label { display: flex; align-items: center; gap: 7px; padding: 9px 0 5px; color: var(--ink-3); }
+.branch-label code { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.branch-label .unknown { font-size: 11.5px; }
+.branch-label > span:last-child { margin-left: auto; font-family: var(--mono); font-size: 11px; }
+
+/* Muting is a state the member chose and has to be able to see they are still
+   in, so it takes the same weight as work converging on them. It is the one
+   deliberate exception: an unnoticed mute is the failure mode of muting. */
+.pill.session-focus { padding: 4px 10px; font-size: 12px; }
+.toolbar-note code { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
 .form-error { margin: 8px 0 0; color: var(--alert); font-size: 12.5px; }
 
 /* ─────────────────────── centered shell states ─────────────── */
@@ -719,3 +844,19 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 
 .form-warning { margin: 0; color: var(--alert); font-size: 12.5px; line-height: 1.55; }
 .milestone-note { margin: 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.55; }
+
+/* A statement about why a control is absent, in place of a control that could
+   not be pressed. */
+.toolbar-note { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+
+/* Who a history row is about, before what it says. */
+.ledger .lp { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
+.block-note { padding: 4px 0 2px; color: var(--ink-3); font-size: 12.5px; max-width: 62ch; }
+
+/* Harness instructions: one line until asked for. */
+.thread-context > details > summary { display: flex; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; list-style: none; color: var(--ink-3); font-size: 12.5px; }
+.thread-context > details > summary::-webkit-details-marker { display: none; }
+.thread-context > details > summary small { margin-left: auto; font-family: var(--mono); font-size: 11px; }
+.thread-context > details > summary:hover { color: var(--ink-2); }
+.thread-context > details[open] > summary { border-bottom: 1px solid var(--line); }
+.thread-context > details > :not(summary) { padding: 8px 0 12px; color: var(--ink-2); font-size: 12.5px; }

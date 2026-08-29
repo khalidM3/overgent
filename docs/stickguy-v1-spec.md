@@ -94,7 +94,7 @@ The first dogfooded alpha establishes the deterministic coordination loop. V1 is
 | P0.7 | Changed paths | Git changes publish debounced paths/status only; file contents never leave the device. |
 | P0.8 | Live project view | Dashboard shows members, fidelity, workstreams, paths, presence, and structured activity. |
 | P0.9 | File overlap | Same normalized path produces a quiet badge with evidence and zero model calls. |
-| P0.10 | Pause/privacy | Device/workspace pause stops activity payload transmission immediately. |
+| P0.10 | Pause/privacy | Device, workspace, or Project pause stops activity payload transmission immediately. |
 | P0.11 | Reliable delivery | Events use durable buffering, at-least-once delivery, deduplication, and reconnect backoff. |
 | P0.12 | Graceful degradation | Unsupported-agent members remain visible through Git/manual input with honest labels. |
 
@@ -125,6 +125,7 @@ See `coordination-intelligence.md` for the canonical inputs, pipeline, finding c
 Build in observed-demand order:
 
 - structured project plan with items, owners, status, source, and revisions;
+- per-session focus: a local, expiring request that coordination not be injected into one agent's turns, which never changes what that device publishes (ADR-061);
 - path/glob claims;
 - sync cards, discussion, resolution, and decision delivery;
 - Codex and Claude Code setup adapters;

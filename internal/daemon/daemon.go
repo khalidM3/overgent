@@ -25,6 +25,9 @@ type Request struct {
 	AgentPaths                                                                          []string
 	AgentTranscriptPath, AgentVendorSessionID                                           string
 	SinceRevision                                                                       int64
+	// FocusSeconds bounds how long an agent session stays free of injected
+	// coordination. Zero means the service default; the store caps the maximum.
+	FocusSeconds int64
 }
 type AgentMessage struct{ Kind, Text string }
 type VerificationSummary struct {

@@ -72,7 +72,7 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: stickguy [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|diagnostics|scan|update")
+		return errors.New("usage: stickguy [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -408,14 +408,35 @@ func run(args []string) error {
 		return app.Register(ctx, *root, *apiBase, *device, config.Workspace{ID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo})
 	case "pause", "resume":
 		pf := flag.NewFlagSet(rest[0], flag.ContinueOnError)
-		id := pf.String("workspace", "", "")
+		id := pf.String("workspace", "", "workspace id")
+		project := pf.String("project", "", "project id: every workspace registered to it on this device")
 		if e = pf.Parse(rest[1:]); e != nil {
 			return e
 		}
-		if *id == "" {
-			return errors.New("workspace id required")
+		if *id == "" && *project == "" {
+			return errors.New("workspace or project id required")
 		}
-		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0], WorkspaceID: *id})
+		if *id != "" && *project != "" {
+			return errors.New("name a workspace or a project, not both")
+		}
+		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0], WorkspaceID: *id, ProjectID: *project})
+	case "focus", "unfocus":
+		// Focus is the inbound control: it stops coordination being injected
+		// into one agent session's turns and changes nothing about what this
+		// device publishes. It always expires.
+		ff := flag.NewFlagSet(rest[0], flag.ContinueOnError)
+		session := ff.String("session", "", "agent session workstream id")
+		minutes := ff.Int64("minutes", 0, "how long to stay quiet; default 60, maximum 480")
+		if e = ff.Parse(rest[1:]); e != nil {
+			return e
+		}
+		if *session == "" {
+			return errors.New("session id required")
+		}
+		if *minutes < 0 {
+			return errors.New("minutes must not be negative")
+		}
+		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0], AgentWorkstreamID: *session, FocusSeconds: *minutes * 60})
 	case "intent":
 		intentFlags := flag.NewFlagSet("intent", flag.ContinueOnError)
 		workspaceID := intentFlags.String("workspace", "", "workspace id")
@@ -635,7 +656,7 @@ func safeDoctorSummary(value any) map[string]any {
 		return safe
 	}
 	allowedStrings := []string{"status"}
-	allowedNumbers := []string{"bootCount", "workspaces", "pausedWorkspaces", "pending", "scans", "scanCycles"}
+	allowedNumbers := []string{"bootCount", "workspaces", "pausedWorkspaces", "focusedSessions", "pending", "scans", "scanCycles"}
 	for _, key := range allowedStrings {
 		if item, ok := object[key].(string); ok && len(item) <= 40 {
 			safe[key] = item

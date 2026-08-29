@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession, snapshotForProject } from "../src/fixtures";
-import { App, DesktopPreviewBanner } from "../src/main";
+import { App, DesktopPreviewBanner, groupByBranch } from "../src/main";
 import type { NativeOnboarding } from "../src/native";
+import type { Workstream } from "../src/model";
 
 const renderReady = () => render(<App initialState="ready" source={new FixtureProjectSource()} />);
 
@@ -26,7 +27,7 @@ describe("Project Workroom behavior", () => {
     const user = userEvent.setup();
     renderReady();
     // The workroom answers "what is reaching me" before "what is everyone doing".
-    expect(screen.getByRole("heading", { name: "Converging on you" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Needs you" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Your sessions" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Nearby" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
@@ -67,7 +68,7 @@ describe("Project Workroom behavior", () => {
     expect(within(inspector).queryByText(/sub-a1b2c3/)).toBeNull();
     expect(within(inspector).queryByLabelText("Session details")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Open Shared task session for Ravi" }));
+    await user.click(screen.getByRole("button", { name: "Open Ravi's work" }));
     await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
     expect(within(inspector).getByText(/Git observed/)).toBeTruthy();
     expect(within(inspector).getAllByText(/1,000/).length).toBeGreaterThan(0);
@@ -82,7 +83,11 @@ describe("Project Workroom behavior", () => {
     session.agent.status = "done";
     session.agent.endedAt = "2026-08-25T09:59:45Z";
     session.agent.activity = [{ id: "codex-end", at: "2 min", occurredAt: session.agent.endedAt, kind: "SessionEnd", status: "done", action: "Session ended", paths: [] }, ...(session.agent.activity ?? [])];
+    const user = userEvent.setup();
     render(<App initialState="ready" initialSession={fixtureSession} source={new FixtureProjectSource([snapshot])} />);
+    // A finished session is never the default selection while another of the
+    // member's own sessions is still running, so open the one under test.
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
 
     const inspector = screen.getByLabelText("Details inspector");
     expect(within(inspector).getByText("Complete")).toBeTruthy();
@@ -105,14 +110,18 @@ describe("Project Workroom behavior", () => {
   it("applies pause, activity, and collision lifecycle changes immediately", async () => {
     const user = userEvent.setup();
     renderReady();
-    await user.click(screen.getByRole("button", { name: "Pause" }));
+    // The control appears once the page knows it can actually reach the local
+    // service, so it is awaited rather than assumed present on first paint.
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
     expect(screen.getByText("Workspace sharing is paused")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Resume" }));
     expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Simulate activity" }));
-    // Activity is a record of what already happened, so it lives with Decisions
-    // rather than competing with live work on the Workroom.
-    await user.click(screen.getByRole("button", { name: /Decisions/ }));
+    // Activity is a record of what already happened, so it lives in History
+    // rather than competing with live work on the Workroom, and it is folded
+    // away there because it is the least scannable thing on that screen.
+    await user.click(screen.getByRole("button", { name: /History/ }));
+    await user.click(screen.getByText(/recorded events/));
     expect(screen.getByText("Published one new path-only manifest revision.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Workroom/ }));
     expect(screen.getByText("rev 185")).toBeTruthy();
@@ -122,7 +131,36 @@ describe("Project Workroom behavior", () => {
     expect(detail.textContent).toContain("Advisory only");
     await user.click(screen.getByRole("button", { name: "Acknowledge" }));
     expect(detail.textContent).toContain("acknowledged");
-    await user.click(screen.getByRole("button", { name: "Mark resolved" }));
+    // Resolving is recording a decision, so there is no second control that
+    // claims the word without routing anything. What is left beside
+    // Acknowledge is the way to stop reading without deciding.
+    expect(screen.queryByRole("button", { name: "Mark resolved" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(detail.textContent).toContain("dismissed");
+  });
+
+  it("leads the collision thread with the decision and names where it will go", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
+    const detail = screen.getByLabelText("Selected collision detail");
+
+    // Divergent branches are the case nothing else reports, and the inspector
+    // says so from data the snapshot already carried.
+    expect(detail.textContent).toContain("Khalid on feature/session-rotation");
+    expect(detail.textContent).toContain("Mina on main");
+    expect(detail.textContent).toContain("until those branches meet at merge");
+
+    // The consequence is stated before the decision is written, not after it
+    // has already been sent. The Atlas fixture already carries an open card for
+    // this finding, so the decision form is the control on screen.
+    expect(detail.textContent).toContain("Goes to Khalid's Codex session and Mina's Claude Code session.");
+
+    await user.type(screen.getByLabelText(/^Decision for /), "Khalid owns the rotation boundary; Mina reviews after it lands.");
+    await user.click(screen.getByRole("button", { name: "Record decision" }));
+    expect(detail.textContent).toContain("Khalid owns the rotation boundary");
+    expect(detail.textContent).toContain("Delivered to 2 sessions");
+    // Recording the decision is what resolves the finding.
     expect(detail.textContent).toContain("resolved");
   });
 
@@ -218,7 +256,7 @@ describe("Project Workroom behavior", () => {
       state: vi.fn(() => new Promise<never>((_resolve, reject) => { rejectState = reject; })),
       chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
-      openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
+      openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "Add a new Project" }));
@@ -245,7 +283,7 @@ describe("Project Workroom behavior", () => {
       createProject: vi.fn(),
       createAdditionalProject: vi.fn(async () => ({ projectId: "prj_orbit", joinCode: "inv_orbit.secret", warnings: [] })),
       joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
-      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/orbit"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
+      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/orbit"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={navigate} />);
     await user.click(screen.getByRole("button", { name: "Add a new Project" }));
@@ -268,7 +306,7 @@ describe("Project Workroom behavior", () => {
     render(<App initialState="activation" source={new FixtureProjectSource()} />);
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText(/never stored in this page/)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Activate secure session" }));
+    await user.click(screen.getByRole("button", { name: "Check for a session" }));
     expect(screen.getByRole("heading", { name: "Atlas launch" })).toBeTruthy();
   });
 });
@@ -369,7 +407,11 @@ describe("browser activation recovery", () => {
     const { LiveApp } = await import("../src/main");
 
     render(<LiveApp />);
-    const first = await screen.findByRole("button", { name: "Activate secure session" });
+    // The recovery is on the page before the control, not behind a press that
+    // cannot succeed: this page can never mint a ticket itself.
+    expect(await screen.findByText(/Open the Project from the Stickguy app/)).toBeTruthy();
+    expect(screen.getByText(/stickguy dashboard --project/)).toBeTruthy();
+    const first = await screen.findByRole("button", { name: "Check for a session" });
     expect(screen.queryByRole("alert")).toBeNull();
 
     await user.click(first);
@@ -377,7 +419,9 @@ describe("browser activation recovery", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("still has no active session");
     expect(alert.textContent).toContain("Stickguy Dev.app");
-    expect(await screen.findByRole("button", { name: "Check again" })).toBeTruthy();
+    // The control keeps its name: pressing it confirmed the state rather than
+    // revealing an instruction that should have been visible all along.
+    expect(await screen.findByRole("button", { name: "Check for a session" })).toBeTruthy();
     expect(loadSession.mock.calls.length).toBeGreaterThanOrEqual(2);
     vi.doUnmock("../src/live-source");
   });
@@ -408,5 +452,239 @@ describe("read coverage disclosure", () => {
     const sessionInfo = within(inspector).getByLabelText("Session details");
     expect(within(sessionInfo).getByText("Observed")).toBeTruthy();
     expect(within(sessionInfo).getByText(/told when a contract it read changes underneath it/)).toBeTruthy();
+  });
+});
+
+describe("agent health and the coordination ledger", () => {
+  it("puts a stopped session of your own in the same block as a collision", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    const lead = screen.getByRole("heading", { name: "Needs you" }).parentElement as HTMLElement;
+    // Two things need the member: the session collision and their own quiet agent.
+    expect(within(lead).getByText("2")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Regenerate protocol types has gone quiet/ })).toBeTruthy();
+    expect(screen.getByText(/still open but has reported nothing/)).toBeTruthy();
+  });
+
+  it("states silence as a measurement and refuses to call it a fault", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    const block = screen.getByLabelText(/Regenerate protocol types has gone quiet/);
+    const meta = block.querySelector(".converge-meta") as HTMLElement;
+    // One line carries the measurement and its limit; "last reported" used to
+    // repeat the fact already shown on the session line above it.
+    expect(meta.textContent).toContain("silent for 21m 00s");
+    expect(meta.textContent).toContain("observed silence, not a diagnosis");
+  });
+
+  it("records what was raised, where it was delivered, and what was settled", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    await user.click(screen.getByRole("button", { name: "History" }));
+
+    expect(screen.getByRole("heading", { name: "Raised" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Settled" })).toBeTruthy();
+    expect(screen.getByText(/Acknowledgement records that the agent read the correction, not that it followed it/)).toBeTruthy();
+    const deliveries = screen.getByRole("heading", { name: "Delivered into a turn" }).parentElement!.nextElementSibling as HTMLElement;
+    expect(within(deliveries).getByText(/Mina is reviewing the same session boundary/)).toBeTruthy();
+    expect(within(deliveries).getByText("acknowledged")).toBeTruthy();
+    expect(within(deliveries).getByText("not yet acknowledged")).toBeTruthy();
+    expect(screen.getByText(/1 of 2 delivered briefs was acknowledged/)).toBeTruthy();
+  });
+
+  it("opens a finding from History without leaving the screen", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    await user.click(screen.getByRole("button", { name: "History" }));
+    await user.click(screen.getByRole("button", { name: /Collision detected/ }));
+
+    const inspector = screen.getByLabelText("Details inspector");
+    expect(within(inspector).getByText(/Two live agent sessions report the same dashboard session path/)).toBeTruthy();
+  });
+});
+
+describe("a Project of one", () => {
+  it("describes a solo Project as finished rather than as missing teammates", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource([soloSnapshot()])} />);
+    expect(screen.getByText(/You are the only member/)).toBeTruthy();
+    expect(screen.getByText(/coordinates your own parallel sessions the same way it coordinates a team/)).toBeTruthy();
+    expect(screen.queryByText(/No teammates are registered/)).toBeNull();
+  });
+
+  it("still coordinates two of the member's own sessions with no teammate present", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource([soloSnapshot()])} />);
+    expect(screen.getByRole("heading", { name: "Needs you" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /has gone quiet/ })).toBeTruthy();
+  });
+});
+
+function soloSnapshot() {
+  const snapshot = snapshotForProject("prj_atlas");
+  snapshot.workstreams = snapshot.workstreams.filter((stream) => stream.memberName === "Khalid");
+  const mine = new Set(snapshot.workstreams.map((stream) => stream.id));
+  snapshot.findings = snapshot.findings.filter((finding) => finding.workstreamIds.every((id) => mine.has(id)));
+  return snapshot;
+}
+
+describe("reading a session", () => {
+  it("identifies people by a stable mark, not by one grey letter", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    // A mononym gave a single character, which told the reader almost nothing.
+    const chips = [...document.querySelectorAll(".avatar")].map((node) => node.textContent);
+    expect(chips).toContain("KH");
+    expect(chips).toContain("MI");
+    // The same person is the same hue everywhere they appear.
+    const khalid = [...document.querySelectorAll(".avatar")].filter((node) => node.textContent === "KH");
+    const hues = new Set(khalid.map((node) => (node as HTMLElement).style.getPropertyValue("--member-hue")));
+    expect(hues.size).toBe(1);
+    expect([...hues][0]).toBeTruthy();
+  });
+
+  it("keeps what the session is in the header and what it did in the thread", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    const inspector = screen.getByLabelText("Details inspector");
+    // Status is an attribute of the session and appears once, in the header.
+    const live = within(inspector).getByLabelText("Current session activity");
+    expect(live.textContent).toContain("Working now");
+    expect(live.closest(".inspector-bar")).toBeTruthy();
+    // At the tail there is nothing to return to, so no control offers it.
+    expect(inspector.querySelector(".jump-to-now")).toBeNull();
+  });
+
+  it("names a workstream with no agent by its person rather than by an absent vendor", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    expect(screen.getByRole("button", { name: "Open Ravi's work" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /No agent connected session for/ })).toBeNull();
+  });
+
+  it("offers no control it cannot honour, and names the one that works", async () => {
+    // A browser tab with no native bridge genuinely cannot reach the local
+    // service, so it gets the exact command rather than a button that would do
+    // nothing - and rather than a pointer at the menu-bar switch, which stops
+    // sharing for every Project on the machine and is a different request.
+    const unreachable = new FixtureProjectSource();
+    Object.defineProperty(unreachable, "live", { value: true });
+    unreachable.localControl = async () => false;
+    render(<App initialState="ready" source={unreachable} />);
+    expect(screen.queryByRole("button", { name: "Menu bar" })).toBeNull();
+    expect(await screen.findByText(/Pause this Project from the Stickguy app/)).toBeTruthy();
+    expect(screen.getByText("stickguy pause --project prj_atlas")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+  });
+
+  it("pauses the Project being read rather than every Project on the machine", async () => {
+    const user = userEvent.setup();
+    const live = new FixtureProjectSource();
+    Object.defineProperty(live, "live", { value: true });
+    const scoped: string[] = [];
+    live.setProjectPaused = async (projectId, paused) => { scoped.push(`${projectId}:${paused}`); };
+    render(<App initialState="ready" source={live} />);
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+    expect(scoped).toEqual(["prj_atlas:true"]);
+  });
+
+  it("keeps theme out of the toolbar, where only Project actions belong", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    expect(screen.queryByRole("button", { name: /Switch to (dark|light) theme/ })).toBeNull();
+  });
+});
+
+describe("one grid for the whole column", () => {
+  it("keeps machine facts on one line instead of stacking three", () => {
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    // The section and its heading button share a label, so select structurally.
+    const converge = document.querySelector("section.converge") as HTMLElement;
+    // Confidence and age qualify the finding rather than evidencing it, so they
+    // ride the action row rather than taking one of their own.
+    expect(converge.querySelector(".converge-actions .converge-meta")).toBeTruthy();
+    expect(converge.querySelectorAll(".converge-meta")).toHaveLength(1);
+  });
+});
+
+describe("the workroom summarises, the inspector explains", () => {
+  it("keeps a finding's reasoning reachable without printing it twice", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    const card = document.querySelector("section.converge") as HTMLElement;
+
+    // The summary must never be an unexplained alarm, so the plain-language
+    // reason stays on it even though the detail moves.
+    expect(card.textContent).toContain("Two live agent sessions report the same dashboard session path");
+    expect(card.querySelector(".evidence")).toBeNull();
+    expect(card.textContent).not.toContain("deterministic");
+
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
+    const detail = screen.getByLabelText("Selected collision detail");
+    // Everything the spec requires of a finding is on the surface that is the
+    // finding: severity was always only here, and now evidence is too.
+    expect(detail.textContent).toContain("deterministic confidence");
+    expect(detail.textContent).toContain("high");
+    expect(within(detail).getByText("Why Stickguy flagged it")).toBeTruthy();
+    expect(detail.textContent).toContain("apps/dashboard/src/session.ts");
+    expect(detail.textContent).toContain("git");
+  });
+
+  it("keeps a debugging identifier off the row and in the details popover", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    const row = screen.getByRole("button", { name: "Open Codex session for Khalid" });
+    expect(row.textContent).not.toContain("codex-a1b2c3");
+    expect(row.textContent).toContain("feature/session-rotation");
+
+    const inspector = screen.getByLabelText("Details inspector");
+    await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
+    expect(within(within(inspector).getByLabelText("Session details")).getByText("codex-a1b2c3")).toBeTruthy();
+  });
+});
+
+describe("focus, the inbound half of the pair", () => {
+  it("mutes one of your own running sessions without hiding it from the Project", async () => {
+    const user = userEvent.setup();
+    const source = new FixtureProjectSource();
+    render(<App initialState="ready" source={source} />);
+
+    // The viewer's own active session is the default selection.
+    const mute = await screen.findByRole("button", { name: /Mute for an hour/ });
+    // Focus is asymmetric on purpose: quieting yourself must not make teammates
+    // less able to avoid your work, so it never touches what is published.
+    expect(mute.getAttribute("title")).toContain("Your work stays visible to the Project");
+
+    await user.click(mute);
+    const muted = await screen.findByRole("button", { name: /Muted until/ });
+    expect(muted.getAttribute("title")).toContain("not being injected into its turns");
+    // Nothing about sharing changed.
+    expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
+    expect(await source.getSessionFocus("wrk_agent_fixture_codex")).toMatchObject({ focused: true });
+
+    await user.click(muted);
+    expect(await screen.findByRole("button", { name: /Mute for an hour/ })).toBeTruthy();
+    expect(await source.getSessionFocus("wrk_agent_fixture_codex")).toMatchObject({ focused: false });
+  });
+
+  it("offers no mute for a teammate's session", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    await user.click(screen.getByRole("button", { name: /Open Claude Code session for Mina/ }));
+    // A teammate's session is not the viewer's to quiet, and muting it here
+    // would silence corrections meant for someone else.
+    expect(screen.queryByRole("button", { name: /Mute for an hour/ })).toBeNull();
+  });
+});
+
+describe("branch grouping", () => {
+  it("groups rows by branch only once a list spans more than one", () => {
+    const single = [
+      { agent: { branch: "main" } }, { agent: { branch: "main" } },
+    ] as unknown as Workstream[];
+    expect(groupByBranch(single)).toEqual([{ branch: null, sessions: single }]);
+
+    const mixed = [
+      { id: "a", agent: { branch: "main" } },
+      { id: "b", agent: { branch: "feat/x" } },
+      { id: "c" },
+    ] as unknown as Workstream[];
+    const groups = groupByBranch(mixed);
+    expect(groups.map((group) => group.branch)).toEqual(["main", "feat/x", null]);
+    // A session that reported no branch keeps its own group rather than being
+    // given a branch it never claimed.
+    expect(groups[2]!.sessions.map((session) => session.id)).toEqual(["c"]);
   });
 });

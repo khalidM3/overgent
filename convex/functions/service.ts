@@ -1586,7 +1586,7 @@ async function upsertContractFindings(
         readAt: reader.readAt, changedAt,
       },
     }];
-    const candidate = contractCandidate(reason, session, reader.workstreamPublicId, change.changedByWorkstreamPublicId, changerTitle, changerVerification, change.path);
+    const candidate = contractCandidate(reason, session, reader.workstreamPublicId, change.changedByWorkstreamPublicId, changerTitle, changerVerification, change.path, changer?.branch);
     const verdict = deterministicJudgment(candidate);
     const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
     if (existing) {
@@ -1617,13 +1617,14 @@ function contractCandidate(
   changerTitle: string,
   changerVerification: VerificationState,
   path: string,
+  changerBranch?: string,
 ): JudgmentCandidate {
   return {
     kind: "stale_assumption", severity: "high", confidence: "high", reason,
     signalKind: "symbol", sharedSignals: [path],
     workstreams: [
-      { id: readerPublicId, title: session.title, summary: session.summary, status: session.status, reportedChange: false, verification: "unknown", role: "read" },
-      { id: changerPublicId, title: changerTitle, summary: changerTitle, status: "active", reportedChange: true, verification: changerVerification, role: "changed" },
+      { id: readerPublicId, title: session.title, summary: session.summary, status: session.status, reportedChange: false, verification: "unknown", role: "read", ...(session.branch ? { branch: session.branch } : {}) },
+      { id: changerPublicId, title: changerTitle, summary: changerTitle, status: "active", reportedChange: true, verification: changerVerification, role: "changed", ...(changerBranch ? { branch: changerBranch } : {}) },
     ],
     trackedContractSymbols: [], structurallyUnambiguous: false,
   };
@@ -1649,7 +1650,7 @@ async function readjudicateContractFindings(
     if (!contract) continue;
     const reader = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", finding.workstreamPublicIds[0] ?? "")).unique();
     if (!reader) continue;
-    const candidate = contractCandidate(finding.reason, reader, reader.publicId, workstream.publicId, workstream.title, verification, contract.path ?? "");
+    const candidate = contractCandidate(finding.reason, reader, reader.publicId, workstream.publicId, workstream.title, verification, contract.path ?? "", workstream.branch);
     const verdict = deterministicJudgment(candidate);
     if (finding.severity === verdict.severity && finding.reason === verdict.explanation && finding.delivery === verdict.delivery) continue;
     await ctx.db.patch(finding._id, {
@@ -1867,7 +1868,7 @@ function overlapValues(left: readonly string[] = [], right: readonly string[] = 
 function pairCandidate(
   finding: IntelligenceFinding,
   records: Map<string, WorkstreamRecord>,
-  states: Map<string, { title: string; reportedChange: boolean; verification: VerificationState }>,
+  states: Map<string, { title: string; reportedChange: boolean; verification: VerificationState; branch?: string }>,
   tracked: readonly string[],
 ): JudgmentCandidate {
   const left = records.get(finding.workstreamIds[0] ?? "");
@@ -1897,6 +1898,10 @@ function pairCandidate(
       id, title: state?.title ?? id, summary: record?.summary ?? "", status: record?.status ?? "active",
       reportedChange: state?.reportedChange ?? false, verification: state?.verification ?? "unknown",
       role: "peer" as const,
+      // Branch is coordination metadata the workstream already carries. The
+      // judgment layer reads it as evidence of how the overlap will surface,
+      // never as a reason to stay quiet (ADR-061).
+      ...(state?.branch ? { branch: state.branch } : {}),
     };
   });
   return {
@@ -2057,7 +2062,7 @@ async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"project
   const grouped = new Map<Id<"workstreams">, Array<Doc<"semanticObjects">>>();
   for (const object of objects) grouped.set(object.workstreamId, [...(grouped.get(object.workstreamId) ?? []), object]);
   const records: WorkstreamRecord[] = [];
-  const states = new Map<string, { title: string; reportedChange: boolean; verification: VerificationState }>();
+  const states = new Map<string, { title: string; reportedChange: boolean; verification: VerificationState; branch?: string }>();
   for (const [workstreamId, group] of grouped) {
     const current = await ctx.db.get(workstreamId);
     if (!current || current.status === "done") continue;
@@ -2066,6 +2071,7 @@ async function recomputeSemanticFindings(ctx: MutationCtx, project: Doc<"project
       title: current.title,
       reportedChange: change !== undefined,
       verification: (current.verificationState as VerificationState | undefined) ?? (change ? readVerificationState(change.text) : "unknown"),
+      ...(current.branch ? { branch: current.branch } : {}),
     });
     records.push(await semanticRecord(ctx, project.publicId, current, group));
   }

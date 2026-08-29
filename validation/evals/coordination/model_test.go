@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stickguy/stickguy/internal/config"
@@ -67,4 +68,42 @@ func TestRoutingCountsExpectedTargetsOnly(t *testing.T) {
 
 func configWorkspace(workstreamID string) config.Workspace {
 	return config.Workspace{WorkstreamID: workstreamID}
+}
+
+func TestSelectScenariosKeepsDeclaredOrder(t *testing.T) {
+	selected, err := selectScenarios("c,a")
+	if err != nil {
+		t.Fatalf("select scenarios: %v", err)
+	}
+	if len(selected) != 2 || selected[0].ID != "A" || selected[1].ID != "C" {
+		t.Fatalf("expected A then C in declared order, got %+v", selected)
+	}
+}
+
+func TestSelectScenariosDefaultsToTheWholeGate(t *testing.T) {
+	selected, err := selectScenarios("  ")
+	if err != nil {
+		t.Fatalf("select scenarios: %v", err)
+	}
+	if len(selected) != len(scenarioDefinitions) {
+		t.Fatalf("expected the full gate, got %d of %d", len(selected), len(scenarioDefinitions))
+	}
+}
+
+func TestSelectScenariosRejectsAnUnknownID(t *testing.T) {
+	if _, err := selectScenarios("A,Z"); err == nil {
+		t.Fatal("expected an unknown scenario to be rejected rather than silently skipped")
+	}
+}
+
+func TestWrapReasonNeverSplitsAWord(t *testing.T) {
+	lines := wrapReason("backend/refresh.go: Refresh changed after this session read it", 20)
+	for _, line := range lines {
+		if len(line) > 20 && !strings.Contains(line, " ") {
+			t.Fatalf("wrapped line exceeds the width without a break point: %q", line)
+		}
+	}
+	if strings.Join(lines, " ") != "backend/refresh.go: Refresh changed after this session read it" {
+		t.Fatalf("wrapping lost or reordered words: %v", lines)
+	}
 }
