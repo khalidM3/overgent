@@ -1191,7 +1191,7 @@ function messageKindLabel(kind: SessionMessageKind): string {
  */
 function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession }: {
   finding: Finding; sessions: Workstream[]; viewer: string; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
-  onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void;
+  onState: (state: FindingState) => Promise<void>; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void;
 }) {
   const affected = useMemo(() => sessions.filter((session) => finding.workstreamIds.includes(session.id)), [finding.workstreamIds, sessions]);
   const [feedback, setFeedback] = useState<FindingFeedback | null>(null);
@@ -1201,6 +1201,8 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
   const [decision, setDecision] = useState("");
   const [threadPending, setThreadPending] = useState(false);
   const [threadError, setThreadError] = useState("");
+  const [statePending, setStatePending] = useState(false);
+  const [stateError, setStateError] = useState(false);
   const others = otherNames(affected, viewer);
   const names = affected.map((session) => session.memberName).join(" and ");
 
@@ -1208,6 +1210,11 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
     setFeedbackPending(true);
     setFeedbackError(false);
     void onFeedback(value).then(() => setFeedback(value)).catch(() => setFeedbackError(true)).finally(() => setFeedbackPending(false));
+  };
+  const submitState = (state: FindingState) => {
+    setStatePending(true);
+    setStateError(false);
+    void onState(state).catch(() => setStateError(true)).finally(() => setStatePending(false));
   };
   const run = (operation: () => Promise<void>) => {
     setThreadPending(true); setThreadError("");
@@ -1255,7 +1262,7 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
             the secondary path for the case where a sentence is not ready yet. */}
         {!card && <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Decide this with {others}</button>}
         {card?.resolution && <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p><div className="sent">Delivered to {card.resolution.affectedWorkstreamIds.length} session{card.resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {card.revision}</div></div>}
-        {card && card.state === "open" && <form className="decision-form" onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, finding.workstreamIds); setDecision(""); onState("resolved"); }); }}>
+        {card && card.state === "open" && <form className="decision-form" onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, finding.workstreamIds); setDecision(""); }); }}>
           <input value={decision} onChange={(event) => setDecision(event.target.value)} placeholder="What did you decide?" aria-label={`Decision for ${card.title}`} />
           <button className="pill solid" disabled={threadPending || disabled}>Record decision</button>
         </form>}
@@ -1284,9 +1291,10 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
           button claiming the same word. What is left are the two ways to stop
           reading a finding without deciding anything. */}
       <div className="finding-actions">
-        <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
-        <button disabled={disabled || finding.state === "dismissed"} className="pill" onClick={() => onState("dismissed")}>Dismiss</button>
+        <button disabled={disabled || statePending || finding.state === "acknowledged"} className="pill" onClick={() => submitState("acknowledged")}>Acknowledge</button>
+        <button disabled={disabled || statePending || finding.state === "dismissed"} className="pill" onClick={() => submitState("dismissed")}>Dismiss</button>
       </div>
+      {stateError && <p className="form-error" role="alert">That change could not be saved.</p>}
     </div>
   </article>;
 }
