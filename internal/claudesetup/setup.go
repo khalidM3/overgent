@@ -17,6 +17,13 @@ type Status struct {
 	Approval        string `json:"approval"`
 	Binding         string `json:"binding"`
 	PreviousProfile string `json:"previousProfile,omitempty"`
+	// CheckedProfile names the profile this status was evaluated against, so an
+	// `other_profile` result can be read without guessing what it was compared
+	// with. Without it the honest answer "Claude is bound to a different profile
+	// than the one you asked about" is indistinguishable from the alarming one
+	// "Claude is bound to somebody else's profile", and the difference is
+	// usually just a missing --config-root.
+	CheckedProfile  string `json:"checkedProfile"`
 	RestartRequired bool   `json:"restartRequired"`
 }
 
@@ -42,7 +49,7 @@ func (m Manager) Setup() (Status, error) {
 			return Status{}, bindingErr
 		}
 		if binding == "other_profile" {
-			return Status{Binding: binding}, errors.New("Claude Code is connected to another Stickguy profile; explicit reconnect is required")
+			return Status{Binding: binding, CheckedProfile: m.checkedProfile()}, errors.New("Claude Code is connected to another Stickguy profile; explicit reconnect is required")
 		}
 	} else {
 		servers["stickguy"] = expected
@@ -57,7 +64,13 @@ func (m Manager) Setup() (Status, error) {
 	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
 		return Status{}, fmt.Errorf("install Claude activity hooks: %w", err)
 	}
+	// Pre-approve only Stickguy's own coordination tools, so the harness does
+	// not spend four approval prompts before the member does any work.
+	if err := hookconfig.AllowTools(hookPath, hookconfig.StickguyMCPTools); err != nil {
+		return Status{}, fmt.Errorf("pre-approve Stickguy coordination tools: %w", err)
+	}
 	result := status(path, true)
+	result.CheckedProfile = m.checkedProfile()
 	result.RestartRequired = true
 	return result, nil
 }
@@ -88,6 +101,7 @@ func (m Manager) Status() (Status, error) {
 		return Status{}, err
 	}
 	result := status(path, false)
+	result.CheckedProfile = m.checkedProfile()
 	result.Binding, result.PreviousProfile, result.RestartRequired = binding, previous, binding != "not_configured" || hooks.State != hookconfig.BindingNotConfigured
 	switch {
 	case binding == "current" && hooks.State == hookconfig.BindingCurrent:
@@ -149,6 +163,7 @@ func (m Manager) Rebind() (Status, error) {
 		return Status{}, fmt.Errorf("rebind Claude hooks: %w", err)
 	}
 	result := status(path, true)
+	result.CheckedProfile = m.checkedProfile()
 	result.RestartRequired = true
 	return result, nil
 }
@@ -185,7 +200,14 @@ func (m Manager) Remove() (Status, error) {
 			return Status{}, hookErr
 		}
 	}
-	return status(path, false), nil
+	// Withdraw exactly what Setup granted. A teardown that leaves permissions
+	// behind for a server that is gone is a permission the member never revisits.
+	if err = hookconfig.DisallowTools(hookPath, hookconfig.StickguyMCPTools); err != nil {
+		return Status{}, fmt.Errorf("withdraw Stickguy coordination tool approval: %w", err)
+	}
+	result := status(path, false)
+	result.CheckedProfile = m.checkedProfile()
+	return result, nil
 }
 
 func (m Manager) hookDetails() (string, string, error) {
@@ -298,6 +320,19 @@ func status(path string, configured bool) Status {
 		binding = "current"
 	}
 	return Status{Configured: configured, ConfigPath: path, Approval: "required_by_claude", Binding: binding}
+}
+
+// checkedProfile names the profile a status or setup call is evaluated against.
+// A portable install relies on PATH and the default profile and has no path to
+// report, so it says so rather than naming a directory it does not use.
+func (m Manager) checkedProfile() string {
+	if m.Portable {
+		return "portable"
+	}
+	if absolute, err := filepath.Abs(m.ConfigRoot); err == nil {
+		return absolute
+	}
+	return m.ConfigRoot
 }
 
 func classifyServer(current, expected any) (string, string, error) {

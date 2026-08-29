@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -39,7 +40,20 @@ func (m *memoryCredentials) Delete(_ context.Context, account string) error {
 	delete(m.values, account)
 	return nil
 }
-func (m *memoryCredentials) Get(account string) string {
+
+// Get satisfies onboarding.CredentialStore, which the enrollment reset path
+// needs in order to read a stored secret before checking it.
+func (m *memoryCredentials) Get(_ context.Context, account string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	secret, ok := m.values[account]
+	if !ok {
+		return "", errors.New("no credential for account")
+	}
+	return secret, nil
+}
+
+func (m *memoryCredentials) secret(account string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.values[account]
@@ -99,8 +113,8 @@ func TestL4TwoDeviceGoToHostedVerticalSlice(t *testing.T) {
 	if joined.ProjectID != created.ProjectID || joined.DashboardTicket == "" {
 		t.Fatalf("joined result=%#v created=%#v", joined, created)
 	}
-	clientA := mustClient(t, apiBase, creds.Get(created.DeviceID))
-	clientB := mustClient(t, apiBase, creds.Get(joined.DeviceID))
+	clientA := mustClient(t, apiBase, creds.secret(created.DeviceID))
+	clientB := mustClient(t, apiBase, creds.secret(joined.DeviceID))
 	senderA := &controlledSender{client: clientA}
 	senderB := &controlledSender{client: clientB}
 	senderB.offline.Store(true)

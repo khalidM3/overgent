@@ -46,15 +46,37 @@ for (let attempt = 0; attempt < 120; attempt++) {
 
 const desktopBuild = spawnSync(process.execPath, [path.join(root, "scripts", "build-desktop.mjs"), "--development"], { cwd: root, stdio: "inherit" });
 if (desktopBuild.status !== 0) { stop(); process.exit(desktopBuild.status ?? 1); }
-const desktopBinary = path.join(root, "apps", "desktop", "build", "bin", "Stickguy Dev.app", "Contents", "MacOS", "stickguy-desktop-dev");
+const desktopApp = path.join(root, "apps", "desktop", "build", "bin", "Stickguy Dev.app");
+// The development process launches the executable directly so its logs and
+// lifetime remain attached to this orchestrator. LaunchServices therefore does
+// not discover the bundle automatically as it would after opening an installed
+// app. Register the freshly rebuilt bundle before launch so the hosted
+// workroom's stickguy-dev://new-project handoff reaches this running instance.
+const launchServices = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+const registration = spawnSync(launchServices, ["-f", desktopApp], { cwd: root, stdio: "inherit" });
+if (registration.status !== 0) { stop(); process.exit(registration.status ?? 1); }
+const desktopBinary = path.join(desktopApp, "Contents", "MacOS", "stickguy-desktop-dev");
 start("desktop", desktopBinary, [], { env: { ...process.env, FRONTEND_DEVSERVER_URL: "http://127.0.0.1:5173", STICKGUY_API_ORIGIN: shared ? sharedAPIOrigin : "http://127.0.0.1:3211", STICKGUY_DASHBOARD_ORIGIN: "http://127.0.0.1:5173/api", STICKGUY_CLI_BINARY: cli, STICKGUY_CONFIG_ROOT: configRoot } });
 
 const configPath = path.join(configRoot, "config.json");
 let service;
 const ensureService = () => {
   if (!service && existsSync(configPath)) {
-    const existing = spawnSync(cli, ["--config-root", configRoot, "service", "status"], { cwd: root, stdio: "ignore" });
+    // "service status" answers successfully even when nothing is running - an
+    // installed LaunchAgent that failed to bootstrap reports
+    // {"installed":true,"running":false}. Treating exit 0 as "a service exists"
+    // meant a failed install stopped the development service from ever starting.
+    const existing = spawnSync(cli, ["--config-root", configRoot, "service", "status"], { cwd: root, encoding: "utf8" });
+    let running = false;
     if (existing.status === 0) {
+      try {
+        const reported = JSON.parse(existing.stdout);
+        running = reported.service === "running" || reported.running === true;
+      } catch {
+        running = false;
+      }
+    }
+    if (running) {
       service = { external: true };
       process.stdout.write("An existing Stickguy service is already managing the enrolled development profile.\n");
       return;

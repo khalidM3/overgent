@@ -21,6 +21,7 @@ const desktopDevelopment = false
 func desktopProductName() string       { return "Stickguy" }
 func desktopMenuLabel() string         { return "Stickguy beta" }
 func desktopStartURL() string          { return "/?desktop=onboarding" }
+func desktopURLScheme() string         { return "stickguy" }
 func desktopAPIBaseURL() string        { return "https://api.stickguy.dev" }
 func desktopActivationBaseURL() string { return desktopAPIBaseURL() }
 func desktopCLIBinary() string {

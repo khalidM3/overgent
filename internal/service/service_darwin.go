@@ -6,6 +6,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -14,9 +16,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
-const label = "dev.stickguy.service"
+const (
+	// bootstrapAttempts and bootstrapBackoff bound the wait for launchd to
+	// release a label after a bootout.
+	bootstrapAttempts = 12
+	bootstrapBackoff  = 250 * time.Millisecond
+)
+
+// defaultLabel is the LaunchAgent label for the default profile. It must not
+// change: an existing install already owns a job under this name.
+const defaultLabel = "dev.stickguy.service"
 
 // Manager installs and controls the one per-user production service.
 type Manager struct {
@@ -32,11 +44,38 @@ type Status struct {
 	Label     string `json:"label"`
 }
 
+// label scopes the LaunchAgent to the profile it manages. Without this a
+// development build using an isolated STICKGUY_CONFIG_ROOT and a production
+// install both claim "dev.stickguy.service": they overwrite each other's plist
+// and only one can ever be bootstrapped. The default profile keeps the original
+// label so upgrading does not orphan a job that is already installed.
+func (m Manager) label() string {
+	if m.ConfigRoot == "" || sameProfile(m.ConfigRoot, m.defaultConfigRoot()) {
+		return defaultLabel
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(m.ConfigRoot)))
+	return defaultLabel + "." + hex.EncodeToString(sum[:4])
+}
+
+// defaultConfigRoot mirrors config.DefaultRoot for this Manager's home, kept
+// local so the service package stays free of a configuration dependency.
+func (m Manager) defaultConfigRoot() string {
+	return filepath.Join(m.Home, "Library", "Application Support", "Stickguy")
+}
+
+func sameProfile(left, right string) bool {
+	return filepath.Clean(left) == filepath.Clean(right)
+}
+
 func (m Manager) Install(ctx context.Context) error {
 	if err := m.validate(); err != nil {
 		return err
 	}
 	path := m.plistPath()
+	// A plist on disk is what every later check reads as "installed", so track
+	// whether this call is the one that created it.
+	_, statErr := os.Stat(path)
+	created := os.IsNotExist(statErr)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create LaunchAgents directory: %w", err)
 	}
@@ -52,14 +91,69 @@ func (m Manager) Install(ctx context.Context) error {
 		return fmt.Errorf("replace LaunchAgent: %w", err)
 	}
 	// bootstrap is idempotent only after a best-effort bootout of an older job.
-	_ = m.launchctl(ctx, "bootout", m.domain()+"/"+label)
-	if err = m.launchctl(ctx, "bootstrap", m.domain(), path); err != nil {
+	_ = m.launchctl(ctx, "bootout", m.domain()+"/"+m.label())
+	// launchctl bootout returns before launchd has finished tearing the job
+	// down. Bootstrapping into a domain that still holds the old job fails with
+	// EIO, which launchctl reports only as "Input/output error", so wait for the
+	// label to disappear and retry rather than surfacing that to the member.
+	if err = m.bootstrapWhenFree(ctx, path); err != nil {
+		// Leaving the plist behind would make a failed install indistinguishable
+		// from a healthy one: Status reports installed, callers conclude a
+		// service exists, and nothing ever starts it.
+		m.discardPlist(path, created)
 		return fmt.Errorf("bootstrap LaunchAgent: %w", err)
 	}
-	if err = m.launchctl(ctx, "kickstart", "-k", m.domain()+"/"+label); err != nil {
+	if err = m.launchctl(ctx, "kickstart", "-k", m.domain()+"/"+m.label()); err != nil {
+		_ = m.launchctl(ctx, "bootout", m.domain()+"/"+m.label())
+		m.discardPlist(path, created)
 		return fmt.Errorf("start LaunchAgent: %w", err)
 	}
 	return nil
+}
+
+// discardPlist removes a LaunchAgent this call created, so a failed install
+// leaves no trace that later reads as an installation. A plist that already
+// existed is left alone; it belongs to an earlier, possibly working, install.
+func (m Manager) discardPlist(path string, created bool) {
+	if created {
+		_ = os.Remove(path)
+	}
+}
+
+// bootstrapWhenFree waits for a previous job under this label to finish
+// unloading, then bootstraps, retrying while launchd reports the domain is
+// still busy.
+func (m Manager) bootstrapWhenFree(ctx context.Context, path string) error {
+	var err error
+	for attempt := 0; attempt < bootstrapAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(bootstrapBackoff):
+			}
+		}
+		if m.loaded(ctx) {
+			continue
+		}
+		if err = m.launchctl(ctx, "bootstrap", m.domain(), path); err == nil {
+			return nil
+		}
+		if alreadyLoaded(err) {
+			// Another bootstrap won the race; the job we wanted is running.
+			return nil
+		}
+	}
+	if err == nil {
+		err = errors.New("a previous LaunchAgent under this label is still unloading")
+	}
+	return err
+}
+
+// loaded reports whether launchd currently holds a job under this label.
+func (m Manager) loaded(ctx context.Context) bool {
+	command := exec.CommandContext(ctx, "/bin/launchctl", "print", m.domain()+"/"+m.label())
+	return command.Run() == nil
 }
 
 func (m Manager) Start(ctx context.Context) error {
@@ -69,7 +163,7 @@ func (m Manager) Start(ctx context.Context) error {
 	if _, err := os.Stat(m.plistPath()); err != nil {
 		return fmt.Errorf("LaunchAgent is not installed: %w", err)
 	}
-	if err := m.launchctl(ctx, "kickstart", "-k", m.domain()+"/"+label); err != nil {
+	if err := m.launchctl(ctx, "kickstart", "-k", m.domain()+"/"+m.label()); err != nil {
 		return fmt.Errorf("start LaunchAgent: %w", err)
 	}
 	return nil
@@ -79,7 +173,7 @@ func (m Manager) Stop(ctx context.Context) error {
 	if err := m.validate(); err != nil {
 		return err
 	}
-	if err := m.launchctl(ctx, "kill", "SIGTERM", m.domain()+"/"+label); err != nil && !notLoaded(err) {
+	if err := m.launchctl(ctx, "kill", "SIGTERM", m.domain()+"/"+m.label()); err != nil && !notLoaded(err) {
 		return fmt.Errorf("stop LaunchAgent: %w", err)
 	}
 	return nil
@@ -89,7 +183,7 @@ func (m Manager) Remove(ctx context.Context) error {
 	if err := m.validate(); err != nil {
 		return err
 	}
-	if err := m.launchctl(ctx, "bootout", m.domain()+"/"+label); err != nil && !notLoaded(err) {
+	if err := m.launchctl(ctx, "bootout", m.domain()+"/"+m.label()); err != nil && !notLoaded(err) {
 		return fmt.Errorf("unload LaunchAgent: %w", err)
 	}
 	if err := os.Remove(m.plistPath()); err != nil && !os.IsNotExist(err) {
@@ -103,11 +197,11 @@ func (m Manager) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	_, statErr := os.Stat(m.plistPath())
-	status := Status{Installed: statErr == nil, Label: label}
+	status := Status{Installed: statErr == nil, Label: m.label()}
 	if statErr != nil && !os.IsNotExist(statErr) {
 		return status, fmt.Errorf("inspect LaunchAgent: %w", statErr)
 	}
-	cmd := exec.CommandContext(ctx, "/bin/launchctl", "print", m.domain()+"/"+label)
+	cmd := exec.CommandContext(ctx, "/bin/launchctl", "print", m.domain()+"/"+m.label())
 	if output, err := cmd.CombinedOutput(); err == nil {
 		status.Running = bytes.Contains(output, []byte("state = running"))
 	} else if !notLoaded(&commandError{err: err, output: string(output)}) {
@@ -123,7 +217,7 @@ func (m Manager) plist() ([]byte, error) {
 		Version string   `xml:"version,attr"`
 		Dict    entries  `xml:"dict"`
 	}
-	value := dict{Version: "1.0", Dict: entries{Label: label, Arguments: arguments, RunAtLoad: true, KeepAlive: true, ProcessType: "Background", ThrottleInterval: 5}}
+	value := dict{Version: "1.0", Dict: entries{Label: m.label(), Arguments: arguments, RunAtLoad: true, KeepAlive: true, ProcessType: "Background", ThrottleInterval: 5}}
 	encoded, err := xml.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode LaunchAgent: %w", err)
@@ -210,7 +304,7 @@ func (m Manager) validate() error {
 }
 
 func (m Manager) plistPath() string {
-	return filepath.Join(m.Home, "Library", "LaunchAgents", label+".plist")
+	return filepath.Join(m.Home, "Library", "LaunchAgents", m.label()+".plist")
 }
 func (m Manager) domain() string { return "gui/" + strconv.Itoa(m.UID) }
 func (m Manager) launchctl(ctx context.Context, arguments ...string) error {
@@ -229,6 +323,17 @@ type commandError struct {
 
 func (e *commandError) Error() string { return strings.TrimSpace(e.output) }
 func (e *commandError) Unwrap() error { return e.err }
+
+// alreadyLoaded reports that launchd refused a bootstrap because a job under
+// this label is already present, which means the desired end state holds.
+func alreadyLoaded(err error) bool {
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "service already loaded") ||
+		strings.Contains(text, "already bootstrapped") ||
+		strings.Contains(text, "37: operation already in progress") ||
+		strings.Contains(text, "file exists")
+}
+
 func notLoaded(err error) bool {
 	text := strings.ToLower(err.Error())
 	return strings.Contains(text, "could not find service") || strings.Contains(text, "no such process") || strings.Contains(text, "service not found") || strings.Contains(text, "113: could not find specified service")

@@ -621,3 +621,60 @@ export function expiredRecordIds(records: readonly RetainedRecord[], now: number
     .slice(0, Math.max(0, limit))
     .map((record) => record.id);
 }
+
+export type ReadFidelity = "observed" | "vendor_inferred" | "self_declared";
+export type ReadCoverage = ReadFidelity | "none";
+
+// Provenance for read-set evidence (ADR-052). A read set mixes sources of
+// different strength, and a finding must never borrow the authority of the
+// strongest one.
+export function readFidelityOf(value: unknown): ReadFidelity {
+  return value === "vendor_inferred" || value === "self_declared" || value === "observed" ? value : "observed";
+}
+
+export function readCoverageOf(value: unknown): ReadCoverage | undefined {
+  return value === "observed" || value === "vendor_inferred" || value === "self_declared" || value === "none" ? value : undefined;
+}
+
+export function readFidelityRank(value: unknown): number {
+  return value === "observed" ? 3 : value === "vendor_inferred" ? 2 : value === "self_declared" ? 1 : 0;
+}
+
+// A contract diff is deterministic, but the claim that *this* session read the
+// file is only as strong as its weakest link. Inferred or self-declared reads
+// therefore cannot produce a deterministic finding.
+export function contractConfidenceBand(fidelity: ReadFidelity): "deterministic" | "high" | "medium" {
+  // Ordered as readFidelityRank orders the sources. A vendor classifier looked
+  // at a command that actually ran; a self-declared path is what an agent said
+  // at begin_work it anticipated consuming, which is an intention, not a read.
+  return fidelity === "observed" ? "deterministic" : fidelity === "vendor_inferred" ? "high" : "medium";
+}
+
+// A coding session emits hook events continuously while it works, so a long
+// silence means the member closed the terminal or walked away — not that the
+// session is between turns.
+//
+// Nothing ages a session out on its own: `Stop` reports idle and `SessionEnd`
+// reports done, and a session whose `SessionEnd` never arrives stays live
+// forever. The coordination engine treats anything not `done` as live, so those
+// phantoms accumulate across a working day and collide with everything that
+// follows them. Thirty minutes is far longer than any gap between turns and far
+// shorter than a working day.
+export const SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
+
+// expiredSessionsPredicate decides whether one workstream has gone quiet long
+// enough to stop counting as live.
+//
+// Only agent sessions expire. A workspace workstream or a manually reported
+// intent has no vendor and no turn loop, so silence says nothing about whether
+// it is finished, and completing one on the member's behalf would be a claim
+// Stickguy cannot support. Expiry is also never final: an event from a revived
+// session sets its status straight back to active.
+export function sessionHasGoneQuiet(
+  session: { status: string; vendor?: string | undefined; updatedAt: number },
+  now: number,
+  timeout = SESSION_IDLE_TIMEOUT_MS,
+): boolean {
+  if (session.vendor === undefined || session.status === "done") return false;
+  return now - session.updatedAt >= timeout;
+}

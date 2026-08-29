@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -41,6 +42,11 @@ type AdapterState struct {
 	RuntimeVerified  bool   `json:"runtimeVerified"`
 	RestartRequired  bool   `json:"restartRequired"`
 	ReconnectAllowed bool   `json:"reconnectAllowed"`
+	// HooksNeedReview reports a Codex binding whose files are installed but
+	// whose hooks Codex will not run until the member reviews them. Without
+	// this the adapter reads as connected while observing nothing (ADR-051).
+	HooksNeedReview bool   `json:"hooksNeedReview"`
+	ReviewGuidance  string `json:"reviewGuidance,omitempty"`
 }
 
 type OnboardingState struct {
@@ -54,6 +60,11 @@ type OnboardingState struct {
 	APIBaseURL      string         `json:"apiBaseUrl"`
 	Adapters        []AdapterState `json:"adapters"`
 	Limitation      string         `json:"limitation"`
+	// Credential reports whether this Mac's stored credential is still accepted.
+	// "revoked" and "unknown" both arrive as HTTP 401 but need different copy,
+	// and "uncertain" (offline, timeout, server fault) must never be presented
+	// as a reason to erase an enrollment.
+	Credential string `json:"credential"`
 }
 
 type EnrollmentRequest struct {
@@ -74,6 +85,47 @@ type EnrollmentResult struct {
 
 type OnboardingService struct {
 	configRoot, apiBaseURL, activationBaseURL, cliBinary string
+
+	credentialMu      sync.Mutex
+	credentialStatus  hosted.CredentialStatus
+	credentialSubject string
+	credentialAt      time.Time
+}
+
+// credentialTTL keeps State() cheap. The webview polls it every two seconds
+// while an adapter restart is pending, and a rejected credential does not
+// un-reject itself in between.
+const credentialTTL = 15 * time.Second
+
+// credentialHealth answers whether the stored credential still authenticates,
+// reusing a recent answer rather than calling out on every State(). The check
+// itself lives in internal/onboarding so the desktop and the CLI cannot drift.
+func (service *OnboardingService) credentialHealth(ctx context.Context, deviceID, apiBaseURL string) hosted.CredentialStatus {
+	subject := deviceID + "@" + apiBaseURL
+	service.credentialMu.Lock()
+	if service.credentialSubject == subject && time.Since(service.credentialAt) < credentialTTL {
+		cached := service.credentialStatus
+		service.credentialMu.Unlock()
+		return cached
+	}
+	service.credentialMu.Unlock()
+
+	status, _, err := onboarding.New(apiBaseURL).CredentialState(ctx, service.configRoot)
+	if err != nil {
+		status = hosted.CredentialUncertain
+	}
+
+	service.credentialMu.Lock()
+	service.credentialStatus, service.credentialSubject, service.credentialAt = status, subject, time.Now()
+	service.credentialMu.Unlock()
+	return status
+}
+
+// forgetCredentialHealth drops the cached answer so the next State() re-checks.
+func (service *OnboardingService) forgetCredentialHealth() {
+	service.credentialMu.Lock()
+	service.credentialSubject, service.credentialAt = "", time.Time{}
+	service.credentialMu.Unlock()
 }
 
 func newOnboardingService() *OnboardingService {
@@ -122,7 +174,34 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 		roots = append(roots, workspace.Root)
 	}
 	state.Adapters = service.adapterStates(roots)
+	// Report credential health with the rest of the state so a locked-out Mac
+	// shows a recovery path on open, instead of only after an action fails.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	state.Credential = string(service.credentialHealth(ctx, cfg.DeviceID, cfg.APIBaseURL))
 	return state, nil
+}
+
+// ResetEnrollment forgets this Mac's device identity so the member can enroll
+// again from the app, without a terminal. The safety gate - refusing unless the
+// hosted API actually rejected the credential - lives in internal/onboarding
+// and is shared with "stickguy reset".
+func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return OnboardingState{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return OnboardingState{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := onboarding.New(cfg.APIBaseURL).Reset(ctx, service.configRoot, false); err != nil {
+		return OnboardingState{}, err
+	}
+	service.forgetCredentialHealth()
+	return service.State()
 }
 
 func (service *OnboardingService) CreateProject(request EnrollmentRequest) (EnrollmentResult, error) {
@@ -235,6 +314,13 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 }
 
 func (service *OnboardingService) ensureService(ctx context.Context) error {
+	// The development harness (scripts/dev.mjs) runs the service in the
+	// foreground against this same profile. Installing a LaunchAgent for it too
+	// produces two services competing for one profile lock, and the agent can
+	// never win. One service per profile means the harness owns it here.
+	if desktopDevelopment {
+		return nil
+	}
 	executable, err := service.resolveCLI()
 	if err != nil {
 		return err
@@ -490,6 +576,10 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	for _, root := range roots {
 		if status, statusErr := (codexsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil {
 			applyAdapterBinding(&states[0], status.Configured, status.Binding, status.PreviousProfile)
+			if status.Hooks == "needs_review" {
+				states[0].HooksNeedReview = true
+				states[0].ReviewGuidance = status.Trust.Guidance
+			}
 		} else if !states[0].Configured {
 			states[0].Binding = "drifted"
 			states[0].Detail = "Configuration needs review: " + statusErr.Error()
@@ -505,7 +595,11 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 		states[index].RuntimeVerified = service.agentRuntimeVerified(roots, vendor)
 		states[index].RestartRequired = states[index].Configured && !states[index].RuntimeVerified
 		states[index].ReconnectAllowed = states[index].Binding == "other_profile"
-		if states[index].RuntimeVerified {
+		if states[index].HooksNeedReview && !states[index].RuntimeVerified {
+			// Codex parses these hooks and skips them. Saying "configured" here
+			// would repeat the failure this state exists to expose.
+			states[index].Detail = "Connected, but Codex has not trusted the activity hooks yet, so no session activity can be observed. " + codexsetup.ReviewGuidance
+		} else if states[index].RuntimeVerified {
 			states[index].Detail = "Verified by a live session event from this Project. Relevant briefs use MCP pull."
 		} else if states[index].RestartRequired {
 			states[index].Detail = "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection."

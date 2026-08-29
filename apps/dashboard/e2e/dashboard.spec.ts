@@ -10,12 +10,13 @@ test("Project Workroom shows people, Codex, Claude, and session drill-down", asy
   await expect(page.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeVisible();
   await expect(page.getByLabel("Details inspector")).toContainText("Codex");
   await expect(page.getByLabel("Details inspector")).toContainText("feature/session-rotation");
-  await expect(page.getByLabel("Details inspector")).toContainText("Activity");
+  await expect(page.getByLabel("Details inspector")).toContainText("Coordination routed");
   await page.getByRole("button", { name: "Open Claude Code session for Mina" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("Claude Code");
   await expect(page.getByLabel("Details inspector")).toContainText("Waiting for input");
   await expect(page.getByLabel("Details inspector").getByRole("heading", { name: /Subagents/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Open Shared task session for Ravi" }).click();
+  await page.getByRole("button", { name: "Open session details" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("1,000 paths");
   await expect(page.getByLabel("Semantic processing status")).toContainText("degraded");
 });
@@ -23,8 +24,9 @@ test("Project Workroom shows people, Codex, Claude, and session drill-down", asy
 test("activity updates and Project switching remain isolated", async ({ page }) => {
   await page.goto("/?state=ready");
   await page.getByRole("button", { name: "Simulate activity" }).click();
-  await expect(page.getByText("Published one new path-only manifest revision.")).toBeVisible();
   await expect(page.getByText("rev 185")).toBeVisible();
+  await page.getByRole("button", { name: "Decisions" }).click();
+  await expect(page.getByText("Published one new path-only manifest revision.")).toBeVisible();
   await page.getByRole("button", { name: /Orchard mobile/ }).click();
   await expect(page.getByRole("heading", { name: "Orchard mobile" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Collision detected/ })).toHaveCount(0);
@@ -50,12 +52,15 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await expect(detail).toContainText("resolved");
 
   await page.getByRole("button", { name: "Open Project settings" }).click();
-  const dialog = page.getByRole("dialog", { name: "Settings" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Local-first analysis, bounded Project sharing");
-  await expect(page.getByRole("button", { name: "Close settings" })).toBeFocused();
+  const settings = page.getByRole("main", { name: "Settings" });
+  await expect(settings).toBeVisible();
+  await expect(settings).toContainText("Local-first analysis, bounded Project sharing");
+  // Settings is a screen, so it replaces the main and inspector columns rather
+  // than floating over them. Escape still goes back, as the dialog did.
+  await expect(page.getByRole("complementary", { name: "Details inspector" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
+  await expect(settings).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
 });
 
 test("command palette switches Projects and theme changes", async ({ page }) => {

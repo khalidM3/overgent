@@ -62,12 +62,15 @@ func Parse(vendor string, input []byte) (Event, error) {
 	if err != nil {
 		return Event{}, errors.New("activity hook working directory is invalid")
 	}
-	sum := sha256.Sum256([]byte("stickguy.agent-session.v1\x00" + vendor + "\x00" + sessionID))
+	workstreamID, sessionAlias, ok := WorkstreamIDFor(vendor, sessionID)
+	if !ok {
+		return Event{}, errors.New("activity hook identity is missing or invalid")
+	}
 	event := Event{
 		Vendor: vendor, CWD: canonicalCWD,
-		WorkstreamID:    fmt.Sprintf("wrk_agent_%x", sum[:16]),
+		WorkstreamID:    workstreamID,
 		VendorSessionID: sessionID,
-		SessionAlias:    fmt.Sprintf("%s-%x", vendor, sum[:3]),
+		SessionAlias:    sessionAlias,
 		Kind:            kind,
 	}
 	tool, _ := raw["tool_name"].(string)
@@ -141,6 +144,22 @@ var (
 )
 
 var shareableKinds = map[string]bool{"user": true, "assistant": true, "thinking": true, "system": true}
+
+// WorkstreamIDFor derives the stable per-session workstream identity from a
+// vendor session id. Activity hooks and the MCP server must agree on this
+// derivation: a coordination brief is filtered by the workstream it is
+// requested for, so an MCP client that computed a different identity than its
+// own hooks could never be shown a finding routed to its session.
+func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias string, ok bool) {
+	if vendor != "codex" && vendor != "claude" {
+		return "", "", false
+	}
+	if sessionID == "" || len(sessionID) > 512 {
+		return "", "", false
+	}
+	sum := sha256.Sum256([]byte("stickguy.agent-session.v1\x00" + vendor + "\x00" + sessionID))
+	return fmt.Sprintf("wrk_agent_%x", sum[:16]), fmt.Sprintf("%s-%x", vendor, sum[:3]), true
+}
 
 // ClassifyCoordinationTitle permits only the short vendor-visible label used
 // for activity/v1 and automatic intent. It is deliberately stricter than local
@@ -314,6 +333,47 @@ func ReadTool(tool string) bool {
 		return true
 	}
 	return false
+}
+
+// Read-set coverage classes, ordered by strength (ADR-052). These name the best
+// evidence Stickguy can obtain for a session, not the evidence it happens to
+// hold: a session with no reads yet still has the coverage its vendor allows.
+const (
+	CoverageNone           = "none"
+	CoverageSelfDeclared   = "self_declared"
+	CoverageVendorInferred = "vendor_inferred"
+	CoverageObserved       = "observed"
+)
+
+// ReadCoverage reports the strongest read evidence available for a vendor's
+// sessions. Claude names each file it reads to a file-reading tool, so its
+// reads are observed.
+//
+// Codex has no file-reading tool: it inspects source through the shell, and a
+// shell observation carries a command rather than a list of files, so no hook
+// event ever names a file it read. Self-declaration does not fill that gap
+// either, because Codex passes a minimal environment to MCP servers and exports
+// no session identity, so the paths an MCP client declares are attributed to
+// the workspace workstream while the session's own read set stays empty.
+//
+// What does fill it, partially, is Codex's own classification of the commands
+// it ran, recovered from the app-server at turn boundaries. That evidence is
+// vendor-inferred and incomplete, so it is reported as such, and only when a
+// Codex the device can actually talk to is present.
+//
+// Reporting that honestly is the entire point. A session with no read coverage
+// can never receive a stale_assumption finding, so silence for it means
+// absence of evidence, not absence of drift.
+func ReadCoverage(vendor string, inferredReadsAvailable bool) string {
+	switch vendor {
+	case "claude":
+		return CoverageObserved
+	case "codex":
+		if inferredReadsAvailable {
+			return CoverageVendorInferred
+		}
+	}
+	return CoverageNone
 }
 
 // SafeRepositoryPath reports whether a repository-relative path may be shared.

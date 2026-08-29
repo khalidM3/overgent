@@ -50,7 +50,7 @@
     },
     "agentSession": {
       "type": "object", "additionalProperties": false,
-      "required": ["vendor", "sessionAlias", "status", "capabilities", "subagents", "activity"],
+      "required": ["vendor", "sessionAlias", "status", "capabilities", "subagents", "activity", "coordination"],
       "properties": {
         "vendor": {"enum": ["codex", "claude"]},
         "sessionAlias": {"type": "string", "maxLength": 32},
@@ -58,12 +58,15 @@
         "tool": {"type": "string", "maxLength": 64},
         "branch": {"type": "string", "minLength": 1, "maxLength": 255},
         "sessionTitle": {"type": "string", "minLength": 1, "maxLength": 160},
-        "capabilities": {"type": "object", "additionalProperties": false, "required": ["observeSession", "observeToolActivity", "observeSafePaths", "readExistingSession", "pollUpdates", "deliverBrief", "requestAttention"], "properties": {
+        "startedAt": {"type": "string", "format": "date-time"},
+        "endedAt": {"type": "string", "format": "date-time"},
+        "capabilities": {"type": "object", "additionalProperties": false, "required": ["observeSession", "observeToolActivity", "observeSafePaths", "readExistingSession", "pollUpdates", "deliverBrief", "requestAttention", "observeReadSet"], "properties": {
           "observeSession": {"type": "boolean"}, "observeToolActivity": {"type": "boolean"}, "observeSafePaths": {"type": "boolean"}, "readExistingSession": {"type": "boolean"}, "pollUpdates": {"type": "boolean"},
-          "deliverBrief": {"enum": ["mcp_pull", "native_pull", "native_push", "unavailable"]}, "requestAttention": {"enum": ["advisory", "unavailable"]}
+          "deliverBrief": {"enum": ["mcp_pull", "native_pull", "native_push", "unavailable"]}, "requestAttention": {"enum": ["advisory", "unavailable"]}, "observeReadSet": {"enum": ["observed", "vendor_inferred", "self_declared", "none"]}
         }},
         "subagents": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["alias", "agentType", "status"], "properties": {"alias": {"type": "string", "maxLength": 32}, "agentType": {"type": "string", "maxLength": 64}, "status": {"type": "string", "maxLength": 16}}}},
-        "activity": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "at", "kind", "status", "action", "paths"], "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "kind": {"type": "string", "maxLength": 32}, "status": {"enum": ["active", "waiting", "idle", "done", "error"]}, "action": {"type": "string", "maxLength": 300}, "tool": {"type": "string", "maxLength": 64}, "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}}}}}
+        "activity": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "at", "kind", "status", "action", "paths"], "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "occurredAt": {"type": "string", "format": "date-time"}, "kind": {"type": "string", "maxLength": 32}, "status": {"enum": ["active", "waiting", "idle", "done", "error"]}, "action": {"type": "string", "maxLength": 300}, "tool": {"type": "string", "maxLength": 64}, "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}}}}},
+        "coordination": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "routedAt", "summary", "itemCount", "trigger"], "properties": {"id": {"type": "string"}, "routedAt": {"type": "string", "format": "date-time"}, "acknowledgedAt": {"type": "string", "format": "date-time"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "itemCount": {"type": "integer", "minimum": 1, "maximum": 64}, "trigger": {"type": "string", "maxLength": 64}}}}
       }
     },
     "members": {

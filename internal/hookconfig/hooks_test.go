@@ -149,3 +149,65 @@ func TestInstallMigratesOnlyRecognizedLegacyInjectionHandlers(t *testing.T) {
 		t.Fatalf("migrated inspection=%#v err=%v", inspection, err)
 	}
 }
+
+// The grant must be narrow: exactly Stickguy's tools, nothing a member wrote
+// disturbed, and a teardown that withdraws precisely what it granted.
+func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.local.json")
+	if err := os.WriteFile(path, []byte(`{"permissions":{"allow":["Bash(git status)"],"deny":["Bash(rm:*)"]},"model":"opus"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := AllowTools(path, StickguyMCPTools); err != nil {
+		t.Fatal(err)
+	}
+	document := map[string]any{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	permissions := document["permissions"].(map[string]any)
+	allow := permissions["allow"].([]any)
+	if len(allow) != 1+len(StickguyMCPTools) {
+		t.Fatalf("allow=%v", allow)
+	}
+	if allow[0] != "Bash(git status)" {
+		t.Fatalf("a member's own permission was disturbed: %v", allow)
+	}
+	for _, entry := range allow {
+		if text := entry.(string); text != "Bash(git status)" && !strings.HasPrefix(text, "mcp__stickguy__") {
+			t.Fatalf("granted something outside Stickguy's own tools: %q", text)
+		}
+	}
+	if permissions["deny"] == nil || document["model"] != "opus" {
+		t.Fatalf("unrelated settings were lost: %v", document)
+	}
+
+	// Granting twice must not duplicate entries.
+	if err = AllowTools(path, StickguyMCPTools); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	document = map[string]any{}
+	_ = json.Unmarshal(data, &document)
+	if again := document["permissions"].(map[string]any)["allow"].([]any); len(again) != 1+len(StickguyMCPTools) {
+		t.Fatalf("re-granting duplicated entries: %v", again)
+	}
+
+	if err = DisallowTools(path, StickguyMCPTools); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	document = map[string]any{}
+	_ = json.Unmarshal(data, &document)
+	permissions = document["permissions"].(map[string]any)
+	remaining := permissions["allow"].([]any)
+	if len(remaining) != 1 || remaining[0] != "Bash(git status)" {
+		t.Fatalf("teardown did not withdraw exactly what it granted: %v", remaining)
+	}
+	if permissions["deny"] == nil || document["model"] != "opus" {
+		t.Fatalf("teardown lost unrelated settings: %v", document)
+	}
+}

@@ -54,6 +54,7 @@
       "additionalProperties": false,
       "required": ["path", "changedSymbols", "changedByWorkstreamId", "readAt", "changedAt"],
       "properties": {
+        "readFidelity": {"enum": ["observed", "vendor_inferred", "self_declared"]},
         "path": {"type": "string", "minLength": 1, "maxLength": 512},
         "changedSymbols": {
           "type": "array",

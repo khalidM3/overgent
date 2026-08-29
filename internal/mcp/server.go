@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"github.com/stickguy/stickguy/internal/hosted"
@@ -97,6 +98,25 @@ type toolOutput struct {
 type server struct {
 	paths config.Paths
 	cfg   config.Config
+	// agentWorkstreamID identifies the coding-agent session that spawned this
+	// MCP server, when the vendor exposes one. Empty means the session could
+	// not be identified and lifecycle calls fall back to the workspace
+	// workstream, which is honest but cannot see session-routed findings.
+	agentWorkstreamID string
+}
+
+// sessionWorkstream recovers the calling agent session's workstream identity
+// from the environment the vendor gave this process. Claude Code exports
+// CLAUDE_CODE_SESSION_ID. Codex passes a minimal environment to MCP servers and
+// exports no session identity, so Codex degrades to the workspace workstream.
+// The id is derived locally and never leaves the device.
+func sessionWorkstream() string {
+	if sessionID := os.Getenv("CLAUDE_CODE_SESSION_ID"); sessionID != "" {
+		if workstreamID, _, ok := agentactivity.WorkstreamIDFor("claude", sessionID); ok {
+			return workstreamID
+		}
+	}
+	return ""
 }
 
 func Run(ctx context.Context, configRoot string) error {
@@ -108,7 +128,7 @@ func Run(ctx context.Context, configRoot string) error {
 	if err != nil {
 		return err
 	}
-	bridge := &server{paths: paths, cfg: cfg}
+	bridge := &server{paths: paths, cfg: cfg, agentWorkstreamID: sessionWorkstream()}
 	sdk := newSDK(bridge)
 	return sdk.Run(ctx, &sdkmcp.StdioTransport{})
 }
@@ -191,6 +211,7 @@ func (s *server) call(ctx context.Context, q *daemon.Request) (toolOutput, error
 		return toolOutput{}, err
 	}
 	q.WorkspaceID = workspace.ID
+	q.AgentWorkstreamID = s.agentWorkstreamID
 	response, err := daemon.Call(ctx, s.paths.Socket, *q)
 	if err != nil {
 		return toolOutput{}, fmt.Errorf("local Stickguy service unavailable: %w", err)
@@ -198,7 +219,11 @@ func (s *server) call(ctx context.Context, q *daemon.Request) (toolOutput, error
 	if !response.OK {
 		return toolOutput{}, errors.New(response.Error)
 	}
-	out := toolOutput{ProjectID: workspace.ProjectID, WorkspaceID: workspace.ID, WorkstreamID: workspace.WorkstreamID}
+	reportedWorkstream := workspace.WorkstreamID
+	if s.agentWorkstreamID != "" {
+		reportedWorkstream = s.agentWorkstreamID
+	}
+	out := toolOutput{ProjectID: workspace.ProjectID, WorkspaceID: workspace.ID, WorkstreamID: reportedWorkstream}
 	encoded, _ := json.Marshal(response.Data)
 	_ = json.Unmarshal(encoded, &out)
 	return out, nil

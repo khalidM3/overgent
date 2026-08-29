@@ -60,6 +60,17 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${development ? "0.1.0-dev" : (process.env.STICKGUY_VERSION ?? "0.1.0-beta").replace(/^v/, "")}</string>
   <key>CFBundleVersion</key><string>${development ? "1" : process.env.STICKGUY_BUILD_NUMBER ?? "1"}</string>
+  <!-- Enrollment needs the local service, which only the desktop app can reach.
+       The hosted dashboard hands control back through this scheme so adding a
+       Project is a click rather than a terminal command. Development registers
+       its own scheme so a dev build never hijacks the released app's links. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>${development ? "dev.stickguy.app.development" : "dev.stickguy.app"}</string>
+      <key>CFBundleURLSchemes</key><array><string>${development ? "stickguy-dev" : "stickguy"}</string></array>
+    </dict>
+  </array>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Copyright 2026 Stickguy contributors</string>

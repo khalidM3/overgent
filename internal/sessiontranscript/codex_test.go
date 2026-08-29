@@ -149,3 +149,58 @@ func TestOversizedRecordsAreSkippedAndTruncationIsLinear(t *testing.T) {
 		t.Fatal("oversized record leaked into the conversation")
 	}
 }
+
+// The Codex desktop app reports turns as `item_completed` events rather than the
+// CLI's `user_message`/`agent_message`, and is inconsistent about the case of its
+// content part type. Reading only the CLI shape left every desktop session with no
+// user turn, so no title was derived, no intent was published, and the session could
+// never take part in semantic coordination.
+func TestCodexReadsDesktopAppItemCompletedTurns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-2026-08-27T22-35-15-01a046dd-7d33-7f70-9815-ce617c25ad14.jsonl")
+	body := codexRecords(
+		`{"timestamp":"2026-08-27T22:35:15Z","type":"session_meta","payload":{"id":"01a046dd-7d33-7f70-9815-ce617c25ad14","session_id":"01a046dd-7d33-7f70-9815-ce617c25ad14","cwd":"/repo","originator":"Codex Desktop"}}`,
+		// The desktop app injects its own framing as a developer turn.
+		`{"timestamp":"2026-08-27T22:35:16Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<app-context>desktop framing</app-context>"}]}}`,
+		// The member's own request. Note the lowercase part type.
+		`{"timestamp":"2026-08-27T22:35:17Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"i1","content":[{"type":"text","text":"Invalidate all login sessions after a privilege change."}]}}}`,
+		// The agent's reply. The desktop app capitalizes this part type.
+		`{"timestamp":"2026-08-27T22:35:18Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"i2","content":[{"type":"Text","text":"I will add the invalidation path."}]}}}`,
+		// Command output and file changes stay out of shared content entirely.
+		`{"timestamp":"2026-08-27T22:35:19Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"i3","command":["/bin/sh","-c","cat .env"],"aggregated_output":"SECRET_TOKEN=abc"}}}`,
+		`{"timestamp":"2026-08-27T22:35:20Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","id":"i4","changes":[{"path":"/repo/backend/security.go"}]}}}`,
+		// Reasoning items are vendor-held and are not conversation.
+		`{"timestamp":"2026-08-27T22:35:21Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","id":"i5","content":[{"type":"text","text":"internal deliberation"}]}}}`,
+	)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session, err := Read(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Title != "Invalidate all login sessions after a privilege change." {
+		t.Fatalf("desktop session title = %q", session.Title)
+	}
+	var user, assistant int
+	for _, message := range session.Messages {
+		switch message.Kind {
+		case KindUser:
+			user++
+		case KindAssistant:
+			assistant++
+			if message.Text != "I will add the invalidation path." {
+				t.Fatalf("assistant text = %q", message.Text)
+			}
+		}
+	}
+	if user != 1 || assistant != 1 {
+		t.Fatalf("desktop turns: user=%d assistant=%d", user, assistant)
+	}
+	for _, prohibited := range []string{"SECRET_TOKEN", "cat .env", "internal deliberation", "backend/security.go"} {
+		for _, message := range session.Messages {
+			if strings.Contains(message.Text, prohibited) {
+				t.Fatalf("desktop transcript leaked %q", prohibited)
+			}
+		}
+	}
+}

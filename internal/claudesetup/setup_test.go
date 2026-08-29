@@ -117,3 +117,39 @@ func TestOtherProfileRequiresExplicitRebindAndPreservesJSON(t *testing.T) {
 		t.Fatalf("rebind damaged unrelated JSON or retained old profile: %s err=%v", data, err)
 	}
 }
+
+// B1: a development install checked without --config-root is compared against
+// the portable binding a released install uses, so it correctly reports
+// other_profile — while naming the member's own profile, which reads as an
+// alarm. The reply has to say which profile it compared against, or the honest
+// answer is indistinguishable from a real cross-profile conflict.
+func TestStatusNamesTheProfileItComparedAgainst(t *testing.T) {
+	project := t.TempDir()
+	executable := filepath.Join(t.TempDir(), "stickguy")
+	profile := filepath.Join(t.TempDir(), "profile")
+	installed := Manager{ProjectRoot: project, ConfigRoot: profile, Executable: executable}
+	if _, err := installed.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := installed.Status(); err != nil || status.CheckedProfile != profile {
+		t.Fatalf("status=%#v err=%v, want checkedProfile %q", status, err, profile)
+	}
+
+	// The same machine, asked the way the released install would be asked.
+	portable := Manager{ProjectRoot: project, ConfigRoot: profile, Executable: executable, Portable: true}
+	status, err := portable.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Binding != "other_profile" {
+		t.Fatalf("binding=%q, want other_profile", status.Binding)
+	}
+	if status.CheckedProfile != "portable" {
+		t.Fatalf("checkedProfile=%q, want portable", status.CheckedProfile)
+	}
+	// Both halves of the explanation must be present: what was asked about, and
+	// what is actually bound.
+	if status.PreviousProfile != profile {
+		t.Fatalf("previousProfile=%q, want %q", status.PreviousProfile, profile)
+	}
+}
