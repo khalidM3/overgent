@@ -783,12 +783,14 @@ function messageKindLabel(kind: SessionMessageKind): string {
  */
 function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession }: {
   finding: Finding; sessions: Workstream[]; viewer: string; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
-  onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void;
+  onState: (state: FindingState) => Promise<void>; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void;
 }) {
   const affected = useMemo(() => sessions.filter((session) => finding.workstreamIds.includes(session.id)), [finding.workstreamIds, sessions]);
   const [feedback, setFeedback] = useState<FindingFeedback | null>(null);
   const [feedbackError, setFeedbackError] = useState(false);
   const [feedbackPending, setFeedbackPending] = useState(false);
+  const [statePending, setStatePending] = useState(false);
+  const [stateError, setStateError] = useState(false);
   const [comment, setComment] = useState("");
   const [decision, setDecision] = useState("");
   const [threadPending, setThreadPending] = useState(false);
@@ -806,6 +808,11 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
     void operation()
       .catch((cause: unknown) => setThreadError(cause instanceof Error && cause.message.includes("revision") ? "Someone changed this first. Reload and try again." : "That change could not be saved."))
       .finally(() => setThreadPending(false));
+  };
+  const submitState = (state: FindingState) => {
+    setStatePending(true);
+    setStateError(false);
+    void onState(state).catch(() => setStateError(true)).finally(() => setStatePending(false));
   };
   const feedbackMessage = feedback ? "Feedback recorded" : feedbackError ? "Feedback could not be recorded" : "Was this collision useful?";
 
@@ -861,10 +868,16 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
         <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("useful")}>Useful</button>
         <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("not_related")}>Not related</button>
       </div>
+      {/*
+        * Resolving is not offered here: recording the decision on the sync card
+        * above is what resolves a collision, so a button would settle the work
+        * with no record of how. Acknowledge and dismiss are the member's own.
+        */}
       <div className="finding-actions">
-        <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
-        <button disabled={disabled || finding.state === "resolved"} className="pill solid" onClick={() => onState("resolved")}>Mark resolved</button>
+        <button disabled={disabled || statePending || finding.state === "acknowledged"} className="pill solid" onClick={() => submitState("acknowledged")}>Acknowledge</button>
+        <button disabled={disabled || statePending || finding.state === "dismissed"} className="pill" onClick={() => submitState("dismissed")}>Dismiss</button>
       </div>
+      {stateError && <p className="form-error" role="alert">That change could not be saved.</p>}
     </div>
   </article>;
 }

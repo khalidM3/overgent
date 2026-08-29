@@ -122,7 +122,20 @@ describe("Project Workroom behavior", () => {
     expect(detail.textContent).toContain("Advisory only");
     await user.click(screen.getByRole("button", { name: "Acknowledge" }));
     expect(detail.textContent).toContain("acknowledged");
-    await user.click(screen.getByRole("button", { name: "Mark resolved" }));
+    await user.click(within(detail).getByRole("button", { name: "Dismiss" }));
+    expect(detail.textContent).toContain("dismissed");
+  });
+
+  it("resolves a collision through the recorded decision rather than a button", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
+    const detail = screen.getByLabelText("Selected collision detail");
+    // Resolution is decision-backed, so the inspector offers no direct control.
+    expect(within(detail).queryByRole("button", { name: "Mark resolved" })).toBeNull();
+    await user.type(within(detail).getByLabelText(/^Resolution for /), "Mina takes the rotation boundary.");
+    await user.click(within(detail).getByRole("button", { name: "Resolve" }));
+    expect(await within(detail).findByText("Mina takes the rotation boundary.")).toBeTruthy();
     expect(detail.textContent).toContain("resolved");
   });
 

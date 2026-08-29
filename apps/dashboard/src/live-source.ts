@@ -1,6 +1,6 @@
 import { FixtureProjectSource } from "./fixture-source";
 import { nativeOnboarding } from "./native";
-import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
+import type { CollaborationSnapshot, DashboardSession, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
 
@@ -58,9 +58,15 @@ export class LiveProjectSource extends FixtureProjectSource {
     await request<void>(`/findings/${encodeURIComponent(findingId)}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
   }
 
-
-
-
+  /**
+   * Acknowledging and dismissing are the only states set from here; resolution
+   * follows the sync card decision. The poll in start() replaces the snapshot
+   * every two seconds, so a local-only patch would be wiped — re-read instead.
+   */
+  override async setFindingState(projectId: string, findingId: string, state: FindingState): Promise<void> {
+    await request<void>(`/findings/${encodeURIComponent(findingId)}/state`, { method: "POST", body: JSON.stringify({ state }) });
+    this.replace(await loadSnapshot(projectId));
+  }
 
   override async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<void> {
     await request(`/projects/${encodeURIComponent(projectId)}/sync-cards`, { method: "POST", body: JSON.stringify({ ...(findingId ? { findingId } : {}), title, summary }) });

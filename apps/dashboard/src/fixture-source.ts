@@ -45,20 +45,13 @@ export class FixtureProjectSource {
     this.update(projectId, (snapshot) => ({ ...snapshot, workspacePaused: !snapshot.workspacePaused }));
   }
 
-  setFindingState(projectId: string, findingId: string, state: FindingState): void {
-    this.update(projectId, (snapshot) => ({
-      ...snapshot,
-      findings: snapshot.findings.map((finding) => finding.id === findingId ? { ...finding, state } : finding),
-    }));
+  async setFindingState(projectId: string, findingId: string, state: FindingState): Promise<void> {
+    this.applyFindingState(projectId, findingId, state);
   }
 
   async recordFindingFeedback(_findingId: string, _value: FindingFeedback): Promise<void> {
     return Promise.resolve();
   }
-
-
-
-
 
   async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<void> {
     const card: SyncCard = { id: `syn_fixture_${Date.now()}`, ...(findingId ? { findingId } : {}), title, summary, state: "open", revision: 1, comments: [], updatedAt: new Date().toISOString() };
@@ -72,11 +65,16 @@ export class FixtureProjectSource {
 
   async resolveSyncCard(projectId: string, cardId: string, expectedRevision: number, summary: string, affectedWorkstreamIds: string[]): Promise<void> {
     const resolution: Resolution = { id: `res_fixture_${Date.now()}`, syncCardId: cardId, summary, affectedMemberIds: [], affectedWorkstreamIds, revision: 1, createdAt: new Date().toISOString() };
+    let resolvedFindingId: string | undefined;
     this.update(projectId, (current) => ({ ...current, collaboration: { ...current.collaboration, resolutions: [resolution, ...current.collaboration.resolutions], syncCards: current.collaboration.syncCards.map((card) => {
       if (card.id !== cardId) return card;
       if (card.revision !== expectedRevision) throw new Error("revision_conflict");
+      resolvedFindingId = card.findingId;
       return { ...card, state: "resolved", revision: card.revision + 1, resolution, updatedAt: resolution.createdAt };
     }) } }));
+    // Recording the decision is what resolves the collision, so the finding
+    // follows the card here exactly as it does in the hosted mutation.
+    if (resolvedFindingId) this.applyFindingState(projectId, resolvedFindingId, "resolved");
   }
 
   /** Own-session content. The fixture source has none for other members' sessions. */
@@ -166,6 +164,13 @@ export class FixtureProjectSource {
   replace(snapshot: ProjectSnapshot): void {
     this.snapshots.set(snapshot.project.id, structuredClone(snapshot));
     for (const listener of this.listeners.get(snapshot.project.id) ?? []) listener();
+  }
+
+  protected applyFindingState(projectId: string, findingId: string, state: FindingState): void {
+    this.update(projectId, (snapshot) => ({
+      ...snapshot,
+      findings: snapshot.findings.map((finding) => finding.id === findingId ? { ...finding, state } : finding),
+    }));
   }
 
   private update(projectId: string, updater: (snapshot: ProjectSnapshot) => ProjectSnapshot): void {

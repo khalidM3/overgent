@@ -48,8 +48,11 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await expect(page.getByText("Feedback recorded")).toBeVisible();
   await page.getByRole("button", { name: "Acknowledge", exact: true }).click();
   await expect(detail).toContainText("acknowledged");
-  await page.getByRole("button", { name: "Mark resolved" }).click();
-  await expect(detail).toContainText("resolved");
+  // Resolution is decision-backed, so the inspector offers acknowledge and
+  // dismiss only; the sync card decision is what resolves a collision.
+  await expect(detail.getByRole("button", { name: "Mark resolved" })).toHaveCount(0);
+  await detail.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await expect(detail).toContainText("dismissed");
 
   await page.getByRole("button", { name: "Open Project settings" }).click();
   const settings = page.getByRole("main", { name: "Settings" });

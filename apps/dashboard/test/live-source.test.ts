@@ -20,6 +20,25 @@ describe("live dashboard transport", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST", credentials: "include", body: JSON.stringify({ value: "not_related" }) });
   });
 
+  it("persists a finding state change and re-reads the snapshot the poll would overwrite", async () => {
+    const snapshot = { project: { id: "prj_fixture" } };
+    const responses = [
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify(snapshot), { status: 200, headers: { "content-type": "application/json" } }),
+      new Response(JSON.stringify({ syncCards: [], resolutions: [] }), { status: 200, headers: { "content-type": "application/json" } }),
+    ];
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => responses.shift()!);
+    vi.stubGlobal("fetch", fetchMock);
+    await new LiveProjectSource([]).setFindingState("prj_fixture", "fnd_synthetic", "dismissed");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/findings/fnd_synthetic/state");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST", credentials: "include", body: JSON.stringify({ state: "dismissed" }) });
+    // A local-only patch would be wiped by the two-second snapshot poll.
+    expect(fetchMock.mock.calls.slice(1).map(([url]) => url)).toEqual([
+      "/api/v1/dashboard/projects/prj_fixture",
+      "/api/v1/projects/prj_fixture/collaboration",
+    ]);
+  });
+
   it("uses cookie-authorized Project administration and data-rights routes", async () => {
     const responses = [
       new Response(JSON.stringify({ role: "owner", members: [], devices: [], invites: [] }), { status: 200, headers: { "content-type": "application/json" } }),

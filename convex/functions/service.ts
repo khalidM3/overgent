@@ -596,8 +596,28 @@ export const collaborationSnapshot = internalQuery({
   },
 });
 
-
-
+/**
+ * Acknowledging and dismissing are the only finding states a member sets
+ * directly. Resolution stays decision-backed: recording a decision on the sync
+ * card resolves the finding, so accepting "resolved" here would let a button
+ * mark work settled with no record of how.
+ */
+export const setFindingState = internalMutation({
+  args: { sessionHash: v.string(), findingPublicId: v.string(), state: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
+    if (!["acknowledged", "dismissed"].includes(args.state)) fail("validation_failed");
+    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
+    if (!finding || finding.projectId !== auth.project._id) fail("not_found");
+    if (finding.state !== args.state) {
+      await ctx.db.patch(finding._id, { state: args.state, revision: finding.revision + 1, lastSeenAt: args.now });
+      // An acknowledged or dismissed collision changes what a brief should say
+      // about it, so dependents must re-read rather than keep the open wording.
+      await bumpProjectScopes(ctx, auth.project._id, args.now);
+    }
+    return true;
+  },
+});
 
 
 export const createSyncCard = internalMutation({
