@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	gitobs "github.com/stickguy/stickguy/internal/git"
@@ -288,5 +289,172 @@ func TestBeginWorkAnticipatedPathsJoinTheReadSetAfterTheIntent(t *testing.T) {
 	}
 	if published[0]["sessionWorkstreamId"] != fixture.workspace.WorkstreamID {
 		t.Fatalf("session=%v", published[0]["sessionWorkstreamId"])
+	}
+}
+
+// A read set mixes sources of different strength. An entry that came from an
+// agent's own begin_work declaration must not present itself with the
+// authority of one Stickguy actually watched happen (ADR-052).
+func TestReadSetEntriesCarryTheirProvenance(t *testing.T) {
+	ctx := context.Background()
+	fixture := newContractWatchFixture(t)
+	fixture.write(t, "internal/session/rotate.go", rotateBefore)
+
+	if response := fixture.service.handle(ctx, daemon.Request{
+		Method: "agent_event", AgentVendor: "claude", AgentCWD: fixture.root,
+		AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "claude-a1b2c3",
+		AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "inspecting", AgentTool: "Read",
+		AgentPaths: []string{filepath.Join(fixture.root, "internal", "session", "rotate.go")},
+	}); !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+	published := payloadsOfKind(t, fixture.db, "session.read_set_reported")
+	if len(published) != 1 {
+		t.Fatalf("published %d read-set events, want 1", len(published))
+	}
+	if got := published[0]["entries"].([]any)[0].(map[string]any)["fidelity"]; got != "observed" {
+		t.Fatalf("a watched file read reported fidelity %v, want observed", got)
+	}
+
+	if response := fixture.service.handle(ctx, daemon.Request{
+		Method: "begin_work", WorkspaceID: fixture.workspace.ID, IdempotencyKey: "begin_1",
+		Title: "Consume the rotation contract", IntendedOutcome: "Depend on Rotate",
+		AnticipatedPaths: []string{"internal/session/rotate.go"},
+	}); !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+	published = payloadsOfKind(t, fixture.db, "session.read_set_reported")
+	if len(published) != 2 {
+		t.Fatalf("published %d read-set events, want 2", len(published))
+	}
+	if got := published[1]["entries"].([]any)[0].(map[string]any)["fidelity"]; got != "self_declared" {
+		t.Fatalf("an anticipated path reported fidelity %v, want self_declared", got)
+	}
+}
+
+// An activity event states what Stickguy can see of the session's reads, so an
+// empty Codex read set is never mistaken for a session that read nothing.
+func TestAgentActivityStatesTheSessionReadCoverage(t *testing.T) {
+	ctx := context.Background()
+	// Coverage must describe this device, so the test pins what the device can
+	// reach rather than inheriting whatever Codex the developer has installed.
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+	fixture := newContractWatchFixture(t)
+	for vendor, want := range map[string]string{"claude": "observed", "codex": "none"} {
+		alias := vendor + "-a1b2c3"
+		workstream, _, ok := agentactivity.WorkstreamIDFor(vendor, "session-"+vendor)
+		if !ok {
+			t.Fatalf("workstream id for %s", vendor)
+		}
+		if response := fixture.service.handle(ctx, daemon.Request{
+			Method: "agent_event", AgentVendor: vendor, AgentCWD: fixture.root,
+			AgentWorkstreamID: workstream, AgentSessionAlias: alias, AgentEvent: "SessionStart",
+			AgentStatus: "active", AgentAction: "Session started",
+		}); !response.OK {
+			t.Fatalf("%s response=%#v", vendor, response)
+		}
+		published := payloadsOfKind(t, fixture.db, "agent.activity_reported")
+		latest := published[len(published)-1]
+		if got := latest["readCoverage"]; got != want {
+			t.Fatalf("%s reported readCoverage %v, want %v", vendor, got, want)
+		}
+	}
+}
+
+// With a Codex the device can actually talk to, the same session reports the
+// partial coverage its command classification can supply — never "observed",
+// because Codex classifies commands best-effort and misses some reads.
+func TestCodexReportsInferredCoverageOnlyWhenACodexIsReachable(t *testing.T) {
+	ctx := context.Background()
+	reachable := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(reachable, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", reachable)
+	fixture := newContractWatchFixture(t)
+	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", "session-codex")
+	if !ok {
+		t.Fatal("workstream id")
+	}
+	if response := fixture.service.handle(ctx, daemon.Request{
+		Method: "agent_event", AgentVendor: "codex", AgentCWD: fixture.root,
+		AgentWorkstreamID: workstream, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "SessionStart",
+		AgentStatus: "active", AgentAction: "Session started",
+	}); !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+	published := payloadsOfKind(t, fixture.db, "agent.activity_reported")
+	if got := published[len(published)-1]["readCoverage"]; got != "vendor_inferred" {
+		t.Fatalf("readCoverage=%v, want vendor_inferred", got)
+	}
+}
+
+// The B22 defect end to end: a Codex session names no file it reads, so without
+// this its read set stays empty and it can never be told a contract moved. The
+// evidence is recovered from Codex's own command classification at a turn
+// boundary, and it is recorded as inferred, never as observed (ADR-052).
+func TestCodexTurnBoundaryRecoversInferredReadsWithinTheWorkspace(t *testing.T) {
+	ctx := context.Background()
+	fixture := newContractWatchFixture(t)
+	fixture.write(t, "internal/session/rotate.go", rotateBefore)
+
+	const thread = "01a04ac6-684c-7650-a8b4-311eb918f98a"
+	script := `#!/usr/bin/env python3
+import json, sys
+THREAD = {"id": "` + thread + `", "cwd": "` + fixture.root + `", "turns": [{"items": [
+  {"id": "i1", "type": "commandExecution", "status": "completed",
+   "command": "sed -n 1,40p rotate.go", "aggregatedOutput": "package session",
+   "commandActions": [{"type": "read", "name": "rotate.go", "path": "` + filepath.Join(fixture.root, "internal", "session", "rotate.go") + `"}]},
+  {"id": "i2", "type": "commandExecution", "status": "completed",
+   "command": "cat /etc/hosts", "aggregatedOutput": "...",
+   "commandActions": [{"type": "read", "name": "hosts", "path": "/etc/hosts"}]}
+]}]}
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    m = json.loads(line)
+    if m.get("id") is None: continue
+    if m.get("method") == "initialize": r = {"userAgent": "fake"}
+    elif m.get("method") == "thread/read": r = {"thread": THREAD}
+    else:
+        print(json.dumps({"jsonrpc":"2.0","id":m["id"],"error":{"code":-32601,"message":"no"}}), flush=True); continue
+    print(json.dumps({"jsonrpc":"2.0","id":m["id"],"result":r}), flush=True)
+`
+	executable := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", executable)
+
+	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", thread)
+	if !ok {
+		t.Fatal("workstream id")
+	}
+	if response := fixture.service.handle(ctx, daemon.Request{
+		Method: "agent_event", AgentVendor: "codex", AgentCWD: fixture.root,
+		AgentWorkstreamID: workstream, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "Stop",
+		AgentStatus: "idle", AgentAction: "Turn finished", AgentVendorSessionID: thread,
+	}); !response.OK {
+		t.Fatalf("response=%#v", response)
+	}
+
+	published := payloadsOfKind(t, fixture.db, "session.read_set_reported")
+	if len(published) != 1 {
+		t.Fatalf("published %d read-set events, want 1", len(published))
+	}
+	if published[0]["sessionWorkstreamId"] != workstream {
+		t.Fatalf("session=%v", published[0]["sessionWorkstreamId"])
+	}
+	entries := published[0]["entries"].([]any)
+	// The read outside the registered repository is dropped, not recorded.
+	if len(entries) != 1 {
+		t.Fatalf("entries=%v", entries)
+	}
+	entry := entries[0].(map[string]any)
+	if entry["path"] != "internal/session/rotate.go" {
+		t.Fatalf("path=%v", entry["path"])
+	}
+	if entry["fidelity"] != "vendor_inferred" {
+		t.Fatalf("fidelity=%v, want vendor_inferred", entry["fidelity"])
 	}
 }

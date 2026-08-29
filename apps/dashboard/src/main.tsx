@@ -1,7 +1,10 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
+  Activity,
   AlertTriangle,
   Bot,
   Check,
@@ -10,18 +13,24 @@ import {
   CircleDot,
   Code2,
   Command,
+  Eye,
   FileCode2,
+  FileText,
   GitBranch,
-  Laptop2,
+  Info,
   LayoutGrid,
   Moon,
+  MessageSquare,
+  Network,
   Pause,
   Play,
   Plus,
+  Route,
   Search,
   Settings2,
   ShieldCheck,
   Sun,
+  UserPlus,
   UserRound,
   Users,
   X,
@@ -31,10 +40,13 @@ import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import { DesktopOnboarding } from "./desktop-onboarding";
+import { NewProjectScreen } from "./new-project";
+import { PeopleScreen, SettingsScreen, initialsFor } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
 import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding } from "./native";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
+import { VendorMark } from "./vendor-marks";
 import "./style.css";
 
 const defaultSource = new FixtureProjectSource();
@@ -49,6 +61,9 @@ interface AppProps {
 
 type Selection = { kind: "session"; id: string } | { kind: "collision"; id: string };
 type View = "workroom" | "decisions";
+/** Settings, People and Add a Project are screens, not dialogs. */
+type ScreenName = "settings" | "people" | "new-project";
+const screenTitle: Record<ScreenName, string> = { settings: "Settings", people: "People", "new-project": "Add a Project" };
 
 export function App({
   initialState = parseShellState(window.location.search),
@@ -69,16 +84,20 @@ function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="brand" aria-label="Stickguy"><span className="brand-mark" aria-hidden="true">S</span>{!compact && <span>stickguy</span>}</div>;
 }
 
-function ActivationView({ onActivate }: { onActivate: () => void }) {
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p>Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div><button className="pill solid" onClick={onActivate}>Activate secure session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
+// A ticket can only be minted by the local Stickguy app, so this page can never
+// activate itself. When a check finds the browser still has no session, say so
+// and name the recovery instead of silently re-rendering an identical screen.
+function ActivationView({ onActivate, stillInactive = false }: { onActivate: () => void; stillInactive?: boolean }) {
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p>Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Only the Stickguy app can issue a ticket, so reopen the Project from Stickguy Dev.app, then check again.</p>}<button className="pill solid" onClick={onActivate}>{stillInactive ? "Check again" : "Activate secure session"}</button><p className="microcopy">{stillInactive ? "Reopening the Project from the app mints a new one-time ticket." : "Sessions are revocable, same-site, and rotated after privilege changes."}</p></section></main>;
 }
 
-function LiveApp() {
+export function LiveApp() {
   const [state, setState] = useState<"activation" | "loading" | "ready" | "unauthorized" | "version_mismatch" | "offline">("loading");
   const [session, setSession] = useState<DashboardSession | null>(null);
   const [source, setSource] = useState<LiveProjectSource | null>(null);
+  const [activationRechecked, setActivationRechecked] = useState(false);
 
-  const load = async () => {
+  const load = async (retry = false) => {
     setState("loading");
     try {
       const nextSession = await loadSession();
@@ -89,7 +108,11 @@ function LiveApp() {
       setState("ready");
     } catch (error) {
       const status = (error as { status?: number }).status;
-      setState(status === 401 || status === 403 ? "activation" : status === 409 ? "version_mismatch" : "offline");
+      const next = status === 401 || status === 403 ? "activation" : status === 409 ? "version_mismatch" : "offline";
+      // A retry that lands back on activation proves the browser still has no
+      // session; without this the identical re-render reads as a dead button.
+      if (next === "activation" && retry) setActivationRechecked(true);
+      setState(next);
     }
   };
   useEffect(() => { void load(); }, []);
@@ -100,7 +123,7 @@ function LiveApp() {
 
   if (state === "loading") return <LoadingView />;
   if (state === "version_mismatch") return <TerminalState state="version_mismatch" />;
-  if (state === "activation") return <ActivationView onActivate={() => void load()} />;
+  if (state === "activation") return <ActivationView stillInactive={activationRechecked} onActivate={() => void load(true)} />;
   if (state === "unauthorized") return <TerminalState state="unauthorized" />;
   if (!session || session.projects.length === 0) return <EmptyView />;
   if (!source) return <TerminalState state="unauthorized" />;
@@ -149,9 +172,12 @@ function Since({ label, tick }: { label: string | undefined; tick: number }) {
 function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { session: DashboardSession; source: FixtureProjectSource; offline: boolean; nativeApi: NativeOnboarding; navigate: (url: string) => void }) {
   const [projectId, setProjectId] = useState(session.selectedProjectId);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  // A stack rather than a flag per screen, so "back" returns to whatever opened
+  // it. People is reachable from the toolbar and from inside Settings, and it
+  // must not always land in the same place.
+  const [screens, setScreens] = useState<ScreenName[]>([]);
+  const [projects, setProjects] = useState(session.projects);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dark, setDark] = useState(false);
   const [view, setView] = useState<View>("workroom");
@@ -199,10 +225,33 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
     if (next) setAttention(next);
   }, [snapshot.findings]);
 
-  const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setView("workroom"); setCommandOpen(false); };
-  const openSession = (id: string) => { setView("workroom"); setSelection({ kind: "session", id }); };
+  const screen = screens[screens.length - 1] ?? null;
+  // Reached from the sidebar or the toolbar, a screen is top level and back
+  // returns to the Project. Reached from inside another screen - People from
+  // Settings - it stacks, so back returns to where the member actually was.
+  const showScreen = (name: ScreenName) => setScreens([name]);
+  const pushScreen = (name: ScreenName) => setScreens((stack) => [...stack, name]);
+  const goBack = () => setScreens((stack) => stack.slice(0, -1));
+  const previous = screens[screens.length - 2];
+  const backLabel = previous ? screenTitle[previous] : view === "decisions" ? "Decisions" : snapshot.project.name;
 
-  return <div className={sidebarCollapsed ? "workroom-shell sidebar-collapsed" : "workroom-shell"}>
+  const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
+  // Deleting or leaving a Project must actually leave it. Queuing the request
+  // and staying put left the member reading a Project they no longer belong to.
+  const removeProject = (removedId: string) => {
+    const remaining = projects.filter((project) => project.id !== removedId);
+    setProjects(remaining);
+    setScreens([]);
+    if (remaining.length > 0) selectProject(remaining[0]!.id);
+  };
+  const openSession = (id: string) => { setView("workroom"); setScreens([]); setSelection({ kind: "session", id }); };
+  const showView = (next: View) => { setView(next); setScreens([]); };
+
+  if (projects.length === 0) return <EmptyView />;
+
+  const shellClass = ["workroom-shell", sidebarCollapsed ? "sidebar-collapsed" : "", screen ? "screen-open" : ""].filter(Boolean).join(" ");
+
+  return <div className={shellClass}>
     <aside className="side">
       <div className="side-top">
         <Brand compact={sidebarCollapsed} />
@@ -212,16 +261,16 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
       <button className="command-trigger" onClick={() => setCommandOpen(true)} aria-label="Search Projects and commands"><Search size={15} />{!sidebarCollapsed && <><span>Search</span><kbd>⌘K</kbd></>}</button>
 
       <div className="side-scroll">
-        <button className="nav-item" aria-current={view === "workroom" ? "page" : undefined} onClick={() => setView("workroom")}>
+        <button className="nav-item" aria-current={!screen && view === "workroom" ? "page" : undefined} onClick={() => showView("workroom")}>
           <LayoutGrid size={16} />{!sidebarCollapsed && <span>Workroom</span>}
           {!sidebarCollapsed && converging.length > 0 && <span className="nav-count">{converging.length}</span>}
         </button>
-        <button className="nav-item" aria-current={view === "decisions" ? "page" : undefined} onClick={() => setView("decisions")}>
+        <button className="nav-item" aria-current={!screen && view === "decisions" ? "page" : undefined} onClick={() => showView("decisions")}>
           <Check size={16} />{!sidebarCollapsed && <span>Decisions</span>}
         </button>
 
         <div className="side-group"><span className="side-label">Projects</span></div>
-        {session.projects.map((project) => {
+        {projects.map((project) => {
           const projectSnapshot = source.get(project.id);
           const collisionCount = projectSnapshot.findings.filter((finding) => finding.state === "open").length;
           return <button key={project.id} className="project-item" aria-current={project.id === projectId ? "page" : undefined} onClick={() => selectProject(project.id)} title={sidebarCollapsed ? project.name : undefined}>
@@ -229,73 +278,82 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
             {!sidebarCollapsed && <>{project.name}{collisionCount > 0 && <span className="project-count">{collisionCount}</span>}</>}
           </button>;
         })}
-        <button className="project-item new" onClick={() => setNewProjectOpen(true)} aria-haspopup="dialog" aria-label="Add a new Project"><span className="project-monogram"><Plus size={11} /></span>{!sidebarCollapsed && "New project"}</button>
+        <button className="project-item new" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project"><span className="project-monogram"><Plus size={11} /></span>{!sidebarCollapsed && "New project"}</button>
       </div>
 
-      <button className="profile-button" onClick={() => setSettingsOpen(true)} aria-haspopup="dialog" aria-label="Open settings, devices, and privacy">
+      <button className="profile-button" aria-current={screen === "settings" ? "page" : undefined} onClick={() => showScreen("settings")} aria-label="Open settings, devices, and privacy">
         <span className="avatar">{initialsFor(identity.name)}</span>
         {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>Settings &amp; privacy</small></span>}
       </button>
     </aside>
 
-    <main className="workroom-main">
-      <div className="main-bar">
-        <span className="spacer" />
-        {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
-        <button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
-        <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open Project settings"><Settings2 size={16} /></button>
-        <button className={snapshot.workspacePaused ? "pill alerting" : "pill"} disabled={offline || source.live} title={source.live ? "Use the Stickguy menu bar to pause live sharing" : undefined} onClick={() => source.togglePause(projectId)}>
-          {snapshot.workspacePaused ? <Play size={14} /> : <Pause size={14} />}{source.live ? "Menu bar" : snapshot.workspacePaused ? "Resume" : "Pause"}
-        </button>
-      </div>
-
-      <div className="main-scroll">
-        <div className="main-column">
-          <header className="project-head">
-            <h1>{snapshot.project.name}</h1>
-            <div className="project-sub">
-              <span>{snapshot.project.repositoryLabel}</span><span>·</span>
-              <span>rev {snapshot.contextRevision}</span><span>·</span>
-              <span>{offline ? "offline, last synced " : "synced "}<Since label={snapshot.synchronizedAt} tick={tick} /> ago</span>
-            </div>
-          </header>
-
-          <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
-
-          {offline && <div className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>}
-          {snapshot.workspacePaused && <div className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Workspace sharing is paused</strong>Activity transmission stopped before this state was shown.</div></div>}
-          {identity.source === "device" && !identityPromptDismissed && <div className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => setSettingsOpen(true)}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>}
-          {attention && <div className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "collision", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>}
-
-          {view === "workroom"
-            ? <WorkroomView
-                snapshot={snapshot} mine={mine} nearby={nearby} converging={converging} elsewhere={elsewhere}
-                convergingWorkstreams={convergingWorkstreams} selection={effectiveSelection} viewer={identity.name} tick={tick}
-                onSelectSession={openSession} onSelectFinding={(id) => setSelection({ kind: "collision", id })}
-              />
-            : <DecisionsView snapshot={snapshot} />}
+    {screen === null && <>
+      <main className="workroom-main">
+        <div className="main-bar">
+          <span className="spacer" />
+          {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
+          <button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
+          <button className="icon-button" onClick={() => showScreen("settings")} aria-label="Open Project settings"><Settings2 size={16} /></button>
+          <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />Invite</button>
+          <button className={snapshot.workspacePaused ? "pill alerting" : "pill"} disabled={offline || source.live} title={source.live ? "Use the Stickguy menu bar to pause live sharing" : undefined} onClick={() => source.togglePause(projectId)}>
+            {snapshot.workspacePaused ? <Play size={14} /> : <Pause size={14} />}{source.live ? "Menu bar" : snapshot.workspacePaused ? "Resume" : "Pause"}
+          </button>
         </div>
-      </div>
-    </main>
 
-    <aside className="inspector" aria-label="Details inspector">
+        <div className="main-scroll">
+          <div className="main-column">
+            <header className="project-head">
+              <h1>{snapshot.project.name}</h1>
+              <div className="project-sub">
+                <span>{snapshot.project.repositoryLabel}</span><span>·</span>
+                <span>rev {snapshot.contextRevision}</span><span>·</span>
+                <span>{offline ? "offline, last synced " : "synced "}<Since label={snapshot.synchronizedAt} tick={tick} /> ago</span>
+              </div>
+            </header>
+
+            <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
+
+            {offline && <div className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>}
+            {snapshot.workspacePaused && <div className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Workspace sharing is paused</strong>Activity transmission stopped before this state was shown.</div></div>}
+            {identity.source === "device" && !identityPromptDismissed && <div className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>}
+            {attention && <div className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "collision", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>}
+
+            {view === "workroom"
+              ? <WorkroomView
+                  snapshot={snapshot} mine={mine} nearby={nearby} converging={converging} elsewhere={elsewhere}
+                  convergingWorkstreams={convergingWorkstreams} selection={effectiveSelection} viewer={identity.name} tick={tick}
+                  onSelectSession={openSession} onSelectFinding={(id) => setSelection({ kind: "collision", id })}
+                />
+              : <DecisionsView snapshot={snapshot} tick={tick} />}
+          </div>
+        </div>
+      </main>
+
+      <aside className="inspector" aria-label="Details inspector">
       {selectedSession
-        ? <SessionInspector session={selectedSession} source={source} tick={tick} />
-        : selectedCollision
-          ? <CollisionInspector
-              finding={selectedCollision} sessions={snapshot.workstreams} viewer={identity.name} projectId={projectId} source={source}
-              card={snapshot.collaboration.syncCards.find((entry) => entry.findingId === selectedCollision.id) ?? null}
-              disabled={offline}
-              onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)}
-              onFeedback={(value) => source.recordFindingFeedback(selectedCollision.id, value)}
-              onOpenSession={openSession}
-            />
-          : <InspectorEmpty />}
-    </aside>
+        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} tick={tick} isViewer={selectedSession.memberName === identity.name} />
+          : selectedCollision
+            ? <CollisionInspector
+                finding={selectedCollision} sessions={snapshot.workstreams} viewer={identity.name} projectId={projectId} source={source}
+                card={snapshot.collaboration.syncCards.find((entry) => entry.findingId === selectedCollision.id) ?? null}
+                disabled={offline}
+                onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)}
+                onFeedback={(value) => source.recordFindingFeedback(selectedCollision.id, value)}
+                onOpenSession={openSession}
+              />
+            : <InspectorEmpty />}
+      </aside>
+    </>}
 
-    {settingsOpen && <SettingsDialog snapshot={snapshot} dark={dark} identity={identity} projectId={projectId} source={source} offline={offline} onIdentity={setIdentity} onTheme={() => setDark((value) => !value)} onClose={() => setSettingsOpen(false)} />}
-    {commandOpen && <CommandPalette projects={session.projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); setSettingsOpen(true); }} onClose={() => setCommandOpen(false)} />}
-    {newProjectOpen && <NewProjectDialog api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} onClose={() => setNewProjectOpen(false)} />}
+    {screen === "settings" && <SettingsScreen
+      snapshot={snapshot} dark={dark} identity={identity} projectId={projectId} source={source} offline={offline}
+      backLabel={backLabel} onBack={goBack} onIdentity={setIdentity} onTheme={() => setDark((value) => !value)}
+      onPeople={() => pushScreen("people")} onRemoved={() => removeProject(projectId)}
+    />}
+    {screen === "people" && <PeopleScreen projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack} />}
+    {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} />}
+
+    {commandOpen && <CommandPalette projects={projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); showScreen("settings"); }} onClose={() => setCommandOpen(false)} />}
   </div>;
 }
 
@@ -316,33 +374,31 @@ function WorkroomView({ snapshot, mine, nearby, converging, elsewhere, convergin
   onSelectSession: (id: string) => void; onSelectFinding: (id: string) => void;
 }) {
   return <>
-    <div className="block-head"><h2>Converging on you</h2>{converging.length > 0 && <span className="count hot">{converging.length}</span>}</div>
+    <div className="block-head lead"><h2>Converging on you</h2>{converging.length > 0 && <span className="count hot">{converging.length}</span>}</div>
     <SemanticStatus status={snapshot.project.semanticStatus} mode={snapshot.project.semanticMode} />
     {converging.length === 0
       ? <p className="block-empty">Nothing is reaching your work right now.</p>
       : converging.map((finding) => <ConvergeBlock key={finding.id} finding={finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} selected={selection?.kind === "collision" && selection.id === finding.id} onSelect={() => onSelectFinding(finding.id)} onOpenSession={onSelectSession} />)}
 
-    <div className="block-head"><h2>Your sessions</h2><span className="count">{mine.length}</span></div>
+    <div className="block-head ambient"><h2>Your sessions</h2><span className="count">{mine.length}</span></div>
     {mine.length === 0
       ? <p className="block-empty">No sessions are registered to you in this Project yet.</p>
       : <div className="rows">{mine.map((stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />)}</div>}
 
-    <div className="block-head"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
+    <div className="block-head ambient"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
     {nearby.length === 0
       ? <p className="block-empty">No teammates are registered to this Project yet.</p>
       : <div className="rows">{nearby.map((stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />)}</div>}
 
     {elsewhere.length > 0 && <>
-      <div className="block-head"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
+      <div className="block-head ambient"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
       {elsewhere.map((finding) => <ConvergeBlock key={finding.id} finding={finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} quiet selected={selection?.kind === "collision" && selection.id === finding.id} onSelect={() => onSelectFinding(finding.id)} onOpenSession={onSelectSession} />)}
     </>}
 
-    <div className="block-head"><h2>Recent</h2></div>
-    <ol className="timeline">{snapshot.activity.map((item) => <li key={item.id}><p><strong>{item.actor}</strong> {item.summary}</p><span className="src"><Since label={item.at} tick={tick} /> · {activitySourceLabel(item.fidelity)}</span></li>)}</ol>
   </>;
 }
 
-function DecisionsView({ snapshot }: { snapshot: ProjectSnapshot }) {
+function DecisionsView({ snapshot, tick }: { snapshot: ProjectSnapshot; tick: number }) {
   const resolved = snapshot.collaboration.syncCards.filter((card) => card.state === "resolved" && card.resolution);
   const loose = snapshot.collaboration.resolutions.filter((resolution) => !resolved.some((card) => card.resolution?.id === resolution.id));
   const empty = resolved.length === 0 && loose.length === 0;
@@ -354,12 +410,12 @@ function DecisionsView({ snapshot }: { snapshot: ProjectSnapshot }) {
           {resolved.map((card) => <article className="decision-entry" key={card.id}><h3>{card.title}</h3><p>{card.resolution?.summary}</p><div className="sent">Delivered to {card.resolution?.affectedWorkstreamIds.length ?? 0} session{(card.resolution?.affectedWorkstreamIds.length ?? 0) === 1 ? "" : "s"} · revision {card.revision}</div></article>)}
           {loose.map((resolution) => <article className="decision-entry" key={resolution.id}><h3>Coordination decision</h3><p>{resolution.summary}</p><div className="sent">Delivered to {resolution.affectedWorkstreamIds.length} session{resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {resolution.revision}</div></article>)}
         </div>}
-  </>;
-}
 
-function VendorMark({ vendor, size = 18 }: { vendor: "codex" | "claude"; size?: number }) {
-  if (vendor === "claude") return <svg className="vendor-mark" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" role="img" aria-label="Claude Code"><path d="M12 2.3v19.4M2.3 12h19.4M5.15 5.15l13.7 13.7M18.85 5.15l-13.7 13.7M8.25 2.95l7.5 18.1M2.95 8.25l18.1 7.5M15.75 2.95l-7.5 18.1M21.05 8.25l-18.1 7.5" /></svg>;
-  return <svg className="vendor-mark" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" role="img" aria-label="Codex"><path d="M12 3.1a4.7 4.7 0 0 1 4.45 3.18 4.7 4.7 0 0 1 2.88 7.02 4.7 4.7 0 0 1-4.45 6.6A4.7 4.7 0 0 1 7.55 17.7a4.7 4.7 0 0 1-2.88-7.02 4.7 4.7 0 0 1 4.45-6.6A4.7 4.7 0 0 1 12 3.1Zm0 3.2-4.93 2.85v5.7L12 17.7l4.93-2.85v-5.7L12 6.3Z" /></svg>;
+    {snapshot.activity.length > 0 && <>
+      <div className="block-head ambient"><h2>Activity</h2></div>
+      <ol className="timeline">{snapshot.activity.map((item) => <li key={item.id}><p><strong>{item.actor}</strong> {item.summary}</p><span className="src"><Since label={item.at} tick={tick} /> · {activitySourceLabel(item.fidelity)}</span></li>)}</ol>
+    </>}
+  </>;
 }
 
 function vendorLabel(session: Workstream): string {
@@ -390,7 +446,7 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
       <h3>{session.agent?.sessionTitle ?? session.title}</h3>
       <span className="session-meta">{vendorLabel(session)}{session.agent?.sessionAlias ? ` · ${session.agent.sessionAlias}` : ""}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
       <span className="session-doing"><LiveAction session={session} /></span>
-      {path && <span className="session-files"><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
+      {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
       {activeSubagents.map((agent) => <span className="session-sub" key={agent.alias}><b>{agent.agentType || "subagent"}</b> subagent · {agent.status}</span>)}
     </span>
     <span className="session-right">
@@ -401,11 +457,14 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
   </button>;
 }
 
-/** For a teammate the useful fact is intent - what they are about to do. */
+/** For a teammate the useful fact is intent - what they are about to do.
+ *  Which agent is doing it is the next question, and reading it off a name is
+ *  impossible, so the vendor is a mark rather than another word of prose. */
 function PersonRow({ session, tick, onClick }: { session: Workstream; tick: number; onClick: () => void }) {
   return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={`Open ${vendorLabel(session)} session for ${session.memberName}`}>
+    <span className="person-icon" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={15} /> : <Code2 size={14} />}</span>
     <span className="nm">{session.memberName}</span>
-    <span className="intent">{session.outcome}</span>
+    <span className="intent"><LiveAction session={session} /></span>
     <Elapsed label={session.updatedLabel} tick={tick} />
   </button>;
 }
@@ -453,19 +512,22 @@ function ConvergeBlock({ finding, sessions, viewer, tick, quiet = false, selecte
   </section>;
 }
 
-function SessionInspector({ session, source, tick }: { session: Workstream; source: FixtureProjectSource; tick: number }) {
+function SessionInspector({ session, source, tick, isViewer }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean }) {
   const [shared, setShared] = useState<SessionMessagesSnapshot | null>(null);
   const [own, setOwn] = useState<LocalSessionDetail | null>(null);
   const [messageError, setMessageError] = useState("");
-  const activity = session.agent?.activity ?? [];
-  const activeSubagents = (session.agent?.subagents ?? []).filter((agent) => agent.status !== "done");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsAnchorRef = useRef<HTMLDivElement>(null);
+  const subagents = session.agent?.subagents ?? [];
   const path = currentPath(session);
+  const showPath = path && !session.outcome.includes(path);
+  const complete = session.agent?.status === "done";
 
   useEffect(() => {
     let cancelled = false;
     if (!session.agent) { setShared(null); setOwn(null); return; }
     const refresh = () => {
-      void source.getSessionMessages(session.id).then((value) => { if (!cancelled) setShared(value); }).catch(() => { if (!cancelled) setMessageError("Session messages are unavailable."); });
+      void source.getSessionMessages(session.id).then((value) => { if (!cancelled) { setShared(value); setMessageError(""); } }).catch(() => { if (!cancelled) setMessageError("Session messages are unavailable."); });
       // Own-session content is read locally and never uploaded, so it loads
       // whether or not this session is shared.
       void source.getLocalSession(session.id).then((value) => { if (!cancelled) setOwn(value); }).catch(() => { if (!cancelled) setOwn(null); });
@@ -475,87 +537,240 @@ function SessionInspector({ session, source, tick }: { session: Workstream; sour
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [session.id, source, session.agent]);
 
+  useEffect(() => {
+    if (!detailsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setDetailsOpen(false); };
+    const closeOutside = (event: PointerEvent) => {
+      if (detailsAnchorRef.current && event.target instanceof Node && !detailsAnchorRef.current.contains(event.target)) setDetailsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [detailsOpen]);
+
   // Prefer the member's own local transcript; Project members see the
   // classifier-passing projection for teammate sessions (ADR-047).
   const mine = (own?.messages ?? []).length > 0;
-  const conversation: Array<{ id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string }> = mine
+  const conversation: TranscriptMessage[] = mine
     ? (own?.messages ?? []).map((message, index) => ({ id: `own-${index}`, kind: message.kind, text: message.text, tool: message.tool, at: message.at }))
     : (shared?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
+  const feed = sessionTimeline(conversation, session);
   const title = session.agent?.sessionTitle ?? own?.title ?? session.title;
+  const branch = session.agent?.branch ?? own?.branch;
+  const liveFacts = [session.agent?.tool, showPath ? path : undefined].filter((value): value is string => Boolean(value)).join(" · ");
 
   return <>
-    <div className="inspector-bar">
+    <div className="inspector-bar session-inspector-bar">
+      <span className="inspector-vendor" aria-hidden="true">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
       <span className="grow">
         <h2>{title}</h2>
-        <div className="sub">{session.memberName} · {vendorLabel(session)}{session.agent?.sessionAlias ? ` · ${session.agent.sessionAlias}` : ""}</div>
+        <div className="sub">{session.memberName} · {vendorLabel(session)}</div>
+        {branch && <div className="inspector-status"><GitBranch size={12} aria-hidden="true" /><code>{branch}</code></div>}
       </span>
-    </div>
-    <div className="inspector-body">
-      <h3 className="inspector-head">Intent</h3>
-      <div className="inspector-intent">
-        {session.outcome}
-        <div className="src">{statusCopy(session)}</div>
+      <div className="session-header-actions" ref={detailsAnchorRef}>
+        {complete && <span className="session-complete"><Check size={12} aria-hidden="true" />Complete</span>}
+        <button className="icon-button session-details-button" aria-label="Open session details" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Info size={15} /></button>
+        {detailsOpen && <SessionDetailsPanel session={session} mine={mine} subagents={subagents} path={path} onClose={() => setDetailsOpen(false)} />}
       </div>
-
-      {activity.length > 0 && <>
-        <h3 className="inspector-head">Activity <span>{activity.length}</span></h3>
-        {activity.map((item, index) => <div className={index === 0 && isLive(session) ? "phase now" : index === 0 ? "phase" : "phase done"} key={item.id}>
-          <div className="phase-head">
-            <h3 className={index === 0 && isLive(session) ? "livetext" : undefined}>{item.action}{index === 0 && isLive(session) && <span className="ellipsis" />}</h3>
-            <Elapsed label={item.at} tick={tick} />
-          </div>
-          {(item.tool || item.paths.length > 0) && <ul>
-            {item.tool && <li>Using <code>{item.tool}</code>.</li>}
-            {item.paths.length > 0 && !item.action.includes(item.paths[0]) && <li><code>{item.paths[0]}</code>{item.paths.length > 1 ? ` and ${item.paths.length - 1} more` : ""}</li>}
-            {item.paths.length > 1 && item.action.includes(item.paths[0]) && <li>and {item.paths.length - 1} more path{item.paths.length === 2 ? "" : "s"}</li>}
-          </ul>}
-        </div>)}
-      </>}
-
-      {session.largeChange && <>
-        <h3 className="inspector-head">Large change</h3>
-        <dl className="facts">
-          <dt>paths</dt><dd>{session.largeChange.pathCount.toLocaleString()} paths</dd>
-          <dt>summary</dt><dd>{session.largeChange.summary}</dd>
-          <dt>revision</dt><dd>manifest {session.largeChange.revision} <span className="q">· size alone does not imply risk</span></dd>
-        </dl>
-      </>}
-
-      <h3 className="inspector-head">Files this session</h3>
-      {session.paths.length > 0
-        ? <div className="file-list">
-            {session.paths.map((entry) => <div className={entry === path ? "file-row hot" : "file-row"} key={entry}><span className="p">{entry}</span><span className="v">{entry === path && isLive(session) ? "touching now" : "reported"}</span></div>)}
-            {session.pathCount > session.paths.length && <div className="file-row"><span className="p">{(session.pathCount - session.paths.length).toLocaleString()} more</span><span className="v">summarized</span></div>}
-          </div>
-        : <p className="muted-copy">No safe paths have been reported yet.</p>}
-
-      {activeSubagents.length > 0 && <>
-        <h3 className="inspector-head">Subagents <span>{activeSubagents.length}</span></h3>
-        <dl className="facts">{activeSubagents.map((agent) => <span key={agent.alias} style={{ display: "contents" }}><dt>{agent.alias}</dt><dd>{agent.agentType || "subagent"} · {agent.status}</dd></span>)}</dl>
-      </>}
-
-      <h3 className="inspector-head">How we know</h3>
-      <dl className="facts">
-        <dt>fidelity</dt><dd>{fidelityLabel(session.fidelity)}</dd>
-        {session.agent?.branch && <><dt>branch</dt><dd>{session.agent.branch}</dd></>}
-        {session.agent && <><dt>paths</dt><dd>{session.agent.capabilities.observeSafePaths ? "observed" : "unavailable"}</dd></>}
-        {session.agent && <><dt>briefs</dt><dd>{session.agent.capabilities.deliverBrief.replaceAll("_", " ")}</dd></>}
-        {session.agent && <><dt>attention</dt><dd>{session.agent.capabilities.requestAttention === "advisory" ? "advisory only" : "dashboard only"} <span className="q">· Stickguy never interrupts an agent</span></dd></>}
-      </dl>
-
+    </div>
+    {!complete && <div className="session-live" aria-label="Current session activity" aria-live="polite">
+      <span className="session-live-icon" aria-hidden="true"><Activity size={15} /></span>
+      <span className="session-live-copy"><span className="session-live-facts"><small>{statusCopy(session)}</small>{liveFacts && <code>{liveFacts}</code>}</span><strong><LiveAction session={session} /></strong></span>
+      <Elapsed label={session.updatedLabel} tick={tick} />
+    </div>}
+    <div className="inspector-body chat-inspector-body">
       {messageError && <p className="form-error" role="alert">{messageError}</p>}
-
-      {session.agent && <>
-        <h3 className="inspector-head">Session</h3>
-        <p className="muted-copy" style={{ marginBottom: 12 }}>{mine ? "Read from this machine; classifier-passing messages are visible to Project members while sharing is active." : `Shared by ${session.memberName}.`}</p>
-        {conversation.length > 0
-          ? <ol className="conversation-list">{conversation.map((message) => message.kind === "tool"
-            ? <li key={message.id} className="tool"><span><Command size={11} />{message.tool}</span></li>
-            : <li key={message.id} className={message.kind}><span>{messageKindLabel(message.kind as SessionMessageKind)}</span><p>{message.text}</p>{message.at && <small>{new Date(message.at).toLocaleTimeString()}</small>}</li>)}</ol>
-          : <p className="muted-copy">Waiting for the first classifier-passing message in this session.</p>}
-      </>}
+      {feed.length > 0
+        ? <ol className="session-thread">{feed.map((item) => <SessionFeedRow key={item.id} item={item} session={session} isViewer={isViewer} tick={tick} />)}</ol>
+          : <div className="conversation-empty"><MessageSquare size={18} /><div><strong>{session.agent ? "This session has not said anything yet." : "No agent conversation is available."}</strong><p>{session.outcome}</p></div></div>}
     </div>
   </>;
+}
+
+type TranscriptMessage = { id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string };
+type SessionFeedItem =
+  | { id: string; kind: SessionMessageKind; text?: string; at?: string }
+  | { id: string; kind: "tool_group"; tools: string[]; at?: string }
+  | { id: string; kind: "lifecycle"; event: "started" | "ended" | "status"; label: string; detail?: string; at?: string }
+  | { id: string; kind: "coordination"; state: "routed" | "considered"; summary: string; itemCount: number; trigger: string; at: string }
+  | { id: string; kind: "parallel"; label: string; detail: string; at?: string }
+  | { id: string; kind: "activity"; action: string; tool?: string; path?: string; activityKind: string; elapsedLabel: string; at?: string };
+
+type TimelineSeed = SessionFeedItem | { id: string; kind: "tool"; tool: string; at?: string };
+
+function sessionTimeline(messages: TranscriptMessage[], session: Workstream): SessionFeedItem[] {
+  const activity = session.agent?.activity ?? [];
+  const seeds: Array<TimelineSeed & { order: number }> = [];
+  let order = 0;
+  const add = (item: TimelineSeed) => seeds.push({ ...item, order: order++ });
+  const startedAt = session.agent?.startedAt ?? activity.find((item) => item.kind === "SessionStart")?.occurredAt;
+  const endedAt = session.agent?.endedAt ?? activity.find((item) => item.kind === "SessionEnd")?.occurredAt;
+
+  if (startedAt) add({ id: "session-started", kind: "lifecycle", event: "started", label: "Session started", at: startedAt });
+  for (const message of messages) {
+    if (message.kind === "tool") add({ id: message.id, kind: "tool", tool: message.tool || "Tool", at: message.at });
+    else add({ id: message.id, kind: message.kind, text: message.text, at: message.at });
+  }
+
+  for (const delivery of session.agent?.coordination ?? []) {
+    add({ id: `routed-${delivery.id}`, kind: "coordination", state: "routed", summary: delivery.summary, itemCount: delivery.itemCount, trigger: delivery.trigger, at: delivery.routedAt });
+    if (delivery.acknowledgedAt) add({ id: `considered-${delivery.id}`, kind: "coordination", state: "considered", summary: delivery.summary, itemCount: delivery.itemCount, trigger: delivery.trigger, at: delivery.acknowledgedAt });
+  }
+
+  const hasConversation = messages.length > 0;
+  for (const item of activity) {
+    if (item.kind === "SessionStart" || item.kind === "SessionEnd") continue;
+    if (item.kind === "PermissionRequest" || item.kind === "Stop") {
+      const detail = [item.tool, item.paths[0]].filter((value): value is string => Boolean(value)).join(" · ");
+      add({ id: `lifecycle-${item.id}`, kind: "lifecycle", event: "status", label: item.action, detail: detail || undefined, at: item.occurredAt });
+      continue;
+    }
+    if (item.kind === "SubagentStart" || item.kind === "SubagentStop") {
+      add({ id: `parallel-${item.id}`, kind: "parallel", label: item.action, detail: item.kind === "SubagentStop" ? "Parallel work finished" : "Working in parallel", at: item.occurredAt });
+      continue;
+    }
+    if (!hasConversation) add({ id: `activity-${item.id}`, kind: "activity", action: item.action, tool: item.tool, path: item.paths[0], activityKind: item.kind, elapsedLabel: item.at, at: item.occurredAt });
+  }
+
+  if (!(activity.some((item) => item.kind === "SubagentStart" || item.kind === "SubagentStop"))) {
+    for (const agent of session.agent?.subagents ?? []) add({ id: `parallel-current-${agent.alias}`, kind: "parallel", label: `${parallelAgentRole(agent.agentType)} working in parallel`, detail: parallelAgentStatus(agent.status) });
+  }
+  if (endedAt || session.agent?.status === "done") add({ id: "session-ended", kind: "lifecycle", event: "ended", label: "Session ended", at: endedAt });
+
+  seeds.sort((left, right) => {
+    const leftTime = timelineTime(left.at);
+    const rightTime = timelineTime(right.at);
+    if (leftTime !== null && rightTime !== null && leftTime !== rightTime) return leftTime - rightTime;
+    if (leftTime !== null && rightTime === null) return -1;
+    if (leftTime === null && rightTime !== null) return 1;
+    return left.order - right.order;
+  });
+
+  const grouped: SessionFeedItem[] = [];
+  for (const { order: _order, ...item } of seeds) {
+    if (item.kind !== "tool") {
+      grouped.push(item);
+      continue;
+    }
+    const previous = grouped[grouped.length - 1];
+    if (previous?.kind === "tool_group") previous.tools.push(item.tool);
+    else grouped.push({ id: `tools-${item.id}`, kind: "tool_group", tools: [item.tool], at: item.at });
+  }
+  return grouped;
+}
+
+function timelineTime(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function SessionFeedRow({ item, session, isViewer, tick }: { item: SessionFeedItem; session: Workstream; isViewer: boolean; tick: number }) {
+  if (item.kind === "tool_group") return <li className="thread-tool"><span className="thread-tool-icon"><Command size={12} /></span><span><strong title={item.tools.join(" → ")}>{item.tools.join(" → ")}</strong><small>{item.tools.length === 1 ? "Tool activity" : `${item.tools.length} tool actions`}{item.at ? ` · ${sessionMessageTime(item.at)}` : ""}</small></span></li>;
+  if (item.kind === "thinking") return <li className="thread-thinking"><details><summary><span><Bot size={13} />Thinking</span>{item.at && <small>{sessionMessageTime(item.at)}</small>}</summary><MarkdownMessage text={item.text ?? ""} /></details></li>;
+  if (item.kind === "user" || item.kind === "assistant" || item.kind === "system") return <li className={`thread-message ${item.kind}`}><header><span className="message-icon" aria-hidden="true"><SessionMessageIcon kind={item.kind} vendor={session.agent?.vendor} /></span><strong>{item.kind === "assistant" ? vendorLabel(session) : messageKindLabel(item.kind)}</strong>{item.at && <small>{sessionMessageTime(item.at)}</small>}</header><MarkdownMessage text={item.text ?? ""} /></li>;
+  if (item.kind === "lifecycle") return <li className={`thread-boundary ${item.event}`}><span className="thread-event-icon" aria-hidden="true">{item.event === "started" ? <Play size={12} /> : item.event === "ended" ? <Check size={12} /> : <Activity size={12} />}</span><span><strong>{item.label}</strong>{item.detail && <small>{item.detail}</small>}</span>{item.at && <time>{sessionMessageTime(item.at)}</time>}</li>;
+  if (item.kind === "coordination") return <li className={`thread-coordination ${isViewer && item.state === "routed" ? "converging" : ""}`}><span className="thread-event-icon" aria-hidden="true">{item.state === "routed" ? <Route size={13} /> : <Check size={12} />}</span><span><header><strong>{item.state === "routed" ? "Coordination routed" : "Agent considered coordination"}</strong><time>{sessionMessageTime(item.at)}</time></header>{item.state === "routed" ? <p>{item.summary}</p> : <p>Consideration recorded; this does not prove the agent followed it.</p>}<small>{item.state === "routed" ? `${coordinationTriggerLabel(item.trigger)} · ` : ""}{item.itemCount} {item.itemCount === 1 ? "item" : "items"}</small></span></li>;
+  if (item.kind === "parallel") return <li className="thread-parallel"><span className="thread-tool-icon"><Network size={12} /></span><span><strong>{item.label}</strong><small>{item.detail}{item.at ? ` · ${sessionMessageTime(item.at)}` : ""}</small></span></li>;
+  if (item.kind !== "activity") return null;
+  return <li className="thread-tool activity-item"><span className="thread-tool-icon"><Activity size={12} /></span><span><strong>{item.action}</strong><small>{item.tool ? `${item.tool} · ` : ""}{item.path ?? item.activityKind} · {item.at ? sessionMessageTime(item.at) : <Elapsed label={item.elapsedLabel} tick={tick} />}</small></span></li>;
+}
+
+function coordinationTriggerLabel(value: string): string {
+  return ({ user_prompt_submit: "Next turn", session_start: "Session start", before_broad_edit: "Before broad edit", checkpoint: "Checkpoint", mcp: "Agent check" } as Record<string, string>)[value] ?? value.replaceAll("_", " ");
+}
+
+function SessionDetailsPanel({ session, mine, subagents, path, onClose }: { session: Workstream; mine: boolean; subagents: NonNullable<Workstream["agent"]>["subagents"]; path?: string; onClose: () => void }) {
+  return <section className="session-details-popover" aria-label="Session details">
+    <header><span><strong>Session details</strong><small>{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</small></span><button className="icon-button" onClick={onClose} aria-label="Close session details"><X size={14} /></button></header>
+    <div className="session-details-scroll">
+      <div className="conversation-disclosure"><ShieldCheck size={15} aria-hidden="true" /><p>{mine ? "Read from this machine. Classifier-passing messages are visible to Project members while sharing is active." : session.agent ? `Shared by ${session.memberName} after classification.` : "This workstream has no agent conversation."}</p></div>
+      <InspectorHeading icon={<Eye size={13} />}>How this session is connected</InspectorHeading>
+      <div className="coverage-list">
+        <CoverageRow icon={<Eye size={14} />} label="Source" value={fidelityLabel(session.fidelity)} detail={`${fidelityDetail(session)} ${session.pathCount > 0 ? `${session.pathCount.toLocaleString()} safe ${session.pathCount === 1 ? "path is" : "paths are"} ${session.agent?.capabilities.observeSafePaths ? "observed" : "reported"}.` : "No safe paths are reported yet."}`} />
+        {session.agent && <CoverageRow icon={<FileText size={14} />} label="Coordination" value={`${briefDeliveryLabel(session.agent.capabilities.deliverBrief)} · ${session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard"}`} detail="Context is routed at supported turn boundaries; Stickguy never interrupts an agent mid-turn." />}
+        {session.agent && <CoverageRow icon={<FileCode2 size={14} />} label="Contract drift" value={readCoverageLabel(session.agent.capabilities.observeReadSet)} detail={readCoverageDetail(session.agent.capabilities.observeReadSet)} />}
+        {session.agent?.sessionAlias && <CoverageRow icon={<Bot size={14} />} label="Session ID" value={session.agent.sessionAlias} machine detail={`${vendorLabel(session)} session identifier.`} />}
+        {subagents.map((agent) => <CoverageRow key={agent.alias} icon={<Network size={14} />} label="Parallel ID" value={agent.alias} machine detail={`${parallelAgentRole(agent.agentType)} · ${parallelAgentStatus(agent.status)}.`} />)}
+      </div>
+
+      {session.largeChange && <section><InspectorHeading icon={<FileText size={13} />}>Change scope</InspectorHeading><dl className="facts"><dt>paths</dt><dd>{session.largeChange.pathCount.toLocaleString()} paths</dd><dt>summary</dt><dd>{session.largeChange.summary}</dd><dt>revision</dt><dd>manifest {session.largeChange.revision} <span className="q">· size alone does not imply risk</span></dd></dl></section>}
+
+      <section className="session-files-section">
+        <InspectorHeading icon={<FileCode2 size={13} />} count={session.pathCount}>Files this session</InspectorHeading>
+        {session.paths.length > 0
+          ? <div className="file-list">{session.paths.map((entry) => <div className={entry === path ? "file-row hot" : "file-row"} key={entry}><span className="p">{entry}</span><span className="v">{entry === path && isLive(session) ? "touching now" : "reported"}</span></div>)}{session.pathCount > session.paths.length && <div className="file-row"><span className="p">{(session.pathCount - session.paths.length).toLocaleString()} more</span><span className="v">summarized</span></div>}</div>
+          : <p className="muted-copy">No safe paths have been reported yet.</p>}
+      </section>
+    </div>
+  </section>;
+}
+
+function MarkdownMessage({ text }: { text: string }) {
+  return <div className="markdown-message"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{
+    a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+    img: ({ node: _node, alt }) => <span className="markdown-image">Image omitted{alt ? ` · ${alt}` : ""}</span>,
+  }}>{text}</ReactMarkdown></div>;
+}
+
+function parallelAgentRole(value: string): string {
+  const role = value.trim() || "Subagent";
+  return `${role.slice(0, 1).toUpperCase()}${role.slice(1)}`;
+}
+
+function parallelAgentStatus(value: string): string {
+  return ({ active: "Active now", waiting: "Waiting", idle: "Recently active", done: "Finished", error: "Needs attention" } as Record<string, string>)[value] ?? value.replaceAll("_", " ");
+}
+
+function InspectorHeading({ icon, count, children }: { icon: ReactNode; count?: number; children: ReactNode }) {
+  return <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true">{icon}</span><span>{children}</span>{typeof count === "number" && <span className="inspector-head-count">{count.toLocaleString()}</span>}</h3>;
+}
+
+function CoverageRow({ icon, label, value, detail, machine = false }: { icon: ReactNode; label: string; value: string; detail?: string; machine?: boolean }) {
+  return <div className="coverage-row"><span className="coverage-icon" aria-hidden="true">{icon}</span><span className="coverage-copy"><span className="coverage-label">{label}</span><strong className={machine ? "machine" : undefined}>{value}</strong>{detail && <small>{detail}</small>}</span></div>;
+}
+
+function fidelityDetail(session: Workstream): string {
+  if (session.fidelity === "hook") return "Connected agent events provide live session and activity detail.";
+  if (session.fidelity === "hook_unverified") return "The agent binding is configured but runtime delivery is not verified.";
+  if (session.fidelity === "git") return "Repository observation provides change scope without agent activity.";
+  if (session.fidelity === "mcp") return "The coding agent reported this work through the lifecycle protocol.";
+  return "A Project member reported this intent manually.";
+}
+
+type ReadCoverage = NonNullable<Workstream["agent"]>["capabilities"]["observeReadSet"];
+
+function readCoverageLabel(coverage: ReadCoverage): string {
+  return ({ observed: "Observed", vendor_inferred: "Partial", self_declared: "Declared only", none: "Not observed" } as const)[coverage];
+}
+
+// Says plainly what silence means for this session. A session whose reads are
+// not observed can never receive a stale-assumption finding, and the operator
+// has to know that rather than reading quiet as safe (ADR-052).
+function readCoverageDetail(coverage: ReadCoverage): string {
+  if (coverage === "observed") return "File reads are observed, so this session is told when a contract it read changes underneath it.";
+  if (coverage === "vendor_inferred") return "File reads are inferred from the vendor's own classification of the commands it ran, so some reads are missed.";
+  if (coverage === "self_declared") return "Only the paths this session declared are known; reads it did not declare are invisible.";
+  return "Nothing observes this session's file reads, so it is never told when a contract it read changes. Silence here is missing evidence, not an all-clear.";
+}
+
+function briefDeliveryLabel(delivery: NonNullable<Workstream["agent"]>["capabilities"]["deliverBrief"]): string {
+  return ({ mcp_pull: "MCP pull", native_pull: "Agent pull", native_push: "Next-turn push", unavailable: "Unavailable" } as const)[delivery];
+}
+
+function SessionMessageIcon({ kind, vendor }: { kind: SessionMessageKind; vendor?: "codex" | "claude" }) {
+  if (kind === "assistant" && vendor) return <VendorMark vendor={vendor} size={14} />;
+  if (kind === "user") return <UserRound size={14} />;
+  if (kind === "system") return <ShieldCheck size={14} />;
+  return <Bot size={14} />;
+}
+
+function sessionMessageTime(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function messageKindLabel(kind: SessionMessageKind): string {
@@ -670,107 +885,6 @@ function SemanticStatus({ status, mode }: { status: ProjectSnapshot["project"]["
   </p>;
 }
 
-function SettingsDialog({ snapshot, dark, identity, projectId, source, offline, onIdentity, onTheme, onClose }: { snapshot: ProjectSnapshot; dark: boolean; identity: { name: string; source: MemberNameSource }; projectId: string; source: FixtureProjectSource; offline: boolean; onIdentity: (value: { name: string; source: MemberNameSource }) => void; onTheme: () => void; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const [nameDraft, setNameDraft] = useState(identity.source === "member" ? identity.name : "");
-  const [identityError, setIdentityError] = useState("");
-  const [identitySaved, setIdentitySaved] = useState(false);
-  const [identityPending, setIdentityPending] = useState(false);
-  const [access, setAccess] = useState<ProjectAccess | null>(null);
-  const [adminError, setAdminError] = useState("");
-  const [adminPending, setAdminPending] = useState(false);
-  const [inviteCode, setInviteCode] = useState("");
-  const [deleteDraft, setDeleteDraft] = useState("");
-  const [deletionQueued, setDeletionQueued] = useState(false);
-  const refreshAccess = () => source.getProjectAccess(projectId).then(setAccess).catch(() => setAdminError("Project access controls could not be loaded."));
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (typeof dialog?.showModal === "function") dialog.showModal();
-    else dialog?.setAttribute("open", "");
-    closeRef.current?.focus();
-    return () => {
-      if (typeof dialog?.close === "function" && dialog.open) dialog.close();
-      else dialog?.removeAttribute("open");
-    };
-  }, []);
-  useEffect(() => { void refreshAccess(); }, [projectId]);
-  const admin = (operation: () => Promise<void>) => {
-    setAdminPending(true); setAdminError("");
-    void operation().then(refreshAccess).catch(() => setAdminError("That security change could not be completed.")).finally(() => setAdminPending(false));
-  };
-  return <dialog ref={dialogRef} className="settings-dialog" aria-labelledby="settings-title" onCancel={(event) => { event.preventDefault(); onClose(); }}><header><div><p>Stickguy</p><h2 id="settings-title">Settings</h2></div><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="Close settings"><X size={17} /></button></header><section><h3>Your identity</h3><form className="identity-form" onSubmit={(event) => {
-    event.preventDefault();
-    const value = nameDraft.trim();
-    setIdentityError(""); setIdentitySaved(false); setIdentityPending(true);
-    void source.updateDisplayName(projectId, value)
-      .then((result) => { onIdentity({ name: result.memberName, source: result.memberNameSource }); setNameDraft(result.memberName); setIdentitySaved(true); })
-      .catch((error: Error & { status?: number }) => setIdentityError(error.status === 400 ? "Choose a display name; an email address cannot be your Project identity." : error.message || "That display name could not be saved."))
-      .finally(() => setIdentityPending(false));
-  }}><label><span>Display name</span><input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setIdentitySaved(false); }} minLength={2} maxLength={60} placeholder={identity.source === "device" ? identity.name : "How teammates see you"} aria-describedby="identity-help" /></label><p id="identity-help" className="settings-help">This is how you appear on live sessions and collision resolutions. It is not your email address or your device name.</p>{identity.source === "device" && <p className="settings-help warning">Currently showing the device name this Project was created with.</p>}{identityError && <p className="form-error" role="alert">{identityError}</p>}{identitySaved && <p className="settings-help success" role="status">Display name updated across this Project.</p>}<button className="pill solid" disabled={identityPending || offline || nameDraft.trim().length < 2}>Save name</button></form></section>
-    <section><h3>Appearance</h3><button className="settings-row" onClick={onTheme}><span className="settings-icon">{dark ? <Moon size={16} /> : <Sun size={16} />}</span><span><strong>Theme</strong><small>{dark ? "Dark" : "Light"}</small></span><ChevronRight size={15} /></button></section>
-    <section><h3>Members</h3>{access?.members.map((member) => <div className="settings-row" key={member.id}><span className="settings-icon"><Users size={16} /></span><span><strong>{member.name}{member.isSelf ? " · you" : ""}</strong><small>{member.role}</small></span>{access.role === "owner" && !member.isSelf && <button className="text-button" disabled={adminPending || offline} onClick={() => admin(() => source.removeMember(projectId, member.id))}>Remove</button>}</div>) ?? <p className="settings-help">Loading members…</p>}</section>
-    <section><h3>Devices &amp; security</h3><p className="settings-help">Device names identify hardware for revocation and audit only; they are never shown as your live-work identity. Revoking a device immediately ends its Project access.</p>{access?.devices.map((device) => <div className="settings-row" key={device.id}><span className="settings-icon"><Laptop2 size={16} /></span><span><strong>{device.label}{device.isCurrent ? " · this device" : ""}</strong><small>{device.appVersion} · {device.revoked ? "revoked" : device.lastSeenAt ?? "never seen"}</small></span>{!device.revoked && access.role === "owner" && !device.isCurrent && <button className="text-button" disabled={adminPending || offline} onClick={() => admin(() => source.revokeDevice(projectId, device.id))}>Revoke</button>}</div>) ?? snapshot.devices.map((device) => <div className="settings-row" key={device.id}><span className="settings-icon"><Laptop2 size={16} /></span><span><strong>{device.label}</strong><small>{device.platform} · {device.status} · {device.lastSeen}</small></span></div>)}</section>
-    {access?.role === "owner" && <section><h3>Invites</h3><button className="pill" disabled={adminPending || offline} onClick={() => { setAdminPending(true); setAdminError(""); void source.createInvite(projectId).then((result) => { setInviteCode(result.code); return refreshAccess(); }).catch(() => setAdminError("A new invite could not be created.")).finally(() => setAdminPending(false)); }}><Plus size={14} />Create one-use invite</button>{inviteCode && <div className="invite-code" role="status"><strong>Share this code privately</strong><code>{inviteCode}</code><p>Shown once. It expires in 10 minutes.</p></div>}{access.invites.map((invite) => <div className="settings-row" key={invite.id}><span><strong>{invite.id}</strong><small>{invite.revoked ? "Revoked" : `${invite.remainingUses} use remaining · expires ${new Date(invite.expiresAt).toLocaleString()}`}</small></span>{!invite.revoked && <button className="text-button" disabled={adminPending || offline} onClick={() => admin(() => source.revokeInvite(projectId, invite.id))}>Revoke</button>}</div>)}</section>}
-    <section><h3>Privacy &amp; data</h3><div className="privacy-card"><ShieldCheck size={17} /><div><strong>Local-first analysis, bounded Project sharing</strong><p>Raw source, diffs, environment values, credentials, and command output never cross the wire. Project members can see classifier-approved coordination facts and session context while sharing is unpaused.</p></div></div>{access && <a className="settings-row" href={source.exportURL(projectId)} download><span className="settings-icon"><FileCode2 size={16} /></span><span><strong>Export retained {access.role === "owner" ? "Project" : "personal"} data</strong><small>Versioned JSON containing the structured records you are authorized to export.</small></span><ChevronRight size={15} /></a>}</section>
-    {access?.role === "owner" && <section><h3>Delete Project</h3><p className="settings-help warning">Deletion immediately revokes Project sessions and invites, then removes retained hosted records in bounded batches.</p><label className="identity-form"><span>Type {snapshot.project.name} to confirm</span><input value={deleteDraft} onChange={(event) => setDeleteDraft(event.target.value)} /></label><button className="pill" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteProject(projectId).then(() => setDeletionQueued(true)).catch(() => setAdminError("Project deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Delete Project"}</button></section>}
-    {access?.role === "member" && <section><h3>Leave and delete my data</h3><p className="settings-help warning">This immediately removes your Project access and schedules deletion of your retained work records.</p><label className="identity-form"><span>Type {snapshot.project.name} to confirm</span><input value={deleteDraft} onChange={(event) => setDeleteDraft(event.target.value)} /></label><button className="pill" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteOwnProjectData(projectId).then(() => setDeletionQueued(true)).catch(() => setAdminError("Your data deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Leave and delete my data"}</button></section>}
-    {adminError && <p className="form-error" role="alert">{adminError}</p>}<button className="pill dialog-done" onClick={onClose}>Done</button></dialog>;
-}
-
-function NewProjectDialog({ api, displayName, navigate, onClose }: { api: NativeOnboarding; displayName: string; navigate: (url: string) => void; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const [request, setRequest] = useState<EnrollmentRequest>({ repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName, joinCode: "", enableCodex: false, enableClaude: false });
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const [created, setCreated] = useState<{ projectId: string; joinCode: string; warnings: string[] } | null>(null);
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (typeof dialog?.showModal === "function") dialog.showModal();
-    else dialog?.setAttribute("open", "");
-    nameRef.current?.focus();
-    void api.state().then((state) => setRequest((current) => ({ ...current, deviceLabel: state.deviceLabel || current.deviceLabel }))).catch(() => undefined);
-    return () => {
-      if (typeof dialog?.close === "function" && dialog.open) dialog.close();
-      else dialog?.removeAttribute("open");
-    };
-  }, [api]);
-  const chooseRepository = async () => {
-    setError("");
-    try {
-      const root = await api.chooseRepository();
-      if (root) setRequest((current) => ({ ...current, repositoryRoot: root, projectLabel: current.projectLabel || root.split("/").at(-1) || "My Project" }));
-    } catch (cause) { setError((cause as Error).message); }
-  };
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setPending(true); setError("");
-    try {
-      const result = await api.createAdditionalProject(request);
-      setCreated({ ...result, warnings: Array.isArray(result.warnings) ? result.warnings : [] });
-    } catch (cause) { setError((cause as Error).message); }
-    finally { setPending(false); }
-  };
-  const open = async () => {
-    if (!created) return;
-    setPending(true); setError("");
-    try { navigate(await api.openLiveProject(created.projectId)); }
-    catch (cause) { setError((cause as Error).message); setPending(false); }
-  };
-  return <dialog ref={dialogRef} className="new-project-dialog" aria-labelledby="new-project-title" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <header><div><p>Projects</p><h2 id="new-project-title">{created ? "Project created" : "Add a new Project"}</h2></div><button className="icon-button" onClick={onClose} aria-label="Close new Project"><X size={17} /></button></header>
-    {created ? <section className="new-project-success"><span className="state-symbol"><Check size={20} /></span><h3>{request.projectLabel}</h3><p>The repository is registered with this Mac’s existing Stickguy service.</p>{created.joinCode && <div className="invite-code"><strong>One-use invite code</strong><code>{created.joinCode}</code><p>Expires in 10 minutes. Share it privately with the next teammate.</p></div>}{created.warnings.map((warning) => <p className="form-error" key={warning}>{warning}</p>)}{error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><button className="pill" onClick={onClose}>Done</button><button className="pill solid" disabled={pending} onClick={() => void open()}>{pending ? "Opening…" : "Open Project"}</button></div></section> : <form onSubmit={(event) => void submit(event)}>
-      <p className="dialog-lede">Choose a Git repository. Stickguy will observe it as a separate Project without starting another background service.</p>
-      <label><span>Project name</span><input ref={nameRef} value={request.projectLabel} maxLength={120} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>
-      <label><span>Repository</span><div className="repository-field"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button type="button" className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
-      <fieldset><legend>Connect coding agents</legend><label><input type="checkbox" checked={request.enableCodex} onChange={(event) => setRequest({ ...request, enableCodex: event.target.checked })} /><span><strong>Codex</strong><small>Observe new repository-scoped sessions after restart</small></span></label><label><input type="checkbox" checked={request.enableClaude} onChange={(event) => setRequest({ ...request, enableClaude: event.target.checked })} /><span><strong>Claude Code</strong><small>Observe new repository-scoped sessions after restart</small></span></label></fieldset>
-      <p className="privacy-note"><strong>Project sharing</strong> Classifier-passing coordination facts are visible to enrolled members while sharing is unpaused. Credentials, environment values, raw source, diffs, and command output do not cross the wire.</p>
-      {error && <p className="form-error" role="alert">{error}</p>}<div className="dialog-actions"><button type="button" className="pill" onClick={onClose}>Cancel</button><button className="pill solid" disabled={pending || !request.projectLabel.trim() || !request.repositoryRoot}>{pending ? "Creating…" : "Create Project"}</button></div>
-    </form>}
-  </dialog>;
-}
-
 function CommandPalette({ projects, selectedProjectId, onSelectProject, onSettings, onClose }: { projects: DashboardSession["projects"]; selectedProjectId: string; onSelectProject: (id: string) => void; onSettings: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -789,15 +903,11 @@ function CommandPalette({ projects, selectedProjectId, onSelectProject, onSettin
   return <dialog ref={dialogRef} className="command-dialog" aria-label="Search Projects and commands" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="command-search"><Search size={17} /><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Projects and commands…" aria-label="Search Projects and commands" /><button className="dialog-escape" onClick={onClose} aria-label="Close command palette">esc</button></div><div className="command-results"><p>Projects</p>{visible.map((project) => <button key={project.id} onClick={() => onSelectProject(project.id)}><span className="project-monogram">{project.name.slice(0, 1)}</span><span><strong>{project.name}</strong><small>{project.repositoryLabel}</small></span>{project.id === selectedProjectId && <Check size={15} />}</button>)}<p>Commands</p><button onClick={onSettings}><span className="settings-icon"><Settings2 size={15} /></span><span><strong>Open settings</strong><small>Appearance, devices, and privacy</small></span></button></div></dialog>;
 }
 
-function initialsFor(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
-}
-
 function statusCopy(session: Workstream): string {
   const status = session.agent?.status ?? session.presence;
   if (status === "active" || status === "online") return "Working now";
   if (status === "waiting") return "Waiting for input";
-  if (status === "done") return "Session finished";
+  if (status === "done") return "Complete";
   if (status === "error") return "Needs attention";
   if (status === "paused") return "Sharing paused";
   return status === "idle" ? "Recently active" : "Offline";

@@ -425,3 +425,124 @@ func write(path string, document, hooks map[string]json.RawMessage) error {
 	}
 	return nil
 }
+
+// StickguyMCPTools are the coordination tools `stickguy mcp` registers, in the
+// permission form Claude Code matches. The MCP server is the source of truth
+// for this list; a test there asserts the two agree, so adding a tool without
+// pre-approving it fails in CI rather than at a member's keyboard.
+var StickguyMCPTools = []string{
+	"mcp__stickguy__acknowledge_context",
+	"mcp__stickguy__begin_work",
+	"mcp__stickguy__check_coordination",
+	"mcp__stickguy__finish_work",
+	"mcp__stickguy__get_resolutions",
+	"mcp__stickguy__report_checkpoint",
+	"mcp__stickguy__report_event",
+	"mcp__stickguy__update_intent",
+}
+
+// AllowTools pre-approves exactly Stickguy's own coordination tools in the
+// settings file this package already manages.
+//
+// A member who has just run `setup claude` is then asked to approve begin_work,
+// check_coordination, report_checkpoint and finish_work one at a time, which is
+// four interruptions from the coordination layer before any work happens — and
+// a coordination harness that interrupts more than it prevents is worse than
+// none. These tools publish bounded intent and read back a brief; they do not
+// edit files, run commands, or reach outside the Project.
+//
+// The grant is deliberately narrow. Only the exact tool names above are added,
+// never a wildcard and never another server's tools, entries a member already
+// wrote are preserved, and `Remove` withdraws exactly what was granted.
+func AllowTools(path string, tools []string) error {
+	document, hooks, err := read(path)
+	if err != nil {
+		return err
+	}
+	allow, permissions, err := allowList(document)
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for _, entry := range allow {
+		existing[entry] = true
+	}
+	for _, tool := range tools {
+		if !existing[tool] {
+			allow = append(allow, tool)
+			existing[tool] = true
+		}
+	}
+	if err = setAllowList(document, permissions, allow); err != nil {
+		return err
+	}
+	return write(path, document, hooks)
+}
+
+// DisallowTools withdraws exactly the entries AllowTools granted, leaving every
+// other permission a member configured untouched.
+func DisallowTools(path string, tools []string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	document, hooks, err := read(path)
+	if err != nil {
+		return err
+	}
+	allow, permissions, err := allowList(document)
+	if err != nil {
+		return err
+	}
+	granted := map[string]bool{}
+	for _, tool := range tools {
+		granted[tool] = true
+	}
+	kept := make([]string, 0, len(allow))
+	for _, entry := range allow {
+		if !granted[entry] {
+			kept = append(kept, entry)
+		}
+	}
+	if err = setAllowList(document, permissions, kept); err != nil {
+		return err
+	}
+	return write(path, document, hooks)
+}
+
+func allowList(document map[string]json.RawMessage) ([]string, map[string]json.RawMessage, error) {
+	permissions := map[string]json.RawMessage{}
+	if raw := document["permissions"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &permissions); err != nil {
+			return nil, nil, errors.New("permissions must be a JSON object")
+		}
+	}
+	var allow []string
+	if raw := permissions["allow"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &allow); err != nil {
+			return nil, nil, errors.New("permissions.allow must be an array of strings")
+		}
+	}
+	return allow, permissions, nil
+}
+
+func setAllowList(document, permissions map[string]json.RawMessage, allow []string) error {
+	if len(allow) == 0 {
+		delete(permissions, "allow")
+	} else {
+		raw, err := json.Marshal(allow)
+		if err != nil {
+			return err
+		}
+		permissions["allow"] = raw
+	}
+	if len(permissions) == 0 {
+		delete(document, "permissions")
+		return nil
+	}
+	raw, err := json.Marshal(permissions)
+	if err != nil {
+		return err
+	}
+	document["permissions"] = raw
+	return nil
+}

@@ -1,6 +1,7 @@
 package codexsetup
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/stickguy/stickguy/internal/codexappserver"
 	"github.com/stickguy/stickguy/internal/hookconfig"
 )
 
@@ -20,20 +22,43 @@ const (
 type Status struct {
 	Configured      bool   `json:"configured"`
 	ConfigPath      string `json:"configPath"`
+	HookPath        string `json:"hookPath,omitempty"`
 	Hooks           string `json:"hooks"`
 	Binding         string `json:"binding"`
 	PreviousProfile string `json:"previousProfile,omitempty"`
+	// CheckedProfile names the profile this status was evaluated against, so an
+	// `other_profile` result can be read without guessing what it was compared
+	// with. Without it the honest answer "Codex is bound to a different profile
+	// than the one you asked about" is indistinguishable from the alarming one
+	// "Codex is bound to somebody else's profile", and the difference is usually
+	// just a missing --config-root.
+	CheckedProfile  string `json:"checkedProfile"`
 	RestartRequired bool   `json:"restartRequired"`
+	// Trust reports whether Codex will actually run the installed hooks. Files
+	// on disk are not enough: Codex skips an untrusted hook silently (ADR-051).
+	Trust TrustReport `json:"trust"`
 }
 
 type Manager struct {
 	ProjectRoot, ConfigRoot, Executable string
 	Portable                            bool
+	// CodexHome overrides the Codex home directory. Empty resolves $CODEX_HOME
+	// and then ~/.codex, so tests never touch real contributor state.
+	CodexHome string
+	// CodexExecutable overrides Codex discovery for trust repair.
+	CodexExecutable string
+	// Version is reported to Codex during the app-server handshake.
+	Version string
 }
 
 var rebindHooks = hookconfig.Rebind
 
-func (m Manager) Setup() (Status, error) {
+// Setup installs the binding using a background context.
+func (m Manager) Setup() (Status, error) { return m.SetupContext(context.Background()) }
+
+// SetupContext installs the project MCP binding and the user-level activity
+// hooks, then asks Codex to trust those hooks so they can actually run.
+func (m Manager) SetupContext(ctx context.Context) (Status, error) {
 	resolved, expected, err := m.resolve()
 	if err != nil {
 		return Status{}, err
@@ -74,10 +99,34 @@ func (m Manager) Setup() (Status, error) {
 	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
 		return Status{}, fmt.Errorf("install Codex activity hooks: %w", err)
 	}
-	return Status{Configured: true, ConfigPath: resolved, Hooks: "active", Binding: "current", RestartRequired: true}, nil
+	trust := inspectTrust(m, ctx, hookPath, hookCommand, true)
+	return Status{
+		Configured: true, ConfigPath: resolved, HookPath: hookPath, CheckedProfile: m.checkedProfile(),
+		Hooks: hookState(trust), Binding: "current", RestartRequired: true, Trust: trust,
+	}, nil
 }
 
-func (m Manager) Status() (Status, error) {
+// checkedProfile names the profile a status or setup call is evaluated against.
+// A portable install relies on PATH and the default profile and has no path to
+// report, so it says so rather than naming a directory it does not use.
+func (m Manager) checkedProfile() string {
+	if m.Portable {
+		return "portable"
+	}
+	if absolute, err := filepath.Abs(m.ConfigRoot); err == nil {
+		return absolute
+	}
+	return m.ConfigRoot
+}
+
+// Status reports the binding using a background context.
+func (m Manager) Status() (Status, error) { return m.StatusContext(context.Background()) }
+
+// StatusContext reports the binding without changing it. A binding whose files
+// are present but whose hooks Codex has not trusted reports "needs_review", not
+// "active": Codex skips an untrusted hook silently, so reporting it as working
+// is what hid this failure in the first place.
+func (m Manager) StatusContext(ctx context.Context) (Status, error) {
 	resolved, expected, err := m.resolve()
 	if err != nil {
 		return Status{}, err
@@ -98,10 +147,12 @@ func (m Manager) Status() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	status.ConfigPath = resolved
+	status.ConfigPath, status.HookPath, status.CheckedProfile = resolved, hookPath, m.checkedProfile()
 	switch {
 	case status.Binding == "current" && hooks.State == hookconfig.BindingCurrent:
 		status.Configured, status.Hooks, status.RestartRequired = true, "active", true
+		status.Trust = inspectTrust(m, ctx, hookPath, hookCommand, false)
+		status.Hooks = hookState(status.Trust)
 	case status.Binding == "other_profile" && (hooks.State == hookconfig.BindingOtherProfile || hooks.State == hookconfig.BindingNotConfigured):
 		status.Configured, status.Hooks, status.RestartRequired = false, "other_profile", true
 	case status.Binding == "current" && hooks.State == hookconfig.BindingOtherProfile:
@@ -174,7 +225,11 @@ func (m Manager) Rebind() (Status, error) {
 		}
 		return Status{}, fmt.Errorf("rebind Codex hooks: %w", err)
 	}
-	return Status{Configured: true, ConfigPath: resolved, Hooks: "active", Binding: "current", RestartRequired: true}, nil
+	trust := inspectTrust(m, context.Background(), hookPath, hookCommand, true)
+	return Status{
+		Configured: true, ConfigPath: resolved, HookPath: hookPath, CheckedProfile: m.checkedProfile(),
+		Hooks: hookState(trust), Binding: "current", RestartRequired: true, Trust: trust,
+	}, nil
 }
 
 func (m Manager) Remove() (Status, error) {
@@ -200,26 +255,57 @@ func (m Manager) Remove() (Status, error) {
 			return Status{}, err
 		}
 	}
-	hookPath, hookCommand, err := m.hookDetails()
+	hookPath, _, err := m.hookDetails()
 	if err != nil {
 		return Status{}, err
 	}
-	if hooks, hookErr := hookconfig.Status(hookPath, hookCommand); hookErr != nil {
-		return Status{}, hookErr
-	} else if hooks {
-		if hookErr = hookconfig.Remove(hookPath, hookCommand); hookErr != nil {
-			return Status{}, hookErr
-		}
-	}
-	return Status{ConfigPath: resolved, Hooks: "not_configured", Binding: "not_configured"}, nil
+	// Hooks live at the user layer and are shared by every registered project,
+	// so removing one project must not disarm the others. RemoveHooks is the
+	// deliberate teardown, called once when no project remains.
+	return Status{ConfigPath: resolved, HookPath: hookPath, Hooks: "not_configured", Binding: "not_configured"}, nil
 }
 
-func (m Manager) hookDetails() (string, string, error) {
-	project, err := filepath.Abs(m.ProjectRoot)
+// RemoveHooks deletes the managed user-level Codex hooks. Call it only after
+// every project binding has been removed; the hooks are shared.
+func (m Manager) RemoveHooks() error {
+	hookPath, hookCommand, err := m.hookDetails()
 	if err != nil {
-		return "", "", err
+		return err
 	}
-	project, err = filepath.EvalSymlinks(project)
+	installed, err := hookconfig.Status(hookPath, hookCommand)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return nil
+	}
+	return hookconfig.Remove(hookPath, hookCommand)
+}
+
+// hookState maps a trust report onto the status vocabulary the desktop app
+// renders. "active" is reserved for hooks Codex will actually run.
+func hookState(trust TrustReport) string {
+	if trust.Satisfied() {
+		return "active"
+	}
+	return "needs_review"
+}
+
+// hookDetails resolves the Codex hook file and the exact managed command.
+//
+// Codex hooks are installed at the user layer (`$CODEX_HOME/hooks.json`) rather
+// than per project. Two reasons, both load-bearing. Trust is recorded against a
+// hook's content hash, so one user-level definition needs a single review for
+// every project a member registers, where per-project files need one review
+// each. And Codex silently ignores a project-level `.codex/hooks.json` when the
+// working directory is a Git worktree (openai/codex#27133), which is exactly
+// where agents run during parallel work; user-level hooks are unaffected.
+//
+// The cost is that the hook fires for every repository the member opens in
+// Codex. `agent-hook` already resolves the event against registered workspaces
+// and exits without effect when the working directory is not one.
+func (m Manager) hookDetails() (string, string, error) {
+	home, err := codexappserver.Home(m.CodexHome)
 	if err != nil {
 		return "", "", err
 	}
@@ -229,7 +315,7 @@ func (m Manager) hookDetails() (string, string, error) {
 	} else {
 		command, err = hookconfig.Command(m.Executable, m.ConfigRoot, "codex")
 	}
-	return filepath.Join(project, ".codex", "hooks.json"), command, err
+	return filepath.Join(home, "hooks.json"), command, err
 }
 
 func (m Manager) resolve() (string, string, error) {

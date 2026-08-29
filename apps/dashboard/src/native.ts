@@ -10,6 +10,9 @@ export interface AdapterState {
   runtimeVerified: boolean;
   restartRequired: boolean;
   reconnectAllowed: boolean;
+  /** Codex installed the hooks but will not run them until the member trusts them. */
+  hooksNeedReview: boolean;
+  reviewGuidance?: string;
 }
 
 export interface OnboardingState {
@@ -23,6 +26,13 @@ export interface OnboardingState {
   apiBaseUrl: string;
   adapters: AdapterState[];
   limitation: string;
+  /**
+   * Whether this Mac's stored credential still authenticates. "revoked" and
+   * "unknown" both arrive from the hosted API as 401 but need different copy;
+   * "uncertain" means the check could not complete and must never be shown as a
+   * reason to erase an enrollment.
+   */
+  credential?: "ok" | "revoked" | "unknown" | "uncertain";
 }
 
 export interface EnrollmentRequest {
@@ -81,6 +91,7 @@ export const nativeOnboarding = {
   reconnectAdapter: (root: string, agent: "codex" | "claude") => call<AdapterState>("ReconnectAdapter", root, agent),
   connectAgentWorktree: (root: string, agent: "codex" | "claude") => call<AdapterState>("ConnectAgentWorktree", root, agent),
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
+  resetEnrollment: () => call<OnboardingState>("ResetEnrollment"),
   sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),
 };
 

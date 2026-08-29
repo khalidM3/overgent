@@ -129,6 +129,36 @@ describe("deterministic judgment", () => {
     expect(sharedBehaviorTerms("rotate browser sessions and credentials", "invalidate login credentials")).toContain("credential");
     expect(sharedBehaviorTerms("tune search ranking", "rename an audit category")).toEqual([]);
   });
+
+  // B20: a redundant-work finding is raised on overall similarity, which two
+  // summaries can reach while sharing no word from the curated vocabulary. When
+  // that happened the explanation collapsed to "these look similar", which
+  // names nothing the receiving agent can act on and is precisely what the
+  // finding is supposed to tell them.
+  it("names a shared behavior the curated vocabulary has no word for", () => {
+    const left = "Build a CSV exporter for the invoice ledger.";
+    const right = "Add an invoice ledger exporter that writes CSV.";
+    const terms = sharedBehaviorTerms(left, right);
+    expect(terms).toContain("exporter");
+    expect(terms).toContain("invoice");
+    const duplicate = candidate({
+      workstreams: [workstream("wrk_a", { summary: left }), workstream("wrk_b", { summary: right })],
+    });
+    const explanation = deterministicJudgment(duplicate).explanation;
+    expect(explanation).toContain("exporter");
+    expect(explanation).toContain("probably redundant");
+  });
+
+  it("prefers the curated vocabulary over incidental shared words", () => {
+    // "credential" is vocabulary; "browser" is merely a word both used.
+    expect(sharedBehaviorTerms("Rotate browser credentials.", "Revoke browser credentials.")[0]).toBe("credential");
+  });
+
+  // Naming words like "update" and "change" would read as specific while
+  // saying nothing, which is the same failure in a different costume.
+  it("refuses to name words too common to identify anything", () => {
+    expect(sharedBehaviorTerms("Update the existing code files.", "Update the existing code files again.")).toEqual([]);
+  });
 });
 
 describe("signals and verification state", () => {

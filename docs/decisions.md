@@ -568,3 +568,152 @@ GA stability or qualify another OS. Release publication remains owner-gated on
 Apple signing/notarization credentials, the offline update-signing key, a
 monitored private security channel, and a two-person second-session beta run.
 Accepted 2026-08-26; supersedes ADR-029's fixture-only production boundary.
+
+## ADR-051: Codex hooks install at the user layer and are trusted through the app-server
+
+Codex refuses to run a non-managed lifecycle hook until the exact hook
+definition has been reviewed and trusted, recording that decision as a content
+hash under `hooks.state."<source>:<event>:<group>:<handler>".trusted_hash` in
+the user's `config.toml`. An untrusted hook is discovered, parsed, listed, and
+then skipped in silence. Writing `hooks.json` therefore proved nothing: a
+member could register a Project, run a full Codex session inside it, and see no
+activity at all, while `setup status` reported `hooks: "active"` because
+`hookconfig.Inspect` only re-read the file Stickguy had just written. This was
+observed end to end: a real Codex Desktop session in a registered repository
+produced zero rows in `agent_observations`, and a synthetic hook invocation of
+the same executable produced one immediately.
+
+Three changes follow. **Codex hooks move to the user layer**
+(`$CODEX_HOME/hooks.json`). Trust is recorded per hook definition, so one
+user-level definition needs a single review for every Project a member ever
+registers, where per-project files need one review each; and Codex silently
+ignores a project-level `.codex/hooks.json` when the working directory is a Git
+worktree (openai/codex#27133), which is exactly where parallel agent work
+happens. The cost is that the hook fires in every repository the member opens,
+which `agent-hook` already absorbs by resolving the event against registered
+workspaces and exiting without effect otherwise. Because the file is now shared,
+`Remove` detaches only the project MCP binding and `RemoveHooks` is the
+deliberate teardown, called once after the last binding is gone.
+
+**Trust is repaired through Codex's own app-server.** `internal/codexappserver`
+starts a private `codex app-server` stdio child, calls `hooks/list` to obtain
+each hook's `key`, `currentHash`, and `trustStatus`, and persists the missing
+trust through `config/batchWrite` as narrow `hooks.state` upserts guarded by the
+user config layer's `expectedVersion`. Stickguy never computes the hash and
+never serializes `config.toml`. Reproducing the hash locally was attempted and
+rejected: it is derived from a normalized identity, not the bytes on disk —
+Codex clamps a SessionEnd timeout before hashing — so a local implementation
+would be wrong in ways that only ever surface as silence, and would break on
+any upstream change. Asking Codex is version-proof by construction. Selection
+is restricted to handlers whose command string matches this profile's exactly,
+so another profile's binding, another tool's hooks, and managed hooks are never
+touched.
+
+**Status tells the truth.** `Hooks` reports `needs_review` rather than `active`
+whenever Codex has not trusted every managed hook, a `TrustReport` carries the
+counts and the member-facing guidance, and the desktop adapter row says the
+binding is connected but observing nothing. A report that resolved zero hooks is
+not satisfied, because that is the silent failure itself.
+
+Degradation is layered and never fails setup: app-server list and write; then
+list for hashes with an append-only `hooks.state` write by Stickguy when
+`config/batchWrite` is unavailable; then `needs_review` plus the review
+instruction. The append fallback only ever adds table headers that do not yet
+exist, because a duplicate table would make the member's whole Codex config
+unparseable. The app-server CLI surface is marked experimental upstream, which
+this ladder exists to survive.
+
+Rejected: **`allow_managed_hooks_only = true`** with a managed
+`/etc/codex/requirements.toml`, which does grant auto-trust but disables every
+user and project hook on the machine, breaking unrelated tools invisibly,
+requires root, and squats on the enterprise policy path an employer may later
+deploy to. **Shipping as a Codex plugin**, which does not avoid review —
+installing a plugin does not trust its hooks. **`--dangerously-bypass-hook-trust`**,
+which is per-invocation and Stickguy does not launch the member's sessions.
+**The `notify` config key**, which is a single global slot, fires only on turn
+completion, and carries no tool-level detail. **Attaching to the running
+app-server** to observe sessions directly, which is closed today because Codex
+Desktop runs its app-server as a private stdio child and the shared daemon
+requires the standalone Codex installer; `thread/inject_items` and `turn/steer`
+make this worth revisiting under a later ADR if that changes.
+
+Writing trust on the member's behalf converts a security review Codex would
+otherwise show into an install-time consent. This is a deliberate product
+decision by the owner, disclosed in the privacy policy, and bounded in code:
+Stickguy only ever upserts trust for hooks whose command is byte-identical to
+the one it installed. Accepted by the owner 2026-08-27.
+
+## ADR-052: Read sets carry provenance; Codex read evidence is vendor-inferred
+
+ADR-048 made a session's read set the trigger for `stale_assumption`. That read
+set is fed by hook events whose tool is a file inspection, and the inspection
+tools Stickguy recognizes are `read`, `glob`, and `grep` — Claude's names. Codex
+inspects source through the shell, and a shell observation carries a command,
+not a list of files. A Codex session therefore contributes no read-set entries
+and can never receive a `stale_assumption` finding. Nothing reports this: the
+detector is simply silent, which is the failure mode the honest-fidelity rule
+exists to prevent. A member could change an exported signature under a Codex
+session that had just read it and be told nothing.
+
+**Read-set entries carry a fidelity, and sessions carry read coverage.** An
+entry is `observed` when a vendor reported the specific file to a file-reading
+tool, `vendor_inferred` when the vendor's own classifier concluded a command
+read a path, and `self_declared` when an MCP client named the path itself.
+`stale_assumption` raised from evidence that is not `observed` is not
+`deterministic`, so the existing `confidenceBand` ladder carries the fidelity
+into the finding without a new field. A session whose vendor cannot supply
+observed reads reports that coverage rather than presenting an empty read set
+as an all-clear. This is required whatever the evidence source turns out to be:
+`begin_work` anticipated paths are already a second source of different fidelity
+mixed silently into the same table.
+
+Codex read coverage is `none`, not `self_declared`, and the distinction matters
+because two independent gaps have to close before it improves. No hook event
+names a file Codex read, and self-declaration does not fill that gap either:
+Codex passes a minimal environment to MCP servers and exports no session
+identity, so declared paths are attributed to the workspace workstream while the
+session's own read set stays empty. Restoring session-routed read evidence for
+Codex therefore needs the observer below, not better prompting.
+
+**Codex read evidence comes from the app-server.** `internal/codexappserver`
+already runs a private version-matched stdio child under ADR-051; this extends
+that client with the read-only `thread/read` method and consumes
+`commandExecution.commandActions`, keeping the `read` variant's `path`.
+`listFiles` and `search` are not read evidence — neither proves a particular
+file's contract was examined.
+
+Measured against the bundled `0.149.0-alpha.4.1` on 2026-08-28. The hook's
+`session_id` **is** the app-server `threadId`: a rollout UUID passed to
+`thread/read` returned that thread with status `notLoaded`, so no discovery
+heuristic is needed and the read does not resume or take ownership. Spawn plus
+`initialize` cost 39 ms and `thread/read` 34 ms, which is why this is a
+spawn-on-demand child and not a supervised long-lived process. In one
+99-command thread, 31 command items classified a `read` and 14 more were
+`unknown` while naming a reader tool, recovering 36 distinct source paths at
+roughly 69% of read-ish commands. Coverage is therefore partial by measurement,
+not merely by OpenAI's best-effort caveat.
+
+The binding cost is payload: that thread read returned 1.6 MiB. Refresh is
+debounced to turn boundaries (`Stop`, `SessionEnd`) rather than run per
+`PostToolUse`, and items are deduplicated by id. Raw `command`, `aggregatedOutput`,
+transcript text, and any path outside the registered repository are projected to
+repository-relative paths and fingerprints immediately and then discarded; they
+are never persisted, logged, or queued for sync. An app-server failure, timeout,
+version skew, or unknown action variant degrades to no read evidence and never
+blocks or delays Codex.
+
+Rejected: **presenting Codex stale-assumption coverage as complete**, which is
+the current silent behavior and the defect itself. **Rollout `parsed_cmd`
+parsing** as the primary contract, which is undocumented, spelled differently
+from the public protocol, and explicitly unstable; it remains available only as
+a feature-detected fallback for a build with no readable app-server surface.
+**An independent shell parser**, which must model quoting, wrappers,
+substitutions, pipelines, and aliases, duplicates a vendor classifier reachable
+through a supported protocol, and would be wrong in both directions. **Offering
+an MCP filesystem read tool** to force reads through an observable path, which
+would alter agent behavior and fail the passive constraint.
+
+This does not claim complete Codex coverage and must not be described as such
+until OpenAI publishes an actual read-observation contract; a `fileRead` item or
+`commandActions` on Bash `PostToolUse` would supersede the source here while
+leaving the provenance model in place. Accepted by the owner 2026-08-28.

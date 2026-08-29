@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  sessionHasGoneQuiet,
+  SESSION_IDLE_TIMEOUT_MS,
+  contractConfidenceBand,
+  readCoverageOf,
+  readFidelityOf,
+  readFidelityRank,
   ValidationError,
   assertCanonicalManifestOrder,
   canActivateManifestRevision,
@@ -322,5 +328,63 @@ describe("hosted deterministic helpers", () => {
     expect(RETENTION_TABLES).toEqual(expect.arrayContaining([
       "activityEvents", "findings", "findingFeedback", "contextDeliveries", "semanticObjects", "semanticEmbeddings",
     ]));
+  });
+});
+
+describe("read-set provenance", () => {
+  // The whole point of ADR-052: a Codex session's reads are not watched, so a
+  // finding built on them must not present itself as deterministic evidence.
+  it("only an observed read produces a deterministic stale_assumption", () => {
+    expect(contractConfidenceBand("observed")).toBe("deterministic");
+    expect(contractConfidenceBand("vendor_inferred")).toBe("high");
+    expect(contractConfidenceBand("self_declared")).toBe("medium");
+  });
+
+  it("ranks sources so the strongest evidence for a path wins", () => {
+    expect(readFidelityRank("observed")).toBeGreaterThan(readFidelityRank("vendor_inferred"));
+    expect(readFidelityRank("vendor_inferred")).toBeGreaterThan(readFidelityRank("self_declared"));
+    expect(readFidelityRank("self_declared")).toBeGreaterThan(readFidelityRank(undefined));
+  });
+
+  it("treats a row written before provenance existed as the observed hook path", () => {
+    expect(readFidelityOf(undefined)).toBe("observed");
+    expect(readFidelityOf("nonsense")).toBe("observed");
+    expect(readFidelityOf("vendor_inferred")).toBe("vendor_inferred");
+  });
+
+  it("ignores an unrecognized coverage rather than inventing one", () => {
+    expect(readCoverageOf("none")).toBe("none");
+    expect(readCoverageOf("self_declared")).toBe("self_declared");
+    expect(readCoverageOf("bogus")).toBeUndefined();
+  });
+});
+
+// Nothing ages a session out on its own: Stop reports idle, SessionEnd reports
+// done, and a session whose SessionEnd never arrives stays live forever while
+// the engine counts everything not done as live.
+describe("quiet session expiry", () => {
+  const now = 1_800_000_000_000;
+  const session = (over: Partial<{ status: string; vendor?: string; updatedAt: number }> = {}) =>
+    ({ status: "idle", vendor: "codex", updatedAt: now - SESSION_IDLE_TIMEOUT_MS - 1, ...over });
+
+  it("ends an agent session that stopped reporting", () => {
+    expect(sessionHasGoneQuiet(session(), now)).toBe(true);
+    expect(sessionHasGoneQuiet(session({ status: "active" }), now)).toBe(true);
+    expect(sessionHasGoneQuiet(session({ status: "blocked" }), now)).toBe(true);
+  });
+
+  it("leaves a session that is merely between turns alone", () => {
+    expect(sessionHasGoneQuiet(session({ updatedAt: now - 60_000 }), now)).toBe(false);
+    expect(sessionHasGoneQuiet(session({ updatedAt: now - SESSION_IDLE_TIMEOUT_MS + 1 }), now)).toBe(false);
+  });
+
+  // Completing these on the member's behalf would be a claim Stickguy cannot
+  // support: they have no turn loop, so silence says nothing about them.
+  it("never completes a workstream that is not an agent session", () => {
+    expect(sessionHasGoneQuiet(session({ vendor: undefined, updatedAt: 0 }), now)).toBe(false);
+  });
+
+  it("leaves an already finished session untouched", () => {
+    expect(sessionHasGoneQuiet(session({ status: "done", updatedAt: 0 }), now)).toBe(false);
   });
 });

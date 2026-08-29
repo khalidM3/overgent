@@ -670,6 +670,8 @@ export interface components {
                     source: string;
                     fidelity: string;
                     contract?: {
+                        /** @enum {unknown} */
+                        readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                         path: string;
                         changedSymbols: {
                             name: string;
@@ -705,6 +707,8 @@ export interface components {
                         source: string;
                         fidelity: string;
                         contract?: {
+                            /** @enum {unknown} */
+                            readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                             path: string;
                             changedSymbols: {
                                 name: string;
@@ -739,6 +743,8 @@ export interface components {
                         state: "stable_wip" | "ready";
                     };
                     contractEvidence: {
+                        /** @enum {unknown} */
+                        readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                         path: string;
                         changedSymbols: {
                             name: string;
@@ -842,6 +848,8 @@ export interface components {
                 source: string;
                 fidelity: string;
                 contract?: {
+                    /** @enum {unknown} */
+                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                     path: string;
                     changedSymbols: {
                         name: string;
@@ -877,6 +885,8 @@ export interface components {
                     source: string;
                     fidelity: string;
                     contract?: {
+                        /** @enum {unknown} */
+                        readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                         path: string;
                         changedSymbols: {
                             name: string;
@@ -911,6 +921,8 @@ export interface components {
                     state: "stable_wip" | "ready";
                 };
                 contractEvidence: {
+                    /** @enum {unknown} */
+                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                     path: string;
                     changedSymbols: {
                         name: string;
@@ -999,6 +1011,10 @@ export interface components {
             tool?: string;
             branch?: string;
             sessionTitle?: string;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            endedAt?: string;
             capabilities: {
                 observeSession: boolean;
                 observeToolActivity: boolean;
@@ -1009,6 +1025,8 @@ export interface components {
                 deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
                 /** @enum {unknown} */
                 requestAttention: "advisory" | "unavailable";
+                /** @enum {unknown} */
+                observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
             };
             subagents: {
                 alias: string;
@@ -1018,12 +1036,24 @@ export interface components {
             activity: {
                 id: string;
                 at: string;
+                /** Format: date-time */
+                occurredAt?: string;
                 kind: string;
                 /** @enum {unknown} */
                 status: "active" | "waiting" | "idle" | "done" | "error";
                 action: string;
                 tool?: string;
                 paths: string[];
+            }[];
+            coordination: {
+                id: string;
+                /** Format: date-time */
+                routedAt: string;
+                /** Format: date-time */
+                acknowledgedAt?: string;
+                summary: string;
+                itemCount: number;
+                trigger: string;
             }[];
         };
         workstream: {
@@ -1048,6 +1078,10 @@ export interface components {
                 tool?: string;
                 branch?: string;
                 sessionTitle?: string;
+                /** Format: date-time */
+                startedAt?: string;
+                /** Format: date-time */
+                endedAt?: string;
                 capabilities: {
                     observeSession: boolean;
                     observeToolActivity: boolean;
@@ -1058,6 +1092,8 @@ export interface components {
                     deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
                     /** @enum {unknown} */
                     requestAttention: "advisory" | "unavailable";
+                    /** @enum {unknown} */
+                    observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
                 };
                 subagents: {
                     alias: string;
@@ -1067,12 +1103,24 @@ export interface components {
                 activity: {
                     id: string;
                     at: string;
+                    /** Format: date-time */
+                    occurredAt?: string;
                     kind: string;
                     /** @enum {unknown} */
                     status: "active" | "waiting" | "idle" | "done" | "error";
                     action: string;
                     tool?: string;
                     paths: string[];
+                }[];
+                coordination: {
+                    id: string;
+                    /** Format: date-time */
+                    routedAt: string;
+                    /** Format: date-time */
+                    acknowledgedAt?: string;
+                    summary: string;
+                    itemCount: number;
+                    trigger: string;
                 }[];
             };
             largeChange?: {
@@ -1157,6 +1205,10 @@ export interface components {
                     tool?: string;
                     branch?: string;
                     sessionTitle?: string;
+                    /** Format: date-time */
+                    startedAt?: string;
+                    /** Format: date-time */
+                    endedAt?: string;
                     capabilities: {
                         observeSession: boolean;
                         observeToolActivity: boolean;
@@ -1167,6 +1219,8 @@ export interface components {
                         deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
                         /** @enum {unknown} */
                         requestAttention: "advisory" | "unavailable";
+                        /** @enum {unknown} */
+                        observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
                     };
                     subagents: {
                         alias: string;
@@ -1176,12 +1230,24 @@ export interface components {
                     activity: {
                         id: string;
                         at: string;
+                        /** Format: date-time */
+                        occurredAt?: string;
                         kind: string;
                         /** @enum {unknown} */
                         status: "active" | "waiting" | "idle" | "done" | "error";
                         action: string;
                         tool?: string;
                         paths: string[];
+                    }[];
+                    coordination: {
+                        id: string;
+                        /** Format: date-time */
+                        routedAt: string;
+                        /** Format: date-time */
+                        acknowledgedAt?: string;
+                        summary: string;
+                        itemCount: number;
+                        trigger: string;
                     }[];
                 };
                 largeChange?: {
@@ -1373,6 +1439,8 @@ export interface components {
             tags?: string[];
         };
         contractEvidence: {
+            /** @enum {unknown} */
+            readFidelity?: "observed" | "vendor_inferred" | "self_declared";
             path: string;
             changedSymbols: {
                 name: string;
@@ -1402,6 +1470,8 @@ export interface components {
             source: string;
             fidelity: string;
             contract?: {
+                /** @enum {unknown} */
+                readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                 path: string;
                 changedSymbols: {
                     name: string;
@@ -1442,6 +1512,8 @@ export interface components {
                 source: string;
                 fidelity: string;
                 contract?: {
+                    /** @enum {unknown} */
+                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                     path: string;
                     changedSymbols: {
                         name: string;
@@ -1477,6 +1549,8 @@ export interface components {
                     source: string;
                     fidelity: string;
                     contract?: {
+                        /** @enum {unknown} */
+                        readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                         path: string;
                         changedSymbols: {
                             name: string;
@@ -1511,6 +1585,8 @@ export interface components {
                     state: "stable_wip" | "ready";
                 };
                 contractEvidence: {
+                    /** @enum {unknown} */
+                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                     path: string;
                     changedSymbols: {
                         name: string;
@@ -2351,6 +2427,10 @@ export interface operations {
                                 tool?: string;
                                 branch?: string;
                                 sessionTitle?: string;
+                                /** Format: date-time */
+                                startedAt?: string;
+                                /** Format: date-time */
+                                endedAt?: string;
                                 capabilities: {
                                     observeSession: boolean;
                                     observeToolActivity: boolean;
@@ -2361,6 +2441,8 @@ export interface operations {
                                     deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
                                     /** @enum {unknown} */
                                     requestAttention: "advisory" | "unavailable";
+                                    /** @enum {unknown} */
+                                    observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
                                 };
                                 subagents: {
                                     alias: string;
@@ -2370,12 +2452,24 @@ export interface operations {
                                 activity: {
                                     id: string;
                                     at: string;
+                                    /** Format: date-time */
+                                    occurredAt?: string;
                                     kind: string;
                                     /** @enum {unknown} */
                                     status: "active" | "waiting" | "idle" | "done" | "error";
                                     action: string;
                                     tool?: string;
                                     paths: string[];
+                                }[];
+                                coordination: {
+                                    id: string;
+                                    /** Format: date-time */
+                                    routedAt: string;
+                                    /** Format: date-time */
+                                    acknowledgedAt?: string;
+                                    summary: string;
+                                    itemCount: number;
+                                    trigger: string;
                                 }[];
                             };
                             largeChange?: {
@@ -2686,6 +2780,8 @@ export interface operations {
                                 source: string;
                                 fidelity: string;
                                 contract?: {
+                                    /** @enum {unknown} */
+                                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                     path: string;
                                     changedSymbols: {
                                         name: string;
@@ -2721,6 +2817,8 @@ export interface operations {
                                     source: string;
                                     fidelity: string;
                                     contract?: {
+                                        /** @enum {unknown} */
+                                        readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                         path: string;
                                         changedSymbols: {
                                             name: string;
@@ -2755,6 +2853,8 @@ export interface operations {
                                     state: "stable_wip" | "ready";
                                 };
                                 contractEvidence: {
+                                    /** @enum {unknown} */
+                                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                     path: string;
                                     changedSymbols: {
                                         name: string;
@@ -3627,6 +3727,8 @@ export interface operations {
                             source: string;
                             fidelity: string;
                             contract?: {
+                                /** @enum {unknown} */
+                                readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                 path: string;
                                 changedSymbols: {
                                     name: string;
@@ -3662,6 +3764,8 @@ export interface operations {
                                 source: string;
                                 fidelity: string;
                                 contract?: {
+                                    /** @enum {unknown} */
+                                    readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                     path: string;
                                     changedSymbols: {
                                         name: string;
@@ -3696,6 +3800,8 @@ export interface operations {
                                 state: "stable_wip" | "ready";
                             };
                             contractEvidence: {
+                                /** @enum {unknown} */
+                                readFidelity?: "observed" | "vendor_inferred" | "self_declared";
                                 path: string;
                                 changedSymbols: {
                                     name: string;

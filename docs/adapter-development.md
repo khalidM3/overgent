@@ -35,7 +35,13 @@ records a real accepted vendor event.
 4. Add fixture tests for success, malformed/unknown input, size limits,
    protected paths, secrets, environment assignments, raw output, timeout,
    duplicate delivery, reconnect rollback, and removal preservation.
-5. Add the vendor to the real executable coordination eval. Document exactly
+5. Establish whether the vendor gates hook execution behind its own consent
+   step, and prove installed configuration actually runs before reporting a
+   configured binding. Codex records per-hook trust and skips an untrusted hook
+   in silence, so file presence is not evidence (ADR-051); status must carry a
+   distinct reviewed/unreviewed state and the adapter must degrade to naming the
+   member-facing review rather than claiming success.
+6. Add the vendor to the real executable coordination eval. Document exactly
    which client version and surfaces were exercised, and label everything else
    unavailable or unverified.
 
@@ -52,7 +58,9 @@ pnpm eval:coordination
 ```
 
 The adapter is beta-ready only when the real client discovers the managed
-configuration, observation reaches durable local state, relevant context is
+configuration, the vendor will actually execute what was installed rather than
+holding it pending an unreviewed-consent state, observation reaches durable
+local state, relevant context is
 delivered once per revision, removal leaves unrelated configuration byte-for-
 byte intact, and Git/MCP/dashboard fallback remains usable when the vendor
 surface is absent.

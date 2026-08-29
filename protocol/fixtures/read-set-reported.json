@@ -18,7 +18,8 @@
       {
         "path": "internal/session/rotate.go",
         "fileContractHashAtRead": "1122334455667788990011223344556677889900112233445566778899001122",
-        "observedAt": "2026-08-26T08:59:00Z"
+        "observedAt": "2026-08-26T08:59:00Z",
+        "fidelity": "observed"
       }
     ]
   }

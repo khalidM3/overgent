@@ -61,6 +61,21 @@ func main() {
 		event.Cancel()
 	})
 
+	// The live Project view is served from the hosted origin, where the native
+	// bridge does not exist, so it cannot register a repository with the local
+	// service. Rather than telling a member to open a terminal, it hands control
+	// back here through the registered scheme and this brings the app forward on
+	// the add-Project screen.
+	app.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
+		target, ok := desktopDeepLinkTarget(event.Context().URL())
+		if !ok {
+			return
+		}
+		window.SetURL(target)
+		window.Show()
+		window.Focus()
+	})
+
 	tray := app.SystemTray.New()
 	tray.SetTemplateIcon(menuBarIcon())
 	menu := app.NewMenu()

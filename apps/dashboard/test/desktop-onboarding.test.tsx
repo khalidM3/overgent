@@ -5,13 +5,38 @@ import { DesktopOnboarding } from "../src/desktop-onboarding";
 import type { NativeOnboarding, OnboardingState } from "../src/native";
 
 const adapters = [
-  { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false },
-  { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false },
+  { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
+  { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
 ];
 const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only." };
 const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
 
+const needsReview: OnboardingState = {
+  ...enrolled,
+  adapters: [
+    { ...adapters[0], configured: true, binding: "current" as const, runtimeVerified: false, hooksNeedReview: true,
+      detail: "Connected, but Codex has not trusted the activity hooks yet, so no session activity can be observed. Open Codex → Settings → Hooks and choose Trust all, or run /hooks in the Codex CLI.",
+      reviewGuidance: "Open Codex → Settings → Hooks and choose Trust all, or run /hooks in the Codex CLI." },
+    { ...adapters[1], configured: true, binding: "current" as const, runtimeVerified: true },
+  ],
+};
+
 describe("desktop onboarding", () => {
+  it("tells the member a Codex binding is inert while its hooks await review", async () => {
+    const api = {
+      state: vi.fn(async () => needsReview),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
+    } as unknown as NativeOnboarding;
+    render(<DesktopOnboarding api={api} />);
+    const connections = await screen.findByLabelText("Agent connections");
+    // An installed-but-untrusted binding must never read as working: that is
+    // the exact failure this state exists to expose.
+    expect(within(connections).getByText(/has not trusted the activity hooks/)).toBeTruthy();
+    expect(within(connections).getByText(/Settings . Hooks/)).toBeTruthy();
+  });
+
   it("creates a Project, opts both detected agents in, and exposes the one-use invite", async () => {
     const user = userEvent.setup();
     let calls = 0;
@@ -20,7 +45,7 @@ describe("desktop onboarding", () => {
       chooseRepository: vi.fn(async () => "/tmp/atlas"),
       createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })),
       createAdditionalProject: vi.fn(),
-      joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     await screen.findByRole("heading", { name: /Connect the Project/ });
@@ -36,7 +61,7 @@ describe("desktop onboarding", () => {
   it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
@@ -54,7 +79,7 @@ describe("desktop onboarding", () => {
     const navigate = vi.fn();
     const api: NativeOnboarding = {
       state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
-      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), sessionDetail: vi.fn(),
+      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} navigate={navigate} />);
@@ -65,7 +90,7 @@ describe("desktop onboarding", () => {
   it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
-      connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     expect(await screen.findByText(/New Codex and Claude Code sessions opened in this repository appear automatically/)).toBeTruthy();
@@ -78,7 +103,7 @@ describe("desktop onboarding", () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
       reconnectAdapter: vi.fn(async () => ({ ...otherProfile.adapters[0], configured: true, binding: "current" as const, reconnectAllowed: false, restartRequired: true })),
-      connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
@@ -94,7 +119,7 @@ describe("desktop onboarding", () => {
   it("keeps a configured adapter pending until a live event verifies it", async () => {
     const pending: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, runtimeVerified: false, restartRequired: true, detail: "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection." } : adapter) };
     const api: NativeOnboarding = {
-      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     expect(await screen.findByText(/Restart the agent, then start a new task/)).toBeTruthy();
@@ -108,7 +133,7 @@ describe("first-run identity", () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => initial),
       chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), sessionDetail: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
     };
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);
     await screen.findByLabelText("Your name");
@@ -122,5 +147,66 @@ describe("first-run identity", () => {
 
     await user.type(name, "Khalid M");
     expect((screen.getByLabelText("Your name") as HTMLInputElement).value).toBe("Khalid M");
+  });
+
+  it("offers an in-app reconnect when an owner revoked this Mac", async () => {
+    const user = userEvent.setup();
+    const reset = vi.fn(async () => initial);
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => ({ ...enrolled, credential: "revoked" as const })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: reset, sessionDetail: vi.fn(),
+    };
+    render(<DesktopOnboarding api={api} />);
+    expect(await screen.findByRole("heading", { name: /access was revoked/ })).toBeTruthy();
+    // The member must be told their code is safe before being asked to confirm.
+    expect(screen.getByText(/repositories and code were not touched/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Reconnect this Mac" }));
+    expect(screen.getByRole("heading", { name: "Reconnect this Mac?" })).toBeTruthy();
+    await user.click(within(screen.getByRole("group", { name: "Confirm reconnect" })).getByRole("button", { name: "Reconnect this Mac" }));
+    expect(reset).toHaveBeenCalled();
+    // Clearing the dead credential returns the member to first-run enrollment.
+    expect(await screen.findByRole("heading", { name: /Connect the Project/ })).toBeTruthy();
+  });
+
+  it("explains an unknown credential differently from a revoked one", async () => {
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => ({ ...enrolled, credential: "unknown" as const })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
+    };
+    render(<DesktopOnboarding api={api} />);
+    expect(await screen.findByRole("heading", { name: /no longer recognised/ })).toBeTruthy();
+    expect(screen.queryByText(/access was revoked/)).toBeNull();
+  });
+
+  it("never offers to erase an enrollment it could not verify", async () => {
+    const reset = vi.fn();
+    const api: NativeOnboarding = {
+      // Offline, timing out, or a server fault - none of which mean locked out.
+      state: vi.fn(async () => ({ ...enrolled, credential: "uncertain" as const })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: reset, sessionDetail: vi.fn(),
+    };
+    render(<DesktopOnboarding api={api} />);
+    expect(await screen.findByRole("heading", { name: /could not confirm this Mac/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reconnect this Mac" })).toBeNull();
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("leaves a healthy enrollment alone", async () => {
+    const api: NativeOnboarding = {
+      state: vi.fn(async () => ({ ...enrolled, credential: "ok" as const })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(),
+    };
+    render(<DesktopOnboarding api={api} />);
+    expect(await screen.findByRole("heading", { name: "atlas" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reconnect this Mac" })).toBeNull();
   });
 });

@@ -1,4 +1,8 @@
-import { CONCEPT_GROUPS, SemanticPolicyError, validateSemanticText } from "./intelligence.js";
+// sharedBehaviorTerms lives beside the concept vocabulary it reads, and is
+// re-exported here because it is part of the judgment surface.
+import { joinTerms, sharedBehaviorTerms, SemanticPolicyError, validateSemanticText } from "./intelligence.js";
+
+export { sharedBehaviorTerms };
 
 /**
  * The judgment layer (ADR-045). Deterministic evidence stays the trigger
@@ -173,23 +177,6 @@ export function contractSignalTracked(signals: readonly string[], trackedSymbols
   return signals.some((signal) => tracked.has(signalSymbol(signal)));
 }
 
-const wordPattern = (word: string) => new RegExp(`\\b${word}[a-z]*\\b`, "i");
-
-/**
- * The behavior words both workstreams actually used, drawn from the versioned
- * public coordination vocabulary. Naming them is what turns "these look
- * similar" into an explanation a receiving agent can act on.
- */
-export function sharedBehaviorTerms(left: string, right: string, limit = 3): string[] {
-  const shared: string[] = [];
-  for (const group of CONCEPT_GROUPS) {
-    for (const word of group) {
-      if (wordPattern(word).test(left) && wordPattern(word).test(right)) shared.push(word);
-    }
-  }
-  return shared.slice(0, Math.max(0, limit));
-}
-
 const VERIFICATION_STATES: Readonly<Record<string, VerificationState>> = {
   passed: "passed", not_run: "unverified", running: "unverified",
   failed: "unverified", unknown: "unverified",
@@ -212,11 +199,6 @@ export function readVerificationState(text: string): VerificationState {
 function bounded(value: string): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length <= MAX_EXPLANATION_CHARS ? normalized : `${normalized.slice(0, MAX_EXPLANATION_CHARS - 1)}…`;
-}
-
-function joinTerms(terms: readonly string[]): string {
-  if (terms.length <= 1) return terms[0] ?? "";
-  return `${terms.slice(0, -1).join(", ")} and ${terms[terms.length - 1]}`;
 }
 
 const WIP_SUFFIX = "The workstream that changed it reported an unverified work-in-progress checkpoint, so treat the new shape as provisional rather than settled.";

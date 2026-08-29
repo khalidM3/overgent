@@ -167,10 +167,22 @@ func shortTestSocket(t *testing.T) string {
 	return filepath.Join(directory, "service.sock")
 }
 
+// isolateCodex points Codex discovery and Codex state at throwaway locations.
+// Codex hooks install at the user layer, and trust repair spawns Codex, so a
+// test that skips this writes into the contributor's real Codex configuration.
+func isolateCodex(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+	return home
+}
+
 func TestDevelopmentAgentSetupIsExplicitAndUsesBuiltExecutable(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("local service currently supports macOS")
 	}
+	isolateCodex(t)
 	for _, agent := range []string{"codex", "claude"} {
 		project, state := t.TempDir(), t.TempDir()
 		if err := run([]string{"--config-root", state, "setup", agent, "--development", "--project-root", project}); err != nil {
@@ -191,6 +203,7 @@ func TestProductionAgentSetupUsesCurrentProfile(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("local service currently supports macOS")
 	}
+	isolateCodex(t)
 	for _, agent := range []string{"codex", "claude"} {
 		state, project := t.TempDir(), t.TempDir()
 		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil {
@@ -235,6 +248,7 @@ func TestRemoveAllAgentBindingsUsesManagedRemoval(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("local service currently supports macOS")
 	}
+	codexHome := isolateCodex(t)
 	state, project := t.TempDir(), t.TempDir()
 	for _, agent := range []string{"codex", "claude"} {
 		if err := run([]string{"--config-root", state, "setup", agent, "--project-root", project}); err != nil {
@@ -251,10 +265,53 @@ func TestRemoveAllAgentBindingsUsesManagedRemoval(t *testing.T) {
 	if err = run([]string{"--config-root", state, "setup", "remove-all"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{filepath.Join(project, ".codex", "config.toml"), filepath.Join(project, ".mcp.json"), filepath.Join(project, ".codex", "hooks.json"), filepath.Join(project, ".claude", "settings.local.json")} {
+	for _, path := range []string{filepath.Join(project, ".codex", "config.toml"), filepath.Join(project, ".mcp.json"), filepath.Join(codexHome, "hooks.json"), filepath.Join(project, ".claude", "settings.local.json")} {
 		contents, readErr := os.ReadFile(path)
 		if readErr == nil && strings.Contains(string(contents), "stickguy") {
 			t.Fatalf("managed binding remained in %s: %s", path, contents)
 		}
+	}
+}
+
+// B5: `create` on a profile that has already enrolled used to mint a second
+// device credential, which would strand the Projects the first one owns, so the
+// only way to add a Project was an undocumented `workspace add`. An enrolled
+// profile now takes the additional-Project path instead.
+func TestCreateReusesAnEnrolledDeviceAndRefusesAConnectedRepository(t *testing.T) {
+	paths, err := config.Resolve(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := enrolledDevice(paths, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.deviceID != "" {
+		t.Fatalf("a profile that never enrolled must take first enrollment: %#v", fresh)
+	}
+
+	connected := t.TempDir()
+	if resolved, resolveErr := filepath.EvalSymlinks(connected); resolveErr == nil {
+		connected = resolved
+	}
+	if err = config.Save(paths, config.Config{
+		Version: 1, APIBaseURL: "https://enrolled.example", DeviceID: "dev_existing",
+		Workspaces: []config.Workspace{{ID: "wsp_a", Root: connected, ProjectID: "prj_a"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The API origin comes from the enrolled configuration, because the extra
+	// Project must be created on the backend that issued the reused credential.
+	state, err := enrolledDevice(paths, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.deviceID != "dev_existing" || state.apiBaseURL != "https://enrolled.example" {
+		t.Fatalf("state=%#v", state)
+	}
+
+	if _, err = enrolledDevice(paths, connected); err == nil {
+		t.Fatal("a repository already connected to a Project must be refused")
 	}
 }

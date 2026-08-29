@@ -15,6 +15,7 @@ import {
   sha256Hex,
   validateEventBatch,
 } from "../src/domain";
+import { activationFailureResponse } from "../src/activation";
 
 const http = httpRouter();
 const JSON_HEADERS = {
@@ -234,7 +235,7 @@ http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: ht
   });
 })) });
 
-http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
+http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAction(async (ctx, request) => withActivationErrors(request, async () => {
   const ticket = await readActivationTicket(request);
   await consumeEdgeRate(ctx, requestRateKey(request, "dashboard-activation"), "dashboard.activation", 20);
   const session = randomHex(32);
@@ -571,6 +572,17 @@ async function withErrors(operation: () => Promise<Response>): Promise<Response>
         retryable: failure.status >= 500,
       },
     }, failure.status);
+  }
+}
+
+async function withActivationErrors(request: Request, operation: () => Promise<Response>): Promise<Response> {
+  try {
+    return await operation();
+  } catch (error) {
+    const failure = classify(error);
+    const hostname = new URL(request.url).hostname;
+    const development = ["127.0.0.1", "::1", "localhost"].includes(hostname);
+    return activationFailureResponse(failure.code, failure.status, development);
   }
 }
 

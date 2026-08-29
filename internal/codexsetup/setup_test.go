@@ -1,12 +1,24 @@
 package codexsetup
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// trustedForTest makes unit tests deterministic and offline. Trust repair
+// spawns a Codex child process, so no test may reach the real implementation.
+func trustedForTest(t *testing.T) {
+	t.Helper()
+	original := inspectTrust
+	inspectTrust = func(_ Manager, _ context.Context, _, _ string, _ bool) TrustReport {
+		return TrustReport{Method: TrustMethodAppServer, Total: 9, Trusted: 9}
+	}
+	t.Cleanup(func() { inspectTrust = original })
+}
 
 func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 	project := t.TempDir()
@@ -19,7 +31,8 @@ func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy"}
+	trustedForTest(t)
+	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy", CodexHome: t.TempDir()}
 	if status, err := manager.Setup(); err != nil || !status.Configured || status.Hooks != "active" {
 		t.Fatal(status, err)
 	}
@@ -54,7 +67,9 @@ func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 	if _, err := manager.Remove(); err != nil {
 		t.Fatal(err)
 	}
-	portable := Manager{ProjectRoot: project, Portable: true}
+	// A different managed command is a different profile, so it gets its own
+	// Codex home; switching profiles in place is Rebind's job, not Setup's.
+	portable := Manager{ProjectRoot: project, Portable: true, CodexHome: t.TempDir()}
 	if _, err := portable.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +92,10 @@ func TestOtherProfileIsExplicitAndRebindPreservesUnrelatedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	executable := "/usr/local/bin/stickguy"
-	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable}
-	newProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "shared"), Executable: executable}
+	codexHome := t.TempDir()
+	trustedForTest(t)
+	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable, CodexHome: codexHome}
+	newProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "shared"), Executable: executable, CodexHome: codexHome}
 	if _, err := oldProfile.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +107,7 @@ func TestOtherProfileIsExplicitAndRebindPreservesUnrelatedConfig(t *testing.T) {
 		t.Fatalf("ordinary setup should not detach another profile: %v", err)
 	}
 	beforeConfig, _ := os.ReadFile(path)
-	hookPath := filepath.Join(project, ".codex", "hooks.json")
+	hookPath := filepath.Join(codexHome, "hooks.json")
 	beforeHooks, _ := os.ReadFile(hookPath)
 	originalRebind := rebindHooks
 	rebindHooks = func(string, string) error { return errors.New("synthetic hook failure") }

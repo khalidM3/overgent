@@ -72,7 +72,7 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: stickguy [--config-root <dir>] create|join|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|diagnostics|scan|update")
+		return errors.New("usage: stickguy [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -99,8 +99,29 @@ func run(args []string) error {
 		if e = createFlags.Parse(rest[1:]); e != nil {
 			return e
 		}
-		service := onboarding.New(*apiBase)
-		result, createErr := service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version})
+		// A profile that has already enrolled has a device identity, and one
+		// per-user service keeps one identity across all of its Projects. Minting
+		// a second credential here would strand the Projects the first one owns,
+		// so an enrolled profile takes the additional-Project path instead of
+		// failing and leaving `workspace add` as the only undocumented way
+		// through. The desktop app has always done this; the CLI now matches it.
+		existing, existingErr := enrolledDevice(paths, *repository)
+		if existingErr != nil {
+			return existingErr
+		}
+		var result onboarding.Result
+		var createErr error
+		if existing.deviceID != "" {
+			token, tokenErr := credential.Get(ctx, existing.deviceID)
+			if tokenErr != nil {
+				return fmt.Errorf("read existing device credential: %w", tokenErr)
+			}
+			service := onboarding.New(existing.apiBaseURL)
+			result, createErr = service.CreateAdditional(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: existing.apiBaseURL, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version}, existing.deviceID, token)
+		} else {
+			service := onboarding.New(*apiBase)
+			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version})
+		}
 		if createErr != nil {
 			return createErr
 		}
@@ -132,6 +153,25 @@ func run(args []string) error {
 			WorkspaceID  string `json:"workspaceId"`
 			WorkstreamID string `json:"workstreamId"`
 		}{result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID})
+	case "reset":
+		// Recovery for a device whose credential the hosted API no longer
+		// accepts - revoked by an owner, or unknown to the deployment. The
+		// desktop app offers the same action; this is the headless path.
+		resetFlags := flag.NewFlagSet("reset", flag.ContinueOnError)
+		force := resetFlags.Bool("force", false, "clear the local enrollment even if the credential could not be verified")
+		if e = resetFlags.Parse(rest[1:]); e != nil {
+			return e
+		}
+		outcome, resetErr := onboarding.New(*apiBase).Reset(ctx, *root, *force)
+		if resetErr != nil {
+			return resetErr
+		}
+		return json.NewEncoder(os.Stdout).Encode(struct {
+			Credential        string `json:"credential"`
+			DeviceID          string `json:"deviceId,omitempty"`
+			ClearedWorkspaces int    `json:"clearedWorkspaces"`
+			CredentialDeleted bool   `json:"credentialDeleted"`
+		}{string(outcome.Status), outcome.DeviceID, outcome.ClearedWorkspaces, outcome.CredentialDeleted})
 	case "dashboard":
 		dashboardFlags := flag.NewFlagSet("dashboard", flag.ContinueOnError)
 		projectID := dashboardFlags.String("project", "", "Project id")
@@ -201,7 +241,7 @@ func run(args []string) error {
 		var status any
 		var setupErr error
 		if selected == "codex" {
-			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development}
+			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development, Version: version}
 			switch rest[1] {
 			case "codex":
 				status, setupErr = manager.Setup()
@@ -636,6 +676,11 @@ func removeAllAgentBindings(configRoot string, paths config.Paths, portable bool
 			return fmt.Errorf("remove managed Claude binding from %s: %w", root, err)
 		}
 	}
+	// Codex hooks live at the user layer and are shared by every project, so
+	// they are torn down once, after the last project binding is gone.
+	if err = (codexsetup.Manager{ConfigRoot: configRoot, Executable: executable, Portable: portable}).RemoveHooks(); err != nil {
+		return fmt.Errorf("remove managed Codex activity hooks: %w", err)
+	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{"removed": true, "workspaceRoots": len(roots)})
 }
 
@@ -676,4 +721,38 @@ func restartInstalledService(ctx context.Context, executable string, paths confi
 		time.Sleep(100 * time.Millisecond)
 	}
 	return errors.New("updated service did not become healthy")
+}
+
+// enrolledState describes an already-enrolled profile. A zero deviceID means
+// this profile has never enrolled and the caller should run first enrollment.
+type enrolledState struct {
+	deviceID   string
+	apiBaseURL string
+}
+
+// enrolledDevice reports the device identity a profile has already enrolled, and
+// refuses a repository that is already connected. The API origin is read from
+// the enrolled configuration rather than the flag, because an additional Project
+// has to be created on the same backend that issued the credential being reused.
+func enrolledDevice(paths config.Paths, repository string) (enrolledState, error) {
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return enrolledState{}, err
+	}
+	if cfg.DeviceID == "" || cfg.APIBaseURL == "" {
+		return enrolledState{}, nil
+	}
+	root, err := filepath.Abs(repository)
+	if err != nil {
+		return enrolledState{}, err
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
+		root = resolved
+	}
+	for _, workspace := range cfg.Workspaces {
+		if workspace.Root == root {
+			return enrolledState{}, errors.New("this repository is already connected to a Project")
+		}
+	}
+	return enrolledState{deviceID: cfg.DeviceID, apiBaseURL: cfg.APIBaseURL}, nil
 }

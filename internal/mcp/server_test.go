@@ -10,11 +10,14 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
+	"github.com/stickguy/stickguy/internal/hookconfig"
 )
 
 func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
@@ -226,4 +229,70 @@ func waitSocket(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("socket did not appear")
+}
+
+// The workstream a lifecycle call is attributed to decides which findings its
+// brief can contain. Activity hooks route findings to a per-session workstream,
+// so an MCP server that reported the workspace workstream could never surface a
+// finding routed to its own session, and its intent landed on a second identity
+// that then collided with itself.
+func TestSessionWorkstreamMatchesTheHookDerivedIdentity(t *testing.T) {
+	const sessionID = "b4f019ed-0c2a-4f0e-9a1d-2f7b4c1d8e55"
+	t.Setenv("CLAUDE_CODE_SESSION_ID", sessionID)
+
+	expected, _, ok := agentactivity.WorkstreamIDFor("claude", sessionID)
+	if !ok {
+		t.Fatal("derivation rejected a valid session id")
+	}
+	if got := sessionWorkstream(); got != expected {
+		t.Fatalf("MCP session workstream = %q, hook-derived = %q", got, expected)
+	}
+	if !strings.HasPrefix(expected, "wrk_agent_") {
+		t.Fatalf("unexpected workstream shape %q", expected)
+	}
+}
+
+// Codex passes a minimal environment to MCP servers and exports no session
+// identity. That must degrade to the workspace workstream rather than guess.
+func TestSessionWorkstreamIsEmptyWithoutAVendorSessionIdentity(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	if got := sessionWorkstream(); got != "" {
+		t.Fatalf("unidentified session produced workstream %q", got)
+	}
+}
+
+// B13: `setup claude` pre-approves Stickguy's own coordination tools so the
+// harness does not spend four approval prompts before any work happens. That
+// list is written where the settings file is managed, not here, so this asserts
+// the two agree — a tool added without pre-approving it fails in CI rather than
+// as an unexplained prompt at a member's keyboard.
+func TestEveryRegisteredToolIsPreApprovedAndNothingElseIs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	serverTransport, clientTransport := sdkmcp.NewInMemoryTransports()
+	serverSession, err := newSDK(&server{}).Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverSession.Close()
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "stickguy-approval", Version: "1"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientSession.Close()
+	listed, err := clientSession.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := make([]string, 0, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		registered = append(registered, "mcp__stickguy__"+tool.Name)
+	}
+	sort.Strings(registered)
+	approved := append([]string{}, hookconfig.StickguyMCPTools...)
+	sort.Strings(approved)
+	if strings.Join(registered, ",") != strings.Join(approved, ",") {
+		t.Fatalf("registered=%v\napproved=%v", registered, approved)
+	}
 }

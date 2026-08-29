@@ -44,6 +44,11 @@ export type HarnessCapabilities = Readonly<{
   pollUpdates: boolean;
   deliverBrief: "mcp_pull" | "native_pull" | "native_push" | "unavailable";
   requestAttention: "advisory" | "unavailable";
+  // The strongest read evidence obtainable for this session (ADR-052). A
+  // session whose reads cannot be observed can never receive a
+  // stale_assumption finding, so this is what stops an empty read set from
+  // being presented as a clean bill of health.
+  observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
 }>;
 
 export const NO_HARNESS_CAPABILITIES: HarnessCapabilities = {
@@ -54,6 +59,7 @@ export const NO_HARNESS_CAPABILITIES: HarnessCapabilities = {
   pollUpdates: false,
   deliverBrief: "unavailable",
   requestAttention: "unavailable",
+  observeReadSet: "none",
 };
 
 export const PROJECT_HOOK_MCP_CAPABILITIES: HarnessCapabilities = {
@@ -64,6 +70,10 @@ export const PROJECT_HOOK_MCP_CAPABILITIES: HarnessCapabilities = {
   pollUpdates: true,
   deliverBrief: "mcp_pull",
   requestAttention: "unavailable",
+  // Overridden per session from what the device reported; this default is the
+  // conservative one, because claiming coverage that does not exist is the
+  // failure this field exists to prevent.
+  observeReadSet: "none",
 };
 
 export function canDeliverRelevantUpdate(capabilities: HarnessCapabilities): boolean {

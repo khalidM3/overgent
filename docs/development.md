@@ -108,8 +108,58 @@ pnpm dev:agents -- \
 
 The command verifies both roots share one Git common directory, hot-registers
 missing roots, and installs that root's managed MCP plus passive activity hooks.
-Review `.codex/config.toml`, `.codex/hooks.json`, `.mcp.json`, and
-`.claude/settings.local.json` like any other local Project configuration.
+Review `.codex/config.toml`, `.mcp.json`, `.claude/settings.local.json`, and
+`$CODEX_HOME/hooks.json` like any other local Project configuration. Codex
+hooks are installed once at the user layer rather than per project (ADR-051),
+so the same file serves every registered root.
+
+Codex will not run a hook it has not trusted, and it skips an untrusted hook
+silently. `setup codex` asks Codex to record that trust through its app-server;
+when that is unavailable the binding reports `hooks: "needs_review"` instead of
+`"active"`, and the desktop adapter row says so. Confirm the state before
+concluding that observation is broken:
+
+```bash
+./bin/stickguy setup status --agent codex --development --project-root /absolute/path/to/worktree
+```
+
+Pass `--development` (or the `--config-root` you installed with). Without either,
+the check is made against the *portable* binding a released install uses — the
+bare `stickguy` on `PATH` with no profile — so a development binding, which names
+an explicit executable and config root, is correctly reported as belonging to a
+different profile. The reply says which profile it compared against in
+`checkedProfile`, and which one is actually bound in `previousProfile`; seeing
+your own profile named there means the flag is missing, not that something is
+wrong with the install.
+
+A `needs_review` result is cleared by opening Codex → Settings → Hooks and
+choosing Trust all, or by running `/hooks` in the Codex CLI. Trust is recorded
+against the hook definition, so changing the Stickguy executable path or config
+root re-arms the review.
+
+## More than one Project on one profile
+
+One per-user service keeps one device identity across every Project it owns, so
+`create` on a profile that has already enrolled reuses that identity and creates
+an additional Project rather than minting a second credential and stranding the
+first one's Projects:
+
+```bash
+./bin/stickguy create --root /absolute/path/to/second-repository --label "Second Project"
+```
+
+A repository that is already connected is refused rather than connected twice.
+
+To add another *local root* to a Project that already exists — two linked
+worktrees of the same repository, for example — register the root instead of
+creating a Project:
+
+```bash
+./bin/stickguy workspace add --development --root /absolute/path/to/worktree --project prj_...
+```
+
+`workspace list` prints the registered roots with the IDs the other commands
+take. This is the verb `pnpm dev:agents` uses underneath.
 
 MCP `begin_work` and `check_coordination` calls add richer intent and context but
 are no longer required for session presence or path attribution. Manual intent

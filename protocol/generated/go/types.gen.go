@@ -143,8 +143,9 @@ type GetContextItem200JSONResponseBody1 struct {
 				NewSignature string `json:"newSignature"`
 				OldSignature string `json:"oldSignature"`
 			} `json:"changedSymbols"`
-			Path   string    `json:"path"`
-			ReadAt time.Time `json:"readAt"`
+			Path         string      `json:"path"`
+			ReadAt       time.Time   `json:"readAt"`
+			ReadFidelity interface{} `json:"readFidelity,omitempty"`
 		} `json:"contract,omitempty"`
 		Dependency *struct {
 			Claim       string `json:"claim"`
@@ -316,8 +317,9 @@ type GetProjectChanges200JSONResponseBodyItems1 struct {
 				NewSignature string `json:"newSignature"`
 				OldSignature string `json:"oldSignature"`
 			} `json:"changedSymbols"`
-			Path   string    `json:"path"`
-			ReadAt time.Time `json:"readAt"`
+			Path         string      `json:"path"`
+			ReadAt       time.Time   `json:"readAt"`
+			ReadFidelity interface{} `json:"readFidelity,omitempty"`
 		} `json:"contract,omitempty"`
 		Dependency *struct {
 			Claim       string `json:"claim"`

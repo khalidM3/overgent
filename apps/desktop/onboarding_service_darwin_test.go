@@ -39,7 +39,17 @@ func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
 	}
 }
 
+// isolateCodex redirects Codex state and Codex discovery. Codex hooks install
+// at the user layer and trust repair spawns Codex, so a test without this
+// writes into the contributor's real Codex configuration.
+func isolateCodex(t *testing.T) {
+	t.Helper()
+	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+}
+
 func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
+	isolateCodex(t)
 	sharedRoot, oldRoot, repository := t.TempDir(), t.TempDir(), t.TempDir()
 	repository, _ = filepath.EvalSymlinks(repository)
 	paths, err := config.Resolve(sharedRoot)
@@ -80,6 +90,7 @@ func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
 }
 
 func TestOnboardingRequiresLiveEventBeforeAdapterReady(t *testing.T) {
+	isolateCodex(t)
 	root, repository := t.TempDir(), t.TempDir()
 	repository, _ = filepath.EvalSymlinks(repository)
 	paths, err := config.Resolve(root)

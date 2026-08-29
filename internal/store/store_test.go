@@ -298,3 +298,103 @@ func assertEnvelopeSchema(t *testing.T, events []QueueEvent) {
 		}
 	}
 }
+
+// A path can be reported by sources of different strength: anticipated at
+// begin_work, then actually observed. The read set must keep the strongest
+// evidence, and must treat an upgrade as worth republishing because it can
+// raise the confidence band of a finding already derived from that path
+// (ADR-052).
+func TestStrongerReadEvidenceWinsAndAWeakerReportCannotDowngradeIt(t *testing.T) {
+	ctx := context.Background()
+	state, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	const workspace, session, path = "wsp_a", "wrk_agent_a", "internal/session/rotate.go"
+	const hash = "1122334455667788990011223344556677889900112233445566778899001122"
+	entry := func(fidelity string) []ReadSetEntry {
+		return []ReadSetEntry{{Path: path, FileContractHashAtRead: hash, ObservedAt: "2026-08-28T09:00:00Z", Fidelity: fidelity}}
+	}
+
+	changed, err := state.ChangedReadSet(ctx, workspace, session, entry(ReadFidelitySelfDeclared))
+	if err != nil || len(changed) != 1 || changed[0].Fidelity != ReadFidelitySelfDeclared {
+		t.Fatalf("first declaration: changed=%#v err=%v", changed, err)
+	}
+
+	// Observing the same unchanged path is an upgrade, not a duplicate.
+	changed, err = state.ChangedReadSet(ctx, workspace, session, entry(ReadFidelityObserved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0].Fidelity != ReadFidelityObserved {
+		t.Fatalf("an upgrade to observed was not republished: changed=%#v", changed)
+	}
+
+	// A later weaker report must not erase the observation.
+	changed, err = state.ChangedReadSet(ctx, workspace, session, entry(ReadFidelitySelfDeclared))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("a weaker later report republished: changed=%#v", changed)
+	}
+	var stored string
+	if err = state.db.QueryRowContext(ctx, `SELECT fidelity FROM session_read_sets WHERE workspace_id=? AND session_workstream_id=? AND path=?`, workspace, session, path).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != ReadFidelityObserved {
+		t.Fatalf("stored fidelity downgraded to %q", stored)
+	}
+}
+
+// B19: the CLI, the service, and the tests all open the same database file. A
+// second writer arriving during a held transaction got SQLITE_BUSY immediately,
+// which surfaced as a random CI failure and, in production, as a lost
+// observation rather than a delayed one.
+func TestASecondWriterWaitsInsteadOfFailingBusy(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	first, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	// Hold a write transaction open on the first handle.
+	tx, err := first.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO projects(id) VALUES('prj_holder')`); err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		_ = tx.Commit()
+		close(released)
+	}()
+
+	// The second writer must wait for the lock rather than be refused.
+	start := time.Now()
+	if _, err = second.db.ExecContext(ctx, `INSERT INTO projects(id) VALUES('prj_waiter')`); err != nil {
+		t.Fatalf("second writer was refused instead of waiting: %v", err)
+	}
+	<-released
+	if elapsed := time.Since(start); elapsed < 100*time.Millisecond {
+		t.Fatalf("second writer did not actually contend for the lock (%s)", elapsed)
+	}
+	var count int
+	if err = second.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("both writes should have landed, got %d", count)
+	}
+}

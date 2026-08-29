@@ -126,7 +126,12 @@ func repositoryRelative(root, candidate string) (string, bool) {
 // that are new or whose hash moved. The hash is read from disk so it describes
 // what the session actually saw, falling back to the last recorded fingerprint
 // when the file is no longer readable.
-func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace, sessionWorkstreamID string, candidates []string) {
+//
+// fidelity states how the caller learned of these paths (ADR-052). Sources of
+// different strength share this table, so an entry that cannot be attributed to
+// a direct file-read observation must say so rather than borrowing the
+// authority of one.
+func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace, sessionWorkstreamID string, candidates []string, fidelity string, limit int) {
 	if sessionWorkstreamID == "" {
 		return
 	}
@@ -138,7 +143,7 @@ func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace
 		if !ok || !contract.Fingerprintable(path) {
 			continue
 		}
-		if len(entries) >= readPathsPerEvent {
+		if len(entries) >= limit {
 			break
 		}
 		hash := ""
@@ -151,7 +156,7 @@ func (s *Service) publishReadSet(ctx context.Context, workspace config.Workspace
 		if hash == "" {
 			continue
 		}
-		entries = append(entries, store.ReadSetEntry{Path: path, FileContractHashAtRead: hash, ObservedAt: observedAt})
+		entries = append(entries, store.ReadSetEntry{Path: path, FileContractHashAtRead: hash, ObservedAt: observedAt, Fidelity: fidelity})
 	}
 	// A read makes a path coordination-relevant. Manifests carry only changed
 	// paths, so an unchanged file a session depends on would otherwise have no

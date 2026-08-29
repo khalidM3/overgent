@@ -2,7 +2,7 @@
 
 Status: canonical UI specification for the dashboard and desktop shell
 Owner: Khalid
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 This document is binding for anyone — human or agent — building UI in
 `apps/dashboard` or `apps/desktop`. The implementation lives in
@@ -53,15 +53,27 @@ Filled backgrounds are allowed only for:
 Stacks of bordered, rounded, background-filled cards are the single most
 recognisable signature of generated UI. Do not add them.
 
-### Rule 2 — Colour is status, and there is one colour
+### Rule 2 — Colour is status, and there are exactly two colours
 
-`--alert` is the entire chromatic palette. It marks work converging on you and
-nothing else: the warning glyph, the finding's headline sentence, the
-deterministic evidence row, the count beside "Converging on you", and the small
-warning glyph on an implicated session row.
+Colour never decorates, never fills a background, and never becomes a badge. It
+marks a fact, in text or in a glyph, and there are two facts worth marking.
 
-There is no success green, no info blue, no severity rainbow. Presence, liveness
-and selection are carried by type instead:
+**`--alert` — this is converging on you, or it is destructive.** The warning
+glyph, the finding's headline sentence, the deterministic evidence row, the count
+beside "Converging on you", the warning glyph on an implicated session row, and
+the heading of a destructive settings section.
+
+**`--live` — this is true right now.** The repository path an agent is inside at
+this second on a session row, an adapter that has been verified by a real session
+event, the ready mark on a connection line, and a change that has just been
+saved. It is the answer to "is this happening", nothing else.
+
+The test for adding colour is whether removing it loses a fact. A total, a
+category, a name, or a heading loses nothing, so none of those take colour: the
+file count beside a live path stays neutral while the path itself does not.
+
+There is still no info blue and no severity rainbow. Presence and selection are
+carried by type instead:
 
 | State | How it reads |
 |---|---|
@@ -71,8 +83,9 @@ and selection are carried by type instead:
 | Selected session | title at `--ink` weight 650, chevron visible |
 | Unselected session | title at `--ink-2` weight 500, chevron hidden |
 
-On a healthy screen, the number of chromatic pixels is zero. That is what makes
-one orange sentence impossible to miss.
+On a healthy screen the only chromatic pixels are the paths agents are inside
+right now — a handful of small mono words. That is what keeps one orange sentence
+impossible to miss.
 
 ### Rule 3 — Live work is a moving clock and moving text, never an indicator light
 
@@ -119,7 +132,8 @@ media or `[data-theme]` block** — it will not apply in the un-stamped state.
 | `--ink` | `#0e0e0e` | `#f5f5f5` | Primary text |
 | `--ink-2` | `#5e5e5a` | `#a3a39f` | Secondary text, body copy |
 | `--ink-3` | `#98988f` | `#6c6c69` | Metadata, mono facts, icons at rest |
-| `--alert` | `#c43d14` | `#ff7a4d` | Converging work. Nothing else. |
+| `--alert` | `#c43d14` | `#ff7a4d` | Converging work, and destructive actions. |
+| `--live` | `#1c6b40` | `#5fcf93` | A fact that is true right now. Nothing else. |
 | `--solid` / `--onsolid` | `#0e0e0e` / `#fff` | `#fff` / `#0a0a0a` | Primary button, brand mark |
 
 Neutrals are warm, not cold slate. This is deliberate: cold grey reads as an
@@ -148,16 +162,26 @@ Sizes, and there are only these:
 
 | px | Weight | Use |
 |---|---|---|
-| 25 | 700, `-0.03em` | Project name |
+| 25 | 700, `-0.03em` | Project name, screen title |
 | 15.5 | 650 | Inspector title, finding headline |
 | 14.5 | 500 / 650 | Session row title (unselected / selected) |
 | 13.5 | 500–600 | Body, nav, intents, controls |
 | 13 | 400 | Bullets, secondary copy |
-| 12 | 700, `0.07em`, uppercase | Block headings (`Converging on you`) |
+| 16 | 700, `-0.02em` | Section headings (`Converging on you`, `Devices & security`) |
 | 11–11.5 | 400–500 | All monospace metadata |
 
 Do not introduce a size between these. The previous stylesheet had ten sizes
 below `1rem` and the fuzz was the main reason it read as undesigned.
+
+**Section headings are sentence case at full ink.** They were 12px grey capitals
+with `0.07em` tracking, which is the one place the type scale actively fought the
+layout: uppercase shrinks the x-height and tracking pulls the word apart, so the
+label that is supposed to separate two blocks of content ended up quieter than
+the content itself. A heading is the spine of the column and reads like one —
+16px/700 at `--ink`, sentence case, no tracking. The same treatment covers the
+workroom block heads, screen section titles, and the command palette's groups.
+Uppercase survives only on the `.eyebrow` line above an `h1` in the centred state
+cards, where it labels the page rather than dividing it.
 
 Fonts are named with system fallbacks and **not loaded from a CDN**. A dashboard
 that phones a font host would leak member IPs to a third party, which
@@ -183,6 +207,12 @@ its own height and its own header. This is the shape people recognise.
 
 The inspector is **wider than the sidebar**, because the sidebar is navigation
 and the inspector is where the reading happens.
+
+A **screen** — Settings, People, Add a Project — takes the main and inspector
+columns together (`.workroom-shell.screen-open`) and keeps the sidebar, so the
+member is never stranded on a surface with no way out except a close button. It
+reuses the workroom's shape exactly: its own toolbar, its own scroll, one 680px
+column, an `h1` at 25px.
 
 `grid-template-rows: minmax(0, 1fr)` plus `min-height: 0` on each panel is load
 bearing: without it the grid row sizes to its tallest content and the panels
@@ -257,20 +287,135 @@ heading carries the click target and the accessible name.
 
 ### Inspector
 
-Session sections, in order: **Intent** (with reported status), **Activity**
-(phases; the newest is `.now` and shimmers when live, older are `.done`),
-**Large change**, **Files this session** (the touched file is `.hot`),
-**Subagents**, **How we know**, **Session** (the classifier-passing transcript).
+Session detail opens directly into one chronological live feed. A compact
+header identifies the task, member, vendor, and branch; session aliases belong
+in technical details. The hairline strip beneath the header says what an active
+or waiting agent is doing now; it disappears when the session completes. A
+completed session says **Complete** in the header and ends with one **Session
+ended** boundary in the feed. User and assistant messages, bounded tool
+activity, session start/end, permission waits, parallel-agent lifecycle, and
+coordination delivery share one stream in timestamp order. Consecutive tool
+calls coalesce into one row while retaining every tool name. Thinking is
+collapsed by default. CommonMark/GFM renders structurally; raw HTML and remote
+images never render. There are no reading-mode tabs between the member and the
+session.
 
-"How we know" renders for every workstream, not only agent-backed ones — a
-Git-observed teammate has provenance too. It shows `fidelity`, `branch`,
-`paths`, `briefs`, and `attention`, drawn from `HarnessCapabilities`. That last
-row is the honest answer to "why didn't it interrupt my agent?" and must not be
-dropped.
+Context delivery is shown honestly. A delivered brief item reads
+**Coordination routed** with a route glyph and the bounded reason. A later
+acknowledgement reads **Agent considered coordination**. Never call either
+event "steered," "corrected," or "followed": acknowledgement proves
+consideration, not compliance, behavioral adjustment, or correctness. On the
+viewer's own session, the routed event may use `--alert` because it is work
+converging on them; the acknowledgement and every teammate event stay neutral.
+
+Technical provenance is supporting detail, not permanent navigation. Fidelity,
+safe-path coverage, brief delivery, attention behavior, large-change scope, and
+the file inventory live behind an **info** control at the top-right of the
+session header. It opens an anchored, dismissible Session details popover
+without replacing or filtering the feed. Combine related capabilities into
+plain-language Source and Coordination rows instead of repeating each wire
+value. Show the branch only in the header and keep files last. The info control
+and popover render for every workstream, including Git-observed work without an
+agent. Use an info glyph, not a settings gear: this surface explains provenance
+and does not configure the external agent.
+
+Codex and Claude Code use their official product marks. Render them in neutral
+ink (including a grayscale Codex app icon) so vendor branding never introduces
+a second status colour or competes with `--alert`.
+
+Reported subagents appear as compact inline parallel-agent entries in the same
+feed, and only when they exist. The feed describes their role and state in human
+terms; machine aliases live in Session details. Separate subagent conversation
+output must not be invented; add it inline only when an adapter actually
+exposes it.
 
 A finding and its sync card are **one object at two ages**. The conversation and
 the decision live in the collision inspector under "Work it out"; there is no
 separate resolve tab.
+
+### Screens, and the one dialog
+
+**A modal is for a decision that must be finished before returning. Nothing in
+the Project lifecycle is one, so none of them are modals.** Settings, People and
+Add a Project are screens: they replace the main and inspector columns, keep the
+sidebar, and are entered and left like any other place in the app. A modal over a
+workroom you can still see, holding a form you might want to leave and come back
+to, was always the wrong container.
+
+`Screen` in [`screen.tsx`](../apps/dashboard/src/screen.tsx) is the shared shell:
+a back control that **names where back goes**, the `h1`, an optional lede, and
+`ScreenSection` for each group. It carries `aria-labelledby` on the `<main>`, so
+the region still answers to "Settings" the way the dialog did. Escape still goes
+back, because the dialogs these replaced closed that way.
+
+Screens are a stack, not a flag each. People is reachable from the toolbar *and*
+from inside Settings; entered from the toolbar it is top level and back returns
+to the Project, entered from Settings it stacks and back returns to Settings.
+Anything less makes the back control lie.
+
+- **`NewProjectScreen`** — enrollment runs through the native bridge, which only
+  exists inside the desktop shell. **While the bridge is being probed the screen
+  says so.** Rendering the form during the probe and swapping it for the hand-off
+  a moment later meant a member could start filling in a form that vanished under
+  them and be told to open the app they were already looking at — the live
+  workroom is served from the hosted origin *inside* that same desktop window.
+  When the bridge is genuinely out of reach the control reads **"Continue in the
+  Stickguy app"**, not "Open Stickguy": it continues a task rather than
+  announcing that the app is relaunching itself. The desktop shell's deep-link
+  route lands on this same component, so the origin swap reads as one screen
+  carrying on. `stickguy create` stays as the fallback for a machine where the
+  scheme is unregistered.
+- **`PeopleScreen`** — members and invites. This is the only implementation;
+  Settings links to it rather than carrying a second copy of the same controls.
+  Adding a teammate should never require hunting through Settings.
+- **`SettingsScreen`** — identity, appearance, devices, privacy, export, and
+  destructive Project actions. The destructive section is last, separated by a
+  hairline rather than a tinted panel, and its heading takes `--alert`. Deleting
+  or leaving calls `onRemoved` so the shell drops the Project and moves to the
+  next one. Queuing the request and leaving the member inside a Project they no
+  longer belong to is the failure mode this exists to prevent.
+
+**The command palette is the only dialog left**, because it genuinely is modal:
+it is a transient overlay you dismiss. It closes three ways — Escape, a backdrop
+click, and a visible control. Its `esc` label is a real `<button>` for exactly
+that reason; a keycap that looks pressable and is not was a bug, not a
+decoration.
+
+### Failure states that the member can act on
+
+A failure the member could fix must never surface as a raw error string. The
+rule: **name the cause, say what is safe, offer the one action that recovers.**
+
+The worked example is a rejected device credential. The hosted API returns HTTP
+401 for two different situations, and they need different copy:
+
+| Code | Means | Recovery |
+|---|---|---|
+| `credential_revoked` | An owner removed this device | Needs a fresh invite from an owner |
+| `unauthorized` | The deployment has no record of the credential | Re-enroll from the app |
+
+`hosted.ClassifyCredentialError` maps both onto a `CredentialStatus`, which
+`OnboardingService.State()` reports as `state.credential` so the desktop shell
+shows the recovery screen **on open**, not only after an action fails.
+
+Three rules this establishes for any similar state:
+
+1. **Never offer a destructive recovery for a failure you could not verify.**
+   `uncertain` (offline, timeout, server fault) gets its own screen with a retry
+   and no reset button. `ResetEnrollment` also re-checks server-side and refuses
+   unless the credential is genuinely rejected - being offline is not being
+   locked out, and erasing a working enrollment is unrecoverable.
+2. **Say what is safe before asking for confirmation.** The screen states that
+   repositories and code are untouched, and the confirm step lists what is
+   removed, what is kept, and what happens next.
+3. **The recovery is an in-app action.** If the only way out is a terminal
+   command, it is not a solution - most members will never run one.
+
+The check and the safety gate live in `internal/onboarding`
+(`Service.CredentialState` and `Service.Reset`), shared by the desktop app's
+**Reconnect this Mac** and by `stickguy reset` for headless and support use.
+`stickguy reset --force` skips the gate for an operator who has already
+established the enrollment is dead; nothing in the UI can reach that flag.
 
 ### Buttons
 
@@ -307,17 +452,31 @@ not "Create sync card".
 4. **Narrow viewports.** The shell has `min-width: 1240px` and scrolls
    horizontally below that. A collapsed-inspector breakpoint exists in CSS
    (`.no-inspector`) but is not yet wired to a control.
-5. **Creating a Project from the dashboard.** There is no service endpoint for
-   it — creation is `stickguy create` in the CLI or the desktop app. The sidebar
-   "New project" row therefore opens the command palette rather than pretending
-   to create one. Wire it to a real flow, or drop the row, once an endpoint
-   exists. Never leave a control that looks actionable and is not: the toolbar
-   overflow button was removed for exactly this reason.
+5. **Cross-Project switching in one browser session.** The sidebar opens the
+   native Project-creation screen and reuses the enrolled device plus the one
+   running local service. A hosted browser session remains scoped to the Project
+   that minted it, so opening the newly created Project performs a fresh
+   one-time native activation rather than widening the current cookie — which is
+   why "Open Project" still passes through an activation confirmation. The
+   remaining seam is that the hosted workroom cannot reach the local service at
+   all, so adding a Project from it is a hand-off to the desktop shell rather
+   than something that happens in place. Closing that would mean either exposing
+   a narrow authenticated loopback endpoint to the hosted origin, or keeping the
+   desktop window on its own origin and embedding the Project view, and neither
+   has been designed yet.
+6. **Desktop title bar.** `apps/desktop/main_darwin.go` uses
+   `MacTitleBarDefault`, which guarantees the macOS traffic lights cannot
+   overlap the sidebar brand mark. The frameless alternative
+   (`MacTitleBarHiddenInset` plus reserved space and a drag region at the top of
+   the sidebar) would suit the floor-to-ceiling panels better, but it needs a
+   desktop build to verify and has not been attempted.
 
 ## 9. Checklist before adding UI
 
 - [ ] No new filled card, tinted panel, or coloured badge.
-- [ ] No new colour; status still means `--alert` and only `--alert`.
+- [ ] No new colour; status still means `--alert` or `--live` and nothing else,
+      and removing the colour would lose a fact.
+- [ ] Section headings are sentence case at `--ink`, never grey capitals.
 - [ ] No pulsing dot, spinner, or indicator light for "running".
 - [ ] Every duration goes through `formatElapsed`.
 - [ ] Machine facts are monospace; human statements are sans.
@@ -326,3 +485,9 @@ not "Create sync card".
 - [ ] Motion is behind `prefers-reduced-motion` and is the only thing moving.
 - [ ] Provenance and confidence are still visible; nothing reads as more certain
       than the evidence supports.
+- [ ] A new surface is a screen unless it is genuinely modal, its back control
+      names where back goes, and a destructive action tells the shell what
+      changed.
+- [ ] Any failure the member could fix names its cause, says what is safe, and
+      offers an in-app action - never a terminal command, and never a
+      destructive recovery for a failure that could not be verified.

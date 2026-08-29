@@ -140,6 +140,8 @@ export default defineSchema({
     toolName: v.optional(v.string()),
     branch: v.optional(v.string()),
     sessionTitle: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+    endedAt: v.optional(v.number()),
     safePaths: v.optional(v.array(v.string())),
     waitingOn: v.optional(v.array(v.string())),
     latestCheckpointPassed: v.optional(v.boolean()),
@@ -147,11 +149,18 @@ export default defineSchema({
     // What this workstream last said about verification of its own work
     // (ADR-045). Absent until it reports a checkpoint that says.
     verificationState: v.optional(v.string()),
+    // The strongest read evidence available for this session's vendor
+    // (ADR-052). Codex inspects source through the shell, so nothing observes
+    // its reads and an empty read set is a coverage gap, not an all-clear.
+    readCoverage: v.optional(v.union(v.literal("observed"), v.literal("vendor_inferred"), v.literal("self_declared"), v.literal("none"))),
     updatedAt: v.number(),
   })
     .index("by_public_id", ["publicId"])
     .index("by_scope", ["scopeKey"])
     .index("by_member", ["memberId"])
+    // Lets the retention sweep find sessions that went quiet without ever
+    // reporting SessionEnd, without scanning every workstream in the project.
+    .index("by_status_updated", ["status", "updatedAt"])
     .index("by_project", ["projectId"]),
 
   changeManifests: defineTable({
@@ -246,6 +255,9 @@ export default defineSchema({
     path: v.string(),
     fileContractHashAtRead: v.string(),
     readAt: v.string(),
+    // How this read was learned of (ADR-052). Absent on rows written before
+    // provenance existed, which came from the observed hook path.
+    fidelity: v.optional(v.union(v.literal("observed"), v.literal("vendor_inferred"), v.literal("self_declared"))),
     updatedAt: v.number(),
     expiresAt: v.number(),
   })
