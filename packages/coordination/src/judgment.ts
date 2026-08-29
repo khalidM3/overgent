@@ -57,7 +57,55 @@ export type JudgmentWorkstreamState = Readonly<{
   reportedChange: boolean;
   verification: VerificationState;
   role?: "changed" | "read" | "peer";
+  /**
+   * The Git branch this workstream is working on, when one was observed.
+   *
+   * A branch name is coordination metadata, never repository content. It is
+   * absent for a detached HEAD, for a workstream with no agent session, and
+   * whenever the worktree read failed - and absence is treated as unknown
+   * rather than as agreement.
+   */
+  branch?: string;
 }>;
+
+/**
+ * How the branches of a candidate's workstreams relate.
+ *
+ * `divergent` is the expensive case and the reason branch is read at all.
+ * Work on one branch is invisible to work on another until someone merges, so
+ * nothing outside Stickguy will report the overlap in the meantime. `shared`
+ * means Git itself will surface the same overlap shortly, at the next pull,
+ * push, or write into a shared worktree. `unknown` covers a missing branch on
+ * either side and must behave exactly like no evidence at all.
+ */
+export type BranchRelation = "shared" | "divergent" | "unknown";
+
+export function branchRelation(workstreams: readonly JudgmentWorkstreamState[]): BranchRelation {
+  const branches = workstreams.map((workstream) => workstream.branch?.trim()).filter((branch): branch is string => Boolean(branch));
+  if (branches.length < 2 || branches.length !== workstreams.length) return "unknown";
+  return new Set(branches).size === 1 ? "shared" : "divergent";
+}
+
+/**
+ * Whether a workstream describes work it intends to keep.
+ *
+ * A spike, a throwaway experiment, or a scratch reproduction collides with
+ * other work in exactly the way a real change does, and reporting it with the
+ * same weight spends the interrupt budget on code nobody will merge. This
+ * reads the workstream's own words rather than asking for a new switch,
+ * because a member who has already written "throwaway spike" in their intent
+ * has said the useful thing once.
+ *
+ * Only an explicit statement counts. Silence stays `standard`, so an
+ * unlabelled workstream is never quietly downgraded.
+ */
+export type WorkIntentClass = "exploratory" | "standard";
+
+const EXPLORATORY_LANGUAGE = /\b(?:spike|throwaway|throw[- ]away|scratch|sandbox|experiment(?:al|ing)?|proof[- ]of[- ]concept|poc|prototyp(?:e|ing)|just (?:testing|trying)|dry[- ]run)\b/i;
+
+export function readWorkIntentClass(text: string): WorkIntentClass {
+  return EXPLORATORY_LANGUAGE.test(text) ? "exploratory" : "standard";
+}
 
 export type JudgmentSignalKind = "path" | "symbol" | "contract" | "dependency" | "semantic" | "assumption";
 
@@ -209,6 +257,65 @@ const WIP_SUFFIX = "The workstream that changed it reported an unverified work-i
  * alone must be enough to identify the relationship and its severity.
  */
 export function deterministicJudgment(candidate: JudgmentCandidate): JudgmentVerdict {
+  return applyWorkContext(candidate, baseJudgment(candidate));
+}
+
+/**
+ * Where the branch and the declared intent of the work are allowed to move a
+ * verdict.
+ *
+ * Branch is evidence, never a switch. Stickguy exists because work on separate
+ * branches is invisible until merge, so a branch can never be a reason to stay
+ * quiet - it can only change how urgent the answer is and how the answer reads.
+ * Two rules, both narrow:
+ *
+ * An overlap across divergent branches is escalated one step, and only from
+ * medium to high, because nothing outside this Project will report it before
+ * merge time. An overlap on a shared branch keeps its severity and gains a
+ * sentence saying Git will surface it too; a shared branch is not safer, it is
+ * merely also visible somewhere else.
+ *
+ * Work its own author called a spike is capped at the dashboard. That is a
+ * de-escalation, so it cannot cost routing precision, and it is the honest
+ * reading of a member who wrote "throwaway" in their own intent.
+ */
+function applyWorkContext(candidate: JudgmentCandidate, verdict: JudgmentVerdict): JudgmentVerdict {
+  if (verdict.delivery === "silent" || verdict.relationship === "unrelated") return verdict;
+
+  const relation = branchRelation(candidate.workstreams);
+  const collisionLike = verdict.relationship === "path_overlap" || verdict.relationship === "contract_drift";
+  const peerLike = verdict.relationship === "path_overlap" || verdict.relationship === "duplicate_behavior";
+
+  let severity = verdict.severity;
+  const notes: string[] = [];
+
+  if (relation === "divergent") {
+    const branches = branchNames(candidate.workstreams);
+    notes.push(`This spans ${joinTerms(branches)}, so nothing outside Stickguy reports it until those branches meet at merge.`);
+    if (collisionLike && severity === "medium") severity = "high";
+  } else if (relation === "shared") {
+    const [branch] = branchNames(candidate.workstreams);
+    notes.push(`Both are working on ${branch ?? "the same branch"}, so Git surfaces this as well at the next pull, push, or shared write.`);
+  }
+
+  let delivery = decideDelivery(verdict.relationship, severity);
+
+  const exploratory = candidate.workstreams.filter((workstream) => readWorkIntentClass(`${workstream.title} ${workstream.summary}`) === "exploratory");
+  if (peerLike && exploratory.length > 0) {
+    notes.push(`${exploratory.length === candidate.workstreams.length ? "Both sides describe" : `${exploratory[0]!.title} describes`} this as exploratory work, so it is kept on the dashboard rather than routed into a turn.`);
+    if (delivery === "next_turn") delivery = "dashboard";
+  }
+
+  if (notes.length === 0 && severity === verdict.severity && delivery === verdict.delivery) return verdict;
+  return { ...verdict, severity, delivery, explanation: bounded([verdict.explanation, ...notes].join(" ")) };
+}
+
+/** Branch names as prose, deduplicated and ordered so the sentence is stable. */
+function branchNames(workstreams: readonly JudgmentWorkstreamState[]): string[] {
+  return [...new Set(workstreams.map((workstream) => workstream.branch?.trim()).filter((branch): branch is string => Boolean(branch)))].sort();
+}
+
+function baseJudgment(candidate: JudgmentCandidate): JudgmentVerdict {
   const relationship = relationshipForKind(candidate.kind);
   // Re-judging reads back an explanation this function may already have
   // written, so the work-in-progress qualifier is stripped before it can be

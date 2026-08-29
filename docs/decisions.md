@@ -717,3 +717,340 @@ This does not claim complete Codex coverage and must not be described as such
 until OpenAI publishes an actual read-observation contract; a `fileRead` item or
 `commandActions` on Bash `PostToolUse` would supersede the source here while
 leaving the provenance model in place. Accepted by the owner 2026-08-28.
+
+## ADR-053: The lead block answers "does this need me", not only "is this colliding"
+
+The workroom's first block existed to answer one question — is anything about to
+hit me — but only one kind of thing could ever answer it. A coordination finding
+reached the block; a session of the member's own that had stopped did not, even
+though the service already knew it had. An agent sitting on a permission prompt
+is blocked, is costing time now, and is the member's to unblock, and it rendered
+nowhere near the surface built to be looked at. The block is renamed **Needs
+you** and carries both.
+
+Health is derived on the dashboard from data the snapshot already holds. Two
+kinds are vendor-reported statuses that already sync — `waiting` from a
+permission request, `error` from a failed tool — and the third, silence, is
+arithmetic over event times. Nothing new is collected and nothing new crosses
+the wire.
+
+Silence is reported as a measurement, never as a diagnosis. A session is called
+quiet only after fifteen minutes without a reported event, only while the vendor
+actually reports tool activity, and only for the member's own sessions. The
+fifteen-minute floor sits well above an ordinary slow turn and well inside the
+thirty-minute retention sweep. The observation gate is the same rule ADR-052
+applies to read sets: a vendor that reports no tool activity produces an
+identical empty stream whether the agent is working or wedged, so calling that
+second case a stall would be inventing evidence. The finding says the session
+has reported nothing for a duration, with that duration shown; it does not say
+the agent is stuck, and it takes reading weight rather than `--alert` because
+the evidence does not support an alarm.
+
+**Stall never reaches an agent.** It is a dashboard signal only, and it is not a
+finding: it has no kind, no wire representation, and no route into a turn. A
+heuristic with a plausible false-positive rate must not be able to spend the
+interrupt budget that ADR-045's routing precision is measured on. If it cannot
+hold precision as a human-facing signal it is deleted rather than tuned.
+
+Rejected: **a `stalled` finding kind**, which would put a heuristic in the same
+lifecycle as deterministic contract evidence and make it routable. **Reporting a
+teammate's blocked session to the viewer**, which fails the same test as a
+teammate's collision in code the member never touches. **A shorter threshold**,
+which fires during ordinary builds and test suites. Accepted by the owner
+2026-08-28.
+
+## ADR-054: A Project of one is a finished Project
+
+Every onboarding and empty-state surface described a Project as a thing that
+becomes useful when a second member arrives: the created-Project screen led with
+"invite the first teammate", the workroom told a lone member that "no teammates
+are registered yet", and the README opened with "for teams". None of that is
+true of the engine. One member running two agent sessions in one repository
+produces two workstreams, two manifests, two read sets and the same collisions,
+and the coordination loop treats them identically to two people's — ADR-033 made
+agent sessions first-class repo-scoped workstreams precisely so that it would.
+
+The copy is corrected to match the behavior. Invites become an option offered
+rather than a step withheld, the solo workroom states a fact about the Project
+instead of naming an absent teammate, and the product is described as
+coordinating parallel agent sessions whether one person or several are running
+them. No schema, permission, or sharing behavior changes: membership remains the
+consent model under ADR-047.
+
+This is a positioning decision as much as a copy one. The activation cost of a
+team product — every member installing, enrolling, and consenting before anyone
+sees value — was being charged to a single developer who could have had value
+from the first session. Accepted by the owner 2026-08-28.
+
+## ADR-055: Identity is a colour system separate from status
+
+Rule 2 said the product has exactly two colours, and the vendor marks were
+rendered in neutral ink with an explicit note that a provider identity must
+never compete with `--alert`. Applying a status rule to identity is what made
+the interface read as monotone: every person in a Project was the same grey
+circle, so telling two teammates apart on a row meant reading rather than
+scanning, and a single-word name rendered as one grey letter.
+
+The constraint that was actually doing the work is narrower than the rule
+stated. What protects "one orange sentence is impossible to miss" is that
+`--alert` is the only colour in **text**. A small filled mark is not a sentence
+and cannot be confused for one. So identity gets its own channel, bounded:
+
+- It appears only in marks — member chips and vendor logos — never in text,
+  never as a row background, never as a badge behind a word.
+- Member hue is derived from the display name, so one person is one colour on
+  every surface, which is what makes it usable for scanning rather than
+  decoration.
+- Saturation and lightness are fixed per theme in the stylesheet; only hue
+  varies per member, so no member can render louder than another.
+- The hue ramp starts past the alert band. `--alert` sits near hue 17 on both
+  themes and a chip at hue 8 read as a warning even at this saturation.
+
+Vendor marks were left neutral here on a claim that turned out to be false; see
+ADR-057, which supersedes this paragraph. Accepted by the owner 2026-08-28.
+
+## ADR-056: Streams run down, lists rank up, and History is one screen
+
+Three ordering defects had one cause: no rule said what order anything was in.
+
+**Sessions were in insertion order.** Teammates were ranked by presence while
+the member's own sessions were not sorted at all, so a session started a minute
+ago sat below one from the morning and a finished session sat above a live one.
+Own sessions are now ranked by what the reader would do about them — needs you,
+running, open, finished — and by recency inside each band, using the same
+elapsed label the row displays so the order always agrees with the clock beside
+it. Finished sessions fold behind one disclosure rather than moving to a screen
+of their own: work that is over is worth keeping and not worth scrolling past.
+
+**The session thread duplicated its own newest entry.** The feed was already
+strictly chronological, but a pinned strip above it repeated the newest event,
+which is why a correctly ordered stream read as though it were not. Status and
+stream are different objects: what a session *is* right now belongs to the
+session and reads in its header; what it *did* belongs to the thread. The
+thread opens at its newest entry and follows the tail until the reader scrolls
+up, at which point following stops and a control to return appears — yanking
+the view back while someone is reading is worse than asking for one press.
+
+**Harness context outranked conversation.** Sandbox rules, permissions and
+repository instructions rendered at message weight, and Codex sends several
+blocks of them before a session says anything, so the first real exchange was
+pushed below the fold. Consecutive blocks now fold into one line. What the
+harness told the agent is provenance; what the person and the agent said to each
+other is conversation.
+
+**Ledger and Decisions become History.** Both answered "what has this Project
+already handled". "Ledger" named a filing cabinet rather than anything a person
+goes looking for, and "Decisions" outlived ADR-037, which deleted the standalone
+decision surface it was built for. One screen: what was raised, where it was
+delivered, what was settled, with the raw event stream folded at the bottom. A
+nav label is a word people already use; the page itself carries the precision,
+including the standing limit that delivery and acknowledgement are not evidence
+the agent complied. Selecting from History updates the inspector in place rather
+than throwing the reader back to the Workroom. Accepted by the owner 2026-08-28.
+
+
+## ADR-057: Vendor marks carry their own brand colour
+
+Supersedes the vendor-mark paragraph of ADR-055, which rested on a measurement
+error. That ADR recorded the Codex mark as achromatic artwork with no brand
+colour to restore. Sampling only the most frequent colours in the asset found
+its white glyph strokes and missed the artwork underneath: the icon is a
+blue-violet gradient centred near hue 230 (`#667cf7`), and `filter:
+grayscale(1)` had been stripping it. Blue at hue 230 is 118 ΔE76 from `--alert`
+and carries no risk of being read as a warning at any size.
+
+Claude's mark takes its brand terracotta, `#d97757`, lifted slightly to
+`#d98668` on the dark ground for legibility. This is the case ADR-055 was
+cautious about, because that hue does share `--alert`'s family. Measured, the
+separation is 28 ΔE76 in light and 26.5 in dark — clearly distinguishable
+rather than unrelated. Three things carry the distinction, and all three must
+hold for this to stay acceptable:
+
+- **Identity is a glyph; status is a sentence.** The bound from ADR-055 is what
+  does the real work here. An orange starburst is never mistaken for an orange
+  line of prose.
+- **Shape before hue.** The Claude spark and the warning triangle are different
+  silhouettes at every size the product renders them.
+- **Tone.** The brand terracotta is markedly softer than either theme's alert,
+  which is a saturated signal colour by construction.
+
+The failure mode to watch is a converging Claude session, where the brand mark
+and the warning glyph appear on one row. If that reads as two alerts in
+practice, the fix is the row's warning treatment rather than the vendor's
+colour: the identity of the agent is not negotiable in the way an indicator
+glyph is. Accepted by the owner 2026-08-29.
+
+## ADR-058: One row grid for the whole main column
+
+The Workroom read as unrefined for a measurable reason. Four row types shared
+one 680px column and each had invented its own gutter — 22px + 10, 18px + 12,
+26px + 12 — so the primary text of a finding, a session, a teammate and a
+section heading began at four different left edges: 0, 30, 32 and 38px. The eye
+had no spine to follow, which is what "no clear hierarchy" describes from the
+outside.
+
+The type ramp had the same problem from the other direction. The subject of a
+row was 15.5px/650, 14.5px/500 or 13.5px/600 depending on which component drew
+it, so "the most important thing here" had no consistent form and every row had
+to be read rather than scanned.
+
+Both are now fixed by construction:
+
+- `--row-icon` (22px) and `--row-gap` (12px) define one gutter; every row in the
+  column uses it, and every primary text begins at 34px. Section headings stay
+  flush at 0, so a heading is the spine and its content hangs beneath it.
+- The ramp is three steps and only three: **primary** 14.5px/600 for the subject
+  of a row, **secondary** 13.5px/400 at `--ink-2` for what it means, **machine**
+  11.5px mono at `--ink-3` for facts. A finding headline at 15.5px/650 in
+  `--alert` is the single deliberate exception, and it is the one thing on the
+  screen that should outrank everything.
+- Peer rows are separated by a hairline and blocks by space, so a four-line
+  session cannot run into the next one.
+- Teammate rows lose the fixed 84px name column that nothing else shared and
+  that truncated longer names early.
+
+Machine facts were also consolidated rather than stacked. A finding ended in
+three separate mono rows — evidence, then confidence, then age; confidence and
+age qualify the finding rather than evidencing it, so they now ride the action
+row. A quiet session ended in three as well, one of which repeated the fact
+already shown on the line directly above it. Accepted by the owner 2026-08-29.
+
+## ADR-059: The activation handoff page submits itself
+
+Extends ADR-024, which fixed *how* the ticket crosses to the hosted boundary —
+a top-level POST of an escaped hidden form value, so it never enters a URL,
+browser history, a Referer header, or browser storage. It did not say who
+presses submit, and the page shipped with a button that waited for a person.
+
+That press carries no decision. Nothing is consented to on this page: the member
+has already asked to open the Project, and what a Project shares is disclosed
+before enrollment and again on the workroom's own activation screen. What the
+button actually produced was a stall, in both places the page renders. Inside
+the desktop app the webview navigated to an unstyled page of raw user-agent
+defaults — a heading, a sentence, a button — with nothing to say it belonged to
+Stickguy or that pressing it was the last step. From the CLI it opened in
+whichever browser the member uses, so `stickguy dashboard --project` produced a
+new tab among however many were already open, titled only "Activate Stickguy",
+while the app appeared to have done nothing; the way out was to find that tab
+and press a button whose purpose was not evident from the app being looked at.
+
+The form now submits on load and the button remains for the case where the
+script cannot run, which is the only case where a person still has to act.
+
+The Content-Security-Policy is tightened rather than relaxed to allow this.
+`script-src` and `style-src` are pinned to the SHA-256 hashes of the exact
+inline script and stylesheet, never `'unsafe-inline'`, so one known payload runs
+and nothing injected does; editing either without updating its hash breaks the
+page shut rather than open. Every other directive is unchanged, including
+`default-src 'none'` and a `form-action` restricted to the API origin.
+
+Verified in a real browser rather than only in Go: the handoff posts its ticket
+with no press and no console error. A CSP mistake here fails silently in a unit
+test and appears only as a page that sits there with a button — the defect this
+supersedes.
+
+The desktop app never routes this through an external browser — it navigates its
+own webview to the loopback URL, so the handoff and the redirect both happen
+inside the app. Only the stranded *tab* belongs to the CLI path; the unstyled
+page and the pointless press were common to both. Accepted by the owner
+2026-08-29.
+
+
+## ADR-060: The workroom summarises a finding; the inspector is the finding
+
+The workroom's finding card and the inspector permanently beside it rendered
+almost the same object. The card carried the headline, the reason, both parties
+with their current actions, an evidence grid with provenance, the confidence
+band and the first-seen age; the inspector carried all of that plus severity,
+last-changed, and the discussion thread. The most important block on the
+product's most important screen was a second copy of the panel next to it, and
+that duplication is most of why the column read as dense.
+
+The card becomes a summary: the alert glyph and headline, the plain-language
+reason, one line per affected party, first seen, and the control that opens the
+rest. Evidence with provenance and the confidence band move to the inspector,
+where both already existed.
+
+The product spec requires a visible finding to carry kind, severity, confidence
+band, affected members, evidence with provenance, first/last seen, status and a
+reason. That is a requirement on the finding as presented, not on every row
+mentioning it, and the existing behaviour already read it that way: **severity
+was never on the card at all** and only ever appeared in the inspector. The
+requirement's purpose — never a warning without reachable reasoning — is met by
+keeping the plain-language reason on the summary. `coordination-intelligence.md`
+§5 now says which surface carries which fact rather than leaving it to be
+inferred.
+
+Two smaller repetitions went with it. A colliding session's current action was
+printed under each party, which its own row in "Your sessions" and the inspector
+both already show. The session alias was printed on every session row, though it
+is a debugging identifier whose home is the details popover; individually named
+subagents on the row collapse to a count, and stay named in the popover and the
+thread. Accepted by the owner 2026-08-29.
+
+## ADR-061: Branch is evidence; quiet is a control that only costs its owner
+
+Four things that looked like one question — how does someone work without
+colliding with the rest of the team — are separated here, because the obvious
+answer to it is wrong.
+
+**Branch never gates coordination.** The proposal was to detect collisions only
+between workstreams on the same branch, so a feature branch would be an escape
+hatch. That inverts the product. Work on one branch is invisible to work on
+another until someone merges, which is exactly the expensive, silent case
+`stickguy-v1-spec.md` §2 exists for and the one no other tool reports; work on a
+shared branch is the case Git itself surfaces within the hour. Gating on branch
+would make Stickguy quiet precisely where it is the only thing watching, and the
+gate would be opened by the most common command in software.
+
+So branch becomes an input to judgment instead. Two narrow rules, both in
+`deterministicJudgment` and both offline: an overlap across divergent branches
+is escalated one step and only from medium to high, because nothing outside the
+Project will report it before merge; an overlap on a shared branch keeps its
+severity and gains a sentence naming where else it will appear. A missing branch
+— a detached HEAD, a workstream with no agent, a failed worktree read — reads as
+unknown and changes nothing, and no branch relation can ever silence a finding
+or create one. Branch was already carried on the workstream and validated at
+ingest; nothing new crosses the wire.
+
+**Work its author called a spike is capped at the dashboard.** A throwaway
+experiment collides like real work and is not worth an interrupt. This reads the
+workstream's own words rather than adding a switch, only an explicit statement
+counts, and it is a de-escalation, so it cannot cost the routing precision
+ADR-045 is measured on.
+
+**Pause is scoped to what the caller named.** Pause was reachable per workspace
+or, from the menu bar, for every workspace on the machine. A member reading one
+Project is asking about that Project, so the service accepts a Project id and
+the workroom offers that control; the tray switch keeps the machine-wide scope
+and now says so in its label. Where the dashboard has no native bridge it prints
+the exact command instead of a button that would do nothing.
+
+**Focus is the missing inbound control, and it is deliberately asymmetric.**
+Pause stops this device publishing. Nothing stopped the Project reaching an
+agent's turns (ADR-046), which is what "I don't want to be interrupted" actually
+means. Focus suppresses injection into one agent session and changes nothing
+about what is published, because a member who mutes themselves must not thereby
+make teammates less able to avoid their work: hiding is an externality, ignoring
+is not. It is local state that never crosses the wire — a teammate sees no
+change, so there is nothing to tell them. Nothing is consumed while a session is
+quiet, so a correction is never retired unread. It always expires, because a
+mute nobody remembers setting is worse than no mute in a tool whose value is
+being told things; the tray shows a standing mute for the same reason.
+
+**Resolving is recording a decision.** The inspector had two controls claiming
+the word: one opened a routed, delivered resolution, the other only changed a
+finding's state. The routed one keeps the verb, the other becomes `Dismiss`, and
+the decision leads the thread with its delivery targets named before it is
+written rather than reported after it has been sent. Comments stay, unrouted and
+labelled as such: the thread is a worksheet that produces one routable sentence,
+not a chat, and ADR-037's reason for deleting the planning surface applies
+equally to conversation.
+
+Rejected: **branch-scoped coordination**, above. **A symmetric mute**, which
+buys quiet with someone else's safety. **Agents negotiating a resolution between
+themselves**, which violates principle 5 and produces a decision no person is
+accountable for. **Merge-base divergence depth as a severity input**, which is
+the strongest remaining signal but needs a new local Git computation and a new
+wire field; branch identity ships first and depth is a later, separate change.
+Accepted by the owner 2026-08-29.

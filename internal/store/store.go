@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS agent_observations(workspace_id TEXT NOT NULL,vendor 
 CREATE TABLE IF NOT EXISTS contract_fingerprints(workspace_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,path));
 CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,fidelity TEXT NOT NULL DEFAULT 'observed',PRIMARY KEY(workspace_id,session_workstream_id,path));
 CREATE TABLE IF NOT EXISTS injection_deliveries(session_key TEXT NOT NULL,item_id TEXT NOT NULL,item_revision INTEGER NOT NULL,delivered_at INTEGER NOT NULL,PRIMARY KEY(session_key,item_id,item_revision));
+CREATE TABLE IF NOT EXISTS session_focus(session_key TEXT PRIMARY KEY,until INTEGER NOT NULL,created_at INTEGER NOT NULL);
 INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate sqlite: %w", err)
@@ -599,6 +600,136 @@ func (s *Store) SetPaused(ctx context.Context, id string, p bool) error {
 		return fmt.Errorf("workspace not found")
 	}
 	return nil
+}
+
+// SetProjectPaused pauses or resumes every workspace registered to one Project
+// and reports how many it changed.
+//
+// Pause was reachable only per workspace or, from the menu bar, for every
+// workspace on the machine. Neither matches how anyone reads the product: a
+// member looking at one Project wants to stop sharing that Project, not their
+// work on an unrelated repository. A Project with no registered workspace on
+// this device is not an error - there is simply nothing here to pause - so the
+// count is the answer rather than a failure.
+func (s *Store) SetProjectPaused(ctx context.Context, projectID string, p bool) (int, error) {
+	if projectID == "" {
+		return 0, fmt.Errorf("project id required")
+	}
+	r, e := s.db.ExecContext(ctx, `UPDATE workspaces SET paused=? WHERE project_id=?`, p, projectID)
+	if e != nil {
+		return 0, e
+	}
+	n, _ := r.RowsAffected()
+	return int(n), nil
+}
+
+// Focus is an agent session that has asked not to be interrupted, and the
+// moment that request lapses.
+type Focus struct {
+	SessionKey string
+	Until      time.Time
+}
+
+/*
+Focus suppresses coordination *into* one agent session until a deadline.
+
+It is deliberately the opposite direction from pause. Pausing stops this
+device's activity reaching the Project, which makes the member invisible and
+therefore makes their teammates less safe: nobody can avoid work they cannot
+see. Focus stops the Project reaching one agent's turns and changes nothing
+about what this device publishes, so the member who wants quiet carries their
+own risk instead of transferring it to everyone else.
+
+It is local state and never crosses the wire. A teammate does not need to know,
+because nothing about what they can see has changed.
+
+Every focus expires. A mute that outlives the reason for it is worse than no
+mute at all in a tool whose value is being told things, so a deadline is
+required rather than optional and the caller cannot set one beyond MaxFocus.
+*/
+const (
+	DefaultFocus = time.Hour
+	MaxFocus     = 8 * time.Hour
+)
+
+func (s *Store) SetFocus(ctx context.Context, sessionKey string, now time.Time, duration time.Duration) (time.Time, error) {
+	if sessionKey == "" {
+		return time.Time{}, fmt.Errorf("session id required")
+	}
+	if duration <= 0 {
+		duration = DefaultFocus
+	}
+	if duration > MaxFocus {
+		duration = MaxFocus
+	}
+	until := now.Add(duration)
+	if _, e := s.db.ExecContext(ctx, `INSERT INTO session_focus(session_key,until,created_at) VALUES(?,?,?)
+		ON CONFLICT(session_key) DO UPDATE SET until=excluded.until`, sessionKey, until.UnixMilli(), now.UnixMilli()); e != nil {
+		return time.Time{}, e
+	}
+	return until, nil
+}
+
+func (s *Store) ClearFocus(ctx context.Context, sessionKey string) error {
+	_, e := s.db.ExecContext(ctx, `DELETE FROM session_focus WHERE session_key=?`, sessionKey)
+	return e
+}
+
+// ClearAllFocus lets every quiet session start hearing again. It exists so a
+// focus the member has forgotten is recoverable from wherever they notice it,
+// without first having to remember which session it was on.
+func (s *Store) ClearAllFocus(ctx context.Context) (int, error) {
+	r, e := s.db.ExecContext(ctx, `DELETE FROM session_focus`)
+	if e != nil {
+		return 0, e
+	}
+	n, _ := r.RowsAffected()
+	return int(n), nil
+}
+
+// FocusedUntil reports whether one session is currently focused. An expired row
+// answers false without needing a sweep to have run first, so a deadline that
+// has passed can never keep suppressing corrections.
+func (s *Store) FocusedUntil(ctx context.Context, sessionKey string, now time.Time) (time.Time, bool, error) {
+	if sessionKey == "" {
+		return time.Time{}, false, nil
+	}
+	var until int64
+	e := s.db.QueryRowContext(ctx, `SELECT until FROM session_focus WHERE session_key=?`, sessionKey).Scan(&until)
+	if errors.Is(e, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if e != nil {
+		return time.Time{}, false, e
+	}
+	deadline := time.UnixMilli(until)
+	if !deadline.After(now) {
+		return time.Time{}, false, nil
+	}
+	return deadline, true, nil
+}
+
+// ActiveFocus lists the sessions still focused, dropping rows that have lapsed.
+func (s *Store) ActiveFocus(ctx context.Context, now time.Time) ([]Focus, error) {
+	if _, e := s.db.ExecContext(ctx, `DELETE FROM session_focus WHERE until<=?`, now.UnixMilli()); e != nil {
+		return nil, e
+	}
+	rows, e := s.db.QueryContext(ctx, `SELECT session_key,until FROM session_focus ORDER BY session_key`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out []Focus
+	for rows.Next() {
+		var focus Focus
+		var until int64
+		if e = rows.Scan(&focus.SessionKey, &until); e != nil {
+			return nil, e
+		}
+		focus.Until = time.UnixMilli(until)
+		out = append(out, focus)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) EnqueueEvent(ctx context.Context, workspaceID, eventID, source, kind string, payload any) error {

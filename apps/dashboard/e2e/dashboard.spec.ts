@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("Project Workroom shows people, Codex, Claude, and session drill-down", async ({ page }) => {
   await page.goto("/?state=ready");
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Converging on you" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your sessions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nearby" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Codex session for Khalid" })).toBeVisible();
@@ -15,7 +15,7 @@ test("Project Workroom shows people, Codex, Claude, and session drill-down", asy
   await expect(page.getByLabel("Details inspector")).toContainText("Claude Code");
   await expect(page.getByLabel("Details inspector")).toContainText("Waiting for input");
   await expect(page.getByLabel("Details inspector").getByRole("heading", { name: /Subagents/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Open Shared task session for Ravi" }).click();
+  await page.getByRole("button", { name: "Open Ravi's work" }).click();
   await page.getByRole("button", { name: "Open session details" }).click();
   await expect(page.getByLabel("Details inspector")).toContainText("1,000 paths");
   await expect(page.getByLabel("Semantic processing status")).toContainText("degraded");
@@ -25,7 +25,8 @@ test("activity updates and Project switching remain isolated", async ({ page }) 
   await page.goto("/?state=ready");
   await page.getByRole("button", { name: "Simulate activity" }).click();
   await expect(page.getByText("rev 185")).toBeVisible();
-  await page.getByRole("button", { name: "Decisions" }).click();
+  await page.getByRole("button", { name: "History" }).click();
+  await page.getByText(/recorded events/).click();
   await expect(page.getByText("Published one new path-only manifest revision.")).toBeVisible();
   await page.getByRole("button", { name: /Orchard mobile/ }).click();
   await expect(page.getByRole("heading", { name: "Orchard mobile" })).toBeVisible();
@@ -48,7 +49,18 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await expect(page.getByText("Feedback recorded")).toBeVisible();
   await page.getByRole("button", { name: "Acknowledge", exact: true }).click();
   await expect(detail).toContainText("acknowledged");
-  await page.getByRole("button", { name: "Mark resolved" }).click();
+
+  // Branch is read straight off the sessions the finding names: divergent
+  // branches are the case nothing outside this Project reports.
+  await expect(detail).toContainText("until those branches meet at merge");
+
+  // Resolving is recording a decision, and the decision says where it goes
+  // before it is written rather than after it has been sent.
+  await expect(page.getByRole("button", { name: "Mark resolved" })).toHaveCount(0);
+  await expect(detail).toContainText("Goes to Khalid's Codex session and Mina's Claude Code session.");
+  await detail.getByLabel(/^Decision for /).fill("Khalid owns the rotation boundary.");
+  await detail.getByRole("button", { name: "Record decision" }).click();
+  await expect(detail).toContainText("Delivered to 2 sessions");
   await expect(detail).toContainText("resolved");
 
   await page.getByRole("button", { name: "Open Project settings" }).click();
@@ -71,7 +83,9 @@ test("command palette switches Projects and theme changes", async ({ page }) => 
   await command.getByRole("textbox").fill("Orchard");
   await command.getByRole("button", { name: /Orchard mobile/ }).click();
   await expect(page.getByRole("heading", { name: "Orchard mobile" })).toBeVisible();
-  await page.getByRole("button", { name: "Switch to dark theme" }).click();
+  await expect(page.getByRole("button", { name: /Switch to (dark|light) theme/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open Project settings" }).click();
+  await page.getByRole("button", { name: /^Theme/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
 
@@ -95,6 +109,6 @@ test("activation discloses metadata without exposing a ticket input", async ({ p
   await page.goto("/?state=activation");
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText(/Never source, diffs, prompts, transcripts/)).toBeVisible();
-  await page.getByRole("button", { name: "Activate secure session" }).click();
+  await page.getByRole("button", { name: "Check for a session" }).click();
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
 });

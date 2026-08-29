@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,6 +22,19 @@ func main() {
 }
 
 func run() error {
+	scenarioFilter := flag.String("scenario", "", "comma-separated scenario IDs to run; empty runs the full gate")
+	narrate := flag.Bool("narrate", false, "print what each scenario did, for showing the loop to a person")
+	flag.Parse()
+
+	selected, err := selectScenarios(*scenarioFilter)
+	if err != nil {
+		return err
+	}
+	// A filtered run is a demonstration, not the gate, and the report file is
+	// what the precision claim is read from. Writing a partial run there would
+	// quietly replace seven scenarios with one and make the aggregate wrong.
+	fullRun := len(selected) == len(scenarioDefinitions)
+
 	repositoryRoot, err := findRepositoryRoot()
 	if err != nil {
 		return err
@@ -62,14 +76,27 @@ func run() error {
 		return err
 	}
 	defer evaluation.stop()
-	for _, definition := range scenarioDefinitions {
+	for _, definition := range selected {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		report.Scenarios = append(report.Scenarios, runScenario(definition, evaluation, binary, required))
+		result := runScenario(definition, evaluation, binary, required)
+		if *narrate {
+			narrateScenario(result)
+		}
+		report.Scenarios = append(report.Scenarios, result)
 	}
 	aggregateReport(&report, started)
-	printTable(report)
+	if !*narrate {
+		printTable(report)
+	}
+	if !fullRun {
+		fmt.Printf("\nRan %d of %d scenarios; the report file is left as the last full run wrote it.\n", len(selected), len(scenarioDefinitions))
+		if reportFailed(report) {
+			return errors.New("coordination evaluation failed")
+		}
+		return nil
+	}
 	reportPath := filepath.Join(repositoryRoot, "coordination-eval-report.json")
 	if err := writeReport(reportPath, report); err != nil {
 		return err

@@ -39,6 +39,7 @@ func (service daemonService) Status(ctx context.Context) ServiceStatus {
 		Connected:        true,
 		WorkspaceCount:   integer(data["workspaces"]),
 		PausedWorkspaces: integer(data["pausedWorkspaces"]),
+		FocusedSessions:  integer(data["focusedSessions"]),
 		PendingEvents:    integer(data["pending"]),
 	}
 }
@@ -49,6 +50,66 @@ func (service daemonService) PauseAll(ctx context.Context) error {
 
 func (service daemonService) ResumeAll(ctx context.Context) error {
 	return service.forEachWorkspace(ctx, "resume")
+}
+
+// SetProjectPaused stops or resumes sharing for one Project's workspaces on
+// this device. The dashboard is scoped to a Project, so the control it offers
+// has to be too; PauseAll remains the machine-wide switch behind the tray.
+func (service daemonService) SetProjectPaused(ctx context.Context, projectID string, paused bool) error {
+	method := "resume"
+	if paused {
+		method = "pause"
+	}
+	return service.call(ctx, daemon.Request{Method: method, ProjectID: projectID})
+}
+
+// ClearAllFocus lets every muted agent session hear coordination again.
+func (service daemonService) ClearAllFocus(ctx context.Context) error {
+	return service.call(ctx, daemon.Request{Method: "unfocus_all"})
+}
+
+// SessionFocus reads, sets, or clears the quiet period on one agent session.
+// The state is local to this machine and never crosses the wire: muting is
+// asymmetric by design, so a teammate sees no change and loses no visibility.
+type SessionFocus struct {
+	SessionID string `json:"sessionId"`
+	Focused   bool   `json:"focused"`
+	Until     string `json:"until,omitempty"`
+}
+
+func (service daemonService) Focus(ctx context.Context, workstreamID string, minutes int) (SessionFocus, error) {
+	return service.focusCall(ctx, daemon.Request{Method: "focus", AgentWorkstreamID: workstreamID, FocusSeconds: int64(minutes) * 60})
+}
+
+func (service daemonService) Unfocus(ctx context.Context, workstreamID string) (SessionFocus, error) {
+	return service.focusCall(ctx, daemon.Request{Method: "unfocus", AgentWorkstreamID: workstreamID})
+}
+
+func (service daemonService) FocusState(ctx context.Context, workstreamID string) (SessionFocus, error) {
+	return service.focusCall(ctx, daemon.Request{Method: "focus_state", AgentWorkstreamID: workstreamID})
+}
+
+func (service daemonService) focusCall(ctx context.Context, request daemon.Request) (SessionFocus, error) {
+	empty := SessionFocus{SessionID: request.AgentWorkstreamID}
+	if service.paths.Socket == "" {
+		return empty, nil
+	}
+	response, err := daemon.Call(ctx, service.paths.Socket, request)
+	if err != nil {
+		return empty, err
+	}
+	if !response.OK {
+		return empty, &serviceError{message: response.Error}
+	}
+	encoded, err := json.Marshal(response.Data)
+	if err != nil {
+		return empty, err
+	}
+	var state SessionFocus
+	if err = json.Unmarshal(encoded, &state); err != nil {
+		return empty, err
+	}
+	return state, nil
 }
 
 func (service daemonService) Scan(ctx context.Context) error {

@@ -79,6 +79,31 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         },
       },
       {
+        // Silent long enough to be reported as quiet, and observable enough for
+        // that silence to mean something: a vendor that reports no tool activity
+        // would produce the same empty stream while working perfectly.
+        id: "wrk_agent_fixture_claude_quiet",
+        memberName: "Khalid",
+        initials: "KM",
+        title: "Claude Code · claude-77aa21",
+        outcome: "running the protocol conformance suite",
+        presence: "online",
+        fidelity: "hook",
+        updatedLabel: "21 min",
+        pathCount: 3,
+        paths: ["protocol/schemas/manifest.json"],
+        agent: {
+          vendor: "claude", sessionAlias: "claude-77aa21", sessionTitle: "Regenerate protocol types", branch: "feature/protocol-regen", status: "active", tool: "Bash", startedAt: "2026-08-25T09:31:00Z",
+          capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "native_push", requestAttention: "advisory", observeReadSet: "observed" },
+          subagents: [],
+          activity: [
+            { id: "quiet-act-2", at: "21 min", occurredAt: "2026-08-25T09:44:00Z", kind: "PreToolUse", status: "active", action: "Started pnpm protocol:check", tool: "Bash", paths: ["protocol/schemas/manifest.json"] },
+            { id: "quiet-act-1", at: "34 min", occurredAt: "2026-08-25T09:31:00Z", kind: "SessionStart", status: "active", action: "Session started", paths: [] },
+          ],
+          coordination: [{ id: "brief-fixture-2", routedAt: "2026-08-25T09:43:10Z", summary: "Ravi activated manifest revision 42; the generated contract you are regenerating moved.", itemCount: 2, trigger: "session_start" }],
+        },
+      },
+      {
         id: "wst_atlas_manifest",
         memberName: "Ravi",
         initials: "RV",

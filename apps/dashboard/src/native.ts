@@ -53,6 +53,20 @@ export interface NativeSessionDetail {
   messages: Array<{ kind: string; text?: string; tool?: string; at?: string }>;
 }
 
+/**
+ * The quiet period on one of this device's own agent sessions.
+ *
+ * Focus is local state that never crosses the wire. It stops coordination
+ * being injected into this agent's turns and changes nothing about what this
+ * device publishes, so a teammate sees no difference and loses no visibility.
+ */
+export interface NativeSessionFocus {
+  sessionId: string;
+  focused: boolean;
+  /** RFC 3339 instant the quiet period lapses. Always present while focused. */
+  until?: string;
+}
+
 export interface EnrollmentResult {
   projectId: string;
   joinCode: string;
@@ -93,6 +107,10 @@ export const nativeOnboarding = {
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
   resetEnrollment: () => call<OnboardingState>("ResetEnrollment"),
   sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),
+  setProjectPaused: (projectId: string, paused: boolean) => call<void>("SetProjectPaused", projectId, paused),
+  sessionFocus: (workstreamId: string) => call<NativeSessionFocus>("SessionFocus", workstreamId),
+  /** Minutes of quiet; zero or less lets the session hear again immediately. */
+  setSessionFocus: (workstreamId: string, minutes: number) => call<NativeSessionFocus>("SetSessionFocus", workstreamId, minutes),
 };
 
 export type NativeOnboarding = typeof nativeOnboarding;

@@ -74,9 +74,12 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
       sub={request.repositoryRoot}
       backLabel={backLabel}
       onBack={onBack}
-      lede={`${request.projectLabel} is registered with this Mac’s existing Stickguy service. No second background service was started.`}
+      lede={`${request.projectLabel} is registered with this Mac’s existing Stickguy service. No second background service was started. It coordinates the agent sessions you run in this repository straight away, with no one else in it.`}
     >
-      {created.joinCode && <ScreenSection title="Invite the first teammate" help="Expires in 10 minutes. Share it privately.">
+      {/* An invite is an option, not the next step. A Project with one member
+          already does the whole job for the sessions that member is running,
+          and presenting a code as the thing to do next implied otherwise. */}
+      {created.joinCode && <ScreenSection title="Invite someone, when you want to" help="Optional. Nothing here waits on a second member. The code expires in 10 minutes; share it privately.">
         <div className="invite-code"><strong>One-use invite code</strong><code>{created.joinCode}</code></div>
       </ScreenSection>}
       <ScreenSection title="Open it" help="Opening a Project mints a fresh one-time session for it, so the next step asks you to confirm before the shared view loads.">
@@ -94,7 +97,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
     title="Add a Project"
     backLabel={backLabel}
     onBack={onBack}
-    lede="Choose a Git repository. Stickguy observes it as a separate Project, using the service already running on this Mac."
+    lede="Choose a Git repository. Stickguy observes it as a separate Project, using the service already running on this Mac, and coordinates every agent session in it — yours alone, or a team's."
   >
     <form onSubmit={(event) => void submit(event)}>
       <div className="screen-form">

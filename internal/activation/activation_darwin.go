@@ -52,7 +52,9 @@ func Start(apiBaseURL, ticket string) (*Handoff, error) {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action "+base.Scheme+"://"+base.Host)
+		// script-src is pinned to the hash of the one inline script that submits
+		// the form, so the page can post itself without 'unsafe-inline'.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src "+styleHash+"; script-src "+scriptHash+"; form-action "+base.Scheme+"://"+base.Host)
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

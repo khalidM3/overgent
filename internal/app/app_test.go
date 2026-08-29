@@ -850,3 +850,133 @@ func TestLifecyclePrefersTheCallingAgentSessionWorkstream(t *testing.T) {
 		t.Fatalf("malformed identity was not rejected: %#v", rejected)
 	}
 }
+
+// Focus is the inbound control (the outbound one is pause). The property that
+// matters most is not that a focused session is quiet - it is that nothing is
+// consumed while it is quiet, so every correction is still waiting afterwards.
+func TestFocusSuppressesInjectionWithoutConsumingIt(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	session := "wrk_agent_0123456789abcdef0123456789abcdef"
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &injectionFixtureSender{revision: 1}}
+	inject := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: session, AgentEvent: "UserPromptSubmit"}
+
+	focus := service.handle(ctx, daemon.Request{Method: "focus", AgentWorkstreamID: session, FocusSeconds: 900})
+	state, _ := focus.Data.(map[string]any)
+	if !focus.OK || state["focused"] != true || state["until"] == nil {
+		t.Fatalf("focus=%#v", focus)
+	}
+
+	quiet := service.handle(ctx, inject)
+	if !quiet.OK || quiet.Data.(agentInjectionResult).AdditionalContext != "" {
+		t.Fatalf("focused session was interrupted: %#v", quiet)
+	}
+
+	// The correction must survive the quiet period. Claiming it while it was
+	// suppressed would have retired it unread, which is strictly worse than
+	// delivering it twice.
+	resumed := service.handle(ctx, daemon.Request{Method: "unfocus", AgentWorkstreamID: session})
+	if !resumed.OK || resumed.Data.(map[string]any)["focused"] != false {
+		t.Fatalf("unfocus=%#v", resumed)
+	}
+	after := service.handle(ctx, inject)
+	if !after.OK || !strings.Contains(after.Data.(agentInjectionResult).AdditionalContext, "backend.Refresh") {
+		t.Fatalf("correction lost while focused: %#v", after)
+	}
+}
+
+func TestFocusExpiresAndIsCapped(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	// Deadlines round-trip through the store at millisecond resolution, so the
+	// test clock is stated at the resolution the store actually keeps.
+	now := time.Now().Truncate(time.Millisecond)
+	session := "wrk_agent_0123456789abcdef0123456789abcdef"
+
+	// A lapsed deadline stops suppressing immediately, without waiting for any
+	// sweep to have run: a mute nobody remembers is the failure mode.
+	if _, err = db.SetFocus(ctx, session, now.Add(-2*time.Hour), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, focused, focusErr := db.FocusedUntil(ctx, session, now); focusErr != nil || focused {
+		t.Fatalf("expired focus still suppressing: focused=%v err=%v", focused, focusErr)
+	}
+
+	until, err := db.SetFocus(ctx, session, now, 30*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := now.Add(store.MaxFocus); !until.Equal(want) {
+		t.Fatalf("focus not capped: until=%s want=%s", until, want)
+	}
+	if _, err = db.SetFocus(ctx, session, now, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := db.FocusedUntil(ctx, session, now); !got.Equal(now.Add(store.DefaultFocus)) {
+		t.Fatalf("default focus=%s", got)
+	}
+	active, err := db.ActiveFocus(ctx, now)
+	if err != nil || len(active) != 1 || active[0].SessionKey != session {
+		t.Fatalf("active focus=%#v err=%v", active, err)
+	}
+	if err = db.ClearFocus(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	if _, focused, _ := db.FocusedUntil(ctx, session, now); focused {
+		t.Fatal("cleared focus still suppressing")
+	}
+}
+
+// Pause is scoped to what the caller named. A member reading one Project must
+// be able to stop sharing that Project without touching an unrelated one.
+func TestPauseScopesToOneProject(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, workspace := range []store.Workspace{
+		{ID: "wsp_a1", ProjectID: "prj_atlas", WorkstreamID: "wrk_a1", MemberID: "mem", DeviceID: "dev", SessionID: "ses", Root: t.TempDir(), Baseline: strings.Repeat("a", 40), Fingerprint: "o"},
+		{ID: "wsp_a2", ProjectID: "prj_atlas", WorkstreamID: "wrk_a2", MemberID: "mem", DeviceID: "dev", SessionID: "ses", Root: t.TempDir(), Baseline: strings.Repeat("a", 40), Fingerprint: "o"},
+		{ID: "wsp_b1", ProjectID: "prj_orchard", WorkstreamID: "wrk_b1", MemberID: "mem", DeviceID: "dev", SessionID: "ses", Root: t.TempDir(), Baseline: strings.Repeat("a", 40), Fingerprint: "o"},
+	} {
+		if err = db.UpsertWorkspace(ctx, workspace); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev"}}
+	response := service.handle(ctx, daemon.Request{Method: "pause", ProjectID: "prj_atlas"})
+	if !response.OK || response.Data.(map[string]any)["workspaces"] != 2 {
+		t.Fatalf("project pause=%#v", response)
+	}
+	workspaces, err := db.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workspace := range workspaces {
+		want := workspace.ProjectID == "prj_atlas"
+		if workspace.Paused != want {
+			t.Fatalf("workspace %s paused=%v want=%v", workspace.ID, workspace.Paused, want)
+		}
+	}
+	// A Project with nothing registered on this device is not an error; there
+	// is simply nothing here to pause.
+	empty := service.handle(ctx, daemon.Request{Method: "pause", ProjectID: "prj_absent"})
+	if !empty.OK || empty.Data.(map[string]any)["workspaces"] != 0 {
+		t.Fatalf("absent project=%#v", empty)
+	}
+}

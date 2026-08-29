@@ -1,6 +1,10 @@
 # Stickguy
 
-Stickguy is a persistent coordination harness for teams building software with coding agents. It acts as air traffic control around existing Codex, Claude, Cursor, and other coding harnesses: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time.
+Stickguy is a persistent coordination harness for anyone building software with more than one coding agent at a time — one developer running parallel sessions, or a team. It acts as air traffic control around the coding harnesses people already use: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time. A Project with a single member is a complete Project; two of your own sessions in one repository collide with each other exactly as two people's do.
+
+## Current coverage
+
+These are qualification boundaries, not design ones. Codex and Claude Code have qualified adapters today, and each additional vendor needs its own adapter (ADR-039) rather than a configuration flag. The desktop beta is qualified on Apple Silicon macOS; the Go core is CGO-free and cross-compiles, but no other target is validated yet and none may be advertised as a supported install until it is (ADR-050).
 
 The repository has completed L-1 and L0–L6 and has implemented L8 to its owner-controlled beta gates, including the deterministic vertical slice, MCP lifecycle core, coordination-intelligence loop, signed update/recovery path, fleet/data controls, and Apple Silicon desktop beta. Publication still requires Apple/update signing credentials, a monitored private security channel, clean-machine evidence, and the real-team second-session gate. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
 

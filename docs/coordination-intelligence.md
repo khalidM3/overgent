@@ -124,6 +124,8 @@ V1 finding kinds:
 
 Every visible finding includes: kind, severity, confidence band, affected workstreams/members, evidence with provenance, first/last seen, current status, and a plain-language reason. Do not show an unexplained similarity score as a warning.
 
+These are requirements on the finding as presented, not on every row that mentions it. The workroom carries the summary — kind, the plain-language reason, who is affected, when it was first seen, and the way in — and the inspector beside it carries the whole contract, including severity, confidence band, evidence with provenance, and last-changed. Severity was always inspector-only, which is the precedent (ADR-060). What must never happen is a warning with no reasoning reachable from it: the reason sentence stays on the summary, in plain language, so the row is never an unexplained alarm.
+
 Broad changes receive increased observation priority, not automatic severity. Touching hundreds of files may be a generated or mechanical change; severity requires intersection or semantic evidence.
 
 ## 6. Judgment layer
@@ -205,6 +207,37 @@ is one nobody should be asked to read. `dashboard` is delivered and labeled
 an injected item. No supported vendor exposes a mid-turn interrupt channel
 (ADR-033/046), so `next_turn` describes urgency and labeling, not a separate
 transport.
+
+### Where the work is happening, and whether its author means to keep it
+
+Two facts about a candidate's workstreams move a verdict after the relationship
+has been decided (ADR-061). Both are offline and deterministic, and neither can
+silence a finding or invent one.
+
+**Branch relation.** A candidate whose workstreams are all on one branch is
+`shared`; one whose workstreams are on different branches is `divergent`; any
+missing branch makes it `unknown` and changes nothing. Divergence is the reason
+this is read at all: work on separate branches does not meet until someone
+merges, so nothing outside the Project reports the overlap in the meantime, and
+a `path_overlap` or `contract_drift` candidate at medium severity is escalated
+one step — one step only, never from low, never to critical. A shared branch
+keeps its severity and gains a sentence saying Git will surface the same fact at
+the next pull, push, or shared write. A shared branch is not evidence of safety;
+it is evidence that something else is also watching.
+
+Branch is never a gate. Detecting collisions only within a branch would make
+Stickguy silent in exactly the case it exists for, and would make the silence
+reachable with `git checkout -b`.
+
+**Declared exploratory work.** A workstream whose own title or summary calls the
+work a spike, a prototype, a throwaway, or an experiment is read as exploratory.
+A `path_overlap` or `duplicate_behavior` candidate involving one is capped at
+`dashboard` rather than routed into a turn: it collides like real work, and it
+is not worth an interrupt for code its author has said may never land. Only an
+explicit statement counts, silence stays standard, and the cap is a
+de-escalation, so it cannot spend the precision budget in §8. Contract drift is
+never capped this way — a reader's assumption is stale whatever the changer
+intended to keep.
 
 ## 7. V1 semantic engine
 

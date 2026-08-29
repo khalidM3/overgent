@@ -285,12 +285,35 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 				paused++
 			}
 		}
-		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "pending": len(p), "scans": s.scans, "scanCycles": s.scanCycles.Load(), "pid": os.Getpid()}}
+		// A focus the member has forgotten is the failure mode of any mute, so
+		// the count travels with the health that the menu bar already reads.
+		focused, _ := s.store.ActiveFocus(ctx, time.Now())
+		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "scans": s.scans, "scanCycles": s.scanCycles.Load(), "pid": os.Getpid()}}
 	case "pause", "resume":
-		if e := s.store.SetPaused(ctx, q.WorkspaceID, q.Method == "pause"); e != nil {
+		// Pause is scoped to whatever the caller named. A member reading one
+		// Project means that Project, and asking them to name every workspace
+		// inside it - or to reach for a switch that stops sharing on
+		// repositories they were not looking at - is not the same request.
+		paused := q.Method == "pause"
+		if q.WorkspaceID == "" && q.ProjectID != "" {
+			changed, e := s.store.SetProjectPaused(ctx, q.ProjectID, paused)
+			if e != nil {
+				return daemon.Response{Error: e.Error()}
+			}
+			return daemon.Response{OK: true, Data: map[string]any{"workspaces": changed, "paused": paused}}
+		}
+		if e := s.store.SetPaused(ctx, q.WorkspaceID, paused); e != nil {
 			return daemon.Response{Error: e.Error()}
 		}
-		return daemon.Response{OK: true}
+		return daemon.Response{OK: true, Data: map[string]any{"workspaces": 1, "paused": paused}}
+	case "focus", "unfocus", "focus_state":
+		return s.handleFocus(ctx, q)
+	case "unfocus_all":
+		cleared, e := s.store.ClearAllFocus(ctx)
+		if e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"cleared": cleared}}
 	case "intent":
 		if e := validateIntent(q); e != nil {
 			return daemon.Response{Error: e.Error()}
@@ -360,12 +383,63 @@ type agentInjectionResult struct {
 // handleAgentInjection is a fail-open, fetch-through IPC operation. The hook
 // process never talks to the hosted service directly, and no failure here can
 // block or alter the vendor's turn.
+// handleFocus reads and writes the local, never-transmitted request of one
+// agent session not to be interrupted.
+//
+// Focus is the inbound half of a pair. `pause` stops this device publishing;
+// focus stops the Project reaching one agent's turns. They are deliberately
+// not the same control and deliberately not symmetric: a member who wants
+// quiet should absorb the risk of missing a correction, not hide their work
+// from teammates who are relying on seeing it.
+func (s *Service) handleFocus(ctx context.Context, q daemon.Request) daemon.Response {
+	session := q.AgentWorkstreamID
+	if !validContractID(session) {
+		return daemon.Response{Error: "session id required"}
+	}
+	now := time.Now()
+	switch q.Method {
+	case "focus":
+		until, e := s.store.SetFocus(ctx, session, now, time.Duration(q.FocusSeconds)*time.Second)
+		if e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: focusState(session, until, true)}
+	case "unfocus":
+		if e := s.store.ClearFocus(ctx, session); e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: focusState(session, time.Time{}, false)}
+	default:
+		until, focused, e := s.store.FocusedUntil(ctx, session, now)
+		if e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: focusState(session, until, focused)}
+	}
+}
+
+func focusState(session string, until time.Time, focused bool) map[string]any {
+	state := map[string]any{"sessionId": session, "focused": focused}
+	if focused {
+		state["until"] = until.UTC().Format(time.RFC3339)
+	}
+	return state
+}
+
 func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) daemon.Response {
 	result := agentInjectionResult{}
 	if q.AgentEvent != "SessionStart" && q.AgentEvent != "UserPromptSubmit" {
 		return daemon.Response{OK: true, Data: result}
 	}
 	if q.AgentVendor != "claude" && q.AgentVendor != "codex" || !validContractID(q.AgentWorkstreamID) {
+		return daemon.Response{OK: true, Data: result}
+	}
+	// A focused session is skipped before anything is fetched or claimed. The
+	// order matters more than the saved work: claiming marks a correction
+	// delivered, so claiming for a session that will not be shown it would
+	// retire the correction unread. Nothing is consumed here, so every pending
+	// item is still waiting when the focus lapses.
+	if _, focused, e := s.store.FocusedUntil(ctx, q.AgentWorkstreamID, time.Now()); e == nil && focused {
 		return daemon.Response{OK: true, Data: result}
 	}
 	if _, ok := workspaceForCWD(s.cfg, q.AgentCWD); !ok {

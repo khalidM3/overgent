@@ -1,11 +1,12 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Activity,
   AlertTriangle,
+  BellOff,
   Bot,
   Check,
   ChevronLeft,
@@ -36,14 +37,15 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { attentionItems, newestEventTime, orderSessions, type AttentionItem, type HealthSignal, type OrderedSessions } from "./attention";
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import { DesktopOnboarding } from "./desktop-onboarding";
 import { NewProjectScreen } from "./new-project";
-import { PeopleScreen, SettingsScreen, initialsFor } from "./settings";
+import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
-import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
+import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding } from "./native";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
@@ -60,7 +62,7 @@ interface AppProps {
 }
 
 type Selection = { kind: "session"; id: string } | { kind: "collision"; id: string };
-type View = "workroom" | "decisions";
+type View = "workroom" | "history";
 /** Settings, People and Add a Project are screens, not dialogs. */
 type ScreenName = "settings" | "people" | "new-project";
 const screenTitle: Record<ScreenName, string> = { settings: "Settings", people: "People", "new-project": "Add a Project" };
@@ -87,8 +89,21 @@ function Brand({ compact = false }: { compact?: boolean }) {
 // A ticket can only be minted by the local Stickguy app, so this page can never
 // activate itself. When a check finds the browser still has no session, say so
 // and name the recovery instead of silently re-rendering an identical screen.
+/**
+ * Reached when the hosted API answers 401: this browser holds no session.
+ *
+ * The button used to say "Activate secure session", which this page cannot do.
+ * Only the Stickguy app can mint a ticket, so the control is a re-check and
+ * nothing more, and a reader with no session could press it forever. The
+ * recovery was written on the page too — but only *after* the first press
+ * failed, so the one instruction that resolves the state was hidden behind the
+ * dead end it explains.
+ *
+ * The recovery is now stated before the control, the control says what it
+ * actually does, and pressing it confirms rather than reveals.
+ */
 function ActivationView({ onActivate, stillInactive = false }: { onActivate: () => void; stillInactive?: boolean }) {
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">Open your shared Project workroom.</h1><p>Your one-time access ticket is exchanged server-side. It is never stored in this page, activity, or browser history.</p><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Only the Stickguy app can issue a ticket, so reopen the Project from Stickguy Dev.app, then check again.</p>}<button className="pill solid" onClick={onActivate}>{stillInactive ? "Check again" : "Activate secure session"}</button><p className="microcopy">{stillInactive ? "Reopening the Project from the app mints a new one-time ticket." : "Sessions are revocable, same-site, and rotated after privilege changes."}</p></section></main>;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">This browser has no Stickguy session yet.</h1><p>A session can only be minted by the Stickguy app on this Mac, and the one-time ticket is exchanged server-side — it is never stored in this page, its activity, or browser history.</p><div className="disclosure"><strong>To open the workroom</strong><p>Open the Project from the Stickguy app, or run this in your checkout:</p><code>stickguy dashboard --project &lt;project-id&gt;</code></div><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Reopen the Project from Stickguy Dev.app to mint a new one-time ticket, then check again.</p>}<button className="pill solid" onClick={onActivate}>Check for a session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
 }
 
 export function LiveApp() {
@@ -140,7 +155,66 @@ function TerminalState({ state }: { state: "unauthorized" | "version_mismatch" }
 }
 
 function EmptyView() {
-  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Connect a repository from Stickguy Dev.app or join an existing Project with an invite.</p><code>stickguy create</code></section></main>;
+  // A Project is worth creating before anyone else is in it: two of your own
+  // agent sessions in one repository already collide with each other, and that
+  // is the case Stickguy was built for. Joining someone else's is the second
+  // sentence rather than half the first.
+  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Point Stickguy at a repository and it starts coordinating the agent sessions you run in it, on your own. Invite people later, or join an existing Project with an invite code.</p><code>stickguy create</code></section></main>;
+}
+
+/**
+ * A thread that opens at its newest entry and stays there until the reader
+ * leaves.
+ *
+ * The session feed is a stream: it runs oldest to newest and the interesting
+ * end is the bottom. Opening one at the top asked the reader to scroll through
+ * history they had usually already seen to reach the only part that was moving.
+ *
+ * Following stops the moment the reader scrolls up, because yanking the view
+ * back while someone is reading is worse than making them press a control to
+ * return, and it resumes on its own when they scroll back down to the end.
+ * `key` is whatever should force a fresh landing - the session being inspected -
+ * so switching sessions always arrives at that session's newest entry rather
+ * than inheriting the last one's scroll position.
+ */
+const TAIL_SLACK_PX = 24;
+
+function useFollowTail(key: string, depth: number) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [following, setFollowing] = useState(true);
+
+  const scrollToEnd = () => {
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  };
+
+  // Landing is per session, so it runs on the key rather than on every new
+  // entry; growth while following is handled below.
+  useEffect(() => {
+    setFollowing(true);
+    scrollToEnd();
+  }, [key]);
+
+  useEffect(() => {
+    if (following) scrollToEnd();
+  }, [depth, following]);
+
+  const onScroll = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    // jsdom and a thread shorter than its container both report zero scroll
+    // height, which is the tail by definition rather than a reader who has
+    // scrolled away.
+    const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
+    setFollowing(distance <= TAIL_SLACK_PX);
+  };
+
+  const jumpToNow = () => {
+    setFollowing(true);
+    scrollToEnd();
+  };
+
+  return { scrollRef, following, onScroll, jumpToNow };
 }
 
 /** One interval for the whole app so every elapsed clock advances together. */
@@ -192,9 +266,17 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const mineIds = useMemo(() => new Set(mine.map((stream) => stream.id)), [mine]);
   const openFindings = snapshot.findings.filter((finding) => finding.state === "open");
   // Only what reaches your own work is yours to act on; the rest stays quiet.
-  const converging = openFindings.filter((finding) => finding.workstreamIds.some((id) => mineIds.has(id)));
   const elsewhere = openFindings.filter((finding) => !finding.workstreamIds.some((id) => mineIds.has(id)));
+  // Fixture snapshots are authored at fixed times, so wall-clock arithmetic over
+  // them would report every session as silent for months. Live snapshots carry
+  // real event times and are measured against the real clock.
+  const now = source.live ? Date.now() : newestEventTime(snapshot) ?? Date.now();
+  const needsYou = useMemo(() => attentionItems(snapshot, mineIds, now), [snapshot, mineIds, now]);
+  const converging = useMemo(() => needsYou.flatMap((item) => (item.kind === "finding" ? [item.finding] : [])), [needsYou]);
   const convergingWorkstreams = useMemo(() => new Set(converging.flatMap((finding) => finding.workstreamIds)), [converging]);
+  // Ranked by what you would do about it, then by the same elapsed label the
+  // row shows, so the order always agrees with the clock beside it.
+  const mySessions = useMemo(() => orderSessions(mine, now, (session) => elapsedFromLabel(session.updatedLabel) ?? Number.POSITIVE_INFINITY), [mine, now]);
 
   const defaultSession = mine.find((stream) => stream.agent?.status === "active") ?? mine[0] ?? snapshot.workstreams[0];
   const effectiveSelection: Selection | null = selection ?? (defaultSession ? { kind: "session", id: defaultSession.id } : null);
@@ -233,7 +315,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const pushScreen = (name: ScreenName) => setScreens((stack) => [...stack, name]);
   const goBack = () => setScreens((stack) => stack.slice(0, -1));
   const previous = screens[screens.length - 2];
-  const backLabel = previous ? screenTitle[previous] : view === "decisions" ? "Decisions" : snapshot.project.name;
+  const backLabel = previous ? screenTitle[previous] : view === "history" ? "History" : snapshot.project.name;
 
   const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
   // Deleting or leaving a Project must actually leave it. Queuing the request
@@ -263,10 +345,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
       <div className="side-scroll">
         <button className="nav-item" aria-current={!screen && view === "workroom" ? "page" : undefined} onClick={() => showView("workroom")}>
           <LayoutGrid size={16} />{!sidebarCollapsed && <span>Workroom</span>}
-          {!sidebarCollapsed && converging.length > 0 && <span className="nav-count">{converging.length}</span>}
+          {!sidebarCollapsed && needsYou.length > 0 && <span className="nav-count">{needsYou.length}</span>}
         </button>
-        <button className="nav-item" aria-current={!screen && view === "decisions" ? "page" : undefined} onClick={() => showView("decisions")}>
-          <Check size={16} />{!sidebarCollapsed && <span>Decisions</span>}
+        <button className="nav-item" aria-current={!screen && view === "history" ? "page" : undefined} onClick={() => showView("history")}>
+          <Route size={16} />{!sidebarCollapsed && <span>History</span>}
         </button>
 
         <div className="side-group"><span className="side-label">Projects</span></div>
@@ -282,7 +364,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
       </div>
 
       <button className="profile-button" aria-current={screen === "settings" ? "page" : undefined} onClick={() => showScreen("settings")} aria-label="Open settings, devices, and privacy">
-        <span className="avatar">{initialsFor(identity.name)}</span>
+        <MemberChip name={identity.name} size="large" />
         {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>Settings &amp; privacy</small></span>}
       </button>
     </aside>
@@ -292,12 +374,11 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
         <div className="main-bar">
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
-          <button className="icon-button" onClick={() => setDark((value) => !value)} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>{dark ? <Sun size={16} /> : <Moon size={16} />}</button>
+          {/* Theme is a preference set once and it lives in Settings. The
+              toolbar is for things you act on while reading this Project. */}
           <button className="icon-button" onClick={() => showScreen("settings")} aria-label="Open Project settings"><Settings2 size={16} /></button>
           <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />Invite</button>
-          <button className={snapshot.workspacePaused ? "pill alerting" : "pill"} disabled={offline || source.live} title={source.live ? "Use the Stickguy menu bar to pause live sharing" : undefined} onClick={() => source.togglePause(projectId)}>
-            {snapshot.workspacePaused ? <Play size={14} /> : <Pause size={14} />}{source.live ? "Menu bar" : snapshot.workspacePaused ? "Resume" : "Pause"}
-          </button>
+          <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} />
         </div>
 
         <div className="main-scroll">
@@ -320,11 +401,11 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
 
             {view === "workroom"
               ? <WorkroomView
-                  snapshot={snapshot} mine={mine} nearby={nearby} converging={converging} elsewhere={elsewhere}
+                  snapshot={snapshot} mine={mine} mySessions={mySessions} nearby={nearby} needsYou={needsYou} elsewhere={elsewhere}
                   convergingWorkstreams={convergingWorkstreams} selection={effectiveSelection} viewer={identity.name} tick={tick}
                   onSelectSession={openSession} onSelectFinding={(id) => setSelection({ kind: "collision", id })}
                 />
-              : <DecisionsView snapshot={snapshot} tick={tick} />}
+              : <HistoryView snapshot={snapshot} tick={tick} selection={effectiveSelection} onSelectFinding={(id) => setSelection({ kind: "collision", id })} onSelectSession={(id) => setSelection({ kind: "session", id })} />}
           </div>
         </div>
       </main>
@@ -357,6 +438,93 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   </div>;
 }
 
+/**
+ * Pausing sharing for the Project the member is actually reading.
+ *
+ * This control used to be a sentence pointing at the menu bar, which was honest
+ * about where the switch lived and wrong about what it did: the menu-bar item
+ * stops sharing for every Project on the machine, and someone reading one
+ * Project is asking about that Project. The service now scopes pause to a
+ * Project, so the workroom offers the request the reader actually made.
+ *
+ * Pause is local-service state, so a browser tab with no native bridge cannot
+ * set it. That case gets the exact command instead of a button that would do
+ * nothing - the same rule the activation screen follows.
+ */
+function PauseControl({ source, projectId, paused, offline }: { source: FixtureProjectSource; projectId: string; paused: boolean; offline: boolean }) {
+  const [controllable, setControllable] = useState<boolean | null>(null);
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void source.localControl().then((value) => { if (!cancelled) setControllable(value); }).catch(() => { if (!cancelled) setControllable(false); });
+    return () => { cancelled = true; };
+  }, [source]);
+
+  if (controllable === null) return <span className="toolbar-note" aria-hidden="true" />;
+  if (!controllable) {
+    return <span className="toolbar-note"><Pause size={13} aria-hidden="true" />Pause this Project from the Stickguy app, or run <code>stickguy pause --project {projectId}</code></span>;
+  }
+  return <>
+    <button
+      className={paused ? "pill alerting" : "pill"}
+      disabled={offline || pending}
+      onClick={() => {
+        setPending(true);
+        setFailed(false);
+        void source.setProjectPaused(projectId, !paused).catch(() => setFailed(true)).finally(() => setPending(false));
+      }}
+    >{paused ? <Play size={14} /> : <Pause size={14} />}{paused ? "Resume" : "Pause"}</button>
+    {failed && <span className="toolbar-note" role="alert">Sharing could not be changed.</span>}
+  </>;
+}
+
+/**
+ * Focus: the request of one agent session not to be interrupted.
+ *
+ * This is the inbound control and Pause is the outbound one, and they are
+ * deliberately not symmetric. Pausing hides this device's work from the
+ * Project, which quietly makes teammates less safe - they can no longer avoid
+ * what they cannot see. Focus stops the Project reaching this agent's turns and
+ * changes nothing about what is published, so the member who wants quiet keeps
+ * their own risk instead of handing it to people who never asked for it.
+ *
+ * Nothing is consumed while a session is quiet: every pending correction is
+ * still waiting when the hour is up. And it is always an hour - a mute that
+ * outlives the reason for it is worse than no mute at all in a tool whose
+ * whole value is being told things.
+ */
+const FOCUS_MINUTES = 60;
+
+function FocusControl({ source, session }: { source: FixtureProjectSource; session: Workstream }) {
+  const [focus, setFocus] = useState<SessionFocus | null>(null);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const read = () => void source.getSessionFocus(session.id).then((value) => { if (!cancelled) setFocus(value); }).catch(() => { if (!cancelled) setFocus(null); });
+    read();
+    // The deadline passes on its own, so the control has to notice that it has.
+    const timer = window.setInterval(read, 30_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [source, session.id]);
+
+  if (!focus) return null;
+  const apply = (minutes: number) => {
+    setPending(true);
+    void source.setSessionFocus(session.id, minutes).then(setFocus).catch(() => undefined).finally(() => setPending(false));
+  };
+  if (focus.focused) {
+    return <button className="pill alerting session-focus" disabled={pending} onClick={() => apply(0)} title="Coordination is still being collected for this session; it is not being injected into its turns.">
+      <BellOff size={13} />Muted{focus.until ? ` until ${sessionMessageTime(focus.until)}` : ""}
+    </button>;
+  }
+  return <button className="pill session-focus" disabled={pending} onClick={() => apply(FOCUS_MINUTES)} title="Stop coordination reaching this agent's turns for an hour. Your work stays visible to the Project.">
+    <BellOff size={13} />Mute for an hour
+  </button>;
+}
+
 function useProjectSnapshot(source: FixtureProjectSource, projectId: string): ProjectSnapshot {
   return useSyncExternalStore((listener) => source.subscribe(projectId, listener), () => source.get(projectId), () => source.get(projectId));
 }
@@ -368,27 +536,41 @@ function presenceRank(stream: Workstream): number {
   return 3;
 }
 
-function WorkroomView({ snapshot, mine, nearby, converging, elsewhere, convergingWorkstreams, selection, viewer, tick, onSelectSession, onSelectFinding }: {
-  snapshot: ProjectSnapshot; mine: Workstream[]; nearby: Workstream[]; converging: Finding[]; elsewhere: Finding[];
+function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere, convergingWorkstreams, selection, viewer, tick, onSelectSession, onSelectFinding }: {
+  snapshot: ProjectSnapshot; mine: Workstream[]; mySessions: OrderedSessions; nearby: Workstream[]; needsYou: AttentionItem[]; elsewhere: Finding[];
   convergingWorkstreams: Set<string>; selection: Selection | null; viewer: string; tick: number;
   onSelectSession: (id: string) => void; onSelectFinding: (id: string) => void;
 }) {
   return <>
-    <div className="block-head lead"><h2>Converging on you</h2>{converging.length > 0 && <span className="count hot">{converging.length}</span>}</div>
+    {/* One block answers "is anything about to hit me", and a session of your own
+        that has stopped is as much an answer as a collision is. */}
+    <div className="block-head lead"><h2>Needs you</h2>{needsYou.length > 0 && <span className="count hot">{needsYou.length}</span>}</div>
     <SemanticStatus status={snapshot.project.semanticStatus} mode={snapshot.project.semanticMode} />
-    {converging.length === 0
+    {needsYou.length === 0
       ? <p className="block-empty">Nothing is reaching your work right now.</p>
-      : converging.map((finding) => <ConvergeBlock key={finding.id} finding={finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} selected={selection?.kind === "collision" && selection.id === finding.id} onSelect={() => onSelectFinding(finding.id)} onOpenSession={onSelectSession} />)}
+      : needsYou.map((item) => item.kind === "finding"
+          ? <ConvergeBlock key={item.id} finding={item.finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} selected={selection?.kind === "collision" && selection.id === item.finding.id} onSelect={() => onSelectFinding(item.finding.id)} onOpenSession={onSelectSession} />
+          : <HealthBlock key={item.id} session={item.session} signal={item.signal} tick={tick} selected={selection?.kind === "session" && selection.id === item.session.id} onOpen={() => onSelectSession(item.session.id)} />)}
 
     <div className="block-head ambient"><h2>Your sessions</h2><span className="count">{mine.length}</span></div>
     {mine.length === 0
-      ? <p className="block-empty">No sessions are registered to you in this Project yet.</p>
-      : <div className="rows">{mine.map((stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />)}</div>}
+      ? <p className="block-empty">No sessions are registered to you in this Project yet. Start Codex or Claude Code in this repository and the session appears here.</p>
+      : <>
+          <BranchGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
+          {/* Finished work is worth keeping and not worth scrolling past, so it
+              folds into one line rather than moving to a screen of its own. */}
+          {mySessions.finished.length > 0 && <details className="fold">
+            <summary>{mySessions.finished.length} finished session{mySessions.finished.length === 1 ? "" : "s"}</summary>
+            <div className="rows">{mySessions.finished.map((stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />)}</div>
+          </details>}
+        </>}
 
+    {/* A Project of one is a finished Project, so this block states a fact about
+        the Project rather than naming a setup step the member has not done. */}
     <div className="block-head ambient"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
     {nearby.length === 0
-      ? <p className="block-empty">No teammates are registered to this Project yet.</p>
-      : <div className="rows">{nearby.map((stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />)}</div>}
+      ? <p className="block-empty">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>
+      : <BranchGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
 
     {elsewhere.length > 0 && <>
       <div className="block-head ambient"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
@@ -398,31 +580,20 @@ function WorkroomView({ snapshot, mine, nearby, converging, elsewhere, convergin
   </>;
 }
 
-function DecisionsView({ snapshot, tick }: { snapshot: ProjectSnapshot; tick: number }) {
-  const resolved = snapshot.collaboration.syncCards.filter((card) => card.state === "resolved" && card.resolution);
-  const loose = snapshot.collaboration.resolutions.filter((resolution) => !resolved.some((card) => card.resolution?.id === resolution.id));
-  const empty = resolved.length === 0 && loose.length === 0;
-  return <>
-    <div className="block-head"><h2>Decisions</h2>{!empty && <span className="count">{resolved.length + loose.length}</span>}</div>
-    {empty
-      ? <p className="block-empty">Nothing has been decided yet. Resolving a collision records the outcome here and delivers it to every affected session.</p>
-      : <div>
-          {resolved.map((card) => <article className="decision-entry" key={card.id}><h3>{card.title}</h3><p>{card.resolution?.summary}</p><div className="sent">Delivered to {card.resolution?.affectedWorkstreamIds.length ?? 0} session{(card.resolution?.affectedWorkstreamIds.length ?? 0) === 1 ? "" : "s"} · revision {card.revision}</div></article>)}
-          {loose.map((resolution) => <article className="decision-entry" key={resolution.id}><h3>Coordination decision</h3><p>{resolution.summary}</p><div className="sent">Delivered to {resolution.affectedWorkstreamIds.length} session{resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {resolution.revision}</div></article>)}
-        </div>}
-
-    {snapshot.activity.length > 0 && <>
-      <div className="block-head ambient"><h2>Activity</h2></div>
-      <ol className="timeline">{snapshot.activity.map((item) => <li key={item.id}><p><strong>{item.actor}</strong> {item.summary}</p><span className="src"><Since label={item.at} tick={tick} /> · {activitySourceLabel(item.fidelity)}</span></li>)}</ol>
-    </>}
-  </>;
-}
-
 function vendorLabel(session: Workstream): string {
-  return session.agent?.vendor === "codex" ? "Codex" : session.agent?.vendor === "claude" ? "Claude Code" : "Shared task";
+  return session.agent?.vendor === "codex" ? "Codex" : session.agent?.vendor === "claude" ? "Claude Code" : "No agent connected";
 }
 
 /** The file an agent is touching right now, which is newer than its path list. */
+/**
+ * How a row announces itself. A workstream with no observed agent has no vendor
+ * to name, and splicing the fallback label into the agent sentence produced
+ * "Open No agent connected session for Ravi".
+ */
+function openSessionLabel(session: Workstream): string {
+  return session.agent ? `Open ${vendorLabel(session)} session for ${session.memberName}` : `Open ${session.memberName}'s work`;
+}
+
 function currentPath(session: Workstream): string | undefined {
   return session.agent?.activity?.find((item) => item.paths.length > 0)?.paths[0] ?? session.paths[0];
 }
@@ -437,17 +608,52 @@ function LiveAction({ session }: { session: Workstream }) {
   return <span className="livetext">{session.outcome}<span className="ellipsis" /></span>;
 }
 
+/**
+ * Sessions grouped by the branch they are working on.
+ *
+ * Branch answers "who else is in my lane", and until now it was a word at the
+ * end of a row rather than something the eye could group by. A Project working
+ * on one branch gains nothing from a heading that repeats itself, so grouping
+ * appears only once a list actually spans more than one branch; sessions with
+ * no reported branch keep their place in a final unlabelled group rather than
+ * being given a branch they never claimed.
+ */
+interface BranchGroup { branch: string | null; sessions: Workstream[] }
+
+export function groupByBranch(sessions: readonly Workstream[]): BranchGroup[] {
+  const groups: BranchGroup[] = [];
+  for (const session of sessions) {
+    const branch = session.agent?.branch?.trim() || null;
+    const existing = groups.find((group) => group.branch === branch);
+    if (existing) existing.sessions.push(session);
+    else groups.push({ branch, sessions: [session] });
+  }
+  // One branch, or none at all, is the ordinary case and needs no chrome.
+  return groups.filter((group) => group.branch !== null).length > 1 ? groups : [{ branch: null, sessions: [...sessions] }];
+}
+
+function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
+  const groups = groupByBranch(sessions);
+  if (groups.length === 1 && groups[0]!.branch === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
+  return <>{groups.map((group) => <div className="branch-group" key={group.branch ?? "__unlabelled"}>
+    <div className="branch-label">{group.branch
+      ? <><GitBranch size={12} aria-hidden="true" /><code>{group.branch}</code><span>{group.sessions.length}</span></>
+      : <><GitBranch size={12} aria-hidden="true" /><span className="unknown">no branch reported</span><span>{group.sessions.length}</span></>}</div>
+    <div className="rows">{group.sessions.map(render)}</div>
+  </div>)}</>;
+}
+
 function SessionRow({ session, tick, converging, selected, onClick }: { session: Workstream; tick: number; converging: boolean; selected: boolean; onClick: () => void }) {
   const path = currentPath(session);
   const activeSubagents = session.agent?.subagents.filter((agent) => agent.status !== "done") ?? [];
-  return <button className="session-row" aria-current={selected ? "true" : undefined} onClick={onClick} aria-label={`Open ${vendorLabel(session)} session for ${session.memberName}`}>
+  return <button className="session-row" aria-current={selected ? "true" : undefined} onClick={onClick} aria-label={openSessionLabel(session)}>
     <span className="session-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
     <span>
       <h3>{session.agent?.sessionTitle ?? session.title}</h3>
-      <span className="session-meta">{vendorLabel(session)}{session.agent?.sessionAlias ? ` · ${session.agent.sessionAlias}` : ""}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
+      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
       <span className="session-doing"><LiveAction session={session} /></span>
       {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
-      {activeSubagents.map((agent) => <span className="session-sub" key={agent.alias}><b>{agent.agentType || "subagent"}</b> subagent · {agent.status}</span>)}
+      {activeSubagents.length > 0 && <span className="session-sub">{activeSubagents.length} working in parallel</span>}
     </span>
     <span className="session-right">
       {converging && <span className="session-warn" title="Converging with another session"><AlertTriangle size={14} /></span>}
@@ -461,9 +667,9 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
  *  Which agent is doing it is the next question, and reading it off a name is
  *  impossible, so the vendor is a mark rather than another word of prose. */
 function PersonRow({ session, tick, onClick }: { session: Workstream; tick: number; onClick: () => void }) {
-  return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={`Open ${vendorLabel(session)} session for ${session.memberName}`}>
-    <span className="person-icon" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={15} /> : <Code2 size={14} />}</span>
-    <span className="nm">{session.memberName}</span>
+  return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={openSessionLabel(session)}>
+    <MemberChip name={session.memberName} />
+    <span className="nm">{session.memberName}<span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
     <span className="intent"><LiveAction session={session} /></span>
     <Elapsed label={session.updatedLabel} tick={tick} />
   </button>;
@@ -473,6 +679,43 @@ function PersonRow({ session, tick, onClick }: { session: Workstream; tick: numb
 function otherNames(affected: Workstream[], viewer: string): string {
   const names = [...new Set(affected.map((stream) => stream.memberName).filter((name) => name !== viewer))];
   return names.length > 0 ? names.join(" and ") : "your teammate";
+}
+
+/**
+ * Where a collision will show up other than here.
+ *
+ * The branch each session is on is already carried on the workstream, and it
+ * answers the question a reader asks next: is anything else going to tell me
+ * about this. Two sessions on one branch will meet in Git shortly. Two sessions
+ * on different branches will not meet until someone merges, which is the case
+ * this product exists for and the case no other tool reports.
+ *
+ * A branch is never a reason to hide a finding, so an unknown branch says it is
+ * unknown rather than implying either answer.
+ */
+function branchStatement(affected: Workstream[]): string {
+  const branches = affected.map((stream) => stream.agent?.branch?.trim()).filter((branch): branch is string => Boolean(branch));
+  if (affected.length < 2 || branches.length !== affected.length) {
+    return "Not every session here reported a branch, so Stickguy cannot say whether Git will surface this before merge.";
+  }
+  const distinct = [...new Set(branches)];
+  if (distinct.length === 1) {
+    return `Both sessions are working on ${distinct[0]}, so Git surfaces this as well at the next pull, push, or shared write.`;
+  }
+  const sides = affected.map((stream) => `${stream.memberName} on ${stream.agent!.branch!.trim()}`);
+  return `${joinNames(sides)}. Nothing outside this Project reports this until those branches meet at merge.`;
+}
+
+/** Which agent sessions a recorded decision is actually delivered into. */
+function routingStatement(affected: Workstream[]): string {
+  if (affected.length === 0) return "A decision is delivered into every affected session.";
+  const targets = affected.map((stream) => `${stream.memberName}'s ${vendorLabel(stream)} session`);
+  return `Goes to ${joinNames(targets)}.`;
+}
+
+function joinNames(values: string[]): string {
+  if (values.length <= 1) return values[0] ?? "";
+  return `${values.slice(0, -1).join(", ")} and ${values[values.length - 1]}`;
 }
 
 function findingHeadline(finding: Finding): string {
@@ -495,21 +738,153 @@ function ConvergeBlock({ finding, sessions, viewer, tick, quiet = false, selecte
     <h3><button onClick={onSelect} aria-label={`${findingHeadline(finding)} ${names}`} aria-current={selected ? "true" : undefined}>{finding.title}</button></h3>
     <p className="why">{finding.reason}</p>
     <div className="pair">{affected.map((stream) => <button className="mini" key={stream.id} onClick={() => onOpenSession(stream.id)} aria-label={`Open ${stream.memberName}'s side of this collision`}>
-      <span className="mini-icon">{stream.agent ? <VendorMark vendor={stream.agent.vendor} size={17} /> : <Code2 size={16} />}</span>
-      <span className="nm">{stream.memberName} <em>· {stream.agent?.sessionTitle ?? stream.title}</em></span>
+      <MemberChip name={stream.memberName} />
+      <span className="nm">{stream.memberName}<span className="row-vendor" title={vendorLabel(stream)}>{stream.agent ? <VendorMark vendor={stream.agent.vendor} size={13} /> : <Code2 size={12} />}</span> <em>· {stream.agent?.sessionTitle ?? stream.title}</em></span>
       <Elapsed label={stream.updatedLabel} tick={tick} />
       <span className="chev"><ChevronRight size={14} /></span>
-      <span className="doing"><LiveAction session={stream} /></span>
     </button>)}</div>
-    <div className="evidence">{finding.evidence.map((item) => <span key={`${item.kind}-${item.label}`} style={{ display: "contents" }}>
-      <span className="k">{item.label}</span>
-      <span className={item.source === "git" ? "v fact" : "v"}>{evidenceKindLabel(item.kind)} · {item.source.replaceAll("_", " ")}</span>
-    </span>)}</div>
-    <p className="converge-meta">{finding.confidence} confidence · first seen <Since label={finding.firstSeen} tick={tick} /> ago</p>
     <div className="converge-actions">
-      <button className="pill solid" onClick={onSelect}>Talk to {others} about this</button>
+      <button className="pill solid" onClick={onSelect}>Decide this with {others}</button>
+      <span className="converge-meta">first seen <Since label={finding.firstSeen} tick={tick} /> ago</span>
     </div>
   </section>;
+}
+
+/**
+ * A person, as a small mark rather than a word.
+ *
+ * Every name in the Project was rendering as the same grey circle, so telling
+ * two teammates apart meant reading. The hue is derived from the name and is
+ * therefore stable everywhere the person appears, which is what makes it usable
+ * for scanning rather than decoration.
+ */
+function MemberChip({ name, size = "small" }: { name: string; size?: "small" | "large" }) {
+  return <span className={size === "large" ? "avatar" : "avatar small"} style={{ "--member-hue": memberHue(name) } as CSSProperties} aria-hidden="true">{initialsFor(name)}</span>;
+}
+
+function healthHeadline(signal: HealthSignal, session: Workstream): string {
+  const who = session.agent?.sessionTitle ?? session.title;
+  if (signal.kind === "error") return `${who} stopped on an error`;
+  if (signal.kind === "waiting") return `${who} is waiting for you`;
+  return `${who} has gone quiet`;
+}
+
+/**
+ * A session of your own that has stopped, rendered in the same block as a
+ * collision because it is the same question: does this need me right now.
+ *
+ * Colour tracks how strong the evidence is, not how loud the row should be.
+ * `waiting` and `error` are facts a vendor reported about its own session, so
+ * they take `--alert` like any other converging work. A stall is arithmetic
+ * over silence - true, useful, and not proof that anything is wrong - so it
+ * stays at reading weight and lets the measurement speak.
+ */
+function HealthBlock({ session, signal, tick, selected, onOpen }: {
+  session: Workstream; signal: HealthSignal; tick: number; selected: boolean; onOpen: () => void;
+}) {
+  const icon = signal.kind === "error" ? <AlertTriangle size={18} /> : signal.kind === "waiting" ? <Pause size={18} /> : <CircleDot size={18} />;
+  return <section className={signal.kind === "stalled" ? "converge health quiet" : "converge health"} aria-label={healthHeadline(signal, session)}>
+    <span className="converge-icon">{icon}</span>
+    <h3><button onClick={onOpen} aria-current={selected ? "true" : undefined}>{healthHeadline(signal, session)}</button></h3>
+    <p className="why">{signal.statement}</p>
+    <div className="pair"><button className="mini" onClick={onOpen} aria-label={openSessionLabel(session)}>
+      <MemberChip name={session.memberName} />
+      <span className="nm">{session.memberName} <em>· {vendorLabel(session)}</em></span>
+      <Elapsed label={session.updatedLabel} tick={tick} />
+      <span className="chev"><ChevronRight size={14} /></span>
+    </button></div>
+    <p className="converge-meta solo">
+      {signal.silentSeconds !== undefined && <><span className="strong">silent for {formatElapsed(signal.silentSeconds)}</span> · </>}
+      {signal.kind === "stalled" ? "observed silence, not a diagnosis" : "reported by the agent"}
+    </p>
+  </section>;
+}
+
+/**
+ * What already happened, in one place.
+ *
+ * This was two tabs. "Ledger" named a filing cabinet rather than anything a
+ * person goes looking for, and "Decisions" survived ADR-037 deleting the
+ * standalone decision surface it was built for, so half the sidebar answered a
+ * question nobody had asked in words they did not use. Both answered the same
+ * question - what has this Project already handled - so they are one screen
+ * with a name people already own.
+ *
+ * It stops at delivery. Stickguy knows a correction was routed and whether the
+ * agent acknowledged reading it, and does not know whether the agent then did
+ * the right thing; wording that implied otherwise would fail the fidelity rules
+ * this screen is subordinate to.
+ */
+function HistoryView({ snapshot, tick, selection, onSelectFinding, onSelectSession }: {
+  snapshot: ProjectSnapshot; tick: number; selection: Selection | null;
+  onSelectFinding: (id: string) => void; onSelectSession: (id: string) => void;
+}) {
+  // `firstSeen` is still a prose label from the service, so comparing the
+  // strings sorted "44m ago" above "12 min ago". Parse to seconds and put the
+  // most recent first; anything unparseable keeps its place at the end.
+  const findings = [...snapshot.findings].sort((left, right) => (elapsedFromLabel(left.firstSeen) ?? Infinity) - (elapsedFromLabel(right.firstSeen) ?? Infinity));
+  const deliveries = snapshot.workstreams
+    .flatMap((session) => (session.agent?.coordination ?? []).map((entry) => ({ session, entry })))
+    .sort((left, right) => (left.entry.routedAt < right.entry.routedAt ? 1 : -1));
+  const acknowledged = deliveries.filter((item) => item.entry.acknowledgedAt).length;
+  const resolved = snapshot.collaboration.syncCards.filter((card) => card.state === "resolved" && card.resolution);
+  const loose = snapshot.collaboration.resolutions.filter((resolution) => !resolved.some((card) => card.resolution?.id === resolution.id));
+  const membersOn = (ids: string[]) => [...new Set(snapshot.workstreams.filter((stream) => ids.includes(stream.id)).map((stream) => stream.memberName))];
+
+  return <>
+    <div className="block-head lead"><h2>Raised</h2><span className="count">{findings.length}</span></div>
+    <p className="block-note">Everything this Project has caught, whether or not it reached you.</p>
+    {findings.length === 0
+      ? <p className="block-empty">Nothing has been raised in this Project yet.</p>
+      : <ol className="ledger">{findings.map((finding) => <li key={finding.id}>
+          <button aria-current={selection?.kind === "collision" && selection.id === finding.id ? "true" : undefined} onClick={() => onSelectFinding(finding.id)} aria-label={`Open ${findingHeadline(finding)}`}>
+            <span className="lt">{finding.title}</span>
+            <span className="lw">{finding.reason}</span>
+            <span className="lp">{membersOn(finding.workstreamIds).map((name) => <MemberChip key={name} name={name} />)}</span>
+            <span className="lf">
+              <span>{findingHeadline(finding).toLowerCase()}</span>
+              <span>{finding.severity} severity</span>
+              <span>{finding.confidence} confidence</span>
+              <span>{finding.state}</span>
+              <span>raised <Since label={finding.firstSeen} tick={tick} /> ago</span>
+            </span>
+          </button>
+        </li>)}</ol>}
+
+    <div className="block-head ambient"><h2>Delivered into a turn</h2><span className="count">{deliveries.length}</span></div>
+    {deliveries.length === 0
+      ? <p className="block-empty">No coordination has been routed into an agent turn yet.</p>
+      : <>
+          <ol className="ledger">{deliveries.map(({ session, entry }) => <li key={entry.id}>
+            <button aria-current={selection?.kind === "session" && selection.id === session.id ? "true" : undefined} onClick={() => onSelectSession(session.id)} aria-label={openSessionLabel(session)}>
+              <span className="lt">{entry.summary}</span>
+              <span className="lp"><MemberChip name={session.memberName} /><span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
+              <span className="lf">
+                <span>{session.memberName}</span>
+                <span>{entry.itemCount} item{entry.itemCount === 1 ? "" : "s"}</span>
+                <span>at {coordinationTriggerLabel(entry.trigger).toLowerCase()}</span>
+                <span>{entry.acknowledgedAt ? "acknowledged" : "not yet acknowledged"}</span>
+              </span>
+            </button>
+          </li>)}</ol>
+          <p className="block-note">{acknowledged} of {deliveries.length} delivered brief{deliveries.length === 1 ? "" : "s"} {acknowledged === 1 ? "was" : "were"} acknowledged by the receiving agent. Acknowledgement records that the agent read the correction, not that it followed it.</p>
+        </>}
+
+    <div className="block-head ambient"><h2>Settled</h2><span className="count">{resolved.length + loose.length}</span></div>
+    {resolved.length + loose.length === 0
+      ? <p className="block-empty">Nothing has been settled yet. Resolving a collision records the outcome here and delivers it to every affected session.</p>
+      : <div>
+          {resolved.map((card) => <article className="decision-entry" key={card.id}><h3>{card.title}</h3><p>{card.resolution?.summary}</p><div className="sent">Delivered to {card.resolution?.affectedWorkstreamIds.length ?? 0} session{(card.resolution?.affectedWorkstreamIds.length ?? 0) === 1 ? "" : "s"} · revision {card.revision}</div></article>)}
+          {loose.map((resolution) => <article className="decision-entry" key={resolution.id}><h3>Coordination decision</h3><p>{resolution.summary}</p><div className="sent">Delivered to {resolution.affectedWorkstreamIds.length} session{resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {resolution.revision}</div></article>)}
+        </div>}
+
+    {/* The raw event stream is the least-read thing on the screen and the
+        hardest to scan, so it is available rather than in the way. */}
+    {snapshot.activity.length > 0 && <details className="fold">
+      <summary>{snapshot.activity.length} recorded event{snapshot.activity.length === 1 ? "" : "s"}</summary>
+      <ol className="timeline">{snapshot.activity.map((item) => <li key={item.id}><p><strong>{item.actor}</strong> {item.summary}</p><span className="src"><Since label={item.at} tick={tick} /> · {activitySourceLabel(item.fidelity)}</span></li>)}</ol>
+    </details>}
+  </>;
 }
 
 function SessionInspector({ session, source, tick, isViewer }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean }) {
@@ -558,6 +933,7 @@ function SessionInspector({ session, source, tick, isViewer }: { session: Workst
     ? (own?.messages ?? []).map((message, index) => ({ id: `own-${index}`, kind: message.kind, text: message.text, tool: message.tool, at: message.at }))
     : (shared?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
   const feed = sessionTimeline(conversation, session);
+  const { scrollRef, following, onScroll, jumpToNow } = useFollowTail(session.id, feed.length);
   const title = session.agent?.sessionTitle ?? own?.title ?? session.title;
   const branch = session.agent?.branch ?? own?.branch;
   const liveFacts = [session.agent?.tool, showPath ? path : undefined].filter((value): value is string => Boolean(value)).join(" · ");
@@ -569,24 +945,40 @@ function SessionInspector({ session, source, tick, isViewer }: { session: Workst
         <h2>{title}</h2>
         <div className="sub">{session.memberName} · {vendorLabel(session)}</div>
         {branch && <div className="inspector-status"><GitBranch size={12} aria-hidden="true" /><code>{branch}</code></div>}
+        {/* What the session *is* right now belongs to the session, so it reads
+            in the header beside its name. What the session *did* belongs to the
+            thread below. Carrying the newest event in both places was what made
+            a strictly chronological feed read as though it were out of order. */}
+        {!complete && <div className="inspector-live" aria-label="Current session activity" aria-live="polite">
+          <Activity size={12} aria-hidden="true" />
+          <small>{statusCopy(session)}</small>
+          {liveFacts && <code>{liveFacts}</code>}
+          <Elapsed label={session.updatedLabel} tick={tick} />
+        </div>}
       </span>
       <div className="session-header-actions" ref={detailsAnchorRef}>
+        {/* Only your own session, and only while it is still running: muting a
+            session that has finished would be a control with nothing to mute,
+            and a teammate's session is not yours to quiet. */}
+        {isViewer && session.agent && !complete && <FocusControl source={source} session={session} />}
         {complete && <span className="session-complete"><Check size={12} aria-hidden="true" />Complete</span>}
         <button className="icon-button session-details-button" aria-label="Open session details" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Info size={15} /></button>
         {detailsOpen && <SessionDetailsPanel session={session} mine={mine} subagents={subagents} path={path} onClose={() => setDetailsOpen(false)} />}
       </div>
     </div>
-    {!complete && <div className="session-live" aria-label="Current session activity" aria-live="polite">
-      <span className="session-live-icon" aria-hidden="true"><Activity size={15} /></span>
-      <span className="session-live-copy"><span className="session-live-facts"><small>{statusCopy(session)}</small>{liveFacts && <code>{liveFacts}</code>}</span><strong><LiveAction session={session} /></strong></span>
-      <Elapsed label={session.updatedLabel} tick={tick} />
-    </div>}
-    <div className="inspector-body chat-inspector-body">
+    <div className="inspector-body chat-inspector-body" ref={scrollRef} onScroll={onScroll}>
       {messageError && <p className="form-error" role="alert">{messageError}</p>}
       {feed.length > 0
         ? <ol className="session-thread">{feed.map((item) => <SessionFeedRow key={item.id} item={item} session={session} isViewer={isViewer} tick={tick} />)}</ol>
           : <div className="conversation-empty"><MessageSquare size={18} /><div><strong>{session.agent ? "This session has not said anything yet." : "No agent conversation is available."}</strong><p>{session.outcome}</p></div></div>}
     </div>
+    {/* Only once the reader has left the tail does a control to return to it
+        mean anything. At the tail it would be a button that does nothing. */}
+    {!following && <button className="jump-to-now" onClick={jumpToNow}>
+      <Activity size={13} aria-hidden="true" />
+      <span><LiveAction session={session} /></span>
+      <ChevronRight size={14} aria-hidden="true" />
+    </button>}
   </>;
 }
 
@@ -594,6 +986,7 @@ type TranscriptMessage = { id: string; kind: SessionMessageKind | "tool"; text?:
 type SessionFeedItem =
   | { id: string; kind: SessionMessageKind; text?: string; at?: string }
   | { id: string; kind: "tool_group"; tools: string[]; at?: string }
+  | { id: string; kind: "context_group"; blocks: string[]; at?: string }
   | { id: string; kind: "lifecycle"; event: "started" | "ended" | "status"; label: string; detail?: string; at?: string }
   | { id: string; kind: "coordination"; state: "routed" | "considered"; summary: string; itemCount: number; trigger: string; at: string }
   | { id: string; kind: "parallel"; label: string; detail: string; at?: string }
@@ -651,13 +1044,24 @@ function sessionTimeline(messages: TranscriptMessage[], session: Workstream): Se
 
   const grouped: SessionFeedItem[] = [];
   for (const { order: _order, ...item } of seeds) {
-    if (item.kind !== "tool") {
-      grouped.push(item);
+    if (item.kind === "tool") {
+      const previous = grouped[grouped.length - 1];
+      if (previous?.kind === "tool_group") previous.tools.push(item.tool);
+      else grouped.push({ id: `tools-${item.id}`, kind: "tool_group", tools: [item.tool], at: item.at });
       continue;
     }
-    const previous = grouped[grouped.length - 1];
-    if (previous?.kind === "tool_group") previous.tools.push(item.tool);
-    else grouped.push({ id: `tools-${item.id}`, kind: "tool_group", tools: [item.tool], at: item.at });
+    // What the harness told the agent - sandbox rules, permissions, repository
+    // instructions - is provenance rather than conversation, and Codex sends
+    // several blocks of it before a session says anything. Rendered at message
+    // weight they buried the first real exchange, so consecutive blocks fold
+    // into one line that opens on demand.
+    if (item.kind === "system") {
+      const previous = grouped[grouped.length - 1];
+      if (previous?.kind === "context_group") previous.blocks.push(item.text ?? "");
+      else grouped.push({ id: `context-${item.id}`, kind: "context_group", blocks: [item.text ?? ""], at: item.at });
+      continue;
+    }
+    grouped.push(item);
   }
   return grouped;
 }
@@ -671,6 +1075,10 @@ function timelineTime(value: string | undefined): number | null {
 function SessionFeedRow({ item, session, isViewer, tick }: { item: SessionFeedItem; session: Workstream; isViewer: boolean; tick: number }) {
   if (item.kind === "tool_group") return <li className="thread-tool"><span className="thread-tool-icon"><Command size={12} /></span><span><strong title={item.tools.join(" → ")}>{item.tools.join(" → ")}</strong><small>{item.tools.length === 1 ? "Tool activity" : `${item.tools.length} tool actions`}{item.at ? ` · ${sessionMessageTime(item.at)}` : ""}</small></span></li>;
   if (item.kind === "thinking") return <li className="thread-thinking"><details><summary><span><Bot size={13} />Thinking</span>{item.at && <small>{sessionMessageTime(item.at)}</small>}</summary><MarkdownMessage text={item.text ?? ""} /></details></li>;
+  if (item.kind === "context_group") return <li className="thread-context"><details>
+    <summary><span className="thread-tool-icon" aria-hidden="true"><ShieldCheck size={12} /></span><span>{item.blocks.length === 1 ? "Harness instructions" : `${item.blocks.length} blocks of harness instructions`}</span>{item.at && <small>{sessionMessageTime(item.at)}</small>}</summary>
+    {item.blocks.map((block, index) => <MarkdownMessage key={index} text={block} />)}
+  </details></li>;
   if (item.kind === "user" || item.kind === "assistant" || item.kind === "system") return <li className={`thread-message ${item.kind}`}><header><span className="message-icon" aria-hidden="true"><SessionMessageIcon kind={item.kind} vendor={session.agent?.vendor} /></span><strong>{item.kind === "assistant" ? vendorLabel(session) : messageKindLabel(item.kind)}</strong>{item.at && <small>{sessionMessageTime(item.at)}</small>}</header><MarkdownMessage text={item.text ?? ""} /></li>;
   if (item.kind === "lifecycle") return <li className={`thread-boundary ${item.event}`}><span className="thread-event-icon" aria-hidden="true">{item.event === "started" ? <Play size={12} /> : item.event === "ended" ? <Check size={12} /> : <Activity size={12} />}</span><span><strong>{item.label}</strong>{item.detail && <small>{item.detail}</small>}</span>{item.at && <time>{sessionMessageTime(item.at)}</time>}</li>;
   if (item.kind === "coordination") return <li className={`thread-coordination ${isViewer && item.state === "routed" ? "converging" : ""}`}><span className="thread-event-icon" aria-hidden="true">{item.state === "routed" ? <Route size={13} /> : <Check size={12} />}</span><span><header><strong>{item.state === "routed" ? "Coordination routed" : "Agent considered coordination"}</strong><time>{sessionMessageTime(item.at)}</time></header>{item.state === "routed" ? <p>{item.summary}</p> : <p>Consideration recorded; this does not prove the agent followed it.</p>}<small>{item.state === "routed" ? `${coordinationTriggerLabel(item.trigger)} · ` : ""}{item.itemCount} {item.itemCount === 1 ? "item" : "items"}</small></span></li>;
@@ -691,7 +1099,7 @@ function SessionDetailsPanel({ session, mine, subagents, path, onClose }: { sess
       <InspectorHeading icon={<Eye size={13} />}>How this session is connected</InspectorHeading>
       <div className="coverage-list">
         <CoverageRow icon={<Eye size={14} />} label="Source" value={fidelityLabel(session.fidelity)} detail={`${fidelityDetail(session)} ${session.pathCount > 0 ? `${session.pathCount.toLocaleString()} safe ${session.pathCount === 1 ? "path is" : "paths are"} ${session.agent?.capabilities.observeSafePaths ? "observed" : "reported"}.` : "No safe paths are reported yet."}`} />
-        {session.agent && <CoverageRow icon={<FileText size={14} />} label="Coordination" value={`${briefDeliveryLabel(session.agent.capabilities.deliverBrief)} · ${session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard"}`} detail="Context is routed at supported turn boundaries; Stickguy never interrupts an agent mid-turn." />}
+        {session.agent && <CoverageRow icon={<FileText size={14} />} label="Coordination" value={`${briefDeliveryLabel(session.agent.capabilities.deliverBrief)} · ${session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard"}`} detail="Context is routed at supported turn boundaries; Stickguy never interrupts an agent mid-turn. Muting a session stops delivery into its turns and holds every pending item until the hour is up; it never stops this session being published to the Project." />}
         {session.agent && <CoverageRow icon={<FileCode2 size={14} />} label="Contract drift" value={readCoverageLabel(session.agent.capabilities.observeReadSet)} detail={readCoverageDetail(session.agent.capabilities.observeReadSet)} />}
         {session.agent?.sessionAlias && <CoverageRow icon={<Bot size={14} />} label="Session ID" value={session.agent.sessionAlias} machine detail={`${vendorLabel(session)} session identifier.`} />}
         {subagents.map((agent) => <CoverageRow key={agent.alias} icon={<Network size={14} />} label="Parallel ID" value={agent.alias} machine detail={`${parallelAgentRole(agent.agentType)} · ${parallelAgentStatus(agent.status)}.`} />)}
@@ -836,21 +1244,31 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
         <dt>last changed</dt><dd>{finding.lastSeen}</dd>
       </dl>
 
+      <h3 className="inspector-head">Where this surfaces</h3>
+      <p className="branch-context">{branchStatement(affected)}</p>
+
       <h3 className="inspector-head">Work it out</h3>
       <div className="thread">
-        {!card && <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Talk to {others} about this</button>}
-        {card && card.comments.length > 0 && <ol>{card.comments.map((entry) => <li key={entry.id}><strong>{entry.memberName}</strong><span>{entry.body}</span></li>)}</ol>}
+        {/* The decision is the product of this thread: it is the one thing here
+            that reaches an agent. So it leads, it says where it is going before
+            it is written rather than after it is sent, and the comment box is
+            the secondary path for the case where a sentence is not ready yet. */}
+        {!card && <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Decide this with {others}</button>}
         {card?.resolution && <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p><div className="sent">Delivered to {card.resolution.affectedWorkstreamIds.length} session{card.resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {card.revision}</div></div>}
-        {card && card.state === "open" && <>
-          <form onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}>
-            <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment…" aria-label={`Comment on ${card.title}`} />
-            <button className="pill" disabled={threadPending || disabled}>Comment</button>
-          </form>
-          <form onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, finding.workstreamIds); setDecision(""); }); }}>
-            <input value={decision} onChange={(event) => setDecision(event.target.value)} placeholder="How did you resolve it?" aria-label={`Resolution for ${card.title}`} />
-            <button className="pill solid" disabled={threadPending || disabled}>Resolve</button>
-          </form>
-        </>}
+        {card && card.state === "open" && <form className="decision-form" onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, finding.workstreamIds); setDecision(""); onState("resolved"); }); }}>
+          <input value={decision} onChange={(event) => setDecision(event.target.value)} placeholder="What did you decide?" aria-label={`Decision for ${card.title}`} />
+          <button className="pill solid" disabled={threadPending || disabled}>Record decision</button>
+        </form>}
+        {/* The consequence is stated at whichever control is primary right now,
+            so it is read before the decision is written rather than after it
+            has already been delivered. */}
+        {(!card || card.state === "open") && <p className="routing-note"><Route size={13} aria-hidden="true" />{routingStatement(affected)}</p>}
+        {card && card.comments.length > 0 && <ol>{card.comments.map((entry) => <li key={entry.id}><strong>{entry.memberName}</strong><span>{entry.body}</span></li>)}</ol>}
+        {card && card.state === "open" && <form onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}>
+          <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment…" aria-label={`Comment on ${card.title}`} />
+          <button className="pill" disabled={threadPending || disabled}>Comment</button>
+        </form>}
+        {card && card.state === "open" && card.comments.length === 0 && <p className="thread-note">Comments stay here for the people reading this Project. Only the decision reaches an agent.</p>}
         {threadError && <p className="form-error" role="alert">{threadError}</p>}
       </div>
 
@@ -861,9 +1279,13 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
         <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("useful")}>Useful</button>
         <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("not_related")}>Not related</button>
       </div>
+      {/* Resolving is recording a decision, which is the control above: it is
+          the only one of these that reaches an agent, so there is no second
+          button claiming the same word. What is left are the two ways to stop
+          reading a finding without deciding anything. */}
       <div className="finding-actions">
         <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
-        <button disabled={disabled || finding.state === "resolved"} className="pill solid" onClick={() => onState("resolved")}>Mark resolved</button>
+        <button disabled={disabled || finding.state === "dismissed"} className="pill" onClick={() => onState("dismissed")}>Dismiss</button>
       </div>
     </div>
   </article>;

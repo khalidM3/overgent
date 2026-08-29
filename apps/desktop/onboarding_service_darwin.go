@@ -822,3 +822,51 @@ func (service *OnboardingService) SessionDetail(workstreamID string) (SessionDet
 	defer cancel()
 	return newDaemonService().SessionDetail(ctx, workstreamID)
 }
+
+// ProjectPaused reports whether this device is still sharing one Project's
+// workspaces, and SetProjectPaused changes it.
+//
+// The workroom is scoped to a Project, so its pause control has to be too. The
+// menu-bar switch stops sharing for every Project on this Mac, which is a
+// different request and is why the two are not the same control.
+func (service *OnboardingService) SetProjectPaused(projectID string, paused bool) error {
+	if projectID == "" {
+		return errors.New("project id required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	return newDaemonService().SetProjectPaused(ctx, projectID, paused)
+}
+
+/*
+SessionFocus reads and sets the quiet period on one of this device's own agent
+sessions.
+
+Focus is the inbound control and pause is the outbound one. Pausing hides this
+device's work from the Project, which makes teammates less able to avoid it;
+focus stops the Project reaching one agent's turns and leaves everything this
+device publishes exactly as it was. The member who wants quiet therefore
+carries the risk of missing a correction instead of transferring it to people
+who never asked for it.
+
+The state is local and never crosses the wire. It can only ever be read or set
+for a session on this machine, and it always expires.
+*/
+func (service *OnboardingService) SessionFocus(workstreamID string) (SessionFocus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return newDaemonService().FocusState(ctx, workstreamID)
+}
+
+func (service *OnboardingService) SetSessionFocus(workstreamID string, minutes int) (SessionFocus, error) {
+	if workstreamID == "" {
+		return SessionFocus{}, errors.New("session id required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	local := newDaemonService()
+	if minutes <= 0 {
+		return local.Unfocus(ctx, workstreamID)
+	}
+	return local.Focus(ctx, workstreamID, minutes)
+}

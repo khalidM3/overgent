@@ -156,6 +156,16 @@ export interface ProjectSnapshot {
   collaboration: CollaborationSnapshot;
 }
 
+/**
+ * The quiet period on one agent session.
+ *
+ * Focus is the inbound control: it stops coordination reaching this agent's
+ * turns and changes nothing about what this device publishes. It is local to
+ * the machine running the session, so it is read through the native bridge
+ * rather than the hosted snapshot, and it always expires.
+ */
+export interface SessionFocus { sessionId: string; focused: boolean; until?: string }
+
 export type MemberNameSource = "device" | "member";
 export interface DashboardSession {
   memberId: string;

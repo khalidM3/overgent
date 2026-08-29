@@ -1,6 +1,6 @@
 import { FixtureProjectSource } from "./fixture-source";
 import { nativeOnboarding } from "./native";
-import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionMessagesSnapshot } from "./model";
+import type { CollaborationSnapshot, DashboardSession, FindingFeedback, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionFocus, SessionMessagesSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
 
@@ -56,6 +56,39 @@ export class LiveProjectSource extends FixtureProjectSource {
 
   override async recordFindingFeedback(findingId: string, value: FindingFeedback): Promise<void> {
     await request<void>(`/findings/${encodeURIComponent(findingId)}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
+  }
+
+  /**
+   * Pause and focus are local-service state, so they are reachable only from
+   * the desktop shell. A browser tab genuinely cannot set them, and probing
+   * once is what lets the workroom offer a control that works or an
+   * instruction that does - never a button that turns out to be inert.
+   */
+  override async localControl(): Promise<boolean> {
+    try {
+      return (await nativeOnboarding.state()).available;
+    } catch {
+      return false;
+    }
+  }
+
+  override async setProjectPaused(projectId: string, paused: boolean): Promise<void> {
+    await nativeOnboarding.setProjectPaused(projectId, paused);
+    // Pause takes effect in the service before it is reported, so re-reading is
+    // what makes the rendered state the service's rather than this page's.
+    this.replace(await loadSnapshot(projectId));
+  }
+
+  override async getSessionFocus(workstreamId: string): Promise<SessionFocus> {
+    try {
+      return await nativeOnboarding.sessionFocus(workstreamId);
+    } catch {
+      return { sessionId: workstreamId, focused: false };
+    }
+  }
+
+  override async setSessionFocus(workstreamId: string, minutes: number): Promise<SessionFocus> {
+    return nativeOnboarding.setSessionFocus(workstreamId, minutes);
   }
 
 
