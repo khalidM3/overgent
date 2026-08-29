@@ -1054,3 +1054,56 @@ accountable for. **Merge-base divergence depth as a severity input**, which is
 the strongest remaining signal but needs a new local Git computation and a new
 wire field; branch identity ships first and depth is a later, separate change.
 Accepted by the owner 2026-08-29.
+
+## ADR-062: A card that can be opened says so, and pausing is something you do to yourself
+
+Six corrections to the workroom, from reading it rather than from a spec.
+
+**Pause reports the reader's own state.** The snapshot computed
+`workspacePaused` across every workspace in the Project, so a member whose
+teammate had paused was told their sharing had stopped and offered a Resume
+control that could only ever act on their own device. Pausing writes to the
+paused member's machine and gates that machine's outbound queue; nobody can
+pause anyone else, and nobody should be able to. The value is now scoped to the
+viewer's own workspaces and the notice says whose sharing stopped.
+
+**The toolbar carries controls, not instructions.** Where the page cannot reach
+the local service there is no control to offer, so it offers nothing — rather
+than a standing paragraph naming a command and a raw Project id. The recovery
+moved into the paused notice, which is the one moment anyone needs it. Settings
+closes the toolbar row instead of interrupting it.
+
+**The lead card is openable and now looks it.** Only the headline text was
+clickable and nothing indicated it, so the most important block on the screen
+read as a paragraph. The headline button is stretched across the whole card and
+the card takes the hover ground and revealed chevron every other openable row
+already uses; the two session rows and the decision control sit above the
+overlay and keep their own targets. The chevron takes `--alert` on a converging
+card. A tinted background was rejected: Rule 2 forbids colour filling a
+background, and the affordance works without breaking it.
+
+**The inspector has a way back.** Opening a session from inside a finding
+replaced the finding with no route to it. Selection is a trail rather than a
+value: picking from a list starts one, drilling in from the inspector pushes,
+and a back link appears naming what sent you there.
+
+**The finding detail leads with the finding.** The kind and the title were
+printed as one another — the hosted snapshot writes a finding's title as its
+kind with the underscores removed — so the kind is now an eyebrow that appears
+only when the title is genuinely something else. Evidence became a list of
+statements each carrying its own provenance instead of a two-column table of
+one-word keys, and the branch sentence sits with the reason rather than under a
+heading of its own.
+
+**The decision is a composer.** Two pill-shaped fields in a row read as a
+search box, not as the place a team settles something. The decision is a
+textarea with its delivery targets and its action on the line beneath, inside
+one bordered control; the discussion below it is a thread with chips, names and
+times, and a single-line composer. The border belongs to an input rather than to
+a card, so Rule 1 holds: there is no filled panel here.
+
+Fixing the composer exposed a layout bug it did not cause. `.collision-detail`
+wraps the header and body in one article and carried no column, so the
+inspector body never scrolled and the whole page did instead; it was invisible
+only because the detail had never been tall enough to overflow. Accepted by the
+owner 2026-08-29.

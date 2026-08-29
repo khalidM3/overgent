@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import {
   Activity,
   AlertTriangle,
+  ArrowUp,
   BellOff,
   Bot,
   Check,
@@ -245,7 +246,14 @@ function Since({ label, tick }: { label: string | undefined; tick: number }) {
 
 function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { session: DashboardSession; source: FixtureProjectSource; offline: boolean; nativeApi: NativeOnboarding; navigate: (url: string) => void }) {
   const [projectId, setProjectId] = useState(session.selectedProjectId);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  /* A trail rather than one value, so opening a session from inside a collision
+      can return to the collision that sent you there. Picking something from a
+      list starts a new trail; drilling in from the inspector pushes onto it. */
+  const [trail, setTrail] = useState<Selection[]>([]);
+  const selection = trail[trail.length - 1] ?? null;
+  const setSelection = (next: Selection | null) => setTrail(next ? [next] : []);
+  const pushSelection = (next: Selection) => setTrail((current) => [...current, next]);
+  const popSelection = () => setTrail((current) => current.slice(0, -1));
   const [commandOpen, setCommandOpen] = useState(false);
   // A stack rather than a flag per screen, so "back" returns to whatever opened
   // it. People is reachable from the toolbar and from inside Settings, and it
@@ -260,6 +268,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const [attention, setAttention] = useState<Finding | null>(null);
   const seenFindings = useRef<Set<string> | null>(null);
   const snapshot = useProjectSnapshot(source, projectId);
+  // Pause and focus are local-service state. Probing once tells the toolbar
+  // whether to offer a control and the paused notice whether to name a
+  // recovery, so the two can never disagree about what this page can do.
+  const localPause = useLocalControl(source);
 
   const mine = useMemo(() => snapshot.workstreams.filter((stream) => stream.memberName === identity.name), [snapshot.workstreams, identity.name]);
   const nearby = useMemo(() => snapshot.workstreams.filter((stream) => stream.memberName !== identity.name).sort((left, right) => presenceRank(left) - presenceRank(right)), [snapshot.workstreams, identity.name]);
@@ -327,6 +339,17 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
     if (remaining.length > 0) selectProject(remaining[0]!.id);
   };
   const openSession = (id: string) => { setView("workroom"); setScreens([]); setSelection({ kind: "session", id }); };
+  // Reached from inside a collision, so back returns to the collision.
+  const drillIntoSession = (id: string) => { setView("workroom"); setScreens([]); pushSelection({ kind: "session", id }); };
+  const previousSelection = trail.length > 1 ? trail[trail.length - 2]! : null;
+  const inspectorBack = previousSelection
+    ? {
+        label: previousSelection.kind === "collision"
+          ? snapshot.findings.find((finding) => finding.id === previousSelection.id)?.title ?? "collision"
+          : snapshot.workstreams.find((stream) => stream.id === previousSelection.id)?.agent?.sessionTitle ?? "session",
+        onBack: popSelection,
+      }
+    : null;
   const showView = (next: View) => { setView(next); setScreens([]); };
 
   if (projects.length === 0) return <EmptyView />;
@@ -374,11 +397,12 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
         <div className="main-bar">
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
-          {/* Theme is a preference set once and it lives in Settings. The
-              toolbar is for things you act on while reading this Project. */}
-          <button className="icon-button" onClick={() => showScreen("settings")} aria-label="Open Project settings"><Settings2 size={16} /></button>
+          <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} controllable={localPause} />
           <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />Invite</button>
-          <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} />
+          {/* Theme is a preference set once and it lives in Settings. The
+              toolbar is for things you act on while reading this Project, and
+              settings closes the row rather than interrupting it. */}
+          <button className="icon-button" onClick={() => showScreen("settings")} aria-label="Open Project settings"><Settings2 size={16} /></button>
         </div>
 
         <div className="main-scroll">
@@ -395,7 +419,9 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
             <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
 
             {offline && <div className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>}
-            {snapshot.workspacePaused && <div className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Workspace sharing is paused</strong>Activity transmission stopped before this state was shown.</div></div>}
+            {/* Pausing only ever stops this device publishing, so the notice
+                says whose sharing stopped. Nobody can pause a teammate. */}
+            {snapshot.workspacePaused && <div className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Stickguy app or menu bar.</span></div>}</div>}
             {identity.source === "device" && !identityPromptDismissed && <div className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>}
             {attention && <div className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "collision", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>}
 
@@ -412,7 +438,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
 
       <aside className="inspector" aria-label="Details inspector">
       {selectedSession
-        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} tick={tick} isViewer={selectedSession.memberName === identity.name} />
+        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
           : selectedCollision
             ? <CollisionInspector
                 finding={selectedCollision} sessions={snapshot.workstreams} viewer={identity.name} projectId={projectId} source={source}
@@ -420,7 +446,8 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
                 disabled={offline}
                 onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)}
                 onFeedback={(value) => source.recordFindingFeedback(selectedCollision.id, value)}
-                onOpenSession={openSession}
+                onOpenSession={drillIntoSession}
+                back={inspectorBack}
               />
             : <InspectorEmpty />}
       </aside>
@@ -451,21 +478,25 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
  * set it. That case gets the exact command instead of a button that would do
  * nothing - the same rule the activation screen follows.
  */
-function PauseControl({ source, projectId, paused, offline }: { source: FixtureProjectSource; projectId: string; paused: boolean; offline: boolean }) {
-  const [controllable, setControllable] = useState<boolean | null>(null);
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-
+function useLocalControl(source: FixtureProjectSource): boolean {
+  const [controllable, setControllable] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void source.localControl().then((value) => { if (!cancelled) setControllable(value); }).catch(() => { if (!cancelled) setControllable(false); });
     return () => { cancelled = true; };
   }, [source]);
+  return controllable;
+}
 
-  if (controllable === null) return <span className="toolbar-note" aria-hidden="true" />;
-  if (!controllable) {
-    return <span className="toolbar-note"><Pause size={13} aria-hidden="true" />Pause this Project from the Stickguy app, or run <code>stickguy pause --project {projectId}</code></span>;
-  }
+function PauseControl({ source, projectId, paused, offline, controllable }: { source: FixtureProjectSource; projectId: string; paused: boolean; offline: boolean; controllable: boolean }) {
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  // A toolbar is for controls. Where this page cannot reach the local service
+  // there is no control to offer, so it shows nothing at all rather than a
+  // standing paragraph of instructions; the recovery is printed in the paused
+  // notice instead, which is the only moment anyone needs it.
+  if (!controllable) return null;
   return <>
     <button
       className={paused ? "pill alerting" : "pill"}
@@ -735,7 +766,12 @@ function ConvergeBlock({ finding, sessions, viewer, tick, quiet = false, selecte
   const others = otherNames(affected, viewer);
   return <section className={quiet ? "converge quiet" : "converge"} aria-label={`${findingHeadline(finding)} ${names}`}>
     <span className="converge-icon"><AlertTriangle size={18} /></span>
-    <h3><button onClick={onSelect} aria-label={`${findingHeadline(finding)} ${names}`} aria-current={selected ? "true" : undefined}>{finding.title}</button></h3>
+    {/* The card's own headline is the control that opens it, stretched across
+        the whole block so the affordance is the card rather than one line of
+        text inside it. The two session rows and the decision button sit above
+        that overlay and keep their own targets. */}
+    <h3><button className="converge-open" onClick={onSelect} aria-label={`${findingHeadline(finding)} ${names}`} aria-current={selected ? "true" : undefined}>{finding.title}</button></h3>
+    <span className="converge-chev" aria-hidden="true"><ChevronRight size={16} /></span>
     <p className="why">{finding.reason}</p>
     <div className="pair">{affected.map((stream) => <button className="mini" key={stream.id} onClick={() => onOpenSession(stream.id)} aria-label={`Open ${stream.memberName}'s side of this collision`}>
       <MemberChip name={stream.memberName} />
@@ -785,7 +821,8 @@ function HealthBlock({ session, signal, tick, selected, onOpen }: {
   const icon = signal.kind === "error" ? <AlertTriangle size={18} /> : signal.kind === "waiting" ? <Pause size={18} /> : <CircleDot size={18} />;
   return <section className={signal.kind === "stalled" ? "converge health quiet" : "converge health"} aria-label={healthHeadline(signal, session)}>
     <span className="converge-icon">{icon}</span>
-    <h3><button onClick={onOpen} aria-current={selected ? "true" : undefined}>{healthHeadline(signal, session)}</button></h3>
+    <h3><button className="converge-open" onClick={onOpen} aria-current={selected ? "true" : undefined}>{healthHeadline(signal, session)}</button></h3>
+    <span className="converge-chev" aria-hidden="true"><ChevronRight size={16} /></span>
     <p className="why">{signal.statement}</p>
     <div className="pair"><button className="mini" onClick={onOpen} aria-label={openSessionLabel(session)}>
       <MemberChip name={session.memberName} />
@@ -887,7 +924,15 @@ function HistoryView({ snapshot, tick, selection, onSelectFinding, onSelectSessi
   </>;
 }
 
-function SessionInspector({ session, source, tick, isViewer }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean }) {
+/** The way back to whatever sent you here, when something did. */
+interface InspectorBack { label: string; onBack: () => void }
+
+function InspectorBackLink({ back }: { back: InspectorBack | null }) {
+  if (!back) return null;
+  return <button className="inspector-back" onClick={back.onBack}><ChevronLeft size={13} aria-hidden="true" />{back.label}</button>;
+}
+
+function SessionInspector({ session, source, tick, isViewer, localControl, back }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean; localControl: boolean; back: InspectorBack | null }) {
   const [shared, setShared] = useState<SessionMessagesSnapshot | null>(null);
   const [own, setOwn] = useState<LocalSessionDetail | null>(null);
   const [messageError, setMessageError] = useState("");
@@ -939,6 +984,7 @@ function SessionInspector({ session, source, tick, isViewer }: { session: Workst
   const liveFacts = [session.agent?.tool, showPath ? path : undefined].filter((value): value is string => Boolean(value)).join(" · ");
 
   return <>
+    <InspectorBackLink back={back} />
     <div className="inspector-bar session-inspector-bar">
       <span className="inspector-vendor" aria-hidden="true">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
       <span className="grow">
@@ -960,7 +1006,7 @@ function SessionInspector({ session, source, tick, isViewer }: { session: Workst
         {/* Only your own session, and only while it is still running: muting a
             session that has finished would be a control with nothing to mute,
             and a teammate's session is not yours to quiet. */}
-        {isViewer && session.agent && !complete && <FocusControl source={source} session={session} />}
+        {isViewer && session.agent && !complete && localControl && <FocusControl source={source} session={session} />}
         {complete && <span className="session-complete"><Check size={12} aria-hidden="true" />Complete</span>}
         <button className="icon-button session-details-button" aria-label="Open session details" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><Info size={15} /></button>
         {detailsOpen && <SessionDetailsPanel session={session} mine={mine} subagents={subagents} path={path} onClose={() => setDetailsOpen(false)} />}
@@ -1189,9 +1235,9 @@ function messageKindLabel(kind: SessionMessageKind): string {
  * A finding and its sync card are one object at two ages, so the conversation
  * and the decision live here rather than behind a separate tab.
  */
-function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession }: {
+function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession, back }: {
   finding: Finding; sessions: Workstream[]; viewer: string; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
-  onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void;
+  onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void; back: InspectorBack | null;
 }) {
   const affected = useMemo(() => sessions.filter((session) => finding.workstreamIds.includes(session.id)), [finding.workstreamIds, sessions]);
   const [feedback, setFeedback] = useState<FindingFeedback | null>(null);
@@ -1216,18 +1262,36 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
       .finally(() => setThreadPending(false));
   };
   const feedbackMessage = feedback ? "Feedback recorded" : feedbackError ? "Feedback could not be recorded" : "Was this collision useful?";
+  const submitDecision = (open: SyncCard) => {
+    const summary = decision.trim();
+    if (!summary) return;
+    run(async () => { await source.resolveSyncCard(projectId, open.id, open.revision, summary, finding.workstreamIds); setDecision(""); onState("resolved"); });
+  };
+
+  const kindLabel = findingHeadline(finding);
+  // The hosted snapshot writes a finding's title as its kind with the
+  // underscores taken out, so on live data the title and the kind are the same
+  // sentence twice. Print the kind as an eyebrow only when the title is
+  // genuinely something else; the reason carries the content either way.
+  const titleRepeatsKind = plainWords(finding.title) === plainWords(kindLabel);
 
   return <article className="collision-detail" aria-label="Selected collision detail">
+    <InspectorBackLink back={back} />
     <div className="inspector-bar">
       <span className="grow">
-        <h2>{finding.title}</h2>
-        <div className="severity-row"><span className="sev">{findingHeadline(finding)}</span><span>{finding.severity}</span><span>{finding.confidence} confidence</span><span>{finding.state}</span></div>
+        {!titleRepeatsKind && <p className="finding-kind"><AlertTriangle size={13} aria-hidden="true" />{kindLabel}</p>}
+        <h2>{titleRepeatsKind ? kindLabel : finding.title}</h2>
+        <div className="severity-row"><span className="sev">{finding.severity} severity</span><span>{finding.confidence} confidence</span><span>{finding.state}</span></div>
       </span>
     </div>
     <div className="inspector-body">
+      {/* What is true, then where else it will show up. Both are prose because
+          both are statements a person could have written; everything machine
+          derived is in the evidence block below. */}
       <p className="collision-reason">{finding.reason}</p>
+      <p className="branch-context">{branchStatement(affected)}</p>
 
-      <h3 className="inspector-head">Sessions</h3>
+      <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Users size={13} /></span><span>Sessions</span><span className="inspector-head-count">{affected.length}</span></h3>
       <div className="pair">{affected.map((session) => <button className="mini" key={session.id} onClick={() => onOpenSession(session.id)} aria-label={`Open ${session.memberName}'s session detail`}>
         <span className="mini-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={17} /> : <Code2 size={16} />}</span>
         <span className="nm">{session.memberName} <em>· {vendorLabel(session)}</em></span>
@@ -1236,59 +1300,75 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
         <span className="doing">{session.outcome}</span>
       </button>)}</div>
 
-      <h3 className="inspector-head">Why Stickguy flagged it</h3>
-      <dl className="facts">{finding.evidence.map((item) => <span key={`${item.kind}-${item.label}`} style={{ display: "contents" }}>
-        <dt>{evidenceKindLabel(item.kind)}</dt><dd>{item.label} <span className="q">· {item.source.replaceAll("_", " ")}</span></dd>
-      </span>)}
-        <dt>first seen</dt><dd>{finding.firstSeen}</dd>
-        <dt>last changed</dt><dd>{finding.lastSeen}</dd>
-      </dl>
+      <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Search size={13} /></span><span>Evidence</span></h3>
+      <ul className="evidence-list">{finding.evidence.map((item) => <li key={`${item.kind}-${item.label}`}>
+        <span className="e-label">{item.label}</span>
+        <span className="e-src">{evidenceKindLabel(item.kind)} · {item.source.replaceAll("_", " ")}</span>
+      </li>)}</ul>
+      <p className="evidence-age">first seen {finding.firstSeen} · last changed {finding.lastSeen}</p>
 
-      <h3 className="inspector-head">Where this surfaces</h3>
-      <p className="branch-context">{branchStatement(affected)}</p>
+      <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Check size={13} /></span><span>Decision</span></h3>
+      {/* The decision is the one thing on this screen that reaches an agent, so
+          it is the composer rather than a field in a row of fields, it names
+          its own delivery before it is written, and the discussion below it is
+          plainly labelled as going nowhere. */}
+      {card?.resolution
+        ? <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p><div className="sent">Delivered to {card.resolution.affectedWorkstreamIds.length} session{card.resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {card.revision}</div></div>
+        : card
+          ? <form className="composer" onSubmit={(event) => { event.preventDefault(); submitDecision(card); }}>
+              <textarea
+                value={decision} rows={2} placeholder="What did you decide?" aria-label={`Decision for ${card.title}`}
+                onChange={(event) => setDecision(event.target.value)}
+                onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); submitDecision(card); } }}
+              />
+              <div className="composer-foot">
+                <span className="routing-note"><Route size={13} aria-hidden="true" />{routingStatement(affected)}</span>
+                <button className="pill solid" disabled={threadPending || disabled || decision.trim().length === 0}>Record decision</button>
+              </div>
+            </form>
+          : <div className="decision-invite">
+              <p>{routingStatement(affected)}</p>
+              <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Decide this with {others}</button>
+            </div>}
+      <p className="advisory-note">Advisory only. Stickguy delivers the decision and never blocks or controls an agent.</p>
 
-      <h3 className="inspector-head">Work it out</h3>
-      <div className="thread">
-        {/* The decision is the product of this thread: it is the one thing here
-            that reaches an agent. So it leads, it says where it is going before
-            it is written rather than after it is sent, and the comment box is
-            the secondary path for the case where a sentence is not ready yet. */}
-        {!card && <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Decide this with {others}</button>}
-        {card?.resolution && <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p><div className="sent">Delivered to {card.resolution.affectedWorkstreamIds.length} session{card.resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {card.revision}</div></div>}
-        {card && card.state === "open" && <form className="decision-form" onSubmit={(event) => { event.preventDefault(); const summary = decision.trim(); if (!summary) return; run(async () => { await source.resolveSyncCard(projectId, card.id, card.revision, summary, finding.workstreamIds); setDecision(""); onState("resolved"); }); }}>
-          <input value={decision} onChange={(event) => setDecision(event.target.value)} placeholder="What did you decide?" aria-label={`Decision for ${card.title}`} />
-          <button className="pill solid" disabled={threadPending || disabled}>Record decision</button>
-        </form>}
-        {/* The consequence is stated at whichever control is primary right now,
-            so it is read before the decision is written rather than after it
-            has already been delivered. */}
-        {(!card || card.state === "open") && <p className="routing-note"><Route size={13} aria-hidden="true" />{routingStatement(affected)}</p>}
-        {card && card.comments.length > 0 && <ol>{card.comments.map((entry) => <li key={entry.id}><strong>{entry.memberName}</strong><span>{entry.body}</span></li>)}</ol>}
-        {card && card.state === "open" && <form onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}>
+      {card && <>
+        <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><MessageSquare size={13} /></span><span>Discussion</span>{card.comments.length > 0 && <span className="inspector-head-count">{card.comments.length}</span>}</h3>
+        {card.comments.length > 0 && <ol className="comment-thread">{card.comments.map((entry) => <li key={entry.id}>
+          <MemberChip name={entry.memberName} />
+          <span className="c-who">{entry.memberName}<time>{sessionMessageTime(entry.createdAt)}</time></span>
+          <p className="c-body">{entry.body}</p>
+        </li>)}</ol>}
+        {card.state === "open" && <form className="composer inline" onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}>
           <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment…" aria-label={`Comment on ${card.title}`} />
-          <button className="pill" disabled={threadPending || disabled}>Comment</button>
+          <button className="icon-button send" disabled={threadPending || disabled || comment.trim().length === 0} aria-label="Add comment"><ArrowUp size={15} /></button>
         </form>}
-        {card && card.state === "open" && card.comments.length === 0 && <p className="thread-note">Comments stay here for the people reading this Project. Only the decision reaches an agent.</p>}
-        {threadError && <p className="form-error" role="alert">{threadError}</p>}
-      </div>
+        <p className="thread-note">Comments stay here for the people reading this Project. Only the decision above reaches an agent.</p>
+      </>}
+      {threadError && <p className="form-error" role="alert">{threadError}</p>}
 
-      <p className="advisory-note">Advisory only. Stickguy never blocks or controls an agent.</p>
-
-      <div className="finding-feedback" aria-label="Collision feedback">
-        <span role="status">{feedbackMessage}</span>
-        <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("useful")}>Useful</button>
-        <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("not_related")}>Not related</button>
-      </div>
-      {/* Resolving is recording a decision, which is the control above: it is
-          the only one of these that reaches an agent, so there is no second
-          button claiming the same word. What is left are the two ways to stop
-          reading a finding without deciding anything. */}
-      <div className="finding-actions">
-        <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
-        <button disabled={disabled || finding.state === "dismissed"} className="pill" onClick={() => onState("dismissed")}>Dismiss</button>
+      <div className="finding-foot">
+        <div className="finding-feedback" aria-label="Collision feedback">
+          <span role="status">{feedbackMessage}</span>
+          <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("useful")}>Useful</button>
+          <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("not_related")}>Not related</button>
+        </div>
+        {/* Resolving is recording a decision, which is the composer above: it is
+            the only control here that reaches an agent, so there is no second
+            button claiming the same word. What is left are the two ways to stop
+            reading a finding without deciding anything. */}
+        <div className="finding-actions">
+          <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
+          <button disabled={disabled || finding.state === "dismissed"} className="pill" onClick={() => onState("dismissed")}>Dismiss</button>
+        </div>
       </div>
     </div>
   </article>;
+}
+
+/** Comparable words only, so "stale assumption" and "Stale assumption" match. */
+function plainWords(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function InspectorEmpty() {

@@ -291,12 +291,27 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* ── converging: no tint, no panel. icon + red sentence + both sides ── */
 
-.converge { display: grid; grid-template-columns: var(--row-icon) minmax(0, 1fr); gap: 0 var(--row-gap); width: 100%; padding: 16px 0 8px; text-align: left; }
+/* The whole block is the control that opens it. Before this, only the headline
+   text was clickable and nothing said so, so the most important card on the
+   screen looked like a paragraph. The affordance is the one every other row in
+   the app already uses - a hover ground and a chevron that appears - because a
+   new one would have to be learned. Rule 2 forbids a tinted background, so the
+   chevron carries --alert instead: it is a glyph, and the card really is work
+   converging on the reader. */
+.converge { position: relative; display: grid; grid-template-columns: var(--row-icon) minmax(0, 1fr) auto; gap: 0 var(--row-gap); width: 100%; padding: 15px var(--row-inset) 9px; margin: 0 calc(-1 * var(--row-inset)); border-radius: 12px; text-align: left; }
 .converge + .converge { border-top: 1px solid var(--line); }
+.converge:hover { background: var(--hover); }
 .converge > .converge-icon { color: var(--alert); margin-top: 1px; }
 .converge h3 { grid-column: 2; margin: 0; color: var(--alert); font-size: 15.5px; font-weight: 650; letter-spacing: -.015em; }
 .converge > .converge-icon { align-self: center; }
+.converge .converge-open::after { position: absolute; inset: 0; content: ""; border-radius: inherit; }
+.converge-chev { grid-column: 3; align-self: center; display: grid; color: var(--alert); opacity: 0; }
+.converge:hover .converge-chev, .converge .converge-open[aria-current="true"] ~ .converge-chev { opacity: 1; }
+.converge.quiet .converge-chev, .converge.health .converge-chev { color: var(--ink-3); }
 .converge .why { grid-column: 2; margin: 5px 0 0; color: var(--ink-2); font-size: 13.5px; }
+/* Above the stretched overlay, so each side of the collision and the decision
+   control keep their own click targets. */
+.converge .pair, .converge .converge-actions { position: relative; z-index: 1; }
 .converge .pair { grid-column: 2; display: flex; flex-direction: column; margin-top: 12px; }
 .converge .evidence { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; margin-top: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 .converge .evidence .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -665,32 +680,78 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* ── collision inspector ── */
 
-.collision-detail .severity-row { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+/* The kind is an eyebrow and the finding's own sentence is the heading, so the
+   two are not printed as one another. Severity, confidence and state qualify
+   the finding rather than naming it, so they stay in the machine line. */
+/* The finding inspector wraps its header and body in one article, so that
+   article has to carry the column that makes the body scroll. Without this the
+   panel grew past the viewport and took the whole page with it, which only
+   became visible once the detail had enough in it to overflow. */
+.collision-detail { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.inspector > .inspector-back, .collision-detail > .inspector-back { flex: 0 0 auto; }
+
+.finding-kind { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; color: var(--alert); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.collision-detail .severity-row { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 5px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .collision-detail .severity-row .sev { color: var(--alert); }
-.collision-reason { margin: 12px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
-.advisory-note { margin: 18px 0 0; color: var(--ink-3); font-size: 11.5px; }
-.finding-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
-.finding-feedback > span { color: var(--ink-3); font-size: 12.5px; }
-.finding-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.collision-reason { margin: 2px 0 0; color: var(--ink); font-size: 14px; line-height: 1.6; }
+.branch-context { margin: 9px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
 
-.thread { display: flex; flex-direction: column; gap: 12px; }
-.thread ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.thread ol li { display: flex; flex-direction: column; gap: 3px; }
-.thread ol strong { font-size: 12.5px; font-weight: 650; }
-.thread ol span { color: var(--ink-2); font-size: 13px; }
-.thread form { display: flex; gap: 6px; }
-.thread input { flex: 1; min-width: 0; padding: 7px 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
-.thread input::placeholder { color: var(--ink-3); }
+/* Evidence is a list of statements with their provenance under each, not a
+   two-column table of one-word keys: the label is the fact and the source is
+   the qualifier, and honest fidelity means the qualifier is never dropped. */
+.evidence-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.evidence-list li { padding: 9px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+.evidence-list li:first-child { border-top: 0; padding-top: 2px; }
+.evidence-list .e-label { color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.evidence-list .e-src { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.evidence-age { margin: 9px 0 0; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 
-/* The decision leads the thread because it is the only part of it that reaches
-   an agent; the routing line under it says where, before it is written rather
-   than after it has been sent. Neither takes --alert: this is a control the
-   reader chose to look at, not work converging on them. */
-.thread .decision-form input { border-color: var(--ink-3); }
-.routing-note { display: flex; align-items: center; gap: 7px; margin: -4px 0 0; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+/* One composer, the shape people already know: a field you can write a
+   paragraph in, and its consequence and its action on the line underneath.
+   The border belongs to an input rather than to a card, which is what keeps
+   Rule 1 intact - there is no filled panel here, only a control. */
+.composer { display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+.composer:focus-within { border-color: var(--ink-3); }
+.composer textarea { min-height: 58px; padding: 11px 13px 4px; color: var(--ink); background: none; border: 0; outline: none; resize: vertical; font: inherit; font-size: 13.5px; line-height: 1.55; }
+.composer textarea::placeholder, .composer input::placeholder { color: var(--ink-3); }
+/* The inspector is a narrow column and the routing sentence names two whole
+   sessions, so it takes its own line rather than competing with the button for
+   one. It stays inside the composer either way: the point is that it is read
+   before the decision is sent, not that it sits on the same row. */
+.composer-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 12px; padding: 6px 8px 8px 13px; }
+.composer-foot .routing-note { flex: 1 1 100%; line-height: 1.5; }
+.composer-foot .pill { margin-left: auto; }
+.composer.inline { flex-direction: row; align-items: center; padding-right: 6px; border-radius: 999px; }
+.composer.inline input { flex: 1; min-width: 0; padding: 8px 6px 8px 14px; color: var(--ink); background: none; border: 0; outline: none; font: inherit; font-size: 13.5px; }
+.composer .icon-button.send { flex: 0 0 auto; width: 26px; height: 26px; color: var(--onsolid); background: var(--solid); border-radius: 50%; }
+.composer .icon-button.send:disabled { color: var(--ink-3); background: none; }
+
+.decision-invite { display: flex; flex-direction: column; align-items: flex-start; gap: 11px; }
+.decision-invite p { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.routing-note { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
 .routing-note svg { flex: 0 0 auto; }
-.thread-note { margin: 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
-.branch-context { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+.thread-note { margin: 10px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+
+/* Discussion reads as people talking: a chip, a name, a time, and the words. */
+.comment-thread { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 9px; }
+.comment-thread li { display: contents; }
+.comment-thread .avatar { grid-column: 1; margin-top: 11px; }
+.comment-thread .c-who { grid-column: 2; display: flex; align-items: baseline; gap: 8px; margin-top: 11px; font-size: 12.5px; font-weight: 650; }
+.comment-thread .c-who time { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--ink-3); }
+.comment-thread .c-body { grid-column: 2; margin: 3px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
+
+.advisory-note { margin: 12px 0 0; color: var(--ink-3); font-size: 11.5px; }
+.finding-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 26px; padding-top: 15px; border-top: 1px solid var(--line); }
+.finding-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.finding-feedback > span { color: var(--ink-3); font-size: 12.5px; }
+.finding-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+
+/* Where you came from, when something sent you here. It sits above the header
+   rather than inside it so the header still reads as the thing you are on. */
+.inspector-back { display: flex; align-items: center; gap: 4px; max-width: 100%; padding: 12px 20px 0; color: var(--ink-3); font-size: 12px; }
+.inspector-back:hover { color: var(--ink-2); }
+.inspector-back > svg { flex: 0 0 auto; }
+.inspector-back + .inspector-bar { padding-top: 8px; }
 
 /* Branch is how a reader finds their own lane, so it groups rows rather than
    trailing them. A Project on one branch never renders this. */
