@@ -277,6 +277,18 @@ func (credentials *memoryCredentials) Delete(_ context.Context, account string) 
 	return nil
 }
 
+// Get satisfies onboarding.CredentialStore, which the enrollment reset path
+// needs in order to read a stored secret before checking it.
+func (credentials *memoryCredentials) Get(_ context.Context, account string) (string, error) {
+	credentials.mu.Lock()
+	defer credentials.mu.Unlock()
+	secret, ok := credentials.values[account]
+	if !ok {
+		return "", errors.New("no credential for account")
+	}
+	return secret, nil
+}
+
 func (credentials *memoryCredentials) get(account string) string {
 	credentials.mu.Lock()
 	defer credentials.mu.Unlock()

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	gitobs "github.com/stickguy/stickguy/internal/git"
@@ -680,5 +681,172 @@ func TestAgentEventCollectsRealBranchFromWorktree(t *testing.T) {
 	}
 	if envelope.Payload["branch"] != "feature/live-branch" {
 		t.Fatalf("branch=%v, want the real checked-out branch", envelope.Payload["branch"])
+	}
+}
+
+// A file an agent only inspected must not become session work evidence: the
+// collision engine treats every reported path as a write, so counting reads
+// there made a session that read a file collide with the session that wrote it.
+// The read set still receives the path, which is what stale-assumption uses.
+func TestAgentEventKeepsReadToolPathsOutOfWorkEvidence(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	if err := os.MkdirAll(filepath.Join(root, "backend"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+	target := filepath.Join(root, "backend", "sessions.go")
+
+	base := daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "claude-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "inspecting", AgentPaths: []string{target}}
+
+	read := base
+	read.AgentTool = "Read"
+	if response := service.handle(ctx, read); !response.OK {
+		t.Fatalf("read response=%#v", response)
+	}
+	queue, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range queue {
+		if entry.Kind != "agent.activity_reported" {
+			continue
+		}
+		if strings.Contains(string(entry.Payload), `"paths"`) {
+			t.Fatalf("inspection tool reported work paths: %s", entry.Payload)
+		}
+	}
+
+	write := base
+	write.AgentTool = "Edit"
+	write.AgentAction = "editing"
+	if response := service.handle(ctx, write); !response.OK {
+		t.Fatalf("write response=%#v", response)
+	}
+	queue, err = db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	for _, entry := range queue {
+		if entry.Kind == "agent.activity_reported" && strings.Contains(string(entry.Payload), "backend/sessions.go") && strings.Contains(string(entry.Payload), `"paths"`) {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Fatal("mutation tool did not report its path as work evidence")
+	}
+}
+
+// A workspace root can disappear while the service is stopped, because the member
+// deleted, moved, or renamed the repository. That must degrade only that workspace:
+// aborting the boot stopped observation for every other Project on the device, and
+// the CLI, agent hooks and MCP then all failed with a bare connection error.
+func TestRunSkipsWorkspacesWhoseRootHasDisappeared(t *testing.T) {
+	state, err := os.MkdirTemp("/private/tmp", "sg-missing-root-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(state) })
+	removed := makeRepo(t)
+	live := makeRepo(t)
+	ctx := context.Background()
+	for id, root := range map[string]string{"a": removed, "b": live} {
+		if err = Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: root}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = os.RemoveAll(removed); err != nil {
+		t.Fatal(err)
+	}
+
+	send := &fakeSender{}
+	cancel, done := start(t, state, send)
+	// waitHealth drains done on the failure path, so teardown must never block on
+	// it: a regression here should fail the test, not hang the suite.
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	}()
+	paths, _ := config.Resolve(state)
+	// Before the fix this failed here: Run returned the watch error and exited.
+	waitHealth(t, paths.Socket, done)
+
+	health, err := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"})
+	if err != nil || !health.OK {
+		t.Fatalf("health after missing root: %#v %v", health, err)
+	}
+	data, ok := health.Data.(map[string]any)
+	if !ok || data["workspaces"] != float64(2) {
+		t.Fatalf("missing root dropped a registration: %#v", health.Data)
+	}
+	// The surviving workspace must still be observed.
+	writeFile(t, live, "live.txt")
+	if _, err = daemon.Call(ctx, paths.Socket, daemon.Request{Method: "scan"}); err != nil {
+		t.Fatal(err)
+	}
+	wait(t, func() bool { return send.workspaceBatches("wsp_b") > 0 })
+}
+
+// Findings are routed to the per-session workstream that activity hooks create,
+// and a coordination brief is filtered by the workstream it is requested for.
+// A lifecycle call attributed to the workspace workstream could therefore never
+// surface a finding routed to the calling session, and its intent landed on a
+// second identity that the semantic layer then reported as duplicate work.
+func TestLifecyclePrefersTheCallingAgentSessionWorkstream(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: "/fixture", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &lifecycleFixtureSender{}}
+
+	session, _, ok := agentactivity.WorkstreamIDFor("claude", "b4f019ed-0c2a-4f0e-9a1d-2f7b4c1d8e55")
+	if !ok {
+		t.Fatal("derivation rejected a valid session id")
+	}
+	identified := service.handle(ctx, daemon.Request{Method: "check_coordination", WorkspaceID: workspace.ID, AgentWorkstreamID: session, Trigger: "before_broad_edit", ApproximateTokenBudget: 400})
+	result, cast := identified.Data.(lifecycleResult)
+	if !identified.OK || !cast || result.Brief == nil {
+		t.Fatalf("identified response=%#v", identified)
+	}
+	if result.Brief.WorkstreamID != session {
+		t.Fatalf("brief workstream = %q, want the calling session %q", result.Brief.WorkstreamID, session)
+	}
+
+	// A vendor that exposes no session identity must degrade to the workspace
+	// workstream rather than guess at one.
+	anonymous := service.handle(ctx, daemon.Request{Method: "check_coordination", WorkspaceID: workspace.ID, Trigger: "before_broad_edit", ApproximateTokenBudget: 400})
+	fallback, cast := anonymous.Data.(lifecycleResult)
+	if !anonymous.OK || !cast || fallback.Brief == nil {
+		t.Fatalf("anonymous response=%#v", anonymous)
+	}
+	if fallback.Brief.WorkstreamID != workspace.WorkstreamID {
+		t.Fatalf("unidentified brief workstream = %q, want workspace %q", fallback.Brief.WorkstreamID, workspace.WorkstreamID)
+	}
+
+	// A malformed identity must never be trusted into the workstream field.
+	rejected := service.handle(ctx, daemon.Request{Method: "check_coordination", WorkspaceID: workspace.ID, AgentWorkstreamID: "../../etc/passwd", Trigger: "before_broad_edit", ApproximateTokenBudget: 400})
+	invalid, cast := rejected.Data.(lifecycleResult)
+	if !rejected.OK || !cast || invalid.Brief == nil || invalid.Brief.WorkstreamID != workspace.WorkstreamID {
+		t.Fatalf("malformed identity was not rejected: %#v", rejected)
 	}
 }

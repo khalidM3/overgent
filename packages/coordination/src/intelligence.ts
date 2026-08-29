@@ -125,6 +125,71 @@ export const CONCEPT_GROUPS: ReadonlyArray<readonly string[]> = [
 ];
 const conceptByToken = new Map(CONCEPT_GROUPS.flatMap((group, index) => group.map((word) => [word, `concept:${index}`] as const)));
 
+// Words too common to identify anything. Naming them would produce an
+// explanation that sounds specific while saying nothing.
+const UNINFORMATIVE_WORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "over", "under", "about",
+  "add", "adds", "added", "update", "updates", "updated", "change", "changes", "changed",
+  "make", "makes", "made", "use", "uses", "used", "work", "working", "support", "supports",
+  "new", "old", "current", "existing", "across", "when", "while", "then", "than", "should",
+  "code", "file", "files", "path", "paths", "test", "tests", "fix", "fixes", "fixed",
+  "implement", "implements", "implementing", "handle", "handles", "handling",
+]);
+
+const behaviorWord = (word: string) => new RegExp(`\\b${word}[a-z]*\\b`, "i");
+
+// significantWords keeps the words from a bounded intent summary that could
+// identify a behavior, in the order the member wrote them so the rendering is
+// stable across evaluations.
+function significantWords(text: string): string[] {
+  const matches = text.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? [];
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const word of matches) {
+    if (UNINFORMATIVE_WORDS.has(word) || seen.has(word)) continue;
+    seen.add(word);
+    words.push(word);
+  }
+  return words;
+}
+
+export function joinTerms(terms: readonly string[]): string {
+  if (terms.length <= 1) return terms[0] ?? "";
+  return `${terms.slice(0, -1).join(", ")} and ${terms[terms.length - 1]}`;
+}
+
+/**
+ * The behavior words both workstreams actually used.
+ *
+ * The versioned coordination vocabulary comes first, because those words are
+ * curated and stable. But a redundant-work finding is raised on overall
+ * similarity, and two summaries can be strongly similar while sharing no word
+ * from that list at all — a duplicated exporter, a duplicated parser, anything
+ * the vocabulary has no group for. Falling back to the specific words the two
+ * summaries genuinely share is what keeps the explanation from collapsing into
+ * "these look similar", which names nothing a receiving agent can act on and
+ * is exactly what the finding is supposed to tell them.
+ *
+ * Only words from summaries that already passed the semantic text policy are
+ * used, and both summaries are already shared coordination facts, so this
+ * names nothing that was not already visible to the receiving member.
+ */
+export function sharedBehaviorTerms(left: string, right: string, limit = 3): string[] {
+  const shared: string[] = [];
+  for (const group of CONCEPT_GROUPS) {
+    for (const word of group) {
+      if (behaviorWord(word).test(left) && behaviorWord(word).test(right)) shared.push(word);
+    }
+  }
+  if (shared.length === 0) {
+    const rightWords = new Set(significantWords(right));
+    for (const word of significantWords(left)) {
+      if (rightWords.has(word)) shared.push(word);
+    }
+  }
+  return shared.slice(0, Math.max(0, limit));
+}
+
 function tokens(text: string): string[] {
   return [...new Set(text.toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g)?.map((token) => conceptByToken.get(token) ?? token) ?? [])].sort();
 }

@@ -26,6 +26,7 @@ type API interface {
 
 type CredentialStore interface {
 	Put(context.Context, string, string) error
+	Get(context.Context, string) (string, error)
 	Delete(context.Context, string) error
 }
 
@@ -50,6 +51,9 @@ type keychainStore struct{}
 
 func (keychainStore) Put(ctx context.Context, account, secret string) error {
 	return credential.Put(ctx, account, secret)
+}
+func (keychainStore) Get(ctx context.Context, account string) (string, error) {
+	return credential.Get(ctx, account)
 }
 func (keychainStore) Delete(ctx context.Context, account string) error {
 	return credential.Delete(ctx, account)

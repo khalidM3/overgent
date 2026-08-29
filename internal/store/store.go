@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"time"
@@ -63,7 +64,17 @@ type eventEnvelope struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	// busy_timeout is set through the DSN rather than a one-off PRAGMA because
+	// database/sql may open a fresh connection at any time and a pragma applies
+	// only to the connection that ran it.
+	//
+	// SetMaxOpenConns(1) serializes writers inside one process, but the CLI, the
+	// service, and the tests all open the same file, and a second process
+	// writing during a held transaction gets SQLITE_BUSY immediately with no
+	// timeout. Waiting briefly is the correct behavior for a queue whose writes
+	// are short: the alternative is a failed enqueue and a lost observation.
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_pragma=busy_timeout(5000)"}).String()
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -84,7 +95,7 @@ CREATE TABLE IF NOT EXISTS service_state(id INTEGER PRIMARY KEY CHECK(id=1),boot
 CREATE TABLE IF NOT EXISTS idempotency_keys(workspace_id TEXT NOT NULL,method TEXT NOT NULL,key TEXT NOT NULL,request_hash TEXT NOT NULL,response_revision INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,method,key));
 CREATE TABLE IF NOT EXISTS agent_observations(workspace_id TEXT NOT NULL,vendor TEXT NOT NULL,last_observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,vendor));
 CREATE TABLE IF NOT EXISTS contract_fingerprints(workspace_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,path));
-CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,PRIMARY KEY(workspace_id,session_workstream_id,path));
+CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,fidelity TEXT NOT NULL DEFAULT 'observed',PRIMARY KEY(workspace_id,session_workstream_id,path));
 CREATE TABLE IF NOT EXISTS injection_deliveries(session_key TEXT NOT NULL,item_id TEXT NOT NULL,item_revision INTEGER NOT NULL,delivered_at INTEGER NOT NULL,PRIMARY KEY(session_key,item_id,item_revision));
 INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		db.Close()
@@ -121,6 +132,19 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 				db.Close()
 				return nil, fmt.Errorf("migrate workspace identity: %w", err)
 			}
+		}
+	}
+	hasFidelity, err := hasColumn(db, `PRAGMA table_info(session_read_sets)`, "fidelity")
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect read set migration: %w", err)
+	}
+	if !hasFidelity {
+		// Rows written before ADR-052 came from the hook inspection path, which
+		// is the observed source, so that is the honest backfill.
+		if _, err = db.Exec(`ALTER TABLE session_read_sets ADD COLUMN fidelity TEXT NOT NULL DEFAULT 'observed'`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate read set fidelity: %w", err)
 		}
 	}
 	manifestMigrations := []struct {
@@ -249,6 +273,32 @@ type ReadSetEntry struct {
 	Path                   string `json:"path"`
 	FileContractHashAtRead string `json:"fileContractHashAtRead"`
 	ObservedAt             string `json:"observedAt"`
+	// Fidelity records how this observation was obtained (ADR-052). A read set
+	// mixes sources of different strength, and a stale-assumption finding
+	// raised from evidence that is not observed is not deterministic.
+	Fidelity string `json:"fidelity"`
+}
+
+// Read-set fidelities in ascending order of strength (ADR-052).
+const (
+	ReadFidelitySelfDeclared   = "self_declared"
+	ReadFidelityVendorInferred = "vendor_inferred"
+	ReadFidelityObserved       = "observed"
+)
+
+// ReadFidelityRank orders the sources so the strongest evidence for a path
+// wins. An unrecognized value ranks below every known source rather than
+// displacing one.
+func ReadFidelityRank(fidelity string) int {
+	switch fidelity {
+	case ReadFidelityObserved:
+		return 3
+	case ReadFidelityVendorInferred:
+		return 2
+	case ReadFidelitySelfDeclared:
+		return 1
+	}
+	return 0
 }
 
 // ChangedFingerprints records the observed file contract hash of every path in
@@ -328,13 +378,23 @@ func (s *Store) ChangedReadSet(ctx context.Context, workspaceID, sessionWorkstre
 			continue
 		}
 		seen[entry.Path] = true
-		var stored string
-		queryErr := tx.QueryRowContext(ctx, `SELECT file_contract_hash FROM session_read_sets WHERE workspace_id=? AND session_workstream_id=? AND path=?`, workspaceID, sessionWorkstreamID, entry.Path).Scan(&stored)
+		var storedHash, storedFidelity string
+		queryErr := tx.QueryRowContext(ctx, `SELECT file_contract_hash,fidelity FROM session_read_sets WHERE workspace_id=? AND session_workstream_id=? AND path=?`, workspaceID, sessionWorkstreamID, entry.Path).Scan(&storedHash, &storedFidelity)
 		if queryErr != nil && !errors.Is(queryErr, sql.ErrNoRows) {
 			return nil, queryErr
 		}
-		unchanged := queryErr == nil && stored == entry.FileContractHashAtRead
-		if _, err = tx.ExecContext(ctx, `INSERT INTO session_read_sets(workspace_id,session_workstream_id,path,file_contract_hash,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,session_workstream_id,path) DO UPDATE SET file_contract_hash=excluded.file_contract_hash,observed_at=excluded.observed_at`, workspaceID, sessionWorkstreamID, entry.Path, entry.FileContractHashAtRead, entry.ObservedAt); err != nil {
+		// A path can be seen more than once by sources of different strength:
+		// anticipated at begin_work, then actually observed. Keep the strongest
+		// evidence rather than letting a weaker later source erase it (ADR-052).
+		fidelity := entry.Fidelity
+		if queryErr == nil && ReadFidelityRank(storedFidelity) > ReadFidelityRank(fidelity) {
+			fidelity = storedFidelity
+		}
+		entry.Fidelity = fidelity
+		// An upgraded fidelity is news even when the hash is unchanged: it can
+		// raise the confidence band of a finding already derived from this path.
+		unchanged := queryErr == nil && storedHash == entry.FileContractHashAtRead && storedFidelity == fidelity
+		if _, err = tx.ExecContext(ctx, `INSERT INTO session_read_sets(workspace_id,session_workstream_id,path,file_contract_hash,observed_at,fidelity) VALUES(?,?,?,?,?,?) ON CONFLICT(workspace_id,session_workstream_id,path) DO UPDATE SET file_contract_hash=excluded.file_contract_hash,observed_at=excluded.observed_at,fidelity=excluded.fidelity`, workspaceID, sessionWorkstreamID, entry.Path, entry.FileContractHashAtRead, entry.ObservedAt, fidelity); err != nil {
 			return nil, err
 		}
 		if !unchanged {

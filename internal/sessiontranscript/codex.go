@@ -39,6 +39,15 @@ type codexPayload struct {
 	ID        string      `json:"id"`
 	SessionID string      `json:"session_id"`
 	CWD       string      `json:"cwd"`
+	Item      *codexItem  `json:"item"`
+}
+
+// codexItem is the Codex desktop app's turn representation. The desktop app
+// reports conversation turns as `item_completed` events rather than the CLI's
+// `user_message`/`agent_message` events (ADR-039 per-vendor adapter fidelity).
+type codexItem struct {
+	Type    string      `json:"type"`
+	Content []codexPart `json:"content"`
 }
 
 type codexPart struct {
@@ -86,6 +95,20 @@ func (codexAdapter) messages(line []byte) []Message {
 		case "agent_reasoning":
 			// Surfaced reasoning, not the encrypted reasoning Codex withholds.
 			return single(KindThinking, payload.Text, raw.Timestamp)
+		case "item_completed":
+			// The desktop app carries the same conversation in a different
+			// shape. Only the two turn kinds are read; command execution, file
+			// changes and reasoning items stay dropped, so raw tool output and
+			// withheld reasoning still never become content.
+			if payload.Item == nil {
+				return nil
+			}
+			switch payload.Item.Type {
+			case "UserMessage":
+				return single(KindUser, itemText(payload.Item.Content), raw.Timestamp)
+			case "AgentMessage":
+				return single(KindAssistant, itemText(payload.Item.Content), raw.Timestamp)
+			}
 		}
 		return nil
 	case "response_item":
@@ -115,6 +138,20 @@ func (codexAdapter) messages(line []byte) []Message {
 		return nil
 	}
 	return nil
+}
+
+// itemText joins the text parts of a desktop-app item, ignoring every other
+// part type so non-text attachments never become content. The desktop app is
+// inconsistent about the part-type case: `UserMessage` writes "text" while
+// `AgentMessage` writes "Text", so the comparison folds case.
+func itemText(parts []codexPart) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.EqualFold(part.Type, "text") && strings.TrimSpace(part.Text) != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n\n")
 }
 
 func single(kind, text, at string) []Message {

@@ -16,7 +16,7 @@ export class FixtureProjectSource {
       { kind: "assistant", text: "I'll start in apps/dashboard/src/session.ts and keep the existing expiry path untouched.", at: "2026-08-25T09:58:06Z" },
       { kind: "tool", tool: "Read", at: "2026-08-25T09:58:07Z" },
       { kind: "tool", tool: "apply_patch", at: "2026-08-25T09:59:10Z" },
-      { kind: "assistant", text: "Rotation now happens on permission change and existing sessions still expire naturally.", at: "2026-08-25T09:59:40Z" },
+      { kind: "assistant", text: "Found it — the `bg-black text-white` Tailwind utility classes on `<body>` override the CSS-variable-based theming already fixed in `style.css` (class selectors beat the element selector). Removing them lets the light theme show through.\n\n- Removed the conflicting body classes.\n- Kept the existing CSS-variable theme boundary.", at: "2026-08-25T09:59:40Z" },
     ],
   }], ["wrk_agent_fixture_claude", {
     available: false, messages: [],

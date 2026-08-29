@@ -14,6 +14,7 @@ export type SemanticMode = "offline_fallback" | "managed_openai" | "managed_degr
 export interface HarnessCapabilities {
   observeSession: boolean;
   observeToolActivity: boolean;
+  observeReadSet: "observed" | "vendor_inferred" | "self_declared" | "none";
   observeSafePaths: boolean;
   readExistingSession: boolean;
   pollUpdates: boolean;
@@ -51,16 +52,27 @@ export interface Workstream {
     sessionTitle?: string;
     status?: "active" | "waiting" | "idle" | "done" | "error";
     tool?: string;
+    startedAt?: string;
+    endedAt?: string;
     capabilities: HarnessCapabilities;
     subagents: Array<{ alias: string; agentType: string; status: string }>;
     activity?: Array<{
       id: string;
       at: string;
+      occurredAt?: string;
       kind: string;
       status: "active" | "waiting" | "idle" | "done" | "error";
       action: string;
       tool?: string;
       paths: string[];
+    }>;
+    coordination: Array<{
+      id: string;
+      routedAt: string;
+      acknowledgedAt?: string;
+      summary: string;
+      itemCount: number;
+      trigger: string;
     }>;
   };
   largeChange?: {

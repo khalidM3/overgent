@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
-import { assertCanonicalManifestOrder, canActivateManifestRevision, findDependencySatisfaction, manifestContentHash, RETENTION_TABLES, scopeKey, sha256Hex, validateSessionMessageText, ValidationError } from "../src/domain";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry } from "../src/domain";
 
 const DAY = 86_400_000;
@@ -214,6 +214,13 @@ export const dashboardSnapshot = internalQuery({
     const memberById = new Map(members.map((member) => [member._id, member]));
     const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
     const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(60);
+    const findingDocs = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(100);
+    const decisionDocs = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", auth.project._id)).order("desc").take(100);
+    const deliveryDocs = await ctx.db.query("contextDeliveries").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).order("desc").take(100);
+    const coordinationSummary = new Map<string, string>([
+      ...findingDocs.map((finding) => [finding.publicId, finding.reason] as const),
+      ...decisionDocs.map((decision) => [decision.publicId, decision.summary] as const),
+    ]);
     const workstreams = [];
     const devices: Array<{ id: string; label: string; platform: string; status: string; lastSeen: string }> = [];
     let contextRevision = 0;
@@ -257,6 +264,7 @@ export const dashboardSnapshot = internalQuery({
           return {
             id: event.eventId,
             at: relativeLabel(args.now, event.receivedAt),
+            occurredAt: Number.isNaN(Date.parse(event.observedAt)) ? new Date(event.receivedAt).toISOString() : new Date(event.observedAt).toISOString(),
             kind: String(payload.kind ?? "Activity"),
             status: dashboardAgentStatus(payload.status),
             action: String(payload.action ?? "Reported agent activity"),
@@ -264,15 +272,33 @@ export const dashboardSnapshot = internalQuery({
             paths: stringValues(payload.paths).slice(0, 3),
           };
         }) : [];
+      const coordination = stream.vendor ? deliveryDocs
+        .filter((delivery) => delivery.workstreamId === stream._id && delivery.itemRefs.length > 0)
+        .sort((left, right) => left.deliveredAt - right.deliveredAt)
+        .slice(-12)
+        .map((delivery) => {
+          const firstSummary = delivery.itemRefs.map((itemRef) => coordinationSummary.get(itemRef)).find((summary) => summary !== undefined);
+          const remaining = Math.max(0, delivery.itemRefs.length - 1);
+          const summary = firstSummary
+            ? `${firstSummary}${remaining > 0 ? ` + ${remaining} more.` : ""}`.slice(0, 500)
+            : `${delivery.itemRefs.length} relevant coordination ${delivery.itemRefs.length === 1 ? "item" : "items"} routed to this session.`;
+          return {
+            id: delivery.publicId,
+            routedAt: new Date(delivery.deliveredAt).toISOString(),
+            ...(delivery.acknowledgedAt === undefined ? {} : { acknowledgedAt: new Date(delivery.acknowledgedAt).toISOString() }),
+            summary,
+            itemCount: delivery.itemRefs.length,
+            trigger: delivery.trigger,
+          };
+        }) : [];
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
-        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), capabilities: PROJECT_HOOK_MCP_CAPABILITIES, subagents: stream.subagents ?? [], activity: sessionActivity } } : {}),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...PROJECT_HOOK_MCP_CAPABILITIES, observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
         pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
     }
-    const findingDocs = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(100);
     const findings = findingDocs.map((finding) => ({
       id: finding.publicId, kind: dashboardFindingKind(finding.kind), severity: finding.severity, confidence: finding.confidenceBand, state: dashboardFindingState(finding.state),
       title: finding.kind.replaceAll("_", " "), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
@@ -1046,9 +1072,50 @@ export const retentionSweep = internalMutation({
       }
       if (deleted >= limit) break;
     }
-    return deleted;
+    const expiredSessions = await expireQuietSessions(ctx, now, limit);
+    return deleted + expiredSessions;
   },
 });
+
+// expireQuietSessions ends agent sessions that stopped reporting without ever
+// sending SessionEnd. Without this the coordination engine keeps counting them
+// as live, and a day of abandoned sessions collides with everything that
+// follows. The end time recorded is the last moment the session was actually
+// seen, not the moment the sweep noticed, so the dashboard clock stays honest.
+async function expireQuietSessions(ctx: MutationCtx, now: number, limit: number): Promise<number> {
+  let expired = 0;
+  for (const status of ["active", "idle", "blocked"] as const) {
+    if (expired >= limit) break;
+    const candidates = await ctx.db
+      .query("workstreams")
+      .withIndex("by_status_updated", (q) => q.eq("status", status).lte("updatedAt", now - SESSION_IDLE_TIMEOUT_MS))
+      .take(limit - expired);
+    for (const session of candidates) {
+      if (!sessionHasGoneQuiet(session, now)) continue;
+      await ctx.db.patch(session._id, {
+        status: "done", agentStatus: "done", endedAt: session.endedAt ?? session.updatedAt,
+        revision: session.revision + 1, updatedAt: now,
+      });
+      // A finding routed to a session nobody is running any more is noise on
+      // every future brief, so it resolves with the session exactly as it would
+      // have on a SessionEnd that never came.
+      //
+      // A scope too large to enumerate makes that resolution fail, and this
+      // runs inside a scheduled mutation: letting the error escape would roll
+      // back the whole sweep and keep rolling it back on every future run, so
+      // one unusual scope would silently stop retention for every Project on
+      // the deployment. Ending the session is the part that matters; the
+      // findings expire on their own retention.
+      try {
+        await resolveAgentPathFindings(ctx, session, now);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.startsWith("E:")) throw error;
+      }
+      expired++;
+    }
+  }
+  return expired;
+}
 
 async function applyProjection(
   ctx: MutationCtx,
@@ -1195,6 +1262,8 @@ async function applyProjection(
       const agentStatus = String(payload.status) as "active" | "waiting" | "idle" | "done" | "error";
       const activityKind = String(payload.kind);
       const currentAction = String(payload.action);
+      const parsedObservedAt = Date.parse(event.observedAt);
+      const lifecycleAt = Number.isNaN(parsedObservedAt) ? now : parsedObservedAt;
       let workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       if (workstream && (workstream.projectId !== project._id || workstream.workspaceId !== workspace._id || workstream.vendor !== vendor)) fail("forbidden");
       const previousSessionTitle = workstream?.sessionTitle;
@@ -1216,7 +1285,10 @@ async function applyProjection(
         toolName: typeof payload.tool === "string" ? payload.tool : undefined,
         branch: typeof payload.branch === "string" && payload.branch !== "" ? payload.branch : workstream?.branch,
         sessionTitle: typeof payload.sessionTitle === "string" && payload.sessionTitle !== "" ? payload.sessionTitle : workstream?.sessionTitle,
+        ...(activityKind === "SessionStart" ? { startedAt: lifecycleAt } : workstream?.startedAt === undefined ? {} : { startedAt: workstream.startedAt }),
+        ...(activityKind === "SessionEnd" ? { endedAt: lifecycleAt } : workstream?.endedAt === undefined ? {} : { endedAt: workstream.endedAt }),
         safePaths, subagents: subagents.slice(0, 32), updatedAt: now,
+        readCoverage: readCoverageOf(payload.readCoverage) ?? workstream?.readCoverage,
       };
       if (workstream) {
         await ctx.db.patch(workstream._id, { ...record, revision: workstream.revision + 1 });
@@ -1295,11 +1367,16 @@ async function applyProjection(
       // published yet is skipped rather than failing the batch behind it.
       if (session) {
         for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
-          const entry = raw as { path: string; fileContractHashAtRead: string; observedAt: string };
+          const entry = raw as { path: string; fileContractHashAtRead: string; observedAt: string; fidelity?: string };
           const existing = await ctx.db.query("sessionReadSets")
             .withIndex("by_workstream_path", (q) => q.eq("workstreamId", session._id).eq("path", entry.path)).unique();
+          // A path may be reported by sources of different strength — declared
+          // at begin_work, then actually observed. Keep the strongest, so a
+          // later weaker report cannot quietly downgrade real evidence.
+          const incoming = readFidelityOf(entry.fidelity);
+          const fidelity = readFidelityRank(existing?.fidelity) > readFidelityRank(incoming) ? existing!.fidelity! : incoming;
           const record = {
-            fileContractHashAtRead: entry.fileContractHashAtRead, readAt: entry.observedAt,
+            fileContractHashAtRead: entry.fileContractHashAtRead, readAt: entry.observedAt, fidelity,
             updatedAt: now, expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
           };
           if (existing) await ctx.db.patch(existing._id, record);
@@ -1487,15 +1564,24 @@ async function upsertContractFindings(
     const primary = changedSymbols[0]!;
     const others = changedSymbols.length > 1 ? ` ${changedSymbols.length - 1} other symbol(s) in the file also changed.` : "";
     const reason = boundedText(
-      `${change.path}: ${primary.name} changed after this session read it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
+      `${change.path}: ${primary.name} changed after this session ${readQualifier} it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
       500,
     );
+    // The symbol diff is structural either way; what varies is the strength of
+    // the claim that this session read the file at all (ADR-052).
+    const readFidelity = readFidelityOf(reader.fidelity);
+    const readQualifier = readFidelity === "observed"
+      ? "read"
+      : readFidelity === "vendor_inferred"
+        ? "appears to have read"
+        : "said it expected to read";
     const evidence = [{
       kind: "symbol",
-      summary: boundedText(`${change.path}: ${changedSymbols.map((symbol) => symbol.name).join(", ")} no longer match what this session read.`, 500),
+      summary: boundedText(`${change.path}: ${changedSymbols.map((symbol) => symbol.name).join(", ")} no longer match what this session ${readQualifier}.`, 500),
       source: "git",
-      fidelity: "structural",
+      fidelity: readFidelity === "observed" ? "structural" : `structural/${readFidelity}`,
       contract: {
+        readFidelity,
         path: change.path, changedSymbols, changedByWorkstreamId: change.changedByWorkstreamPublicId,
         readAt: reader.readAt, changedAt,
       },
@@ -1504,13 +1590,13 @@ async function upsertContractFindings(
     const verdict = deterministicJudgment(candidate);
     const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
     if (existing) {
-      await ctx.db.patch(existing._id, { lastSeenAt: change.now, evidence, reason: verdict.explanation, severity: verdict.severity, delivery: verdict.delivery, state: "open", expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY });
+      await ctx.db.patch(existing._id, { lastSeenAt: change.now, evidence, reason: verdict.explanation, severity: verdict.severity, confidenceBand: contractConfidenceBand(readFidelity), delivery: verdict.delivery, state: "open", expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY });
       continue;
     }
     const publicId = `fnd_${fingerprint.slice(0, 32)}`;
     await ctx.db.insert("findings", {
       publicId, projectId: project._id, scopeKey: workspace.scopeKey,
-      kind: "stale_assumption", severity: verdict.severity, confidenceBand: "deterministic",
+      kind: "stale_assumption", severity: verdict.severity, confidenceBand: contractConfidenceBand(readFidelity),
       workstreamPublicIds: [reader.workstreamPublicId], evidence, reason: verdict.explanation, state: "open", fingerprint,
       engineVersion: CONTRACT_ENGINE_VERSION, delivery: verdict.delivery, revision: 1, firstSeenAt: change.now, lastSeenAt: change.now,
       expiresAt: change.now + DEFAULT_RETENTION_DAYS * DAY,

@@ -23,6 +23,7 @@ const desktopDevelopment = true
 func desktopProductName() string { return "Stickguy Dev" }
 func desktopMenuLabel() string   { return "Stickguy development" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
+func desktopURLScheme() string   { return "stickguy-dev" }
 func desktopAPIBaseURL() string {
 	return developmentOrigin("STICKGUY_API_ORIGIN", "http://127.0.0.1:3211")
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -103,8 +104,17 @@ func Run(ctx context.Context, root string, sender Sender) error {
 	}
 	s.watch = watch
 	for _, w := range cfg.Workspaces {
+		// A workspace root can disappear while the service is stopped: the
+		// member deleted, moved, or renamed the repository. That must degrade
+		// only that workspace. Failing the boot would stop observation for
+		// every other Project on this device.
+		if _, statErr := os.Stat(w.Root); statErr != nil {
+			slog.Warn("workspace root unavailable; skipping observation for it", "workspace", w.ID, "error", statErr)
+			continue
+		}
 		if e = watch.Add(w.Root); e != nil {
-			return fmt.Errorf("watch %s: %w", w.ID, e)
+			slog.Warn("watch workspace root failed; skipping observation for it", "workspace", w.ID, "error", e)
+			continue
 		}
 	}
 	go watch.Run(ctx)
@@ -597,7 +607,14 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if event.SubagentAlias != "" {
 		payload["subagentAlias"] = event.SubagentAlias
 	}
-	if len(event.CandidatePaths) > 0 {
+	// State what Stickguy can actually see of this session's reads, so an empty
+	// read set is never mistaken for a session that read nothing (ADR-052).
+	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsAvailable())
+	// Only mutation paths become session work evidence. An inspection tool's
+	// paths are the read set, published below, and counting them here made a
+	// session that merely read a file collide with the session that wrote it
+	// (ADR-048). The read set still drives stale-assumption detection.
+	if len(event.CandidatePaths) > 0 && !agentactivity.ReadTool(event.Tool) {
 		payload["paths"] = event.CandidatePaths
 	}
 	// The branch is read from the registered worktree rather than reported by the
@@ -641,7 +658,13 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	// A read set is fed by inspection tools only; an edit is a write, and the
 	// manifest pipeline already reports it.
 	if agentactivity.ReadTool(event.Tool) && len(event.CandidatePaths) > 0 {
-		s.publishReadSet(ctx, workspace, event.WorkstreamID, event.CandidatePaths)
+		s.publishReadSet(ctx, workspace, event.WorkstreamID, event.CandidatePaths, store.ReadFidelityObserved, readPathsPerEvent)
+	}
+	// Codex names no file it reads, so its read set is recovered from its own
+	// command classification at a turn boundary rather than from tool events
+	// (ADR-052). This runs after the turn, never during it.
+	if event.Vendor == "codex" && (event.Kind == "Stop" || event.Kind == "SessionEnd") {
+		s.publishCodexInferredReads(ctx, workspace, q.AgentVendorSessionID, event.WorkstreamID)
 	}
 	shared := s.shareTranscript(ctx, workspace, event, transcript)
 	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared}}
@@ -745,6 +768,17 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 	workstreamID := workspaceWorkstream(s.cfg, q.WorkspaceID)
 	if workstreamID == "" {
 		return daemon.Response{Error: "workspace not found"}
+	}
+	// An MCP client that could identify its own agent session gets that
+	// session's workstream. Findings are routed to the per-session workstream
+	// the activity hooks create, and a brief is filtered by the workstream it
+	// is requested for, so lifecycle calls made against the workspace
+	// workstream could never surface a finding routed to the calling session.
+	// The same split made an agent's own intent land on a second identity and
+	// then collide with itself. A vendor that exposes no session identity still
+	// falls back to the workspace workstream.
+	if q.AgentWorkstreamID != "" && validContractID(q.AgentWorkstreamID) {
+		workstreamID = q.AgentWorkstreamID
 	}
 	result := lifecycleResult{}
 	trigger := ""
@@ -856,7 +890,10 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 	}
 	if len(readSetPaths) > 0 {
 		if workspace, found := workspaceByID(s.cfg, q.WorkspaceID); found {
-			s.publishReadSet(ctx, workspace, workstreamID, readSetPaths)
+			// These are the paths an MCP client said it expects to consume, not
+			// files anything watched it open, so they enter the read set as the
+			// agent's own claim (ADR-052).
+			s.publishReadSet(ctx, workspace, workstreamID, readSetPaths, store.ReadFidelitySelfDeclared, readPathsPerEvent)
 		}
 	}
 	if trigger != "" {
