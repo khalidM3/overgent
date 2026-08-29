@@ -210,6 +210,12 @@ export const dashboardSnapshot = internalQuery({
     if (auth.project.publicId !== args.projectPublicId) fail("forbidden");
     const workspaces = await ctx.db.query("workspaces").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
     if (workspaces.length > 100) fail("page_too_large");
+    // Pausing writes to the paused member's own device and stops that device
+    // publishing; nobody can pause sharing on anyone else's machine. Reporting
+    // the Project-wide value therefore told a member their sharing had stopped
+    // when a teammate had paused theirs, and offered them a Resume control that
+    // could only ever act on their own workspaces (ADR-061).
+    const ownWorkspacePaused = workspaces.some((workspace) => workspace.memberId === auth.member._id && workspace.paused);
     const members = await ctx.db.query("members").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
     const memberById = new Map(members.map((member) => [member._id, member]));
     const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
@@ -306,7 +312,7 @@ export const dashboardSnapshot = internalQuery({
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
     }));
     const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
-    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus, semanticMode }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: workspaces.some((workspace) => workspace.paused) };
+    return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus, semanticMode }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: ownWorkspacePaused };
   },
 });
 

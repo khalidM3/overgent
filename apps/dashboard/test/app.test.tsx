@@ -104,7 +104,7 @@ describe("Project Workroom behavior", () => {
     expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Collision detected/ })).toBeNull();
     expect(screen.getByLabelText("Semantic processing status").textContent).toContain("disabled");
-    expect(screen.getByText("Workspace sharing is paused")).toBeTruthy();
+    expect(screen.getByText("Your sharing is paused in this Project")).toBeTruthy();
   });
 
   it("applies pause, activity, and collision lifecycle changes immediately", async () => {
@@ -113,9 +113,11 @@ describe("Project Workroom behavior", () => {
     // The control appears once the page knows it can actually reach the local
     // service, so it is awaited rather than assumed present on first paint.
     await user.click(await screen.findByRole("button", { name: "Pause" }));
-    expect(screen.getByText("Workspace sharing is paused")).toBeTruthy();
+    // Pausing only ever stops this device publishing, so the notice says whose
+    // sharing stopped rather than implying the Project went quiet.
+    expect(screen.getByText("Your sharing is paused in this Project")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Resume" }));
-    expect(screen.queryByText("Workspace sharing is paused")).toBeNull();
+    expect(screen.queryByText("Your sharing is paused in this Project")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Simulate activity" }));
     // Activity is a record of what already happened, so it lives in History
     // rather than competing with live work on the Workroom, and it is folded
@@ -557,17 +559,26 @@ describe("reading a session", () => {
 
   it("offers no control it cannot honour, and names the one that works", async () => {
     // A browser tab with no native bridge genuinely cannot reach the local
-    // service, so it gets the exact command rather than a button that would do
-    // nothing - and rather than a pointer at the menu-bar switch, which stops
-    // sharing for every Project on the machine and is a different request.
+    // service, so it offers nothing there at all: a toolbar is for controls,
+    // and a standing paragraph of instructions in the header is not one.
     const unreachable = new FixtureProjectSource();
     Object.defineProperty(unreachable, "live", { value: true });
     unreachable.localControl = async () => false;
-    render(<App initialState="ready" source={unreachable} />);
+    const { container } = render(<App initialState="ready" source={unreachable} />);
     expect(screen.queryByRole("button", { name: "Menu bar" })).toBeNull();
-    expect(await screen.findByText(/Pause this Project from the Stickguy app/)).toBeTruthy();
-    expect(screen.getByText("stickguy pause --project prj_atlas")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(container.querySelector(".main-bar")!.textContent).not.toContain("stickguy pause");
+  });
+
+  it("names the recovery only where a paused member needs it", async () => {
+    const unreachable = new FixtureProjectSource();
+    Object.defineProperty(unreachable, "live", { value: true });
+    unreachable.localControl = async () => false;
+    unreachable.togglePause("prj_atlas");
+    render(<App initialState="ready" source={unreachable} />);
+    // The instruction appears at the one moment it is actionable, beside the
+    // state it resolves, rather than permanently in the header.
+    expect(await screen.findByText(/Resume it from the Stickguy app or menu bar/)).toBeTruthy();
   });
 
   it("pauses the Project being read rather than every Project on the machine", async () => {
@@ -617,7 +628,7 @@ describe("the workroom summarises, the inspector explains", () => {
     // finding: severity was always only here, and now evidence is too.
     expect(detail.textContent).toContain("deterministic confidence");
     expect(detail.textContent).toContain("high");
-    expect(within(detail).getByText("Why Stickguy flagged it")).toBeTruthy();
+    expect(within(detail).getByText("Evidence")).toBeTruthy();
     expect(detail.textContent).toContain("apps/dashboard/src/session.ts");
     expect(detail.textContent).toContain("git");
   });
@@ -686,5 +697,41 @@ describe("branch grouping", () => {
     // A session that reported no branch keeps its own group rather than being
     // given a branch it never claimed.
     expect(groups[2]!.sessions.map((session) => session.id)).toEqual(["c"]);
+  });
+});
+
+describe("finding detail navigation", () => {
+  it("returns to the collision that sent you into a session", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
+    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+
+    // Drilling into one side of a collision used to be a one-way trip: the
+    // session replaced the finding and nothing led back to it.
+    await user.click(screen.getByRole("button", { name: /Open Mina's session detail/ }));
+    expect(screen.queryByLabelText("Selected collision detail")).toBeNull();
+
+    const back = screen.getByRole("button", { name: /Codex and Claude are touching the session boundary/ });
+    await user.click(back);
+    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+    // Back is only offered when something actually sent you here.
+    expect(screen.queryByRole("button", { name: /Codex and Claude are touching the session boundary/ })).toBeNull();
+  });
+
+  it("opens a Needs you card from anywhere on the card, and shows that it can be", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    const card = document.querySelector("section.converge") as HTMLElement;
+    // The whole block is the target: the headline button is stretched across it
+    // rather than being one clickable line of text inside a paragraph.
+    const opener = within(card).getByRole("button", { name: /Collision detected Khalid and Mina/ });
+    expect(opener.classList.contains("converge-open")).toBe(true);
+    // And it says so, with the same chevron every other openable row uses.
+    expect(card.querySelector(".converge-chev")).toBeTruthy();
+
+    await user.click(opener);
+    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+    expect(opener.getAttribute("aria-current")).toBe("true");
   });
 });
