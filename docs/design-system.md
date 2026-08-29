@@ -64,6 +64,13 @@ Filled backgrounds are allowed only for:
 - a solid primary button (`.pill.solid`)
 - the brand mark and the current project monogram
 
+Anything openable says so the same way: the whole row or card takes `--hover`
+and reveals a chevron on its trailing edge, and its heading button is stretched
+across the block so the affordance is the block rather than one line of text
+inside it (ADR-062). A converging card's chevron takes `--alert`, because a
+glyph is where colour is allowed; the hover ground stays neutral, because a
+tinted background is not.
+
 Stacks of bordered, rounded, background-filled cards are the single most
 recognisable signature of generated UI. Do not add them.
 

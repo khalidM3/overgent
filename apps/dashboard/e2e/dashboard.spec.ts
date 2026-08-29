@@ -32,15 +32,15 @@ test("activity updates and Project switching remain isolated", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Orchard mobile" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Collision detected/ })).toHaveCount(0);
   await expect(page.getByLabel("Semantic processing status")).toContainText("disabled");
-  await expect(page.getByText("Workspace sharing is paused", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your sharing is paused in this Project", { exact: true })).toBeVisible();
 });
 
 test("collision lifecycle and settings are accessible", async ({ page }) => {
   await page.goto("/?state=ready");
   await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByText("Workspace sharing is paused", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your sharing is paused in this Project", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Resume" }).click();
-  await expect(page.getByText("Workspace sharing is paused", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Your sharing is paused in this Project", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Collision detected Khalid and Mina" }).click();
   const detail = page.getByLabel("Selected collision detail");
   await expect(detail).toContainText("Codex");
