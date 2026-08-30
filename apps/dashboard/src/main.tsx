@@ -693,7 +693,7 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
     <span className="session-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
     <span>
       <h3>{snapshot.goal.text}</h3>
-      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}{snapshot.goal.provenance === "fallback" ? " · from the opening message" : ""}</span>
+      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}{priorGoalCount(snapshot) > 0 ? ` · ${priorGoalCount(snapshot)} earlier ${priorGoalCount(snapshot) === 1 ? "goal" : "goals"}` : ""}{snapshot.goal.provenance === "fallback" ? " · from the opening message" : ""}</span>
       <span className="session-doing"><ScopeStateIcon state={snapshot.state} /><span>{snapshot.now.text}</span></span>
       {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
       {activeSubagents.length > 0 && <span className="session-sub">{activeSubagents.length} working in parallel</span>}
@@ -760,6 +760,15 @@ function scopeNote(field: ScopeSnapshotField): string | null {
   return source ? `inferred from ${source}` : "inferred";
 }
 
+/**
+ * How many goals this session has already been through, including any the
+ * bounded history had to drop. The dropped ones are counted here and named as
+ * dropped in the inspector, so a truncated history never reads as a whole one.
+ */
+function priorGoalCount(snapshot: ScopeSnapshot): number {
+  return snapshot.priorGoals.length + snapshot.priorGoalsDropped;
+}
+
 /** A field with no evidence at all is not rendered; an empty labelled row is
  *  the same mistake as a filled card. */
 function scopeFieldPresent(field: ScopeSnapshotField): boolean {
@@ -786,9 +795,20 @@ function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
   // A session waiting on nothing has no "Waiting on" to read. Rendering the
   // label anyway asks the reader to check four rows to learn three facts.
   const present = fields.filter(({ key }) => scopeFieldPresent(snapshot[key]));
-  if (present.length === 0) return null;
+  if (present.length === 0 && snapshot.priorGoals.length === 0) return null;
   return <section className="scope-tail" role="group" aria-label={`Scope snapshot revision ${snapshot.revision}`}>
     <header><span>{snapshot.state}</span><code>scope r{snapshot.revision}</code></header>
+    {/* Goals this session finished with belong before what it is doing now, in
+        the order it pursued them. No timestamp: the order is the chronology,
+        and the thread above already carries when things happened. */}
+    {snapshot.priorGoals.length > 0 && <div className="scope-prior">
+      <span className="thread-event-icon" aria-hidden="true"><CircleDot size={13} /></span>
+      <span>
+        <strong>Earlier in this session</strong>
+        <ol>{snapshot.priorGoals.map((goal, index) => <li key={`${goal.endedAt}-${index}`}>{goal.title}</li>)}</ol>
+        {snapshot.priorGoalsDropped > 0 && <small>{snapshot.priorGoalsDropped} earlier {snapshot.priorGoalsDropped === 1 ? "goal is" : "goals are"} no longer kept</small>}
+      </span>
+    </div>}
     <ol>{present.map(({ key, label }) => {
       const field = snapshot[key];
       const note = scopeNote(field);

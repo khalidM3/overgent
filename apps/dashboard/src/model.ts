@@ -50,6 +50,11 @@ export interface ScopeSnapshotField {
   evidenceQuality: ScopeSnapshotEvidenceQuality;
   facts: ScopeSnapshotFact[];
 }
+export interface ScopeGoalRecord {
+  title: string;
+  intendedOutcome?: string;
+  endedAt: string;
+}
 export interface ScopeSnapshot {
   revision: number;
   state: ScopeSnapshotState;
@@ -59,6 +64,10 @@ export interface ScopeSnapshot {
   waitingOn: ScopeSnapshotField;
   verification: ScopeSnapshotField;
   scope: ScopeSnapshotField;
+  /** Goals this session pursued and moved on from, oldest first. */
+  priorGoals: ScopeGoalRecord[];
+  /** How many earlier goals were dropped to keep that list bounded. */
+  priorGoalsDropped: number;
 }
 
 export interface ProjectSummary {

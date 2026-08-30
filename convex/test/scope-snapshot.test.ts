@@ -85,4 +85,58 @@ describe("ScopeSnapshot derivation", () => {
     expect(complete.state).toBe("complete");
     expect(JSON.stringify([verifying, waiting, complete])).not.toMatch(/\d+%/);
   });
+
+  it("carries the goals a session moved on from, oldest first, without rewording them", () => {
+    const snapshot = deriveScopeSnapshot({
+      revision: 6,
+      workstreamStatus: "active",
+      declared: { intendedOutcome: "Rotate credentials after a permission change." },
+      priorGoals: [
+        { title: "Read how sessions are validated", endedAt: "2026-08-25T09:41:00Z" },
+        { title: "Add a rotation helper", intendedOutcome: "Add a rotation helper to the store.", endedAt: "2026-08-25T09:52:00Z" },
+      ],
+    });
+
+    expect(snapshot.priorGoals.map((goal) => goal.title)).toEqual(["Read how sessions are validated", "Add a rotation helper"]);
+    // Passed through, never re-described: these are what the session said at
+    // the time, and finished work is not ours to restate.
+    expect(snapshot.priorGoals[1]!.intendedOutcome).toBe("Add a rotation helper to the store.");
+    expect(snapshot.priorGoalsDropped).toBe(0);
+    // The current goal is unaffected by having a history behind it.
+    expect(snapshot.goal.text).toBe("Rotate credentials after a permission change.");
+    expect(snapshot.goal.provenance).toBe("declared");
+  });
+
+  it("reports goals dropped from the bounded history rather than implying the list is whole", () => {
+    const snapshot = deriveScopeSnapshot({
+      revision: 40,
+      workstreamStatus: "active",
+      priorGoals: [{ title: "The oldest goal still kept", endedAt: "2026-08-25T10:00:00Z" }],
+      priorGoalsDropped: 4,
+    });
+
+    expect(snapshot.priorGoals).toHaveLength(1);
+    expect(snapshot.priorGoalsDropped).toBe(4);
+  });
+
+  it("discards a history entry that names no goal or no end, and never invents one", () => {
+    const snapshot = deriveScopeSnapshot({
+      revision: 3,
+      workstreamStatus: "active",
+      priorGoals: [
+        { title: "   ", endedAt: "2026-08-25T09:41:00Z" },
+        { title: "Kept", endedAt: "  " },
+        { title: "Also kept", endedAt: "2026-08-25T09:52:00Z" },
+      ],
+    });
+
+    expect(snapshot.priorGoals.map((goal) => goal.title)).toEqual(["Also kept"]);
+  });
+
+  it("has no history for a session that has only ever had one goal", () => {
+    const snapshot = deriveScopeSnapshot({ revision: 1, workstreamStatus: "active" });
+
+    expect(snapshot.priorGoals).toEqual([]);
+    expect(snapshot.priorGoalsDropped).toBe(0);
+  });
 });

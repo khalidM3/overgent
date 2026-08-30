@@ -152,6 +152,22 @@ export default defineSchema({
     contracts: v.optional(v.array(v.string())),
     waitingOn: v.optional(v.array(v.string())),
     waitingOnDeclared: v.optional(v.boolean()),
+    // Goals this session pursued and moved on from, oldest first. A session is
+    // not one task, and keeping only the current goal let `done` accumulate
+    // past the goal shown beside it until the two described different work.
+    //
+    // This is durable state rather than a query over activityEvents, which
+    // carries expiresAt and is read newest-60-first: deriving the history from
+    // there would make a session's earlier goals disappear as the events aged
+    // out, which is worse than not showing them at all.
+    priorGoals: v.optional(v.array(v.object({
+      title: v.string(),
+      intendedOutcome: v.optional(v.string()),
+      endedAt: v.string(),
+    }))),
+    // What fell off the front of that bounded list, so a truncated history is
+    // never presented as a whole one.
+    priorGoalsDropped: v.optional(v.number()),
     latestCheckpointPassed: v.optional(v.boolean()),
     latestVerification: v.optional(v.array(v.object({
       state: v.union(v.literal("not_run"), v.literal("running"), v.literal("passed"), v.literal("failed"), v.literal("unknown")),

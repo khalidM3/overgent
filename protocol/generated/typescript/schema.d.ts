@@ -1012,7 +1012,7 @@ export interface components {
         };
         /**
          * ScopeSnapshot
-         * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+         * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
          */
         "scope-snapshot.schema": {
             revision: number;
@@ -1066,6 +1066,15 @@ export interface components {
                 evidenceQuality: "high" | "medium" | "low" | "none";
                 facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
             };
+            /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+            priorGoals: {
+                title: string;
+                intendedOutcome?: string;
+                /** Format: date-time */
+                endedAt: string;
+            }[];
+            /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+            priorGoalsDropped: number;
             $defs: {
                 field: {
                     text: string;
@@ -1146,7 +1155,7 @@ export interface components {
             paths: string[];
             /**
              * ScopeSnapshot
-             * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+             * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
              */
             scopeSnapshot?: {
                 revision: number;
@@ -1200,6 +1209,15 @@ export interface components {
                     evidenceQuality: "high" | "medium" | "low" | "none";
                     facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
                 };
+                /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                priorGoals: {
+                    title: string;
+                    intendedOutcome?: string;
+                    /** Format: date-time */
+                    endedAt: string;
+                }[];
+                /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                priorGoalsDropped: number;
                 $defs: {
                     field: {
                         text: string;
@@ -1340,7 +1358,7 @@ export interface components {
                 paths: string[];
                 /**
                  * ScopeSnapshot
-                 * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                 * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
                  */
                 scopeSnapshot?: {
                     revision: number;
@@ -1394,6 +1412,15 @@ export interface components {
                         evidenceQuality: "high" | "medium" | "low" | "none";
                         facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
                     };
+                    /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                    priorGoals: {
+                        title: string;
+                        intendedOutcome?: string;
+                        /** Format: date-time */
+                        endedAt: string;
+                    }[];
+                    /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                    priorGoalsDropped: number;
                     $defs: {
                         field: {
                             text: string;
@@ -2629,7 +2656,7 @@ export interface operations {
                             paths: string[];
                             /**
                              * ScopeSnapshot
-                             * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                             * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
                              */
                             scopeSnapshot?: {
                                 revision: number;
@@ -2683,6 +2710,15 @@ export interface operations {
                                     evidenceQuality: "high" | "medium" | "low" | "none";
                                     facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
                                 };
+                                /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                                priorGoals: {
+                                    title: string;
+                                    intendedOutcome?: string;
+                                    /** Format: date-time */
+                                    endedAt: string;
+                                }[];
+                                /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                                priorGoalsDropped: number;
                                 $defs: {
                                     field: {
                                         text: string;
