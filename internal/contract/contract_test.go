@@ -48,12 +48,17 @@ func names(file contract.File) []string {
 }
 
 func TestFingerprintableExtensionsOnly(t *testing.T) {
-	for _, path := range []string{"a.go", "src/b.ts", "src/c.tsx", "SRC/D.TS"} {
+	// ADR-063 widened this set: Go and TypeScript keep their existing
+	// extractors, and Python and JavaScript are parsed by tree-sitter.
+	for _, path := range []string{
+		"a.go", "src/b.ts", "src/c.tsx", "SRC/D.TS",
+		"a.py", "a.pyi", "a.js", "a.jsx", "a.mjs", "a.cjs", "SRC/E.PY",
+	} {
 		if !contract.Fingerprintable(path) {
 			t.Fatalf("%s must be fingerprintable", path)
 		}
 	}
-	for _, path := range []string{"README.md", "a.py", "a.json", "Makefile", "a.gox", "a.go.txt"} {
+	for _, path := range []string{"README.md", "a.json", "Makefile", "a.gox", "a.go.txt", "a.rb", "a.pyc"} {
 		if contract.Fingerprintable(path) {
 			t.Fatalf("%s must not be fingerprintable", path)
 		}

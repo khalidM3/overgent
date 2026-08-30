@@ -92,8 +92,37 @@ describe("hosted boundary validation", () => {
       payload: { workspaceId: "wsp_fixture", entries: [{ ...entry, symbols: [] }] },
     }] })).not.toThrow();
 
+    // ADR-063 widened the gate to the wasm-backed languages. Each of these is
+    // a language the extractor can now produce, so the wire must store it.
+    for (const path of [
+      "backend/session.py", "backend/session.pyi", "frontend/uri.js",
+      "frontend/view.jsx", "frontend/mod.mjs", "plugins/convert.cjs",
+      "app/Session.java", "src/session.rs", "App/Session.cs", "src/Session.php",
+    ]) {
+      expect(() => validateEventBatch({ events: [{
+        ...baseEvent, type: "workspace.contract_fingerprints_reported",
+        payload: { workspaceId: "wsp_fixture", entries: [{ ...entry, path }] },
+      }] }), path).not.toThrow();
+    }
+
+    // The kinds only the tree-sitter extractor emits must survive the wire.
+    for (const kind of ["reexport", "namespace"]) {
+      expect(() => validateEventBatch({ events: [{
+        ...baseEvent, type: "workspace.contract_fingerprints_reported",
+        payload: { workspaceId: "wsp_fixture", entries: [{
+          ...entry, path: "frontend/uri.js",
+          symbols: [{ ...entry.symbols[0], kind }],
+        }] },
+      }] }), kind).not.toThrow();
+    }
+
     for (const invalid of [
       { ...entry, path: "docs/readme.md" },
+      // A language the extractor cannot produce is still a producer defect.
+      // Ruby has no structural visibility marker, so it is deliberately not a
+      // fingerprintable language (ADR-063).
+      { ...entry, path: "backend/session.rb" },
+      { ...entry, path: "backend/session.pyc" },
       { ...entry, path: "config/secrets/keys.ts" },
       { ...entry, path: "../outside/escape.go" },
       { ...entry, fileContractHash: "not-a-hash" },

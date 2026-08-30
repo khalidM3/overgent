@@ -1107,3 +1107,75 @@ wraps the header and body in one article and carried no column, so the
 inspector body never scrolled and the whole page did instead; it was invisible
 only because the detail had never been tall enough to overflow. Accepted by the
 owner 2026-08-29.
+
+## ADR-063: Contract extraction runs real grammars in WebAssembly, not hand-written scanners
+
+Contract fingerprints gain languages by linking tree-sitter's runtime and a
+chosen grammar set into one standalone `wasm32-wasi` module and executing it
+with wazero, a pure-Go runtime. This preserves the CGO-free, never-invoke-Node
+boundary ADR-019 rests on: the C toolchain is a build-time dependency producing
+a vendored `.wasm` blob, and `go build` stays toolchain-free. Grammars are
+statically linked because upstream `web-tree-sitter` loads them as emscripten
+side modules through `dlopen`, which wazero does not implement; a grammar set is
+therefore chosen at build time and compiled lazily per module at runtime.
+Measured on macOS arm64: the runtime plus Python, JavaScript, TypeScript, TSX,
+Java, Rust, PHP and C# costs 4.26 MB gzip-embedded on a 23.8 MB binary, of which
+3.27 MB is wazero itself and 0.99 MB is the eight grammars; cold start is 80 ms
+once; and extraction is 33x slower per file than the existing extractors —
+7.9 ms versus 0.24 ms on the same 22 KB file — which the 20-entry wire batch
+bounds to roughly 460 ms of background work. wazero is a fixed toll paid once,
+so each further grammar costs roughly 40–130 KB compressed rather than a new
+integration. Python, JavaScript/JSX, Java, Rust, C# and PHP are routed. Go stays on `go/parser`, which fingerprints
+137 of 137 files at 73 MB/s and costs nothing. Migrating `.ts`/`.tsx` off the
+hand-written scanner is a separate later decision because it re-baselines every
+stored fingerprint.
+
+Hand-written scanners are rejected as the expansion path, not merely
+deprioritized. The existing 430-line TypeScript scanner already yields no
+fingerprint for `convex/src/domain.ts` and `apps/dashboard/test/app.test.tsx`
+in this repository, and `convex/functions/schema.ts` — the Convex database
+schema, which is exactly the kind of contract a consumer depends on — yields an
+empty exported surface because the scanner does not read `export default`.
+Reusing that scanner for JavaScript recovers zero symbols from three real
+JavaScript files: real-world JavaScript is largely CommonJS, which a token
+scanner cannot distinguish from an ordinary assignment without scope tracking. A
+path that fingerprints to an empty surface is worse than an unsupported path,
+because it reads as a stable contract.
+
+wazero's compiler supports linux/darwin/freebsd/netbsd/windows on arm64 and
+amd64 with SSE4.1; elsewhere it falls back to an interpreter measured at 1.01 s
+for one 64 KB file. The runtime is therefore requested as
+`wazero.NewRuntimeConfigCompiler` rather than `NewRuntimeConfig`, which would
+fall back silently: outside compiler-supported platforms the service reports no
+fingerprint for wasm-backed languages and says so through `contract.WasmStatus`,
+never degrading quietly to a one-second-per-file extractor. `Fingerprintable`
+still answers the static question of which languages Stickguy fingerprints, so a
+platform gap is never disguised as a language gap. This narrows ADR-019's
+language limit and adds a platform condition to it; it does not reverse
+ADR-019's CGO-free rule, ADR-044's wire privacy boundary, or ADR-048's
+fingerprint semantics. Byte offsets, not source text, cross back over the wasm
+boundary, and the ADR-038 deny gate still applies to every derived signature
+before publication and before the file contract hash.
+
+A language is added by compiling its grammar into the module and writing its
+visibility rules; the second half is the real cost, because a declaration that
+is not reachable from another workstream must never be recorded as contract
+surface. Ruby is excluded for exactly that reason: it carries no structural
+visibility marker, so its exported surface would be a guess, and a wrong guess
+is a false interruption. Grammars are generated at different parser ABI
+generations, so each is compiled against the headers it ships with; one shared
+header silently miscompiles whichever half does not match.
+
+The vendored module is a compiled binary in a public repository that executes on
+every member's machine, and reading it is not review. Every input is pinned to
+an exact commit in `internal/contract/wasmgrammar/PROVENANCE.md`, and a test
+asserts the committed artifact's hash and size against that record so it cannot
+drift unnoticed. The blob was built on a developer
+machine rather than in CI; moving that build into the release workflow is a
+prerequisite of the signed-release gate in `docs/beta-release.md`, not of this
+decision. `github.com/odvcencio/gotreesitter`, a pure-Go tree-sitter
+reimplementation needing no build toolchain, is the named fallback if
+maintaining a WASI build step proves worse than expected; it was rejected for
+costing 6.73 MB for the same four grammars and being slower on the largest file
+tested. Accepted 2026-08-29 on the evidence in
+`validation/spikes/multilang-contract`.
