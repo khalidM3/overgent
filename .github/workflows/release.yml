@@ -117,7 +117,7 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json dist/update-manifest.json.sigstore.json dist/desktop-checksums.txt.sigstore.json --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/*.tar.gz
