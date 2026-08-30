@@ -58,7 +58,7 @@
       "required": ["name", "kind", "signature", "signatureHash"],
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "kind": { "enum": ["func", "method", "type", "field", "interface_member", "const", "var", "function", "class", "interface", "enum"] },
+        "kind": { "enum": ["func", "method", "type", "field", "interface_member", "const", "var", "function", "class", "interface", "enum", "reexport", "namespace"] },
         "signature": { "type": "string", "minLength": 1, "maxLength": 500 },
         "signatureHash": { "$ref": "#/$defs/contentHash" }
       }

@@ -1,0 +1,149 @@
+{
+  "buckets": [
+    {
+      "extension": ".go",
+      "files": 137,
+      "fingerprinted": 137,
+      "bytes": 898858,
+      "symbols": 1225
+    },
+    {
+      "extension": ".md",
+      "files": 84,
+      "fingerprinted": 0,
+      "bytes": 571454,
+      "symbols": 0
+    },
+    {
+      "extension": ".json",
+      "files": 47,
+      "fingerprinted": 0,
+      "bytes": 63061,
+      "symbols": 0
+    },
+    {
+      "extension": ".ts",
+      "files": 44,
+      "fingerprinted": 42,
+      "bytes": 604716,
+      "symbols": 225
+    },
+    {
+      "extension": ".mjs",
+      "files": 13,
+      "fingerprinted": 0,
+      "bytes": 98347,
+      "symbols": 0
+    },
+    {
+      "extension": ".mod",
+      "files": 9,
+      "fingerprinted": 0,
+      "bytes": 6486,
+      "symbols": 0
+    },
+    {
+      "extension": ".tsx",
+      "files": 8,
+      "fingerprinted": 7,
+      "bytes": 213071,
+      "symbols": 14
+    },
+    {
+      "extension": ".sum",
+      "files": 6,
+      "fingerprinted": 0,
+      "bytes": 48602,
+      "symbols": 0
+    },
+    {
+      "extension": ".gitignore",
+      "files": 6,
+      "fingerprinted": 0,
+      "bytes": 487,
+      "symbols": 0
+    },
+    {
+      "extension": ".yaml",
+      "files": 5,
+      "fingerprinted": 0,
+      "bytes": 134318,
+      "symbols": 0
+    },
+    {
+      "extension": ".yml",
+      "files": 4,
+      "fingerprinted": 0,
+      "bytes": 8422,
+      "symbols": 0
+    },
+    {
+      "extension": ".txt",
+      "files": 4,
+      "fingerprinted": 0,
+      "bytes": 2534,
+      "symbols": 0
+    },
+    {
+      "extension": ".sh",
+      "files": 3,
+      "fingerprinted": 0,
+      "bytes": 5064,
+      "symbols": 0
+    },
+    {
+      "extension": ".diff",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 943,
+      "symbols": 0
+    },
+    {
+      "extension": ".git",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 74,
+      "symbols": 0
+    },
+    {
+      "extension": ".toml",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 184,
+      "symbols": 0
+    },
+    {
+      "extension": ".jsonl",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 1323,
+      "symbols": 0
+    },
+    {
+      "extension": ".css",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 64611,
+      "symbols": 0
+    },
+    {
+      "extension": ".nvmrc",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 8,
+      "symbols": 0
+    },
+    {
+      "extension": ".html",
+      "files": 1,
+      "fingerprinted": 0,
+      "bytes": 264,
+      "symbols": 0
+    }
+  ],
+  "fingerprintableFailures": [
+    "../../../apps/dashboard/test/app.test.tsx",
+    "../../../convex/src/domain.ts",
+    "../../../internal/contract/testdata/unparseable.ts"
+  ]
+}

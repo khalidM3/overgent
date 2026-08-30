@@ -70,7 +70,7 @@ const EVENT_TYPES = new Set<EventType>([
 ]);
 const CONTRACT_SYMBOL_KINDS = new Set([
   "func", "method", "type", "field", "interface_member", "const", "var",
-  "function", "class", "interface", "enum", "reexport", "namespace",
+  "function", "class", "interface", "enum",
 ]);
 const SOURCES = new Set(["git", "manual", "mcp", "hook", "adapter/v1"]);
 const PROHIBITED_KEYS = /^(sourceContent|diff|patch|blob|gitObject|transcript|systemPrompt|prompt|environment|env|raw(Command|Output|Log|TestOutput))$/i;
@@ -355,17 +355,11 @@ function validateReadSetEntry(value: unknown): void {
   expectTimestamp(entry.observedAt);
 }
 
-// Only the languages ADR-063 qualifies carry a contract, so anything else on
-// this wire is a producer defect rather than an entry to store. Go uses
-// go/parser and TypeScript the bounded scanner; Python and JavaScript are
-// parsed by tree-sitter in WebAssembly. This gate is deliberately independent
-// of the Go extractor: a device that learns a language before the wire does
-// must be rejected, not stored.
+// Only Go and TypeScript paths carry a contract, so anything else on this wire
+// is a producer defect rather than an entry to store.
 function validateFingerprintablePath(path: string): void {
   validateAgentPath(path);
-  if (!/\.(go|ts|tsx|py|pyi|js|jsx|mjs|cjs|java|rs|cs|php)$/i.test(path)) {
-    throw new ValidationError("path_not_fingerprintable");
-  }
+  if (!/\.(go|ts|tsx)$/i.test(path)) throw new ValidationError("path_not_fingerprintable");
 }
 
 // validateContractSignature is the receiving half of the ADR-038 wire gate for
