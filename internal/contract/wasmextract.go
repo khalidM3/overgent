@@ -88,7 +88,9 @@ func extractWasm(path string, source []byte, deny func(signature string) bool) (
 func wasmFingerprintable(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".py", ".pyi", ".js", ".jsx", ".mjs", ".cjs",
-		".java", ".rs", ".cs", ".php":
+		".java", ".rs", ".cs", ".php",
+		".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx",
+		".scala", ".sc", ".kt", ".kts", ".dart":
 		return true
 	}
 	return false

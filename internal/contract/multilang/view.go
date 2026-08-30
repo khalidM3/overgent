@@ -88,6 +88,16 @@ func languageFor(path string) string {
 		return "c_sharp"
 	case ".php":
 		return "php"
+	case ".c", ".h":
+		return "c"
+	case ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx":
+		return "cpp"
+	case ".scala", ".sc":
+		return "scala"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".dart":
+		return "dart"
 	}
 	return ""
 }

@@ -51,6 +51,19 @@ export const RETENTION_TABLES = [
 
 const ID = /^[a-z][a-z0-9_]{2,127}$/;
 const HASH = /^[0-9a-f]{64}$/;
+/**
+ * Coding-agent vendors this contract accepts. Each has its own local adapter
+ * (ADR-039); a vendor absent from this list is rejected rather than stored with
+ * an unknown fidelity.
+ */
+export const SUPPORTED_VENDORS = ["codex", "claude", "cursor"] as const;
+export type SupportedVendor = (typeof SUPPORTED_VENDORS)[number];
+/**
+ * A session alias is `<vendor>-<6 hex>`, derived on the device from the vendor's
+ * own session identity. Callers bound the length to 12..13 before testing, so
+ * this pattern only has to fix the shape.
+ */
+const SESSION_ALIAS = new RegExp(`^(${SUPPORTED_VENDORS.join("|")})-[0-9a-f]{6}$`);
 const EVENT_TYPES = new Set<EventType>([
   "workspace.registered",
   "workspace.manifest_started",
@@ -271,11 +284,17 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectString(payload.summary, 1, LIMITS.summaryLength);
       return;
     case "agent.activity_reported": {
-      expectExactKeys(payload, ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"], ["tool", "agentType", "subagentAlias", "branch", "sessionTitle", "paths"]);
+      // `readCoverage` is the strongest read evidence the device can obtain for
+      // this session (ADR-052). It has been in the wire schema and read by the
+      // hosted projection since that ADR, but was missing from this key
+      // allowlist, so every activity event a post-ADR-052 device sent was
+      // rejected here as validation_failed — silently, for Claude and Codex as
+      // well as Cursor, because the local flush loop discards the reason.
+      expectExactKeys(payload, ["workstreamId", "vendor", "sessionAlias", "kind", "status", "action"], ["tool", "agentType", "subagentAlias", "branch", "sessionTitle", "paths", "readCoverage"]);
       expectWorkstreamId(payload.workstreamId);
-      if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
+      if (!(SUPPORTED_VENDORS as readonly string[]).includes(String(payload.vendor))) throw new ValidationError("validation_failed");
       const alias = expectString(payload.sessionAlias, 12, 13);
-      if (!/^(codex|claude)-[0-9a-f]{6}$/.test(alias)) throw new ValidationError("validation_failed");
+      if (!SESSION_ALIAS.test(alias)) throw new ValidationError("validation_failed");
       if (!["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop", "Stop", "SessionEnd"].includes(expectString(payload.kind, 1, 32))) throw new ValidationError("validation_failed");
       if (!["active", "waiting", "idle", "done", "error"].includes(expectString(payload.status, 1, 16))) throw new ValidationError("validation_failed");
       expectString(payload.action, 1, 300);
@@ -286,6 +305,7 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       // A branch name is shared coordination metadata, not repository content;
       // reject anything Git would not accept as a plain branch name.
       if (payload.sessionTitle !== undefined) expectString(payload.sessionTitle, 1, 160);
+      if (payload.readCoverage !== undefined && readCoverageOf(payload.readCoverage) === undefined) throw new ValidationError("validation_failed");
       if (payload.branch !== undefined) {
         const branch = expectString(payload.branch, 1, 255);
         if (/[\u0000-\u0020\u007f~^:?*[\\]/.test(branch) || branch.startsWith("-") || branch.includes("..") || branch.includes("@{") || branch.endsWith(".lock")) throw new ValidationError("validation_failed");
@@ -298,8 +318,8 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
       expectExactKeys(payload, ["messageId", "workstreamId", "vendor", "sessionAlias", "kind", "text"]);
       expectId(payload.messageId);
       expectWorkstreamId(payload.workstreamId);
-      if (payload.vendor !== "codex" && payload.vendor !== "claude") throw new ValidationError("validation_failed");
-      if (!/^(codex|claude)-[0-9a-f]{6}$/.test(expectString(payload.sessionAlias, 12, 13))) throw new ValidationError("validation_failed");
+      if (!(SUPPORTED_VENDORS as readonly string[]).includes(String(payload.vendor))) throw new ValidationError("validation_failed");
+      if (!SESSION_ALIAS.test(expectString(payload.sessionAlias, 12, 13))) throw new ValidationError("validation_failed");
       if (!["user", "assistant", "thinking", "system"].includes(expectString(payload.kind, 1, 32))) throw new ValidationError("validation_failed");
       validateSessionMessageText(expectString(payload.text, 1, 8000));
       return;
@@ -349,10 +369,23 @@ function validateContractFingerprintEntry(value: unknown): void {
 
 function validateReadSetEntry(value: unknown): void {
   const entry = expectObject(value);
-  expectExactKeys(entry, ["path", "fileContractHashAtRead", "observedAt"]);
+  // `fidelity` is required by the wire schema (ADR-052) and read by the hosted
+  // projection, but was missing from this key list, so every read set a
+  // post-ADR-052 device sent was rejected as validation_failed. With no read
+  // sets stored, no stale_assumption finding could be raised for any vendor.
+  //
+  // It is required here rather than optional because the schema is the source
+  // of truth and because readFidelityOf() treats an absent value as `observed`,
+  // the strongest class. Accepting an entry without it would record unverified
+  // evidence at full confidence, which is the honest-fidelity rule this field
+  // exists to keep.
+  expectExactKeys(entry, ["path", "fileContractHashAtRead", "observedAt", "fidelity"]);
   validateFingerprintablePath(expectString(entry.path, 1, LIMITS.pathLength));
   expectContentHash(entry.fileContractHashAtRead);
   expectTimestamp(entry.observedAt);
+  if (!["observed", "vendor_inferred", "self_declared"].includes(expectString(entry.fidelity, 1, 16))) {
+    throw new ValidationError("validation_failed");
+  }
 }
 
 // Only the languages ADR-063 qualifies carry a contract, so anything else on
@@ -363,7 +396,7 @@ function validateReadSetEntry(value: unknown): void {
 // must be rejected, not stored.
 function validateFingerprintablePath(path: string): void {
   validateAgentPath(path);
-  if (!/\.(go|ts|tsx|py|pyi|js|jsx|mjs|cjs|java|rs|cs|php)$/i.test(path)) {
+  if (!/\.(go|ts|tsx|py|pyi|js|jsx|mjs|cjs|java|rs|cs|php|c|h|cc|cpp|cxx|hpp|hh|hxx|scala|sc|kt|kts|dart)$/i.test(path)) {
     throw new ValidationError("path_not_fingerprintable");
   }
 }

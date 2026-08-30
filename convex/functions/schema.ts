@@ -132,7 +132,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("idle"), v.literal("done"), v.literal("blocked")),
     revision: v.number(),
     currentManifestId: v.optional(v.id("changeManifests")),
-    vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"))),
+    vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor"))),
     sessionAlias: v.optional(v.string()),
     agentStatus: v.optional(v.union(v.literal("active"), v.literal("waiting"), v.literal("idle"), v.literal("done"), v.literal("error"))),
     activityKind: v.optional(v.string()),
@@ -425,7 +425,11 @@ export default defineSchema({
     workstreamId: v.id("workstreams"),
     projectId: v.id("projects"),
     memberId: v.id("members"),
-    vendor: v.union(v.literal("codex"), v.literal("claude")),
+    // Cursor writes no conversation messages today: it publishes no session
+    // record this device can read, so nothing reaches the message gate. It is
+    // accepted here because the union states what the contract permits, not
+    // which vendors happen to exercise it.
+    vendor: v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor")),
     // "reasoning_summary" and "system" are legacy: hooks never actually supplied
     // them. Retained so pre-ADR-036 rows validate; current code writes only
     // user, assistant, and thinking.

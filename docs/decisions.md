@@ -1133,8 +1133,9 @@ total 1.24 MB against 0.99 MB combined.
 
 Extraction is 33x slower per file than the existing extractors — 7.9 ms versus
 0.24 ms on the same 22 KB file — which the 20-entry wire batch bounds to roughly
-460 ms of background work. Python, JavaScript/JSX, Java, Rust, C# and PHP are
-routed. Go stays on `go/parser`, which fingerprints
+460 ms of background work. Python, JavaScript/JSX, Java, Rust, C#, PHP, C, C++,
+Scala, Kotlin and Dart are routed — eleven wasm-backed languages beside Go's own
+parser and the TypeScript scanner. Go stays on `go/parser`, which fingerprints
 137 of 137 files at 73 MB/s and costs nothing. Migrating `.ts`/`.tsx` off the
 hand-written scanner is a separate later decision because it re-baselines every
 stored fingerprint.
@@ -1166,12 +1167,25 @@ fingerprint semantics. Byte offsets, not source text, cross back over the wasm
 boundary, and the ADR-038 deny gate still applies to every derived signature
 before publication and before the file contract hash.
 
-A language is added by compiling its grammar into the module and writing its
+A language is added by compiling its grammar into a module and writing its
 visibility rules; the second half is the real cost, because a declaration that
 is not reachable from another workstream must never be recorded as contract
-surface. Ruby is excluded for exactly that reason: it carries no structural
-visibility marker, so its exported surface would be a guess, and a wrong guess
-is a false interruption. Grammars are generated at different parser ABI
+surface. Each language states that rule differently — `public` in Java and C#,
+`pub` in Rust, absence of `private` in PHP, Scala and Kotlin, absence of
+`static` in C, a positional `public:` section in C++, and a leading underscore
+in Python and Dart — and there is no way to derive it from the grammar.
+Two errors of that shape have already been caught by tests rather than by
+members: Scala recorded local variables inside method bodies as public API, and
+a walk depth tuned for flatter languages silently dropped C++ methods declared
+inside a namespace.
+
+Ruby is excluded because it carries no structural visibility marker at all, so
+its exported surface would be a guess, and a wrong guess is a false
+interruption. Swift is excluded because the grammar in the tree-sitter
+organisation is an abandoned stub below the runtime's supported ABI and the
+maintained grammar requires the tree-sitter CLI to generate its parser. A
+language whose exported surface cannot be determined honestly is worth less
+than no support at all, because an empty surface reads as a stable contract. Grammars are generated at different parser ABI
 generations, so each is compiled against the headers it ships with; one shared
 header silently miscompiles whichever half does not match.
 

@@ -23,8 +23,16 @@ type Request struct {
 	AgentVendor, AgentCWD, AgentWorkstreamID, AgentSessionAlias                         string
 	AgentEvent, AgentStatus, AgentAction, AgentTool, AgentType, AgentSubagentAlias      string
 	AgentPaths                                                                          []string
-	AgentTranscriptPath, AgentVendorSessionID                                           string
-	SinceRevision                                                                       int64
+	// AgentCandidateRoots holds every workspace root a vendor reported, for
+	// vendors that report more than one. Only the service knows which of them is
+	// registered, so the selection happens there.
+	AgentCandidateRoots []string
+	// AgentSessionTitle is already-classified title text (ADR-042). It is never
+	// raw vendor text: the adapter runs ClassifyCoordinationTitle before this
+	// field is populated.
+	AgentSessionTitle                         string
+	AgentTranscriptPath, AgentVendorSessionID string
+	SinceRevision                             int64
 	// FocusSeconds bounds how long an agent session stays free of injected
 	// coordination. Zero means the service default; the store caps the maximum.
 	FocusSeconds int64

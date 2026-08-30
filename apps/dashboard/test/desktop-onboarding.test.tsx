@@ -93,7 +93,7 @@ describe("desktop onboarding", () => {
       connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByText(/New Codex and Claude Code sessions opened in this repository appear automatically/)).toBeTruthy();
+    expect(await screen.findByText(/New Codex, Claude Code, and Cursor sessions opened in this repository appear automatically/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Assign .* worktree/ })).toBeNull();
     expect(api.connectAgentWorktree).not.toHaveBeenCalled();
   });

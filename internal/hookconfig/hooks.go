@@ -280,8 +280,18 @@ func configuredEvents(command string) []string {
 	return claudeEvents
 }
 
+// Command builds the managed hook command for a vendor.
+//
+// Cursor is accepted here because it invokes the same executable through the
+// same `agent-hook --vendor` entry point, but it is NOT accepted by this
+// package's file operations: Cursor's configuration is a different document
+// (`.cursor/hooks.json`, a versioned object keyed by camelCase event name with
+// its own per-handler fields) rather than the Claude/Codex settings shape these
+// functions read and write. internal/cursorsetup owns that file and appends the
+// `--event` argument each Cursor hook needs, because two of Cursor's events name
+// themselves nowhere in their payload.
 func Command(executable, configRoot, vendor string) (string, error) {
-	if vendor != "codex" && vendor != "claude" {
+	if !supportedVendor(vendor) {
 		return "", errors.New("unsupported activity-hook vendor")
 	}
 	executable, err := filepath.Abs(executable)
@@ -296,7 +306,7 @@ func Command(executable, configRoot, vendor string) (string, error) {
 }
 
 func PortableCommand(vendor string) (string, error) {
-	if vendor != "codex" && vendor != "claude" {
+	if !supportedVendor(vendor) {
 		return "", errors.New("unsupported activity-hook vendor")
 	}
 	return strings.Join([]string{shellQuote("stickguy"), "agent-hook", "--vendor", vendor}, " "), nil
@@ -327,6 +337,15 @@ func managed(command string) bool {
 	return strings.Contains(command, " agent-hook --vendor ")
 }
 
+func supportedVendor(vendor string) bool {
+	return vendor == "codex" || vendor == "claude" || vendor == "cursor"
+}
+
+// commandVendor names the vendor of a managed command found in a Claude or Codex
+// settings file. Cursor is absent on purpose: a Cursor command has no business
+// in either of those documents, and returning "" makes every caller treat it as
+// unrecognized drift and refuse to touch the file, rather than rewriting it as
+// though it were a Claude hook.
 func commandVendor(command string) string {
 	for _, vendor := range []string{"codex", "claude"} {
 		if strings.HasSuffix(command, " agent-hook --vendor "+vendor) {

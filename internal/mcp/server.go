@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stickguy/stickguy/internal/agentactivity"
@@ -103,20 +106,46 @@ type server struct {
 	// not be identified and lifecycle calls fall back to the workspace
 	// workstream, which is honest but cannot see session-routed findings.
 	agentWorkstreamID string
+	cwd               string
+	daemonCall        daemonCaller
+	sessionMu         sync.Mutex
 }
+
+type daemonCaller func(context.Context, string, daemon.Request) (daemon.Response, error)
+
+var agentSessionWorkstreamID = regexp.MustCompile(`^wrk_agent_[0-9a-f]{32}$`)
 
 // sessionWorkstream recovers the calling agent session's workstream identity
 // from the environment the vendor gave this process. Claude Code exports
-// CLAUDE_CODE_SESSION_ID. Codex passes a minimal environment to MCP servers and
-// exports no session identity, so Codex degrades to the workspace workstream.
-// The id is derived locally and never leaves the device.
-func sessionWorkstream() string {
+// CLAUDE_CODE_SESSION_ID. When it is absent, the local service resolves one
+// live Codex thread by this MCP process's cwd. Empty means zero or ambiguous;
+// it is never guessed. The vendor id stays local and only its derived
+// workstream identity is returned.
+func sessionWorkstream(ctx context.Context, socket, cwd string, call daemonCaller) string {
 	if sessionID := os.Getenv("CLAUDE_CODE_SESSION_ID"); sessionID != "" {
 		if workstreamID, _, ok := agentactivity.WorkstreamIDFor("claude", sessionID); ok {
 			return workstreamID
 		}
+		return ""
 	}
-	return ""
+	if socket == "" || cwd == "" || call == nil {
+		return ""
+	}
+	resolveContext, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	response, err := call(resolveContext, socket, daemon.Request{Method: "resolve_agent_session", AgentVendor: "codex", AgentCWD: cwd})
+	if err != nil || !response.OK {
+		return ""
+	}
+	var resolution struct {
+		WorkstreamID string `json:"workstreamId"`
+		Identified   bool   `json:"identified"`
+	}
+	encoded, err := json.Marshal(response.Data)
+	if err != nil || json.Unmarshal(encoded, &resolution) != nil || !resolution.Identified || !agentSessionWorkstreamID.MatchString(resolution.WorkstreamID) {
+		return ""
+	}
+	return resolution.WorkstreamID
 }
 
 func Run(ctx context.Context, configRoot string) error {
@@ -128,7 +157,8 @@ func Run(ctx context.Context, configRoot string) error {
 	if err != nil {
 		return err
 	}
-	bridge := &server{paths: paths, cfg: cfg, agentWorkstreamID: sessionWorkstream()}
+	cwd, _ := os.Getwd()
+	bridge := &server{paths: paths, cfg: cfg, cwd: cwd, daemonCall: daemon.Call}
 	sdk := newSDK(bridge)
 	return sdk.Run(ctx, &sdkmcp.StdioTransport{})
 }
@@ -211,8 +241,13 @@ func (s *server) call(ctx context.Context, q *daemon.Request) (toolOutput, error
 		return toolOutput{}, err
 	}
 	q.WorkspaceID = workspace.ID
-	q.AgentWorkstreamID = s.agentWorkstreamID
-	response, err := daemon.Call(ctx, s.paths.Socket, *q)
+	agentWorkstreamID := s.callingSessionWorkstream(ctx)
+	q.AgentWorkstreamID = agentWorkstreamID
+	call := s.daemonCall
+	if call == nil {
+		call = daemon.Call
+	}
+	response, err := call(ctx, s.paths.Socket, *q)
 	if err != nil {
 		return toolOutput{}, fmt.Errorf("local Stickguy service unavailable: %w", err)
 	}
@@ -220,13 +255,34 @@ func (s *server) call(ctx context.Context, q *daemon.Request) (toolOutput, error
 		return toolOutput{}, errors.New(response.Error)
 	}
 	reportedWorkstream := workspace.WorkstreamID
-	if s.agentWorkstreamID != "" {
-		reportedWorkstream = s.agentWorkstreamID
+	if agentWorkstreamID != "" {
+		reportedWorkstream = agentWorkstreamID
 	}
 	out := toolOutput{ProjectID: workspace.ProjectID, WorkspaceID: workspace.ID, WorkstreamID: reportedWorkstream}
 	encoded, _ := json.Marshal(response.Data)
 	_ = json.Unmarshal(encoded, &out)
 	return out, nil
+}
+
+func (s *server) callingSessionWorkstream(ctx context.Context) string {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	if s.agentWorkstreamID != "" {
+		return s.agentWorkstreamID
+	}
+	cwd := s.cwd
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	call := s.daemonCall
+	if call == nil && s.paths.Socket != "" {
+		call = daemon.Call
+	}
+	resolved := sessionWorkstream(ctx, s.paths.Socket, cwd, call)
+	if resolved != "" {
+		s.agentWorkstreamID = resolved
+	}
+	return resolved
 }
 
 func (s *server) resolveWorkspace(requested string) (config.Workspace, error) {

@@ -18,7 +18,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   onBack: () => void;
 }) {
   const nameRef = useRef<HTMLInputElement>(null);
-  const [request, setRequest] = useState<EnrollmentRequest>({ repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName, joinCode: "", enableCodex: false, enableClaude: false });
+  const [request, setRequest] = useState<EnrollmentRequest>({ repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName, joinCode: "", enableCodex: false, enableClaude: false, enableCursor: false });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<{ projectId: string; joinCode: string; warnings: string[] } | null>(null);
@@ -109,6 +109,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
         <fieldset className="agent-options">
           <label><input type="checkbox" checked={request.enableCodex} onChange={(event) => setRequest({ ...request, enableCodex: event.target.checked })} /><span><strong>Codex</strong><small>Observe new repository-scoped sessions after restart</small></span></label>
           <label><input type="checkbox" checked={request.enableClaude} onChange={(event) => setRequest({ ...request, enableClaude: event.target.checked })} /><span><strong>Claude Code</strong><small>Observe new repository-scoped sessions after restart</small></span></label>
+          <label><input type="checkbox" checked={request.enableCursor} onChange={(event) => setRequest({ ...request, enableCursor: event.target.checked })} /><span><strong>Cursor</strong><small>Observe new repository-scoped sessions after restart</small></span></label>
         </fieldset>
       </ScreenSection>
 

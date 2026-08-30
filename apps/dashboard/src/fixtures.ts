@@ -104,6 +104,36 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         },
       },
       {
+        // A Cursor session, which is the highest-fidelity reader Stickguy has:
+        // beforeReadFile names each file before it is read, so its read set is
+        // observed rather than inferred, and a correction reaches it by push in
+        // the same hook response rather than waiting to be pulled over MCP. It
+        // also shows the one thing Cursor gives up — readExistingSession is
+        // false, because Cursor publishes no session record this device can
+        // parse, so the local "read my own session" view is unavailable.
+        id: "wrk_agent_fixture_cursor",
+        memberName: "Ravi",
+        initials: "RV",
+        title: "Cursor · cursor-b7c3d1",
+        outcome: "reading backend/refresh.go",
+        presence: "online",
+        fidelity: "hook",
+        updatedLabel: "2 min",
+        pathCount: 2,
+        paths: ["backend/refresh.go", "frontend/session.ts"],
+        agent: {
+          vendor: "cursor", sessionAlias: "cursor-b7c3d1", sessionTitle: "Implement the session view against Refresh", branch: "feature/session-view", status: "active", tool: "read", startedAt: "2026-08-25T10:00:00Z",
+          capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: false, pollUpdates: true, deliverBrief: "native_push", requestAttention: "unavailable", observeReadSet: "observed" },
+          subagents: [],
+          activity: [
+            { id: "cursor-act-3", at: "2 min", occurredAt: "2026-08-25T10:04:00Z", kind: "PostToolUse", status: "active", action: "editing frontend/session.ts", tool: "edit", paths: ["frontend/session.ts"] },
+            { id: "cursor-act-2", at: "5 min", occurredAt: "2026-08-25T10:01:00Z", kind: "PreToolUse", status: "active", action: "inspecting files backend/refresh.go", tool: "read", paths: ["backend/refresh.go"] },
+            { id: "cursor-act-1", at: "6 min", occurredAt: "2026-08-25T10:00:00Z", kind: "SessionStart", status: "active", action: "Session started", paths: [] },
+          ],
+          coordination: [{ id: "brief-fixture-3", routedAt: "2026-08-25T10:04:40Z", acknowledgedAt: "2026-08-25T10:04:52Z", summary: "Refresh(userID string) became Refresh(sessionID string, policy Policy) after you read backend/refresh.go.", itemCount: 1, trigger: "user_prompt_submit" }],
+        },
+      },
+      {
         id: "wst_atlas_manifest",
         memberName: "Ravi",
         initials: "RV",

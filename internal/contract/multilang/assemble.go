@@ -17,10 +17,10 @@ type declaration struct {
 	raw  string
 }
 
-// assemble mirrors the tail of fingerprint.Extract: gate, sort, bound, hash. It
-// is duplicated rather than imported because the production tail is unexported
-// and this spike must not modify the production extraction path. Any drift
-// between the two is a defect in this spike, not a proposed change.
+// assemble mirrors the tail of contract.Extract: gate, sort, dedupe, bound,
+// hash. It is duplicated rather than imported because that tail is unexported
+// in the parent package, and importing it would be an import cycle. Any drift
+// between the two is a defect.
 func assemble(path string, found []declaration, deny func(signature string) bool) fingerprint.File {
 	symbols := make([]fingerprint.Symbol, 0, len(found))
 	for _, item := range found {
@@ -39,6 +39,13 @@ func assemble(path string, found []declaration, deny func(signature string) bool
 		}
 		return strings.Compare(left.SignatureHash, right.SignatureHash)
 	})
+	// One declaration can legitimately be seen twice — a C prototype in a
+	// header and its definition in the same translation unit reduce to the same
+	// signature — and publishing it twice would inflate the symbol count and
+	// make an unchanged file look different from itself. Identical entries are
+	// adjacent after the sort, so compaction is enough; entries that share a
+	// name but not a hash are genuinely different surface and both survive.
+	symbols = slices.Compact(symbols)
 	if len(symbols) > fingerprint.MaxSymbols {
 		symbols = symbols[:fingerprint.MaxSymbols]
 	}
