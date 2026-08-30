@@ -328,6 +328,8 @@ export const dashboardSnapshot = internalQuery({
           subagents: (stream.subagents ?? []).map((subagent) => ({ agentType: subagent.agentType, status: subagent.status })),
           verification: stream.latestVerification ?? [],
         },
+        ...(stream.priorGoals === undefined ? {} : { priorGoals: stream.priorGoals }),
+        ...(stream.priorGoalsDropped === undefined ? {} : { priorGoalsDropped: stream.priorGoalsDropped }),
         ...(stream.sessionTitle === undefined ? {} : { fallbackDerivedTitle: stream.sessionTitle }),
       });
       workstreams.push({
@@ -1230,12 +1232,29 @@ async function applyProjection(
           components !== undefined && JSON.stringify(current.components ?? []) !== JSON.stringify(components) ||
           contracts !== undefined && JSON.stringify(current.contracts ?? []) !== JSON.stringify(contracts) ||
           waitingOn !== undefined && JSON.stringify(current.waitingOn ?? []) !== JSON.stringify(waitingOn);
+        // A goal closes only when the goal itself moved. `material` is also
+        // true for a components, contracts, or waitingOn edit, and treating
+        // those as a new objective would manufacture a history of goals the
+        // session never actually changed between.
+        const goalMoved = current.title !== String(payload.title) || current.intendedOutcome !== summary;
+        const priorGoals = goalMoved
+          ? [...(current.priorGoals ?? []), {
+              title: current.title,
+              ...(current.intendedOutcome !== undefined ? { intendedOutcome: current.intendedOutcome } : {}),
+              endedAt: new Date(now).toISOString(),
+            }]
+          : undefined;
+        const kept = priorGoals ? priorGoals.slice(-MAX_PRIOR_GOALS) : undefined;
         await ctx.db.patch(current._id, {
           title: String(payload.title), summary, intendedOutcome: summary, revision: current.revision + 1, status: "active", updatedAt: now,
           ...(approachSummary !== undefined ? { approachSummary } : {}),
           ...(components !== undefined ? { components } : {}),
           ...(contracts !== undefined ? { contracts } : {}),
           ...(waitingOn !== undefined ? { waitingOn, waitingOnDeclared: true } : {}),
+          ...(kept !== undefined ? {
+            priorGoals: kept,
+            priorGoalsDropped: (current.priorGoalsDropped ?? 0) + (priorGoals!.length - kept.length),
+          } : {}),
         });
         if (material) await bumpScope(ctx, workspace.scopeKey, now);
       }
@@ -2391,6 +2410,11 @@ function relativeLabel(now: number, then: number): string {
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr`;
 }
+
+/** Matches priorGoals maxItems in scope-snapshot.schema.json. A session that
+ *  restates its objective more than this many times is served better by an
+ *  honest count of what was dropped than by an unbounded list. */
+const MAX_PRIOR_GOALS = 15;
 
 function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" | "agent" {
   if (type === "agent.activity_reported" || type === "session.read_set_reported") return "agent";

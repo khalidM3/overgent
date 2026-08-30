@@ -141,6 +141,27 @@ Stable error body:
 
 Codes are stable; messages may change. Never automatically retry authentication, authorization, validation, or incompatible-version errors.
 
+
+### Goals a session moved on from
+
+`ScopeSnapshot` carries `priorGoals`, oldest first, plus `priorGoalsDropped`.
+A session is not one task: an objective is restated, an agent proposes something
+adjacent, and work accumulates past the goal on record. With only a current
+goal, `done` and `goal` drift apart until the finished work listed beside a goal
+mostly does not belong to it.
+
+A prior goal is appended when `workstream.intent_reported` moves the title or
+intended outcome. A components, contracts, or `waitingOn` edit is a material
+revision but not a new objective, and treating it as one would manufacture a
+history the session never had.
+
+This is durable state on the workstream, not a query over `activityEvents`.
+Those rows carry `expiresAt` and are read newest-first under a bound, so a
+derived history would lose a session's earliest goals as its events aged out —
+a history that silently shortens is worse than none. The list is bounded and
+`priorGoalsDropped` counts what fell off the front, so a truncated history is
+never presented as a whole one.
+
 ## 8. Scope snapshots
 
 Every dashboard workstream may carry a revisioned `ScopeSnapshot`. It is a
