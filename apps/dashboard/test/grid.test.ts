@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
  * this guards against is a component quietly hardcoding its own gutter again.
  * Four of them once did, and primary text began at four different left edges.
  */
-const css = readFileSync(fileURLToPath(new URL("../src/style.css", import.meta.url)), "utf8");
+const css = readFileSync(resolve(process.cwd(), "src/style.css"), "utf8");
 
 const ruleFor = (selector: string): string => {
   const start = css.indexOf(`\n${selector} {`) >= 0 ? css.indexOf(`\n${selector} {`) : css.indexOf(`\n${selector} `);
