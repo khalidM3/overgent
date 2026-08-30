@@ -16,6 +16,7 @@ import (
 	"github.com/stickguy/stickguy/internal/codexsetup"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/credential"
+	"github.com/stickguy/stickguy/internal/cursorsetup"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"github.com/stickguy/stickguy/internal/hosted"
 	coordinationmcp "github.com/stickguy/stickguy/internal/mcp"
@@ -206,13 +207,21 @@ func run(args []string) error {
 	case "agent-hook":
 		hookFlags := flag.NewFlagSet("agent-hook", flag.ContinueOnError)
 		vendor := hookFlags.String("vendor", "", "supported coding-agent vendor")
+		// Cursor's afterFileEdit and beforeSubmitPrompt payloads carry no
+		// hook_event_name, so the managed command states which event it was
+		// installed for. Claude and Codex name the event in the payload and
+		// ignore this flag.
+		event := hookFlags.String("event", "", "vendor hook event name, for vendors whose payload omits it")
 		if e = hookFlags.Parse(rest[1:]); e != nil {
 			return nil
 		}
+		if *vendor == "cursor" {
+			return runCursorHook(ctx, paths.Socket, *event, os.Stdin, os.Stdout, daemon.Call)
+		}
 		return runAgentHook(ctx, paths.Socket, *vendor, os.Stdin, os.Stdout, daemon.Call)
 	case "setup":
-		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "status": true, "remove": true, "remove-all": true, "reconnect": true}[rest[1]] {
-			return errors.New("setup requires codex, claude, status, reconnect, remove, or remove-all")
+		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "cursor": true, "status": true, "remove": true, "remove-all": true, "reconnect": true}[rest[1]] {
+			return errors.New("setup requires codex, claude, cursor, status, reconnect, remove, or remove-all")
 		}
 		if rest[1] == "remove-all" {
 			if len(rest) != 2 {
@@ -222,7 +231,7 @@ func run(args []string) error {
 		}
 		setupFlags := flag.NewFlagSet("setup "+rest[1], flag.ContinueOnError)
 		projectRoot := setupFlags.String("project-root", ".", "trusted coding-agent project root")
-		agent := setupFlags.String("agent", "codex", "coding agent for status/remove: codex or claude")
+		agent := setupFlags.String("agent", "codex", "coding agent for status/remove: codex, claude, or cursor")
 		development := setupFlags.Bool("development", false, "explicitly install the local development MCP adapter")
 		if e = setupFlags.Parse(rest[2:]); e != nil {
 			return e
@@ -235,12 +244,26 @@ func run(args []string) error {
 		if selected == "status" || selected == "remove" || selected == "reconnect" {
 			selected = *agent
 		}
-		if selected != "codex" && selected != "claude" {
-			return errors.New("setup agent must be codex or claude")
+		if selected != "codex" && selected != "claude" && selected != "cursor" {
+			return errors.New("setup agent must be codex, claude, or cursor")
 		}
 		var status any
 		var setupErr error
-		if selected == "codex" {
+		if selected == "cursor" {
+			manager := cursorsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development}
+			switch rest[1] {
+			case "cursor":
+				status, setupErr = manager.Setup()
+			case "status":
+				status, setupErr = manager.Status()
+			case "remove":
+				status, setupErr = manager.Remove()
+			case "reconnect":
+				status, setupErr = manager.Rebind()
+			default:
+				return errors.New("setup command and agent do not match")
+			}
+		} else if selected == "codex" {
 			manager := codexsetup.Manager{ProjectRoot: *projectRoot, ConfigRoot: *root, Executable: executable, Portable: !customConfigRoot && !*development, Version: version}
 			switch rest[1] {
 			case "codex":
@@ -574,6 +597,96 @@ func runAgentHook(ctx context.Context, socket, vendor string, stdin io.Reader, s
 	return nil
 }
 
+// runCursorHook is Cursor's hook entry point. It is separate from runAgentHook
+// because three things differ, none of them cosmetic:
+//
+//   - stdin is streamed rather than buffered. beforeReadFile sends the whole
+//     file being read, and buffering it against MaxInputBytes would reject every
+//     read of a file over 256 KiB, silently emptying the read set while the
+//     session still reported `observed` coverage.
+//   - the event name comes from the installed command, because afterFileEdit and
+//     beforeSubmitPrompt carry none.
+//   - the response shape is Cursor's `additional_context`/`env`, not Claude's
+//     `hookSpecificOutput`.
+//
+// Like every other hook path it fails open: every error returns nil, so Cursor's
+// turn proceeds unchanged whatever Stickguy could not do (ADR-017).
+func runCursorHook(ctx context.Context, socket, event string, stdin io.Reader, stdout io.Writer, call daemonCaller) error {
+	hookContext, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if !agentactivity.SupportedCursorEvent(event) {
+		return nil
+	}
+	// The workspace root Stickguy published from this session's sessionStart.
+	// afterFileEdit and beforeSubmitPrompt report no root of their own, so
+	// without this they cannot be attributed to a repository at all.
+	parsed, err := agentactivity.ParseCursor(event, stdin, os.Getenv(agentactivity.CursorWorkspaceRootEnv))
+	if err != nil {
+		return nil
+	}
+	request := daemon.Request{
+		AgentVendor: parsed.Vendor, AgentCWD: parsed.CWD, AgentCandidateRoots: parsed.CandidateRoots,
+		AgentWorkstreamID: parsed.WorkstreamID, AgentSessionAlias: parsed.SessionAlias,
+		AgentEvent: parsed.Kind, AgentStatus: parsed.Status, AgentAction: parsed.Action,
+		AgentTool: parsed.Tool, AgentPaths: parsed.CandidatePaths,
+		AgentSessionTitle: parsed.SessionTitle, AgentVendorSessionID: parsed.VendorSessionID,
+	}
+	request.Method = "agent_event"
+	observeContext, cancelObserve := context.WithTimeout(hookContext, 700*time.Millisecond)
+	observed, observeErr := call(observeContext, socket, request)
+	cancelObserve()
+
+	output := map[string]any{}
+	// Only sessionStart can publish session-scoped variables, and it publishes
+	// the root the service actually resolved rather than the one Cursor
+	// reported, so a multi-root workspace pins the registered repository for the
+	// rest of the session.
+	if event == "sessionStart" && observeErr == nil && observed.OK {
+		if root := resolvedWorkspaceRoot(observed.Data); root != "" {
+			output["env"] = map[string]string{agentactivity.CursorWorkspaceRootEnv: root}
+		}
+	}
+	if parsed.Kind == "SessionStart" || parsed.Kind == "UserPromptSubmit" {
+		request.Method = "agent_injection"
+		injectContext, cancelInject := context.WithTimeout(hookContext, 1200*time.Millisecond)
+		response, injectErr := call(injectContext, socket, request)
+		cancelInject()
+		if injectErr == nil && response.OK {
+			if encoded, marshalErr := json.Marshal(response.Data); marshalErr == nil {
+				var injection struct {
+					AdditionalContext string `json:"additionalContext"`
+				}
+				if json.Unmarshal(encoded, &injection) == nil && injection.AdditionalContext != "" {
+					output["additional_context"] = injection.AdditionalContext
+				}
+			}
+		}
+	}
+	if len(output) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return nil
+	}
+	_, _ = stdout.Write(append(encoded, '\n'))
+	return nil
+}
+
+func resolvedWorkspaceRoot(data any) string {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
+	var accepted struct {
+		WorkspaceRoot string `json:"workspaceRoot"`
+	}
+	if json.Unmarshal(encoded, &accepted) != nil {
+		return ""
+	}
+	return accepted.WorkspaceRoot
+}
+
 func devID(prefix string) (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {
@@ -695,6 +808,9 @@ func removeAllAgentBindings(configRoot string, paths config.Paths, portable bool
 		}
 		if _, err = (claudesetup.Manager{ProjectRoot: root, ConfigRoot: configRoot, Executable: executable, Portable: portable}).Remove(); err != nil {
 			return fmt.Errorf("remove managed Claude binding from %s: %w", root, err)
+		}
+		if _, err = (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: configRoot, Executable: executable, Portable: portable}).Remove(); err != nil {
+			return fmt.Errorf("remove managed Cursor binding from %s: %w", root, err)
 		}
 	}
 	// Codex hooks live at the user layer and are shared by every project, so

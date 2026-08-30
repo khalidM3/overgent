@@ -21,10 +21,26 @@ is compiled only when a file of that language is actually fingerprinted.
 | `tree-sitter-rust` | v0.24.2 | `77a3747266f4d621d0757825e6b11edcbf991ca5` |
 | `tree-sitter-php` (php variant) | HEAD 2026-08-29 | `3fda2fb9577166c6399834917f9844f30370beea` |
 | `tree-sitter-c-sharp` | HEAD 2026-08-29 | `9150f7d56bb47f1a809fa23623f1ba1413e93fa9` |
+| `tree-sitter-c` | HEAD 2026-08-30 | `b780e47fc780ddc8da13afa35a3f4ed5c157823d` |
+| `tree-sitter-cpp` | HEAD 2026-08-30 | `8b5b49eb196bec7040441bee33b2c9a4838d6967` |
+| `tree-sitter-scala` | HEAD 2026-08-30 | `db390f312a54b04b13790e1767bfac32665c17ac` |
+| `tree-sitter-kotlin` (fwcd) | HEAD 2026-08-30 | `1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1` |
+| `tree-sitter-dart` (UserNobody14) | HEAD 2026-08-30 | `be07cf7118d3dba06236a3f19541685a68209934` |
 | zig (WASI clang driver) | 0.16.0 | Homebrew `zig` bottle |
 | wazero (host runtime) | v1.12.0 | `go.mod` |
 
-All grammar repositories are under `github.com/tree-sitter/`.
+All grammar repositories are under `github.com/tree-sitter/` except Kotlin
+(`github.com/fwcd/`) and Dart (`github.com/UserNobody14/`), which have no
+grammar in the tree-sitter organisation. Both parse cleanly on ordinary source
+and are pinned like the rest, but they are community-maintained and carry more
+risk than the others.
+
+Swift is absent for a related reason. The grammar in the tree-sitter
+organisation is an abandoned stub declaring `LANGUAGE_VERSION 10`, far below
+what the runtime accepts, and the maintained grammar
+(`github.com/alex-pinkus/tree-sitter-swift`) ships no generated `parser.c` — it
+requires the tree-sitter CLI at build time, which is a dependency worth adding
+deliberately rather than incidentally.
 
 Grammars are generated at **different parser ABI generations** — java, typescript
 and tsx still declare `TSFieldMapSlice`, while python, javascript, rust, php and
@@ -51,16 +67,21 @@ compressed) so it can be compiled independently of the others.
 
 | Module | sha256 | Bytes (gzip) |
 | --- | --- | --- |
-| `python` | `0de9a5848a549ae2f538b82127a94ab8941bb7d4817b2e5fe9bc4ecdaad468a8` | 98,998 |
-| `javascript` | `6e3283152cd82f3dab11e03c73c040ec39b33700b18ce5311f9d9bcc1b9b47d1` | 85,103 |
-| `typescript` | `b0c3ad46cfad4abdf3ce721d96fa7593b5f0b0a31f352e5ce4c9dc875302205d` | 167,716 |
-| `tsx` | `2c76e268c442a62fbfbb30786eca0cdf9f7cd5a6be6fb2c25abefaedfd4c1577` | 170,993 |
-| `java` | `e7da5238278c9810f8916b83bb9b9b722b575464138fa43c5292f76e8837cdc6` | 83,990 |
-| `rust` | `cec541058d7dd0de1d680ee4056d8f56db2ffa6328ffd7ca43ccd64575a4cc7e` | 149,257 |
-| `php` | `8f1df367dfc53aa915a33bb364bc84d3f0d16eaf588b136e3894ef9dd9f3d9e6` | 139,784 |
+| `c` | `d49243c502fb6b2a2a3810fa917f71e90575b413056c7e1e1f40eac8f06c1e52` | 106,295 |
 | `c_sharp` | `1788f3641ffbb9115f6770f7117af1c4b8c42114ec2a7b387fd60ffa75789764` | 370,358 |
+| `cpp` | `643df66b2db836cf23db921797140bc12c9711af86fca0e5644f5544cde5fe6f` | 455,798 |
+| `dart` | `7f7a24906927e32ba0b36d7004e8906354579db52337ab6bcf356ee9af11e7ee` | 143,513 |
+| `java` | `e7da5238278c9810f8916b83bb9b9b722b575464138fa43c5292f76e8837cdc6` | 83,990 |
+| `javascript` | `6e3283152cd82f3dab11e03c73c040ec39b33700b18ce5311f9d9bcc1b9b47d1` | 85,103 |
+| `kotlin` | `836ffc9b46b7ddadc40fee36a5496cec2209cd7b4ced127160db607b95a0d421` | 426,463 |
+| `php` | `8f1df367dfc53aa915a33bb364bc84d3f0d16eaf588b136e3894ef9dd9f3d9e6` | 139,784 |
+| `python` | `0de9a5848a549ae2f538b82127a94ab8941bb7d4817b2e5fe9bc4ecdaad468a8` | 98,998 |
+| `rust` | `cec541058d7dd0de1d680ee4056d8f56db2ffa6328ffd7ca43ccd64575a4cc7e` | 149,257 |
+| `scala` | `13fffbe3b60b46f7fbc0afa7b0d42b4171a94527e5a4378570bfed209614451e` | 464,498 |
+| `tsx` | `2c76e268c442a62fbfbb30786eca0cdf9f7cd5a6be6fb2c25abefaedfd4c1577` | 170,993 |
+| `typescript` | `b0c3ad46cfad4abdf3ce721d96fa7593b5f0b0a31f352e5ce4c9dc875302205d` | 167,716 |
 
-Built 2026-08-30 on macOS arm64. Total 1.24 MB compressed.
+Built 2026-08-30 on macOS arm64. Thirteen modules, 2.8 MB compressed in total.
 
 `TestEmbeddedModulesMatchProvenance` asserts every hash and size, and
 `TestLanguagesMatchesTheRecord` fails if a module is added or removed without

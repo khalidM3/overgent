@@ -3,9 +3,16 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
+import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
 import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
-import type { ManifestEntry } from "../src/domain";
+import type { ManifestEntry, SupportedVendor } from "../src/domain";
+
+/**
+ * Display names for the vendors this deployment accepts, used only when a
+ * session has no title of its own yet. A vendor missing from this map falls back
+ * to its own identifier rather than to another vendor's name.
+ */
+const VENDOR_LABELS: Readonly<Record<SupportedVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
 
 const DAY = 86_400_000;
 const ACTIVITY_RETENTION = 30 * DAY;
@@ -300,7 +307,7 @@ export const dashboardSnapshot = internalQuery({
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
-        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...PROJECT_HOOK_MCP_CAPABILITIES, observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...vendorCapabilities(stream.vendor), observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
         pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
@@ -1264,7 +1271,7 @@ async function applyProjection(
     case "agent.activity_reported": {
       if (event.sequence <= workspace.lastProjectedSequence) return;
       const workstreamPublicId = String(payload.workstreamId);
-      const vendor = String(payload.vendor) as "codex" | "claude";
+      const vendor = String(payload.vendor) as SupportedVendor;
       const agentStatus = String(payload.status) as "active" | "waiting" | "idle" | "done" | "error";
       const activityKind = String(payload.kind);
       const currentAction = String(payload.action);
@@ -1285,7 +1292,7 @@ async function applyProjection(
       const record = {
         title: typeof payload.sessionTitle === "string" && payload.sessionTitle !== ""
           ? payload.sessionTitle
-          : workstream?.sessionTitle ?? `${vendor === "codex" ? "Codex" : "Claude Code"} · ${String(payload.sessionAlias)}`,
+          : workstream?.sessionTitle ?? `${VENDOR_LABELS[vendor] ?? vendor} · ${String(payload.sessionAlias)}`,
         summary: currentAction, status: agentStatus === "done" ? "done" as const : agentStatus === "error" ? "blocked" as const : agentStatus === "idle" ? "idle" as const : "active" as const,
         vendor, sessionAlias: String(payload.sessionAlias), agentStatus, activityKind, currentAction,
         toolName: typeof payload.tool === "string" ? payload.tool : undefined,
@@ -1409,7 +1416,7 @@ async function applyProjection(
         const expiresAt = now + project.retentionDays * DAY;
         await ctx.db.insert("sessionMessages", {
           publicId: String(payload.messageId), workstreamId: workstream._id, projectId: project._id, memberId: member._id,
-          vendor: payload.vendor as "codex" | "claude", kind: kind as "user" | "assistant" | "thinking" | "system",
+          vendor: payload.vendor as SupportedVendor, kind: kind as "user" | "assistant" | "thinking" | "system",
           text, capturedAt: now, expiresAt,
         });
       }
@@ -1569,18 +1576,24 @@ async function upsertContractFindings(
     const fingerprint = sha256Hex(`${workspace.scopeKey}\u0000contract\u0000${reader.workstreamPublicId}\u0000${change.path}\u0000${change.nextHash}`);
     const primary = changedSymbols[0]!;
     const others = changedSymbols.length > 1 ? ` ${changedSymbols.length - 1} other symbol(s) in the file also changed.` : "";
-    const reason = boundedText(
-      `${change.path}: ${primary.name} changed after this session ${readQualifier} it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
-      500,
-    );
     // The symbol diff is structural either way; what varies is the strength of
     // the claim that this session read the file at all (ADR-052).
+    //
+    // These two are declared before `reason`, which reads `readQualifier`.
+    // Declared after it, every stale_assumption threw a temporal-dead-zone
+    // ReferenceError inside publishEvents, which failed the whole event batch —
+    // so no session of any vendor could receive a stale-assumption correction,
+    // and the device's queue stalled behind the throwing batch.
     const readFidelity = readFidelityOf(reader.fidelity);
     const readQualifier = readFidelity === "observed"
       ? "read"
       : readFidelity === "vendor_inferred"
         ? "appears to have read"
         : "said it expected to read";
+    const reason = boundedText(
+      `${change.path}: ${primary.name} changed after this session ${readQualifier} it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
+      500,
+    );
     const evidence = [{
       kind: "symbol",
       summary: boundedText(`${change.path}: ${changedSymbols.map((symbol) => symbol.name).join(", ")} no longer match what this session ${readQualifier}.`, 500),
