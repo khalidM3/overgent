@@ -261,13 +261,13 @@ function validatePayload(type: EventType, payload: Record<string, unknown>): voi
         if (!Array.isArray(payload.verification) || payload.verification.length > 32) throw new ValidationError("validation_failed");
         for (const raw of payload.verification) {
           const item = expectObject(raw);
-          expectExactKeys(item, ["state", "checkKind", "label", "summary", "source", "observedAt"], ["affectedComponent", "manifestRevision"]);
+          expectExactKeys(item, ["state", "checkKind", "label", "summary", "source"], ["affectedComponent", "manifestRevision", "observedAt"]);
           if (!["not_run", "running", "passed", "failed", "unknown"].includes(String(item.state))) throw new ValidationError("validation_failed");
           expectString(item.checkKind, 1, 80);
           expectString(item.label, 1, 160);
           expectString(item.summary, 0, 500);
           if (!["manual", "mcp", "hook"].includes(String(item.source))) throw new ValidationError("validation_failed");
-          expectTimestamp(item.observedAt);
+          if (item.observedAt !== undefined) expectTimestamp(item.observedAt);
           if (item.affectedComponent !== undefined) expectString(item.affectedComponent, 1, 160);
           if (item.manifestRevision !== undefined) expectInteger(item.manifestRevision, 1, Number.MAX_SAFE_INTEGER);
         }

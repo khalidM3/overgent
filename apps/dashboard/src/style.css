@@ -373,18 +373,18 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
   width: 100%; padding: 13px var(--row-inset) 14px; margin: 0 calc(-1 * var(--row-inset)); border-radius: 12px; text-align: left;
 }
 .session-row:hover { background: var(--hover); }
-.session-row > span, .session-row .session-meta, .session-row .session-doing, .session-row .session-sub { display: block; }
+.session-row > span, .session-row .session-meta, .session-row .session-files, .session-row .session-sub { display: block; }
 .session-row .session-icon { color: var(--ink-3); margin-top: 2px; }
 .session-row[aria-current="true"] .session-icon { color: var(--ink-2); }
 .session-row h3 { margin: 0; color: var(--ink); font-size: 14.5px; font-weight: 600; letter-spacing: -.012em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row[aria-current="true"] h3 { color: var(--ink); font-weight: 650; }
 .session-row .session-meta { margin-top: 2px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-row .session-doing { margin-top: 9px; color: var(--ink-2); font-size: 13px; }
+.session-row .session-doing { min-width: 0; display: flex; align-items: center; gap: 6px; margin-top: 9px; color: var(--ink-2); font-size: 13px; }
+.session-row .session-doing > svg { flex: 0 0 auto; color: var(--ink-3); }
+.session-row .session-doing > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-row .session-doing > small { flex: 0 0 auto; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
 .session-row .session-files { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 4px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 .session-row .session-files .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The path an agent is inside right now is the one fact on the row that changes
-   second to second. It takes the live colour; the file count beside it does not,
-   because a total is not a status. */
 .session-row .session-files.live .p { color: var(--live); }
 .session-row .session-files .c { white-space: nowrap; }
 .session-row .session-sub { position: relative; margin-top: 8px; padding-left: 15px; color: var(--ink-3); font-size: 12.5px; }
@@ -392,8 +392,8 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
   position: absolute; left: 2px; top: 8px; width: 8px; height: 8px; content: "";
   border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0 0 0 3px;
 }
-.session-row .session-sub b { color: var(--ink-2); font-weight: 600; }
 .session-row .session-right { display: flex; align-items: center; gap: 9px; align-self: start; margin-top: 1px; }
+.session-row .session-state { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
 .session-row[aria-current="true"] .clock { color: var(--ink-2); }
 .session-row .session-warn { display: grid; color: var(--alert); }
 .session-row .chev { display: grid; color: var(--ink-3); opacity: 0; }
@@ -412,7 +412,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .person-row .nm { display: flex; align-items: center; color: var(--ink); font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .person-row.idle .nm, .person-row.paused .nm { color: var(--ink-2); font-weight: 500; }
 .person-row.offline .nm { color: var(--ink-3); font-weight: 500; }
-.person-row .intent { min-width: 0; color: var(--ink-2); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-row .intent { min-width: 0; display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); font-size: 13.5px; }
+.person-row .intent > span, .person-row .intent > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-row .intent > small { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
 .person-row.offline .intent { color: var(--ink-3); }
 
 /* ── recent ── */
@@ -505,6 +507,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 34px; }
 
 .session-inspector-bar { gap: 11px; padding-top: 18px; padding-bottom: 13px; }
+.scope-goal-evidence { margin-top: 4px; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; line-height: 1.45; }
+.scope-goal-evidence > span { color: var(--ink-2); font-family: var(--sans); font-weight: 600; }
+.scope-goal-evidence code { font-family: inherit; }
 .inspector-vendor { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px; }
 /* Vendor artwork in the colour it is supposed to be (ADR-055 amended). The
    Codex icon is a blue-violet gradient near hue 230, nowhere near --alert.
@@ -549,6 +554,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .inspector-live { display: flex; align-items: baseline; gap: 6px; margin-top: 4px; min-width: 0; color: var(--ink-3); }
 .inspector-live > svg { align-self: center; flex: 0 0 auto; }
 .inspector-live small { flex: 0 0 auto; color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+.inspector-live em { flex: 0 0 auto; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
+.inspector-live em::before { content: "·"; margin-right: 6px; }
+.inspector-live > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 11.5px; }
 .inspector-live code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
 .inspector-live code::before { content: "·"; margin-right: 6px; }
 
@@ -628,6 +636,20 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .chat-inspector-body { padding-top: 0; }
 .session-thread { list-style: none; margin: 0; padding: 0; }
 .session-thread > li { border-bottom: 1px solid var(--line); }
+/* Snapshot facts join the session chronology at the tail. They use the same
+   event rhythm as tool, lifecycle, and coordination entries; the protocol has
+   six fields, but the UI does not turn them into six competing cards. */
+.scope-tail { margin-top: 14px; border-top: 1px solid var(--line); }
+.scope-tail > header { display: flex; align-items: baseline; gap: 8px; padding: 10px 0 5px; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
+.scope-tail > header span { color: var(--ink-2); font-weight: 600; }
+.scope-tail > header code { margin-left: auto; font-family: inherit; font-size: inherit; }
+.scope-tail ol { list-style: none; margin: 0; padding: 0; }
+.scope-tail li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.scope-tail li > span:last-child { min-width: 0; }
+.scope-tail strong { display: block; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.scope-tail p { margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.45; }
+.scope-tail small { display: block; margin-top: 3px; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; line-height: 1.4; }
+.scope-tail-verification { padding-top: 14px; }
 .thread-message { padding: 19px 0 20px; }
 .thread-message > header { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .message-icon { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-3); }

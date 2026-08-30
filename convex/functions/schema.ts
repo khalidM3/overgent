@@ -143,8 +143,26 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     endedAt: v.optional(v.number()),
     safePaths: v.optional(v.array(v.string())),
+    // Canonical declarations are kept independently from the rolling activity
+    // summary so a later hook action cannot overwrite the workstream's stated
+    // goal or approach.
+    intendedOutcome: v.optional(v.string()),
+    approachSummary: v.optional(v.string()),
+    components: v.optional(v.array(v.string())),
+    contracts: v.optional(v.array(v.string())),
     waitingOn: v.optional(v.array(v.string())),
+    waitingOnDeclared: v.optional(v.boolean()),
     latestCheckpointPassed: v.optional(v.boolean()),
+    latestVerification: v.optional(v.array(v.object({
+      state: v.union(v.literal("not_run"), v.literal("running"), v.literal("passed"), v.literal("failed"), v.literal("unknown")),
+      checkKind: v.string(),
+      label: v.string(),
+      summary: v.string(),
+      affectedComponent: v.optional(v.string()),
+      manifestRevision: v.optional(v.number()),
+      source: v.union(v.literal("manual"), v.literal("mcp"), v.literal("hook")),
+      observedAt: v.optional(v.string()),
+    }))),
     subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
     // What this workstream last said about verification of its own work
     // (ADR-045). Absent until it reports a checkpoint that says.

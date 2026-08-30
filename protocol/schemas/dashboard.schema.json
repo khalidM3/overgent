@@ -44,6 +44,7 @@
         "presence": {"enum": ["online", "idle", "offline", "paused"]}, "fidelity": {"enum": ["mcp", "git", "manual", "hook", "hook_unverified"]},
         "updatedLabel": {"type": "string", "maxLength": 80}, "pathCount": {"type": "integer", "minimum": 0},
         "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}},
+        "scopeSnapshot": {"$ref": "scope-snapshot.schema.json"},
         "agent": {"$ref": "#/$defs/agentSession"},
         "largeChange": {"type": "object", "additionalProperties": false, "required": ["pathCount", "summary", "revision"], "properties": {"pathCount": {"type": "integer", "minimum": 1000}, "summary": {"type": "string", "maxLength": 500}, "revision": {"type": "integer", "minimum": 1}}}
       }

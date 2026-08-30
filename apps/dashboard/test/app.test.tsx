@@ -63,7 +63,7 @@ describe("Project Workroom behavior", () => {
     expect(coverage.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
-    expect(within(inspector).getByRole("heading", { name: "Audit session validity checks" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Audit session validity checks before changing the rotation boundary." })).toBeTruthy();
     expect(within(inspector).getAllByText(/Waiting for input/).length).toBeGreaterThan(0);
     expect(within(inspector).queryByText(/sub-a1b2c3/)).toBeNull();
     expect(within(inspector).queryByLabelText("Session details")).toBeNull();
@@ -72,6 +72,34 @@ describe("Project Workroom behavior", () => {
     await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
     expect(within(inspector).getByText(/Git observed/)).toBeTruthy();
     expect(within(inspector).getAllByText(/1,000/).length).toBeGreaterThan(0);
+  });
+
+  it("keeps rows chronological and renders the six revisioned facts with honest Codex quality", async () => {
+    const user = userEvent.setup();
+    renderReady();
+
+    const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
+    expect(codexRow.textContent).toContain("Rotate the browser session boundary");
+    expect(codexRow.textContent).toContain("Edited apps/dashboard/src/session.ts · 1 parallel agent active");
+    expect(codexRow.textContent).toContain("Goal low evidence");
+    expect(codexRow.textContent).toContain("Now medium evidence");
+    expect(codexRow.textContent).not.toContain("Verification");
+    expect(codexRow.textContent).not.toMatch(/\d+%/);
+
+    const inspector = screen.getByLabelText("Details inspector");
+    expect(within(inspector).getByText("Goal")).toBeTruthy();
+    expect(within(inspector).getByText("Now")).toBeTruthy();
+    const codexInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
+    for (const label of ["Done", "Waiting on", "Scope", "Verification"]) expect(within(codexInspectorScope).getByText(label)).toBeTruthy();
+    expect(inspector.textContent).toContain("fallback · low evidence · derived title");
+    expect(inspector.textContent).toContain("scope r8");
+    expect(codexInspectorScope.textContent).toContain("unavailable · none evidence");
+
+    await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
+    const claudeInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 11" });
+    expect(inspector.textContent).toContain("declared · high evidence · intended outcome");
+    expect(claudeInspectorScope.textContent).toContain("observed · high evidence · current action");
+    expect(claudeInspectorScope.textContent).not.toContain("observed · medium evidence");
   });
 
   it("does not silently continue an active Codex session from the labelled inspector action", async () => {
@@ -408,7 +436,7 @@ describe("session content", () => {
     renderReady();
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     const inspector = screen.getByLabelText("Details inspector");
-    expect(await within(inspector).findByText("Waiting for approval to continue")).toBeTruthy();
+    expect((await within(inspector).findAllByText("Waiting for approval to continue")).length).toBeGreaterThan(0);
     expect(within(inspector).getByText(/Read · apps\/dashboard\/src\/session.ts/)).toBeTruthy();
   });
 });

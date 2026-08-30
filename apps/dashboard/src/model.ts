@@ -29,6 +29,37 @@ export interface HarnessCapabilities {
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
 export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
 export type Severity = "critical" | "high" | "medium" | "low";
+export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "complete";
+export type ScopeSnapshotProvenance = "declared" | "observed" | "fallback" | "unavailable";
+export type ScopeSnapshotEvidenceQuality = "high" | "medium" | "low" | "none";
+export type ScopeSnapshotFact =
+  | "intent.intendedOutcome"
+  | "intent.approachSummary"
+  | "intent.components"
+  | "intent.contracts"
+  | "intent.waitingOn"
+  | "activity.currentAction"
+  | "activity.writes"
+  | "activity.subagents"
+  | "contract.fingerprints"
+  | "checkpoint.verification"
+  | "session.derivedTitle";
+export interface ScopeSnapshotField {
+  text: string;
+  provenance: ScopeSnapshotProvenance;
+  evidenceQuality: ScopeSnapshotEvidenceQuality;
+  facts: ScopeSnapshotFact[];
+}
+export interface ScopeSnapshot {
+  revision: number;
+  state: ScopeSnapshotState;
+  goal: ScopeSnapshotField;
+  now: ScopeSnapshotField;
+  done: ScopeSnapshotField;
+  waitingOn: ScopeSnapshotField;
+  verification: ScopeSnapshotField;
+  scope: ScopeSnapshotField;
+}
 
 export interface ProjectSummary {
   id: string;
@@ -49,6 +80,7 @@ export interface Workstream {
   updatedLabel: string;
   pathCount: number;
   paths: string[];
+  scopeSnapshot: ScopeSnapshot;
   agent?: {
     vendor: AgentVendor;
     sessionAlias?: string;

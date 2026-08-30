@@ -1137,7 +1137,10 @@ func validateVerification(values []daemon.VerificationSummary) error {
 func verificationPayload(values []daemon.VerificationSummary) []map[string]any {
 	out := make([]map[string]any, len(values))
 	for i, value := range values {
-		item := map[string]any{"state": value.State, "checkKind": value.CheckKind, "label": value.Label, "summary": value.Summary, "source": "mcp", "observedAt": value.ObservedAt}
+		item := map[string]any{"state": value.State, "checkKind": value.CheckKind, "label": value.Label, "summary": value.Summary, "source": "mcp"}
+		if value.ObservedAt != "" {
+			item["observedAt"] = value.ObservedAt
+		}
 		if value.AffectedComponent != "" {
 			item["affectedComponent"] = value.AffectedComponent
 		}
