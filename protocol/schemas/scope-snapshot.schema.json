@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.stickguy.dev/v1/scope-snapshot.schema.json",
+  "title": "ScopeSnapshot",
+  "description": "A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revision", "state", "goal", "now", "done", "waitingOn", "verification", "scope"],
+  "properties": {
+    "revision": {"type": "integer", "minimum": 1},
+    "state": {"enum": ["implementing", "verifying", "waiting", "complete"]},
+    "goal": {"$ref": "#/$defs/field"},
+    "now": {"$ref": "#/$defs/field"},
+    "done": {"$ref": "#/$defs/field"},
+    "waitingOn": {"$ref": "#/$defs/field"},
+    "verification": {"$ref": "#/$defs/field"},
+    "scope": {"$ref": "#/$defs/field"}
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "provenance", "evidenceQuality", "facts"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "provenance": {"enum": ["declared", "observed", "fallback", "unavailable"]},
+        "evidenceQuality": {"enum": ["high", "medium", "low", "none"]},
+        "facts": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "intent.intendedOutcome",
+              "intent.approachSummary",
+              "intent.components",
+              "intent.contracts",
+              "intent.waitingOn",
+              "activity.currentAction",
+              "activity.writes",
+              "activity.subagents",
+              "contract.fingerprints",
+              "checkpoint.verification",
+              "session.derivedTitle"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

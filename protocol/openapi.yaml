@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Stickguy Public API
   version: 1.0.0-alpha.1
-  description: Versioned coordination contracts, including optional declared dependency claims and dependency-readiness findings. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require Project membership, an unpaused workspace, and classifier approval.
+  description: Versioned coordination contracts, including optional declared dependency claims, dependency-readiness findings, and pull-only ScopeSnapshots derived from canonical workstream facts. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require Project membership, an unpaused workspace, and classifier approval.
 servers:
   - url: https://api.stickguy.dev/v1
 security:

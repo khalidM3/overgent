@@ -48,7 +48,7 @@ import { DesktopOnboarding } from "./desktop-onboarding";
 import { NewProjectScreen } from "./new-project";
 import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
-import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
+import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 
 /** How each connected vendor is named in the interface. */
 const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
@@ -688,17 +688,19 @@ function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; r
 function SessionRow({ session, tick, converging, selected, onClick }: { session: Workstream; tick: number; converging: boolean; selected: boolean; onClick: () => void }) {
   const path = currentPath(session);
   const activeSubagents = session.agent?.subagents.filter((agent) => agent.status !== "done") ?? [];
+  const snapshot = session.scopeSnapshot;
   return <button className="session-row" aria-current={selected ? "true" : undefined} onClick={onClick} aria-label={openSessionLabel(session)}>
     <span className="session-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
     <span>
-      <h3>{session.agent?.sessionTitle ?? session.title}</h3>
-      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
-      <span className="session-doing"><LiveAction session={session} /></span>
+      <h3>{snapshot.goal.text}</h3>
+      <span className="session-meta">{vendorLabel(session)} · Goal {snapshot.goal.evidenceQuality} evidence · Now {snapshot.now.evidenceQuality} evidence{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
+      <span className="session-doing"><ScopeStateIcon state={snapshot.state} /><span>{snapshot.now.text}</span></span>
       {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
       {activeSubagents.length > 0 && <span className="session-sub">{activeSubagents.length} working in parallel</span>}
     </span>
     <span className="session-right">
       {converging && <span className="session-warn" title="Converging with another session"><AlertTriangle size={14} /></span>}
+      <span className="session-state">{snapshot.state}</span>
       <Elapsed label={session.updatedLabel} tick={tick} />
       <span className="chev"><ChevronRight size={15} /></span>
     </span>
@@ -709,12 +711,67 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
  *  Which agent is doing it is the next question, and reading it off a name is
  *  impossible, so the vendor is a mark rather than another word of prose. */
 function PersonRow({ session, tick, onClick }: { session: Workstream; tick: number; onClick: () => void }) {
+  const snapshot = session.scopeSnapshot;
   return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={openSessionLabel(session)}>
     <MemberChip name={session.memberName} />
     <span className="nm">{session.memberName}<span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
-    <span className="intent"><LiveAction session={session} /></span>
+    <span className="intent"><span>{snapshot.goal.text}</span><small>{snapshot.state} · {snapshot.goal.evidenceQuality} goal evidence</small></span>
     <Elapsed label={session.updatedLabel} tick={tick} />
   </button>;
+}
+
+const scopeFields: Array<{ key: keyof Pick<ScopeSnapshot, "goal" | "now" | "done" | "waitingOn" | "verification" | "scope">; label: string }> = [
+  { key: "goal", label: "Goal" },
+  { key: "now", label: "Now" },
+  { key: "done", label: "Done" },
+  { key: "waitingOn", label: "Waiting on" },
+  { key: "verification", label: "Verification" },
+  { key: "scope", label: "Scope" },
+];
+
+const scopeFactLabels: Record<ScopeSnapshotFact, string> = {
+  "intent.intendedOutcome": "intended outcome",
+  "intent.approachSummary": "approach summary",
+  "intent.components": "components",
+  "intent.contracts": "contracts",
+  "intent.waitingOn": "waiting on",
+  "activity.currentAction": "current action",
+  "activity.writes": "observed writes",
+  "activity.subagents": "subagent events",
+  "contract.fingerprints": "contract fingerprints",
+  "checkpoint.verification": "checkpoint verification",
+  "session.derivedTitle": "derived title",
+};
+
+function scopeEvidence(field: ScopeSnapshotField): string {
+  const source = field.facts.map((fact) => scopeFactLabels[fact]).join(" + ");
+  return `${field.provenance} · ${field.evidenceQuality} evidence${source ? ` · ${source}` : ""}`;
+}
+
+function ScopeStateIcon({ state }: { state: ScopeSnapshot["state"] }) {
+  if (state === "complete") return <Check size={12} aria-hidden="true" />;
+  if (state === "waiting") return <Pause size={12} aria-hidden="true" />;
+  if (state === "verifying") return <ShieldCheck size={12} aria-hidden="true" />;
+  return <Activity size={12} aria-hidden="true" />;
+}
+
+function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
+  const fields = [scopeFields[2]!, scopeFields[3]!, scopeFields[5]!, scopeFields[4]!];
+  const icons: Record<(typeof fields)[number]["key"], ReactNode> = {
+    goal: <CircleDot size={13} />,
+    now: <Activity size={13} />,
+    done: <Check size={13} />,
+    waitingOn: <Pause size={13} />,
+    verification: <ShieldCheck size={13} />,
+    scope: <FileCode2 size={13} />,
+  };
+  return <section className="scope-tail" role="group" aria-label={`Scope snapshot revision ${snapshot.revision}`}>
+    <header><span>{snapshot.state}</span><code>scope r{snapshot.revision}</code></header>
+    <ol>{fields.map(({ key, label }) => {
+      const field = snapshot[key];
+      return <li className={`scope-tail-${key}`} key={key}><span className="thread-event-icon" aria-hidden="true">{icons[key]}</span><span><strong>{label}</strong><p>{field.text}</p><small>{scopeEvidence(field)}</small></span></li>;
+    })}</ol>
+  </section>;
 }
 
 /** Who you would actually go and talk to: everyone on the finding except you. */
@@ -990,7 +1047,8 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
     : (shared?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
   const feed = sessionTimeline(conversation, session);
   const { scrollRef, following, onScroll, jumpToNow } = useFollowTail(session.id, feed.length);
-  const title = session.agent?.sessionTitle ?? own?.title ?? session.title;
+  const snapshot = session.scopeSnapshot;
+  const title = snapshot.goal.text;
   const branch = session.agent?.branch ?? own?.branch;
   const liveFacts = [session.agent?.tool, showPath ? path : undefined].filter((value): value is string => Boolean(value)).join(" · ");
 
@@ -1001,15 +1059,18 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
       <span className="grow">
         <h2>{title}</h2>
         <div className="sub">{session.memberName} · {vendorLabel(session)}</div>
+        <div className="scope-goal-evidence"><span>Goal</span> · {scopeEvidence(snapshot.goal)} · <code>scope r{snapshot.revision}</code></div>
         {branch && <div className="inspector-status"><GitBranch size={12} aria-hidden="true" /><code>{branch}</code></div>}
         {/* What the session *is* right now belongs to the session, so it reads
             in the header beside its name. What the session *did* belongs to the
             thread below. Carrying the newest event in both places was what made
             a strictly chronological feed read as though it were out of order. */}
         {!complete && <div className="inspector-live" aria-label="Current session activity" aria-live="polite">
-          <Activity size={12} aria-hidden="true" />
+          <ScopeStateIcon state={snapshot.state} />
           <small>{statusCopy(session)}</small>
-          {liveFacts && <code>{liveFacts}</code>}
+          <em>Now</em>
+          <span>{snapshot.now.text}</span>
+          <code>{snapshot.now.evidenceQuality} evidence{liveFacts ? ` · ${liveFacts}` : ""}</code>
           <Elapsed label={session.updatedLabel} tick={tick} />
         </div>}
       </span>
@@ -1029,6 +1090,7 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
       {feed.length > 0
         ? <ol className="session-thread">{feed.map((item) => <SessionFeedRow key={item.id} item={item} session={session} isViewer={isViewer} tick={tick} />)}</ol>
           : <div className="conversation-empty"><MessageSquare size={18} /><div><strong>{session.agent ? "This session has not said anything yet." : "No agent conversation is available."}</strong><p>{session.outcome}</p></div></div>}
+      <ScopeSnapshotTail snapshot={snapshot} />
     </div>
     {/* Only once the reader has left the tail does a control to return to it
         mean anything. At the tail it would be a button that does nothing. */}

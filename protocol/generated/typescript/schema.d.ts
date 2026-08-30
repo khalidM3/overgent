@@ -778,7 +778,7 @@ export interface components {
                     /** @enum {unknown} */
                     source: "manual" | "mcp" | "hook";
                     /** Format: date-time */
-                    observedAt: string;
+                    observedAt?: string;
                 }[];
             } | {
                 id: string;
@@ -956,7 +956,7 @@ export interface components {
                 /** @enum {unknown} */
                 source: "manual" | "mcp" | "hook";
                 /** Format: date-time */
-                observedAt: string;
+                observedAt?: string;
             }[];
         } | {
             id: string;
@@ -1001,6 +1001,81 @@ export interface components {
                 semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
             }[];
             selectedProjectId: string;
+        };
+        field: {
+            text: string;
+            /** @enum {unknown} */
+            provenance: "declared" | "observed" | "fallback" | "unavailable";
+            /** @enum {unknown} */
+            evidenceQuality: "high" | "medium" | "low" | "none";
+            facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+        };
+        /**
+         * ScopeSnapshot
+         * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+         */
+        "scope-snapshot.schema": {
+            revision: number;
+            /** @enum {unknown} */
+            state: "implementing" | "verifying" | "waiting" | "complete";
+            goal: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            now: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            done: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            waitingOn: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            verification: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            scope: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            $defs: {
+                field: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+            };
         };
         agentSession: {
             /** @enum {unknown} */
@@ -1069,6 +1144,73 @@ export interface components {
             updatedLabel: string;
             pathCount: number;
             paths: string[];
+            /**
+             * ScopeSnapshot
+             * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+             */
+            scopeSnapshot?: {
+                revision: number;
+                /** @enum {unknown} */
+                state: "implementing" | "verifying" | "waiting" | "complete";
+                goal: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                now: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                done: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                waitingOn: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                verification: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                scope: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                $defs: {
+                    field: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                };
+            };
             agent?: {
                 /** @enum {unknown} */
                 vendor: "codex" | "claude";
@@ -1196,6 +1338,73 @@ export interface components {
                 updatedLabel: string;
                 pathCount: number;
                 paths: string[];
+                /**
+                 * ScopeSnapshot
+                 * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                 */
+                scopeSnapshot?: {
+                    revision: number;
+                    /** @enum {unknown} */
+                    state: "implementing" | "verifying" | "waiting" | "complete";
+                    goal: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    now: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    done: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    waitingOn: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    verification: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    scope: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    $defs: {
+                        field: {
+                            text: string;
+                            /** @enum {unknown} */
+                            provenance: "declared" | "observed" | "fallback" | "unavailable";
+                            /** @enum {unknown} */
+                            evidenceQuality: "high" | "medium" | "low" | "none";
+                            facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                        };
+                    };
+                };
                 agent?: {
                     /** @enum {unknown} */
                     vendor: "codex" | "claude";
@@ -1343,7 +1552,7 @@ export interface components {
             /** @enum {unknown} */
             source: "manual" | "mcp" | "hook";
             /** Format: date-time */
-            observedAt: string;
+            observedAt?: string;
         };
         safePath: string;
         contractSymbol: {
@@ -1622,7 +1831,7 @@ export interface components {
                 /** @enum {unknown} */
                 source: "manual" | "mcp" | "hook";
                 /** Format: date-time */
-                observedAt: string;
+                observedAt?: string;
             }[];
         };
         resolution: {
@@ -2418,6 +2627,73 @@ export interface operations {
                             updatedLabel: string;
                             pathCount: number;
                             paths: string[];
+                            /**
+                             * ScopeSnapshot
+                             * @description A revisioned, deterministic answer to what one workstream is doing. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                             */
+                            scopeSnapshot?: {
+                                revision: number;
+                                /** @enum {unknown} */
+                                state: "implementing" | "verifying" | "waiting" | "complete";
+                                goal: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                now: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                done: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                waitingOn: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                verification: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                scope: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                $defs: {
+                                    field: {
+                                        text: string;
+                                        /** @enum {unknown} */
+                                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                        /** @enum {unknown} */
+                                        evidenceQuality: "high" | "medium" | "low" | "none";
+                                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                    };
+                                };
+                            };
                             agent?: {
                                 /** @enum {unknown} */
                                 vendor: "codex" | "claude";
@@ -2888,7 +3164,7 @@ export interface operations {
                                 /** @enum {unknown} */
                                 source: "manual" | "mcp" | "hook";
                                 /** Format: date-time */
-                                observedAt: string;
+                                observedAt?: string;
                             }[];
                         } | {
                             id: string;
@@ -3835,7 +4111,7 @@ export interface operations {
                             /** @enum {unknown} */
                             source: "manual" | "mcp" | "hook";
                             /** Format: date-time */
-                            observedAt: string;
+                            observedAt?: string;
                         }[];
                     } | {
                         id: string;
