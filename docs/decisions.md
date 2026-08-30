@@ -1118,14 +1118,23 @@ a vendored `.wasm` blob, and `go build` stays toolchain-free. Grammars are
 statically linked because upstream `web-tree-sitter` loads them as emscripten
 side modules through `dlopen`, which wazero does not implement; a grammar set is
 therefore chosen at build time and compiled lazily per module at runtime.
-Measured on macOS arm64: the runtime plus Python, JavaScript, TypeScript, TSX,
-Java, Rust, PHP and C# costs 4.26 MB gzip-embedded on a 23.8 MB binary, of which
-3.27 MB is wazero itself and 0.99 MB is the eight grammars; cold start is 80 ms
-once; and extraction is 33x slower per file than the existing extractors —
-7.9 ms versus 0.24 ms on the same 22 KB file — which the 20-entry wire batch
-bounds to roughly 460 ms of background work. wazero is a fixed toll paid once,
-so each further grammar costs roughly 40–130 KB compressed rather than a new
-integration. Python, JavaScript/JSX, Java, Rust, C# and PHP are routed. Go stays on `go/parser`, which fingerprints
+Each language is a separate wasm module, compiled on first use rather than at
+startup. A combined module has to be compiled in full before any language can be
+used, and that cost is paid by every member whether their repository contains
+the language or not: measured on macOS arm64, one module carrying eight grammars
+took 154 ms and 31.6 MB resident, one carrying seventeen took 555 ms and
+110 MB, and the curve reaches roughly 3.3 s and 650 MB at a hundred — which
+would make broad language coverage self-defeating. Split per language, the same
+eight grammars cost 18.1 MB resident and about 49 ms for a repository that
+actually contains Python and JavaScript, and adding a language nobody uses costs
+nothing at runtime. The runtime is duplicated into each module at roughly 37 KB
+compressed, which is the entire price of the split and is why the eight modules
+total 1.24 MB against 0.99 MB combined.
+
+Extraction is 33x slower per file than the existing extractors — 7.9 ms versus
+0.24 ms on the same 22 KB file — which the 20-entry wire batch bounds to roughly
+460 ms of background work. Python, JavaScript/JSX, Java, Rust, C# and PHP are
+routed. Go stays on `go/parser`, which fingerprints
 137 of 137 files at 73 MB/s and costs nothing. Migrating `.ts`/`.tsx` off the
 hand-written scanner is a separate later decision because it re-baselines every
 stored fingerprint.

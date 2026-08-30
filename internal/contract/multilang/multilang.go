@@ -12,6 +12,7 @@ package multilang
 
 import (
 	"context"
+	"sort"
 
 	"github.com/stickguy/stickguy/internal/contract/fingerprint"
 	"github.com/stickguy/stickguy/internal/contract/tsw"
@@ -22,42 +23,114 @@ import (
 // implementation detail rather than API surface.
 const walkDepth = 6
 
-// Extractor holds one wasm runtime plus the per-language rules. It is not safe
-// for concurrent use; the underlying runtime serializes anyway.
+// Extractor owns one wasm runtime per language, each created on first use.
+//
+// Lazy per-language loading is the point (ADR-063): compiling every grammar up
+// front costs startup time and resident memory proportional to how many
+// languages Stickguy supports, not to how many the member's repository
+// actually contains. A Go and TypeScript repository never pays for the C#
+// grammar.
+//
+// It is not safe for concurrent use; callers serialize, and the underlying
+// runtimes serialize anyway.
 type Extractor struct {
-	runtime *tsw.Runtime
-	rules   map[string]*rules
-	scratch []tsw.Record
+	loader      func(string) ([]byte, bool, error)
+	interpreter bool
+	rules       map[string]*rules
+	runtimes    map[string]*tsw.Runtime
+	failed      map[string]struct{}
+	scratch     []tsw.Record
 }
 
-// New loads the wasm module and prepares every language the spike supports
-// that the module actually carries.
-func New(ctx context.Context, wasmModule []byte, interpreter bool) (*Extractor, error) {
-	names := make([]string, 0, len(languageRules))
-	for name := range languageRules {
-		names = append(names, name)
+// New prepares an extractor. It deliberately loads nothing: no wasm is
+// compiled until a file of that language is actually fingerprinted, so
+// constructing an extractor is free even on a platform where the runtime will
+// later turn out to be unavailable.
+//
+// loader resolves a tree-sitter language name to its module bytes. Its second
+// result reports whether a module for that language exists at all, which is
+// distinct from failing to load one that does.
+func New(loader func(string) ([]byte, bool, error), interpreter bool) *Extractor {
+	return &Extractor{
+		loader:      loader,
+		interpreter: interpreter,
+		rules:       languageRules,
+		runtimes:    map[string]*tsw.Runtime{},
+		failed:      map[string]struct{}{},
 	}
-	runtime, err := tsw.New(ctx, wasmModule, names, tsw.Config{
+}
+
+// runtimeFor returns the runtime for one language, compiling its module on
+// first use. A language that has already failed is not retried: the failure is
+// a missing module or an unsupported platform, neither of which changes within
+// a process, and retrying would pay the compile cost on every file.
+func (e *Extractor) runtimeFor(ctx context.Context, language string) (*tsw.Runtime, bool) {
+	if runtime, ok := e.runtimes[language]; ok {
+		return runtime, true
+	}
+	if _, dead := e.failed[language]; dead {
+		return nil, false
+	}
+	module, exists, err := e.loader(language)
+	if err != nil || !exists {
+		e.failed[language] = struct{}{}
+		return nil, false
+	}
+	runtime, err := tsw.New(ctx, module, []string{language}, tsw.Config{
 		SourceBytes: fingerprint.MaxSourceBytes,
 		Records:     1 << 17,
-		Interpreter: interpreter,
+		Interpreter: e.interpreter,
 	})
 	if err != nil {
-		return nil, err
+		e.failed[language] = struct{}{}
+		return nil, false
 	}
-	return &Extractor{runtime: runtime, rules: languageRules}, nil
+	e.runtimes[language] = runtime
+	return runtime, true
 }
 
-// Close releases the wasm runtime.
-func (e *Extractor) Close(ctx context.Context) error { return e.runtime.Close(ctx) }
+// Close releases every runtime that was actually created. It reports the first
+// failure but always attempts all of them, so one stuck runtime cannot leak the
+// rest.
+func (e *Extractor) Close(ctx context.Context) error {
+	var firstErr error
+	for language, runtime := range e.runtimes {
+		if err := runtime.Close(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		delete(e.runtimes, language)
+	}
+	return firstErr
+}
 
-// Fingerprintable reports whether this extractor has a grammar for the path.
-func (e *Extractor) Fingerprintable(path string) bool { return languageFor(path) != "" }
+// Loaded reports which languages have actually been compiled. It exists so the
+// laziness can be asserted by a test rather than assumed.
+func (e *Extractor) Loaded() []string {
+	names := make([]string, 0, len(e.runtimes))
+	for language := range e.runtimes {
+		names = append(names, language)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Fingerprintable reports whether this extractor has rules for the path. It
+// does not load anything, so it stays cheap and stays true on a platform where
+// extraction will fail: a platform gap must never be reported as a language
+// gap.
+func (e *Extractor) Fingerprintable(path string) bool {
+	language := languageFor(path)
+	if language == "" {
+		return false
+	}
+	_, ok := e.rules[language]
+	return ok
+}
 
 // Extract mirrors fingerprint.Extract for a tree-sitter language. It never
 // returns an error: a path with no grammar, a source over MaxSourceBytes, a
-// parse containing ERROR or MISSING nodes, and any wasm failure all yield
-// (File{}, false), which callers read as "no fingerprint".
+// parse containing ERROR or MISSING nodes, an unavailable runtime, and any wasm
+// failure all yield (File{}, false), which callers read as "no fingerprint".
 func (e *Extractor) Extract(ctx context.Context, path string, source []byte, deny func(string) bool) (fingerprint.File, bool) {
 	language := languageFor(path)
 	if language == "" || len(source) > fingerprint.MaxSourceBytes {
@@ -67,12 +140,16 @@ func (e *Extractor) Extract(ctx context.Context, path string, source []byte, den
 	if !ok {
 		return fingerprint.File{}, false
 	}
-	grammar, ok := e.runtime.Language(language)
+	runtime, ok := e.runtimeFor(ctx, language)
+	if !ok {
+		return fingerprint.File{}, false
+	}
+	grammar, ok := runtime.Language(language)
 	if !ok {
 		return fingerprint.File{}, false
 	}
 	e.scratch = e.scratch[:0]
-	records, clean, err := e.runtime.Parse(ctx, grammar, source, walkDepth, e.scratch)
+	records, clean, err := runtime.Parse(ctx, grammar, source, walkDepth, e.scratch)
 	e.scratch = records
 	if err != nil || !clean {
 		return fingerprint.File{}, false

@@ -2,7 +2,6 @@ package contract
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,75 +10,69 @@ import (
 	"github.com/stickguy/stickguy/internal/contract/wasmgrammar"
 )
 
-// The wasm-backed extractor is a single lazily-initialized runtime shared by
-// the whole process (ADR-063). One runtime is the right shape for three
-// reasons: instantiating it costs about 80ms and 3.9MB of decompressed module,
-// multilang.Extractor is not safe for concurrent use, and the callers are a
-// long-lived per-user service (ADR-003) rather than a request path.
+// The wasm-backed extractor is a single process-wide instance (ADR-063) that
+// compiles each language's grammar only when a file of that language is first
+// fingerprinted. Constructing it is free, so the cost a member pays is
+// proportional to the languages their repository actually contains rather than
+// to the number Stickguy supports.
 //
-// Every failure mode here — an unsupported platform, a corrupt blob, a wasm
+// Every failure mode here — an unsupported platform, a corrupt module, a wasm
 // trap — resolves to "no fingerprint", never to an error returned to a caller.
 // Extraction must never block manifest publication.
 var (
 	wasmOnce      sync.Once
 	wasmExtractor *multilang.Extractor
-	wasmErr       error
 	wasmMu        sync.Mutex
 )
 
-// loadWasmExtractor initializes the shared runtime exactly once. It is called
-// under wasmMu by extractWasm and directly by WasmStatus.
-func loadWasmExtractor() (*multilang.Extractor, error) {
+// loadWasmExtractor builds the shared extractor exactly once. It cannot fail:
+// no wasm is compiled here, so an unsupported platform is discovered later, per
+// language, and reported as a missing fingerprint.
+func loadWasmExtractor() *multilang.Extractor {
 	wasmOnce.Do(func() {
-		module, err := wasmgrammar.Multilang()
-		if err != nil {
-			wasmErr = fmt.Errorf("loading embedded grammar module: %w", err)
-			return
-		}
 		// Interpreter is false: ADR-063 requires an unsupported platform to
-		// fail here rather than fall back to a one-second-per-file extractor.
-		extractor, err := multilang.New(context.Background(), module, false)
-		if err != nil {
-			wasmErr = fmt.Errorf("starting wasm grammar runtime: %w", err)
-			return
-		}
-		wasmExtractor = extractor
+		// fail rather than fall back to a one-second-per-file extractor.
+		wasmExtractor = multilang.New(wasmgrammar.Module, false)
 	})
-	return wasmExtractor, wasmErr
+	return wasmExtractor
 }
 
-// WasmStatus reports whether the wasm-backed languages are actually available
-// on this platform, and why not when they are not.
+// WasmStatus reports whether wasm-backed extraction actually works on this
+// platform, and why not when it does not.
+//
+// It answers the question by compiling one real grammar, because that is the
+// only honest test: wazero's compiler support is what decides this, and it is
+// not knowable without asking it. The probe language is loaded lazily like any
+// other, so calling this costs one grammar rather than all of them.
 //
 // It exists so the service can honor the honest-fidelity rule: a platform
-// without wazero's compiler produces no fingerprint for Python and JavaScript,
-// and must say so rather than let an empty exported surface read as a stable
-// contract. Callers should surface this rather than discard it.
+// without wazero's compiler produces no fingerprint for the wasm-backed
+// languages, and must say so rather than let an empty exported surface read as
+// a stable contract.
 func WasmStatus() (available bool, reason string) {
 	wasmMu.Lock()
 	defer wasmMu.Unlock()
-	extractor, err := loadWasmExtractor()
-	if err != nil {
-		return false, err.Error()
-	}
-	if extractor == nil {
-		return false, "wasm grammar runtime unavailable"
+	extractor := loadWasmExtractor()
+	if _, ok := extractor.Extract(context.Background(), "probe.py", []byte("def probe():\n    return 1\n"), nil); !ok {
+		return false, "wasm grammar runtime unavailable on this platform"
 	}
 	return true, ""
 }
 
-// extractWasm derives a fingerprint through the tree-sitter runtime. It
-// mirrors Extract's contract exactly: the second result is false for a path
-// with no grammar, an oversized or unparseable source, an unavailable runtime,
-// or any wasm failure, and callers read that as "no fingerprint".
+// LoadedGrammars reports which grammars this process has actually compiled. It
+// exists so the laziness is observable rather than assumed.
+func LoadedGrammars() []string {
+	wasmMu.Lock()
+	defer wasmMu.Unlock()
+	return loadWasmExtractor().Loaded()
+}
+
+// extractWasm derives a fingerprint through the tree-sitter runtime, compiling
+// that language's grammar if this is the first file of its kind.
 func extractWasm(path string, source []byte, deny func(signature string) bool) (File, bool) {
 	wasmMu.Lock()
 	defer wasmMu.Unlock()
-	extractor, err := loadWasmExtractor()
-	if err != nil || extractor == nil {
-		return File{}, false
-	}
-	return extractor.Extract(context.Background(), path, source, deny)
+	return loadWasmExtractor().Extract(context.Background(), path, source, deny)
 }
 
 // wasmFingerprintable reports whether a path belongs to a language handled by
