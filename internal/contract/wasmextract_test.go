@@ -1,10 +1,15 @@
 package contract_test
 
 import (
+	"context"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stickguy/stickguy/internal/contract"
+	"github.com/stickguy/stickguy/internal/contract/multilang"
+	"github.com/stickguy/stickguy/internal/contract/wasmgrammar"
 )
 
 // The wasm-backed languages must honor exactly the contract the Go and
@@ -219,4 +224,80 @@ func slicesContains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestGrammarsLoadLazilyAndOnlyOnce(t *testing.T) {
+	// The whole point of ADR-063's per-language split: a repository pays for
+	// the languages it contains, not for the ones Stickguy supports. This is
+	// asserted rather than assumed because the cost of getting it wrong is
+	// invisible — everything still works, just slower and fatter.
+	//
+	// A fresh extractor is used rather than the process-wide one, because the
+	// shared instance accumulates whatever other tests in this package loaded.
+	extractor := multilang.New(wasmgrammar.Module, false)
+	defer func() { _ = extractor.Close(context.Background()) }()
+
+	if loaded := extractor.Loaded(); len(loaded) != 0 {
+		t.Fatalf("a new extractor compiled something before any file: %v", loaded)
+	}
+
+	if _, ok := extractor.Extract(context.Background(), "a.py", []byte("def f():\n    return 1\n"), nil); !ok {
+		t.Fatal("python extraction failed")
+	}
+	if loaded := extractor.Loaded(); !slices.Equal(loaded, []string{"python"}) {
+		t.Fatalf("one python file compiled %v, want only python", loaded)
+	}
+
+	// A second file of the same language must reuse the compiled grammar.
+	if _, ok := extractor.Extract(context.Background(), "b.py", []byte("def g():\n    return 2\n"), nil); !ok {
+		t.Fatal("second python extraction failed")
+	}
+	if loaded := extractor.Loaded(); !slices.Equal(loaded, []string{"python"}) {
+		t.Fatalf("a second python file changed the loaded set: %v", loaded)
+	}
+
+	// A different language compiles its own module and nothing else.
+	if _, ok := extractor.Extract(context.Background(), "a.js", []byte("export function f() { return 1; }\n"), nil); !ok {
+		t.Fatal("javascript extraction failed")
+	}
+	if loaded := extractor.Loaded(); !slices.Equal(loaded, []string{"javascript", "python"}) {
+		t.Fatalf("loaded %v, want exactly javascript and python", loaded)
+	}
+
+	// A language with no rules never reaches the loader at all.
+	if _, ok := extractor.Extract(context.Background(), "a.rb", []byte("def f\nend\n"), nil); ok {
+		t.Fatal("ruby produced a fingerprint")
+	}
+	if slicesContains(extractor.Loaded(), "ruby") {
+		t.Fatal("ruby was loaded despite having no rules")
+	}
+}
+
+// TestUnroutedGrammarsAreNeverCompiled pins the other half of the saving: the
+// TypeScript and TSX modules are embedded for a future migration, and until
+// that migration they must cost binary size but no memory.
+//
+// The gate is in this package, not in multilang: multilang knows the grammar so
+// the migration is a routing change rather than a rebuild, and contract decides
+// that .ts still belongs to the hand-written scanner.
+func TestUnroutedGrammarsAreNeverCompiled(t *testing.T) {
+	if _, ok := contract.Extract("a.ts", []byte("export const a = 1;\n"), nil); !ok {
+		t.Fatal("typescript produced no fingerprint at all")
+	}
+	for _, unrouted := range []string{"typescript", "tsx"} {
+		if slicesContains(contract.LoadedGrammars(), unrouted) {
+			t.Fatalf("%s grammar was compiled although .ts still uses the scanner", unrouted)
+		}
+	}
+
+	// The discriminator: this repository's own domain.ts defeats the scanner's
+	// documented regex-literal desync, and tree-sitter parses it cleanly. Still
+	// getting no fingerprint proves the scanner is what ran.
+	source, err := os.ReadFile("../../convex/src/domain.ts")
+	if err != nil {
+		t.Skipf("domain.ts unavailable: %v", err)
+	}
+	if _, ok := contract.Extract("convex/src/domain.ts", source, nil); ok {
+		t.Fatal("domain.ts produced a fingerprint, so .ts is no longer on the scanner")
+	}
 }

@@ -1,10 +1,13 @@
 # Grammar module provenance
 
-`ts-multilang.wasm.gz` is a compiled binary committed to a public repository and
+`modules/*.wasm.gz` are compiled binaries committed to a public repository and
 executed on every member's machine as part of contract extraction (ADR-063).
-A binary blob cannot be reviewed by reading it, so every input is pinned to an
-exact commit here and the artifact's hash is asserted by a test. Anyone can
-rebuild it and compare.
+A binary cannot be reviewed by reading it, so every input is pinned to an exact
+commit here and every artifact's hash is asserted by a test. Anyone can rebuild
+them and compare.
+
+There is one module per language rather than one for all of them, so a grammar
+is compiled only when a file of that language is actually fingerprinted.
 
 ## Pinned inputs
 
@@ -35,45 +38,58 @@ Ruby was deliberately excluded. It has no structural visibility marker — no
 guess rather than a fact, and it is also the largest grammar tested at roughly
 220 KB compressed. Honest fidelity is worth more than a language count.
 
-TypeScript and TSX grammars are linked but not routed: `.ts` and `.tsx` still use
-the hand-written scanner in `../typescript.go`, because migrating them
+TypeScript and TSX modules are embedded but not routed: `.ts` and `.tsx` still
+use the hand-written scanner in `../typescript.go`, because migrating them
 re-baselines every stored fingerprint and is a separate decision under ADR-063.
-They are already paid for when that migration happens.
+Under per-language loading they cost binary size but no memory until that
+migration happens, because nothing ever asks for them.
 
-## Expected artifact
+## Expected artifacts
 
-```
-sha256  302e3aeffa7a243691c85d22b29d0f6dc8b1272b480d23b78a578d76789dcd01
-size    986162 bytes (gzip), 12240532 bytes raw
-built   2026-08-29, macOS arm64
-```
+One module per language, each carrying its own copy of the runtime (about 37 KB
+compressed) so it can be compiled independently of the others.
 
-`TestEmbeddedGrammarMatchesProvenance` asserts this hash on every run, so the
-committed blob cannot drift from this record without a failing test.
+| Module | sha256 | Bytes (gzip) |
+| --- | --- | --- |
+| `python` | `0de9a5848a549ae2f538b82127a94ab8941bb7d4817b2e5fe9bc4ecdaad468a8` | 98,998 |
+| `javascript` | `6e3283152cd82f3dab11e03c73c040ec39b33700b18ce5311f9d9bcc1b9b47d1` | 85,103 |
+| `typescript` | `b0c3ad46cfad4abdf3ce721d96fa7593b5f0b0a31f352e5ce4c9dc875302205d` | 167,716 |
+| `tsx` | `2c76e268c442a62fbfbb30786eca0cdf9f7cd5a6be6fb2c25abefaedfd4c1577` | 170,993 |
+| `java` | `e7da5238278c9810f8916b83bb9b9b722b575464138fa43c5292f76e8837cdc6` | 83,990 |
+| `rust` | `cec541058d7dd0de1d680ee4056d8f56db2ffa6328ffd7ca43ccd64575a4cc7e` | 149,257 |
+| `php` | `8f1df367dfc53aa915a33bb364bc84d3f0d16eaf588b136e3894ef9dd9f3d9e6` | 139,784 |
+| `c_sharp` | `1788f3641ffbb9115f6770f7117af1c4b8c42114ec2a7b387fd60ffa75789764` | 370,358 |
+
+Built 2026-08-30 on macOS arm64. Total 1.24 MB compressed.
+
+`TestEmbeddedModulesMatchProvenance` asserts every hash and size, and
+`TestLanguagesMatchesTheRecord` fails if a module is added or removed without
+this table being updated.
 
 ## Rebuilding
 
 Clone each input at the commit above, arranged so every grammar keeps its own
-`src/tree_sitter/` headers, then:
+`src/tree_sitter/` headers, then build one module per language:
 
 ```sh
 ZIG=$(which zig) TS_SRC=<runtime lib/src> GRAMMARS=<grammar root> \
-  ./guest/build.sh /tmp/ts-multilang.wasm \
-  python:python/src javascript:javascript/src \
-  typescript:typescript/typescript/src tsx:typescript/tsx/src \
-  java:java/src rust:rust/src php:php/php/src c_sharp:c_sharp/src
-gzip -9 -n < /tmp/ts-multilang.wasm > ts-multilang.wasm.gz
+  ./guest/build.sh /tmp/python.wasm python:python/src
+gzip -9 -n < /tmp/python.wasm > modules/python.wasm.gz
 ```
 
-`gzip -n` omits the timestamp, without which the hash differs on every build.
-`TS_SRC` needs the runtime's `lib/src` contents plus its `unicode/`, `portable/`
-and `tree_sitter/` headers. Each grammar argument is `name:dir`, where `name`
-must match the `tree_sitter_<name>` symbol the grammar exports.
+Repeat per language, using the grammar's `tree_sitter_<name>` symbol as the
+module name. `gzip -n` omits the timestamp, without which the hash differs on
+every build. `TS_SRC` needs the runtime's `lib/src` contents plus its
+`unicode/`, `portable/` and `tree_sitter/` headers.
+
+`build.sh` still accepts several grammars at once; that is how the combined
+module used to be produced, and it remains useful for measuring a grammar set
+before splitting it.
 
 ## Known gap
 
-This blob was built on a developer machine, not in CI. The inputs are now pinned
-to exact commits, so a rebuild is reproducible by hand, but nothing yet proves
-that the committed bytes came from those commits. Moving the build into the
+These modules were built on a developer machine, not in CI. The inputs are
+pinned to exact commits, so a rebuild is reproducible by hand, but nothing yet
+proves that the committed bytes came from those commits. Moving the build into the
 release workflow and comparing the hash is a prerequisite of the signed-release
 gate in `docs/beta-release.md`.
