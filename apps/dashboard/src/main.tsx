@@ -795,9 +795,13 @@ function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
   // A session waiting on nothing has no "Waiting on" to read. Rendering the
   // label anyway asks the reader to check four rows to learn three facts.
   const present = fields.filter(({ key }) => scopeFieldPresent(snapshot[key]));
-  if (present.length === 0 && snapshot.priorGoals.length === 0) return null;
+  if (present.length === 0 && snapshot.priorGoals.length === 0 && !scopeNote(snapshot.goal)) return null;
   return <section className="scope-tail" role="group" aria-label={`Scope snapshot revision ${snapshot.revision}`}>
     <header><span>{snapshot.state}</span><code>scope r{snapshot.revision}</code></header>
+    {/* Where the goal came from is worth saying once, down here with the rest
+        of the derivation. In the fixed header it cost content area on every
+        scroll to answer a question nobody had yet. */}
+    {scopeNote(snapshot.goal) && <p className="scope-goal-note">{scopeNote(snapshot.goal)}</p>}
     {/* Goals this session finished with belong before what it is doing now, in
         the order it pursued them. No timestamp: the order is the chronology,
         and the thread above already carries when things happened. */}
@@ -1102,7 +1106,6 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
       <span className="grow">
         <h2>{title}</h2>
         <div className="sub">{session.memberName} · {vendorLabel(session)}</div>
-        {scopeNote(snapshot.goal) && <div className="scope-goal-evidence">{scopeNote(snapshot.goal)}</div>}
         {branch && <div className="inspector-status"><GitBranch size={12} aria-hidden="true" /><code>{branch}</code></div>}
         {/* What the session *is* right now belongs to the session, so it reads
             in the header beside its name. What the session *did* belongs to the
