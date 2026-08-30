@@ -549,7 +549,7 @@ export interface components {
                 contractSymbol: {
                     name: string;
                     /** @enum {unknown} */
-                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                     signature: string;
                     signatureHash: string;
                 };
@@ -602,7 +602,7 @@ export interface components {
                     contractSymbol: {
                         name: string;
                         /** @enum {unknown} */
-                        kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                        kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                         signature: string;
                         signatureHash: string;
                     };
@@ -1349,7 +1349,7 @@ export interface components {
         contractSymbol: {
             name: string;
             /** @enum {unknown} */
-            kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+            kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
             signature: string;
             signatureHash: string;
         };
@@ -1399,7 +1399,7 @@ export interface components {
                 contractSymbol: {
                     name: string;
                     /** @enum {unknown} */
-                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                     signature: string;
                     signatureHash: string;
                 };
@@ -2629,7 +2629,7 @@ export interface operations {
                             contractSymbol: {
                                 name: string;
                                 /** @enum {unknown} */
-                                kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                                kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                                 signature: string;
                                 signatureHash: string;
                             };
