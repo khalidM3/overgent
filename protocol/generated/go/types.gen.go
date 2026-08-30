@@ -183,7 +183,7 @@ type GetContextItem200JSONResponseBody2 struct {
 		CheckKind         string      `json:"checkKind"`
 		Label             string      `json:"label"`
 		ManifestRevision  *int        `json:"manifestRevision,omitempty"`
-		ObservedAt        time.Time   `json:"observedAt"`
+		ObservedAt        *time.Time  `json:"observedAt,omitempty"`
 		Source            interface{} `json:"source"`
 		State             interface{} `json:"state"`
 		Summary           string      `json:"summary"`
@@ -357,7 +357,7 @@ type GetProjectChanges200JSONResponseBodyItems2 struct {
 		CheckKind         string      `json:"checkKind"`
 		Label             string      `json:"label"`
 		ManifestRevision  *int        `json:"manifestRevision,omitempty"`
-		ObservedAt        time.Time   `json:"observedAt"`
+		ObservedAt        *time.Time  `json:"observedAt,omitempty"`
 		Source            interface{} `json:"source"`
 		State             interface{} `json:"state"`
 		Summary           string      `json:"summary"`

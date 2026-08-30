@@ -1,4 +1,20 @@
-import type { DashboardSession, ProjectSnapshot, ShellState } from "./model";
+import type { DashboardSession, ProjectSnapshot, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, ShellState } from "./model";
+
+const declared = (text: string, facts: ScopeSnapshotFact[]): ScopeSnapshotField => ({ text, provenance: "declared", evidenceQuality: "high", facts });
+const observed = (text: string, evidenceQuality: "high" | "medium", facts: ScopeSnapshotFact[]): ScopeSnapshotField => ({ text, provenance: "observed", evidenceQuality, facts });
+const fallback = (text: string): ScopeSnapshotField => ({ text, provenance: "fallback", evidenceQuality: "low", facts: ["session.derivedTitle"] });
+const unavailable = (text: string): ScopeSnapshotField => ({ text, provenance: "unavailable", evidenceQuality: "none", facts: [] });
+function scopeSnapshot(revision: number, state: ScopeSnapshot["state"], fields: Partial<Omit<ScopeSnapshot, "revision" | "state">>): ScopeSnapshot {
+  return {
+    revision, state,
+    goal: fields.goal ?? unavailable("No goal reported."),
+    now: fields.now ?? unavailable("No current action reported."),
+    done: fields.done ?? unavailable("No completed work reported."),
+    waitingOn: fields.waitingOn ?? unavailable("Nothing reported."),
+    verification: fields.verification ?? unavailable("No verification reported."),
+    scope: fields.scope ?? unavailable("No scope reported."),
+  };
+}
 
 const atlas = {
   id: "prj_atlas",
@@ -47,6 +63,12 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 1,
         paths: ["apps/dashboard/src/session.ts"],
+        scopeSnapshot: scopeSnapshot(8, "implementing", {
+          goal: fallback("Rotate the browser session boundary"),
+          now: observed("Edited apps/dashboard/src/session.ts · 1 parallel agent active", "medium", ["activity.currentAction", "activity.subagents"]),
+          done: observed("Writes observed in apps/dashboard/src/session.ts.", "medium", ["activity.writes"]),
+          scope: observed("Paths: apps/dashboard/src/session.ts.", "medium", ["activity.writes"]),
+        }),
         agent: {
           vendor: "codex", sessionAlias: "codex-a1b2c3", sessionTitle: "Rotate the browser session boundary", branch: "feature/session-rotation", status: "active", tool: "apply_patch", startedAt: "2026-08-25T09:58:00Z", capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "mcp_pull", requestAttention: "unavailable", observeReadSet: "none" },
           subagents: [{ alias: "sub-a1b2c3", agentType: "reviewer", status: "active" }],
@@ -69,6 +91,12 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 7,
         paths: ["convex/auth/session.ts", "apps/dashboard/src/session.ts"],
+        scopeSnapshot: scopeSnapshot(11, "waiting", {
+          goal: declared("Audit session validity checks before changing the rotation boundary.", ["intent.intendedOutcome"]),
+          now: declared("Read the current boundary, then review the proposed validity checks.", ["intent.approachSummary"]),
+          waitingOn: observed("Waiting for approval to continue", "high", ["activity.currentAction"]),
+          scope: declared("Components: dashboard sessions. Contracts: BrowserSession rotation.", ["intent.components", "intent.contracts"]),
+        }),
         agent: {
           vendor: "claude", sessionAlias: "claude-d4e5f6", sessionTitle: "Audit session validity checks", branch: "main", status: "waiting", tool: "Read", startedAt: "2026-08-25T10:02:00Z", capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "mcp_pull", requestAttention: "unavailable", observeReadSet: "observed" }, subagents: [],
           activity: [
@@ -92,6 +120,13 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "21 min",
         pathCount: 3,
         paths: ["protocol/schemas/manifest.json"],
+        scopeSnapshot: scopeSnapshot(14, "implementing", {
+          goal: declared("Regenerate protocol types without contract drift.", ["intent.intendedOutcome"]),
+          now: observed("Started pnpm protocol:check", "high", ["activity.currentAction"]),
+          done: observed("Writes observed in protocol/schemas/manifest.json.", "high", ["activity.writes"]),
+          verification: observed("Passed: Protocol conformance — no byte drift", "high", ["checkpoint.verification"]),
+          scope: declared("Components: protocol generation. Contracts: manifest schema.", ["intent.components", "intent.contracts"]),
+        }),
         agent: {
           vendor: "claude", sessionAlias: "claude-77aa21", sessionTitle: "Regenerate protocol types", branch: "feature/protocol-regen", status: "active", tool: "Bash", startedAt: "2026-08-25T09:31:00Z",
           capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: true, pollUpdates: true, deliverBrief: "native_push", requestAttention: "advisory", observeReadSet: "observed" },
@@ -121,6 +156,13 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "2 min",
         pathCount: 2,
         paths: ["backend/refresh.go", "frontend/session.ts"],
+        scopeSnapshot: scopeSnapshot(9, "implementing", {
+          goal: declared("Implement the session view against Refresh.", ["intent.intendedOutcome"]),
+          now: observed("editing frontend/session.ts", "high", ["activity.currentAction"]),
+          done: observed("Writes observed in backend/refresh.go, frontend/session.ts. Contract fingerprints reported for backend/refresh.go.", "high", ["activity.writes", "contract.fingerprints"]),
+          verification: observed("Running: Session view integration", "high", ["checkpoint.verification"]),
+          scope: declared("Components: frontend session view. Contracts: Refresh.", ["intent.components", "intent.contracts"]),
+        }),
         agent: {
           vendor: "cursor", sessionAlias: "cursor-b7c3d1", sessionTitle: "Implement the session view against Refresh", branch: "feature/session-view", status: "active", tool: "read", startedAt: "2026-08-25T10:00:00Z",
           capabilities: { observeSession: true, observeToolActivity: true, observeSafePaths: true, readExistingSession: false, pollUpdates: true, deliverBrief: "native_push", requestAttention: "unavailable", observeReadSet: "observed" },
@@ -144,6 +186,13 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "8 min",
         pathCount: 1000,
         paths: ["internal/manifest/chunks.go", "protocol/schemas/manifest.json"],
+        scopeSnapshot: scopeSnapshot(42, "implementing", {
+          goal: declared("Make large manifest activation atomic across retries.", ["intent.intendedOutcome"]),
+          now: declared("Regenerate chunks and compare the activated revision.", ["intent.approachSummary"]),
+          done: observed("1,000 reported paths changed.", "high", ["activity.writes"]),
+          verification: observed("Passed: Manifest activation — atomic at revision 42", "high", ["checkpoint.verification"]),
+          scope: declared("Components: manifest activation. Contracts: manifest schema v1.", ["intent.components", "intent.contracts"]),
+        }),
         largeChange: {
           pathCount: 1000,
           summary: "Generated fixture paths; activation remains atomic at revision 42.",
@@ -161,6 +210,12 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "31 min",
         pathCount: 2,
         paths: ["docs/privacy.md", "apps/dashboard/src/onboarding.tsx"],
+        scopeSnapshot: scopeSnapshot(2, "implementing", {
+          goal: declared("Explain disclosed metadata without changing collection behavior.", ["intent.intendedOutcome"]),
+          now: declared("Clarify the onboarding copy and privacy explanation.", ["intent.approachSummary"]),
+          done: observed("Writes observed in apps/dashboard/src/onboarding.tsx, docs/privacy.md.", "high", ["activity.writes"]),
+          scope: declared("Components: onboarding, privacy documentation.", ["intent.components"]),
+        }),
       },
     ],
     findings: [
@@ -226,6 +281,12 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "1 hr",
         pathCount: 4,
         paths: ["app/checkout/navigation.ts", "app/checkout/review.tsx"],
+        scopeSnapshot: scopeSnapshot(4, "waiting", {
+          goal: declared("Reduce checkout to two explicit steps.", ["intent.intendedOutcome"]),
+          now: observed("Workspace sharing is paused.", "high", ["activity.currentAction"]),
+          done: observed("Writes observed in app/checkout/navigation.ts, app/checkout/review.tsx.", "high", ["activity.writes"]),
+          scope: declared("Components: checkout navigation.", ["intent.components"]),
+        }),
       },
     ],
     findings: [],
