@@ -65,7 +65,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 1,
         paths: ["apps/dashboard/src/session.ts"],
-        scopeSnapshot: scopeSnapshot(8, "implementing", {
+        contracts: ["BrowserSession rotation"], scopeSnapshot: scopeSnapshot(8, "implementing", {
           goal: fallback("Rotate the browser session boundary"),
           priorGoals: [
             { title: "Read how browser sessions are currently validated", endedAt: "2026-08-25T09:41:00Z" },
@@ -97,7 +97,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "Now",
         pathCount: 7,
         paths: ["convex/auth/session.ts", "apps/dashboard/src/session.ts"],
-        scopeSnapshot: scopeSnapshot(11, "waiting", {
+        contracts: ["BrowserSession rotation"], scopeSnapshot: scopeSnapshot(11, "waiting", {
           goal: declared("Audit session validity checks before changing the rotation boundary.", ["intent.intendedOutcome"]),
           now: declared("Read the current boundary, then review the proposed validity checks.", ["intent.approachSummary"]),
           waitingOn: observed("Waiting for approval to continue", "high", ["activity.currentAction"]),
@@ -162,7 +162,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "2 min",
         pathCount: 2,
         paths: ["backend/refresh.go", "frontend/session.ts"],
-        scopeSnapshot: scopeSnapshot(9, "implementing", {
+        contracts: ["BrowserSession rotation"], scopeSnapshot: scopeSnapshot(9, "implementing", {
           goal: declared("Implement the session view against Refresh.", ["intent.intendedOutcome"]),
           now: observed("editing frontend/session.ts", "high", ["activity.currentAction"]),
           done: observed("Writes observed in backend/refresh.go, frontend/session.ts. Contract fingerprints reported for backend/refresh.go.", "high", ["activity.writes", "contract.fingerprints"]),
@@ -192,7 +192,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "8 min",
         pathCount: 1000,
         paths: ["internal/manifest/chunks.go", "protocol/schemas/manifest.json"],
-        scopeSnapshot: scopeSnapshot(42, "implementing", {
+        components: ["protocol generation"], scopeSnapshot: scopeSnapshot(42, "implementing", {
           goal: declared("Make large manifest activation atomic across retries.", ["intent.intendedOutcome"]),
           now: declared("Regenerate chunks and compare the activated revision.", ["intent.approachSummary"]),
           done: observed("1,000 reported paths changed.", "high", ["activity.writes"]),
@@ -216,7 +216,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         updatedLabel: "31 min",
         pathCount: 2,
         paths: ["docs/privacy.md", "apps/dashboard/src/onboarding.tsx"],
-        scopeSnapshot: scopeSnapshot(2, "implementing", {
+        components: ["protocol generation"], scopeSnapshot: scopeSnapshot(2, "implementing", {
           goal: declared("Explain disclosed metadata without changing collection behavior.", ["intent.intendedOutcome"]),
           now: declared("Clarify the onboarding copy and privacy explanation.", ["intent.approachSummary"]),
           done: observed("Writes observed in apps/dashboard/src/onboarding.tsx, docs/privacy.md.", "high", ["activity.writes"]),

@@ -90,6 +90,10 @@ export interface Workstream {
   pathCount: number;
   paths: string[];
   scopeSnapshot: ScopeSnapshot;
+  /** Components this session declared it is working in. */
+  components?: string[];
+  /** Contracts this session declared it is changing or consuming. */
+  contracts?: string[];
   agent?: {
     vendor: AgentVendor;
     sessionAlias?: string;
