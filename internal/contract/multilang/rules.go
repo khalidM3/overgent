@@ -19,6 +19,11 @@ var languageRules = map[string]*rules{
 	"rust":       {collect: collectRust},
 	"c_sharp":    {collect: collectCSharp},
 	"php":        {collect: collectPHP},
+	"c":          {collect: collectC},
+	"cpp":        {collect: collectCPP},
+	"scala":      {collect: collectScala},
+	"kotlin":     {collect: collectKotlin},
+	"dart":       {collect: collectDart},
 }
 
 // exportedPython applies Python's convention: a leading underscore marks a

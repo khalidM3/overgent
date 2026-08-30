@@ -18,10 +18,13 @@ import (
 	"github.com/stickguy/stickguy/internal/contract/tsw"
 )
 
-// walkDepth bounds the guest-side pre-order walk. Six levels reach a method
-// inside a class body in every language handled here; anything deeper is
-// implementation detail rather than API surface.
-const walkDepth = 6
+// walkDepth bounds the guest-side pre-order walk. Ten levels are needed because
+// the deepest name this has to reach is a C++ method inside a class inside a
+// namespace: translation unit, namespace, declaration list, class, field list,
+// field declaration, function declarator, then the identifier itself. Six was
+// enough for the flatter languages and silently truncated that one, which
+// dropped public methods rather than failing.
+const walkDepth = 10
 
 // Extractor owns one wasm runtime per language, each created on first use.
 //

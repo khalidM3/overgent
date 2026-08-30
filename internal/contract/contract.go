@@ -4,9 +4,10 @@
 // signature with the body and comments removed, and a hash per signature. Raw
 // source, bodies, and diffs never leave this package.
 //
-// Go, TypeScript, TSX, Python, JavaScript, Java, Rust, C# and PHP files are
-// fingerprintable. Every other extension has no fingerprint and therefore never
-// produces a contract finding.
+// Go, TypeScript and TSX use their own extractors; Python, JavaScript, Java,
+// Rust, C#, PHP, C, C++, Scala, Kotlin and Dart are parsed by tree-sitter.
+// Every other extension has no fingerprint and therefore never produces a
+// contract finding.
 //
 // Go extraction uses the standard library go/parser and go/ast. TypeScript and
 // TSX extraction uses a bounded scanner written in pure Go; it is deliberately

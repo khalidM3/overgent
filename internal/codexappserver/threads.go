@@ -3,8 +3,18 @@ package codexappserver
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"regexp"
 )
+
+// Thread is the identity and recency metadata Stickguy needs from
+// `thread/list`. Conversation previews, paths to rollout files, and other
+// content-bearing fields are intentionally not decoded.
+type Thread struct {
+	ID        string `json:"id"`
+	CWD       string `json:"cwd"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
 
 // ThreadRead is one file read that Codex's own classifier attributed to a
 // command it ran. It is vendor-inferred evidence, not an observation of the
@@ -28,6 +38,38 @@ const maxThreadReads = 512
 // hooks report. It is validated before it is sent so nothing else can be
 // smuggled into a request.
 var threadID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ListThreads returns at most limit unarchived threads whose recorded cwd
+// exactly matches cwd, newest update first. Callers ask for two because that
+// is sufficient to distinguish a unique candidate from an ambiguous checkout.
+func (c *Client) ListThreads(ctx context.Context, cwd string, limit int) ([]Thread, error) {
+	absolute, err := filepath.Abs(cwd)
+	if err != nil || cwd == "" {
+		return nil, errors.New("codex thread cwd is invalid")
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("codex thread list limit is invalid")
+	}
+	var result struct {
+		Data []Thread `json:"data"`
+	}
+	params := map[string]any{
+		"archived":      false,
+		"cwd":           absolute,
+		"limit":         limit,
+		"sortDirection": "desc",
+		"sortKey":       "updated_at",
+	}
+	if err = c.call(ctx, "thread/list", params, &result); err != nil {
+		return nil, err
+	}
+	for _, thread := range result.Data {
+		if !threadID.MatchString(thread.ID) || thread.CWD == "" || thread.UpdatedAt < 1 {
+			return nil, errors.New("codex thread/list returned invalid identity metadata")
+		}
+	}
+	return result.Data, nil
+}
 
 // ThreadReads returns the working directory of a stored Codex task and the file
 // reads its own classifier attributed to completed commands.

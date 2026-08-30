@@ -47,6 +47,10 @@ type InjectionItem struct {
 	ID       string
 	Revision int
 }
+type AgentSession struct {
+	WorkspaceID, Vendor, WorkstreamID, CWD, Status string
+	ObservedAt                                     time.Time
+}
 type eventEnvelope struct {
 	SchemaVersion int       `json:"schemaVersion"`
 	EventID       string    `json:"eventId"`
@@ -94,6 +98,8 @@ CREATE TABLE IF NOT EXISTS cursors(workspace_id TEXT PRIMARY KEY,last_acked_sequ
 CREATE TABLE IF NOT EXISTS service_state(id INTEGER PRIMARY KEY CHECK(id=1),boot_count INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS idempotency_keys(workspace_id TEXT NOT NULL,method TEXT NOT NULL,key TEXT NOT NULL,request_hash TEXT NOT NULL,response_revision INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,method,key));
 CREATE TABLE IF NOT EXISTS agent_observations(workspace_id TEXT NOT NULL,vendor TEXT NOT NULL,last_observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,vendor));
+CREATE TABLE IF NOT EXISTS agent_sessions(workspace_id TEXT NOT NULL,vendor TEXT NOT NULL,workstream_id TEXT NOT NULL,cwd TEXT NOT NULL,status TEXT NOT NULL,last_observed_at INTEGER NOT NULL,PRIMARY KEY(vendor,workstream_id));
+CREATE INDEX IF NOT EXISTS active_agent_sessions_by_cwd ON agent_sessions(workspace_id,vendor,cwd,last_observed_at);
 CREATE TABLE IF NOT EXISTS contract_fingerprints(workspace_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,path));
 CREATE TABLE IF NOT EXISTS session_read_sets(workspace_id TEXT NOT NULL,session_workstream_id TEXT NOT NULL,path TEXT NOT NULL,file_contract_hash TEXT NOT NULL,observed_at TEXT NOT NULL,fidelity TEXT NOT NULL DEFAULT 'observed',PRIMARY KEY(workspace_id,session_workstream_id,path));
 CREATE TABLE IF NOT EXISTS injection_deliveries(session_key TEXT NOT NULL,item_id TEXT NOT NULL,item_revision INTEGER NOT NULL,delivered_at INTEGER NOT NULL,PRIMARY KEY(session_key,item_id,item_revision));
@@ -169,7 +175,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 			}
 		}
 	}
-	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5),(6)`); err != nil {
+	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5),(6),(7)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record sqlite migration: %w", err)
 	}
@@ -244,7 +250,7 @@ func (s *Store) UndeliveredInjectionItems(ctx context.Context, sessionKey string
 }
 
 func (s *Store) RecordAgentObservation(ctx context.Context, workspaceID, vendor string, observedAt time.Time) error {
-	if workspaceID == "" || vendor != "codex" && vendor != "claude" {
+	if workspaceID == "" || vendor != "codex" && vendor != "claude" && vendor != "cursor" {
 		return fmt.Errorf("agent observation workspace and supported vendor are required")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_observations(workspace_id,vendor,last_observed_at) VALUES(?,?,?) ON CONFLICT(workspace_id,vendor) DO UPDATE SET last_observed_at=excluded.last_observed_at`, workspaceID, vendor, observedAt.UTC().UnixMilli())
@@ -266,6 +272,50 @@ func (s *Store) AgentObserved(ctx context.Context, workspaceID, vendor string) (
 func (s *Store) ClearAgentObservation(ctx context.Context, workspaceID, vendor string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM agent_observations WHERE workspace_id=? AND vendor=?`, workspaceID, vendor)
 	return err
+}
+
+// RecordAgentSession keeps the local lifecycle evidence needed to bind an MCP
+// call to the same per-session workstream as its hooks. The vendor's raw
+// session identifier is deliberately absent: the derived workstream identity
+// is sufficient here and remains local.
+func (s *Store) RecordAgentSession(ctx context.Context, session AgentSession) error {
+	if session.WorkspaceID == "" || session.WorkstreamID == "" || session.CWD == "" || session.ObservedAt.IsZero() {
+		return errors.New("agent session identity and observation time are required")
+	}
+	if session.Vendor != "codex" && session.Vendor != "claude" {
+		return errors.New("agent session vendor is unsupported")
+	}
+	if !map[string]bool{"active": true, "idle": true, "waiting": true, "error": true, "done": true}[session.Status] {
+		return errors.New("agent session status is unsupported")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_sessions(workspace_id,vendor,workstream_id,cwd,status,last_observed_at) VALUES(?,?,?,?,?,?) ON CONFLICT(vendor,workstream_id) DO UPDATE SET workspace_id=excluded.workspace_id,cwd=excluded.cwd,status=excluded.status,last_observed_at=excluded.last_observed_at`, session.WorkspaceID, session.Vendor, session.WorkstreamID, session.CWD, session.Status, session.ObservedAt.UTC().UnixMilli())
+	return err
+}
+
+// ActiveAgentSessions returns only sessions with recent lifecycle evidence.
+// The same thirty-minute window ends silent hosted agent sessions; using it
+// here prevents an abandoned local session from becoming a permanent false
+// ambiguity while still preferring unidentified over a stale guess.
+func (s *Store) ActiveAgentSessions(ctx context.Context, workspaceID, vendor, cwd string, activeAfter time.Time) ([]AgentSession, error) {
+	if workspaceID == "" || cwd == "" || activeAfter.IsZero() || vendor != "codex" && vendor != "claude" {
+		return nil, errors.New("active agent session query is invalid")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT workspace_id,vendor,workstream_id,cwd,status,last_observed_at FROM agent_sessions WHERE workspace_id=? AND vendor=? AND cwd=? AND status<>'done' AND last_observed_at>=? ORDER BY workstream_id`, workspaceID, vendor, cwd, activeAfter.UTC().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []AgentSession
+	for rows.Next() {
+		var session AgentSession
+		var observedAt int64
+		if err = rows.Scan(&session.WorkspaceID, &session.Vendor, &session.WorkstreamID, &session.CWD, &session.Status, &observedAt); err != nil {
+			return nil, err
+		}
+		session.ObservedAt = time.UnixMilli(observedAt).UTC()
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
 }
 
 // ReadSetEntry is one observation of a fingerprintable path by one agent

@@ -8,6 +8,11 @@ export type ShellState =
   | "version_mismatch";
 
 export type Presence = "online" | "idle" | "offline" | "paused";
+/**
+ * Coding-agent vendors with a local adapter (ADR-039). Kept as one name so a new
+ * vendor cannot be added to some surfaces and forgotten on others.
+ */
+export type AgentVendor = "codex" | "claude" | "cursor";
 export type Fidelity = "mcp" | "git" | "manual" | "hook" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
 export type SemanticMode = "offline_fallback" | "managed_openai" | "managed_degraded";
@@ -45,7 +50,7 @@ export interface Workstream {
   pathCount: number;
   paths: string[];
   agent?: {
-    vendor: "codex" | "claude";
+    vendor: AgentVendor;
     sessionAlias?: string;
     branch?: string;
     /** What this chat session is actually about, from the vendor's own session record. */
@@ -141,7 +146,7 @@ export interface LocalSessionMessage { kind: SessionMessageKind | "tool"; text?:
 export interface LocalSessionDetail { available: boolean; title?: string; branch?: string; messages: LocalSessionMessage[] }
 export interface SessionMessagesSnapshot {
   workstreamId: string;
-  messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: "codex" | "claude"; capturedAt: string; expiresAt: string }>;
+  messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: AgentVendor; capturedAt: string; expiresAt: string }>;
 }
 
 export interface ProjectSnapshot {
