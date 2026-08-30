@@ -98,6 +98,8 @@ describe("hosted boundary validation", () => {
       "backend/session.py", "backend/session.pyi", "frontend/uri.js",
       "frontend/view.jsx", "frontend/mod.mjs", "plugins/convert.cjs",
       "app/Session.java", "src/session.rs", "App/Session.cs", "src/Session.php",
+      "src/session.c", "src/session.h", "src/session.cpp", "src/session.hpp",
+      "src/Session.scala", "src/Session.kt", "lib/session.dart",
     ]) {
       expect(() => validateEventBatch({ events: [{
         ...baseEvent, type: "workspace.contract_fingerprints_reported",
@@ -149,15 +151,15 @@ describe("hosted boundary validation", () => {
       payload: {
         workspaceId: "wsp_fixture",
         sessionWorkstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
-        entries: [{ path: "internal/session/rotate.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z" }],
+        entries: [{ path: "internal/session/rotate.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z", fidelity: "observed" }],
       },
     }] });
     expect(event.type).toBe("session.read_set_reported");
     for (const payload of [
-      { workspaceId: "wsp_fixture", sessionWorkstreamId: "not-a-workstream", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z" }] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "not-a-workstream", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "2026-08-26T08:59:00Z", fidelity: "observed" }] },
       { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [] },
-      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64) }] },
-      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "yesterday" }] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), fidelity: "observed" }] },
+      { workspaceId: "wsp_fixture", sessionWorkstreamId: "wrk_fixture", entries: [{ path: "a.go", fileContractHashAtRead: "c".repeat(64), observedAt: "yesterday", fidelity: "observed" }] },
     ]) {
       expect(() => validateEventBatch({ events: [{ ...baseEvent, source: "hook", type: "session.read_set_reported", payload }] }),
         JSON.stringify(payload)).toThrowError(ValidationError);
@@ -192,6 +194,70 @@ describe("hosted boundary validation", () => {
     expect(validateEventBatch({ events: [valid] })).toHaveLength(1);
     expect(() => validateEventBatch({ events: [{ ...valid, payload: { ...valid.payload, prompt: "raw" } }] })).toThrow(ValidationError);
     expect(() => validateEventBatch({ events: [{ ...valid, payload: { ...valid.payload, paths: [".env.local"] } }] })).toThrow(ValidationError);
+  });
+
+  // Regression for the ADR-052 gap: the Go device has emitted `readCoverage` on
+  // every activity event since that ADR, and the wire schema and hosted
+  // projection both carry it, but this validator's key allowlist did not — so
+  // every hook activity event from a current device was rejected here as
+  // validation_failed, for Claude and Codex as much as Cursor, and the local
+  // flush loop discarded the reason.
+  it("accepts the read-coverage a current device reports and rejects an unknown class", () => {
+    const base = {
+      ...baseEvent, source: "hook", type: "agent.activity_reported",
+      payload: {
+        workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        vendor: "cursor", sessionAlias: "cursor-a1b2c3", kind: "PreToolUse",
+        status: "active", action: "inspecting files backend/refresh.go", tool: "read",
+      },
+    };
+    for (const readCoverage of ["observed", "vendor_inferred", "self_declared", "none"]) {
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, readCoverage } }] })).toHaveLength(1);
+    }
+    expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, readCoverage: "assumed" } }] })).toThrow(ValidationError);
+  });
+
+  it("accepts Cursor as a supported vendor with its own alias shape", () => {
+    const base = {
+      ...baseEvent, source: "hook", type: "agent.activity_reported",
+      payload: {
+        workstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        vendor: "cursor", sessionAlias: "cursor-a1b2c3", kind: "SessionStart",
+        status: "active", action: "Session started", readCoverage: "observed",
+      },
+    };
+    expect(validateEventBatch({ events: [base] })).toHaveLength(1);
+    // The alias must name the vendor that sent it.
+    expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, sessionAlias: "cursed-a1b2c3" } }] })).toThrow(ValidationError);
+    expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, vendor: "windsurf" } }] })).toThrow(ValidationError);
+  });
+
+  // Regression for the other half of the same ADR-052 gap. `fidelity` is
+  // required by the wire schema and read by the hosted projection, but was
+  // absent from this entry's key list, so no read set could be stored — and
+  // with no read sets, no stale_assumption finding could ever be raised.
+  it("requires read-set fidelity so unverified reads are never stored at full confidence", () => {
+    const base = {
+      ...baseEvent, source: "hook", type: "session.read_set_reported",
+      payload: {
+        workspaceId: "wsp_0123456789abcdef0123456789abcdef",
+        sessionWorkstreamId: "wrk_agent_0123456789abcdef0123456789abcdef",
+        entries: [{
+          path: "backend/refresh.go",
+          fileContractHashAtRead: "a".repeat(64),
+          observedAt: "2026-08-30T09:06:51.438Z",
+          fidelity: "observed",
+        }],
+      },
+    };
+    expect(validateEventBatch({ events: [base] })).toHaveLength(1);
+    for (const fidelity of ["vendor_inferred", "self_declared"]) {
+      const entries = [{ ...base.payload.entries[0], fidelity }];
+      expect(validateEventBatch({ events: [{ ...base, payload: { ...base.payload, entries } }] })).toHaveLength(1);
+    }
+    const { fidelity: _omitted, ...withoutFidelity } = base.payload.entries[0];
+    expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, entries: [withoutFidelity] } }] })).toThrow(ValidationError);
+    expect(() => validateEventBatch({ events: [{ ...base, payload: { ...base.payload, entries: [{ ...base.payload.entries[0], fidelity: "guessed" }] } }] })).toThrow(ValidationError);
   });
 
   it("accepts a real branch name and rejects unsafe branch metadata", () => {

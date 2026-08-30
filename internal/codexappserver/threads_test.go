@@ -39,6 +39,12 @@ THREAD = {
   ]}]
 }
 
+OLDER_THREAD = {
+  "id": "019f54c4-fd53-7d71-a61b-9b552fc3f730",
+  "cwd": "/repo",
+  "updatedAt": 1788020000
+}
+
 for line in sys.stdin:
     line = line.strip()
     if not line:
@@ -55,6 +61,18 @@ for line in sys.stdin:
                               "error": {"code": -32602, "message": "no such thread"}}), flush=True)
             continue
         result = {"thread": THREAD}
+    elif method == "thread/list":
+        params = message["params"]
+        if (params.get("cwd") != "/repo" or params.get("limit") != 2 or
+            params.get("archived") is not False or
+            params.get("sortKey") != "updated_at" or
+            params.get("sortDirection") != "desc"):
+            print(json.dumps({"jsonrpc": "2.0", "id": identifier,
+                              "error": {"code": -32602, "message": "invalid thread/list params"}}), flush=True)
+            continue
+        current = dict(THREAD)
+        current["updatedAt"] = 1788021000
+        result = {"data": [current, OLDER_THREAD], "nextCursor": None}
     else:
         print(json.dumps({"jsonrpc": "2.0", "id": identifier,
                           "error": {"code": -32601, "message": "unknown method"}}), flush=True)
@@ -94,6 +112,25 @@ func TestThreadReadsKeepsOnlyCompletedReadActions(t *testing.T) {
 		if read != want[i] {
 			t.Fatalf("reads[%d]=%#v, want %#v", i, read, want[i])
 		}
+	}
+}
+
+func TestListThreadsUsesExactCWDAndReturnsOnlyIdentityMetadata(t *testing.T) {
+	executable, _ := fakeCodex(t, threadCodex)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := Dial(ctx, Options{Executable: executable, CodexHome: t.TempDir(), ClientVersion: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	threads, err := client.ListThreads(ctx, "/repo", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 2 || threads[0].ID != "01a04ac6-684c-7650-a8b4-311eb918f98a" || threads[0].CWD != "/repo" || threads[0].UpdatedAt != 1788021000 {
+		t.Fatalf("threads=%#v", threads)
 	}
 }
 

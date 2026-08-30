@@ -74,6 +74,23 @@ describe("Project Workroom behavior", () => {
     expect(within(inspector).getAllByText(/1,000/).length).toBeGreaterThan(0);
   });
 
+  it("does not silently continue an active Codex session from the labelled inspector action", async () => {
+    const user = userEvent.setup();
+    const openOwningSession = vi.fn(async () => ({ vendor: "codex" as const, opened: false, detail: "Codex could not be started. Copy the exact continuation command instead.", fallbackCommand: "codex continue fixture-id" }));
+    const api = { openOwningSession } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} />);
+
+    const inspector = screen.getByLabelText("Details inspector");
+    await user.click(await within(inspector).findByRole("button", { name: "Continue in Codex" }));
+    expect(within(inspector).getByText(/still reported active/)).toBeTruthy();
+    expect(openOwningSession).not.toHaveBeenCalled();
+
+    await user.click(within(inspector).getByRole("button", { name: "Continue exact session" }));
+    expect(openOwningSession).toHaveBeenCalledWith(expect.stringMatching(/^wrk_agent_/), expect.stringContaining("Stickguy found:"), "vendor");
+    expect(await within(inspector).findByText(/Copy the exact continuation command/)).toBeTruthy();
+    expect(within(inspector).getByRole("button", { name: "Copy command" })).toBeTruthy();
+  });
+
   it("ends completed sessions in the chronology instead of pinning a finished activity strip", async () => {
     const snapshot = snapshotForProject("prj_atlas");
     const session = snapshot.workstreams.find((stream) => stream.id === "wrk_agent_fixture_codex");
@@ -487,9 +504,11 @@ describe("agent health and the coordination ledger", () => {
     expect(screen.getByText(/Acknowledgement records that the agent read the correction, not that it followed it/)).toBeTruthy();
     const deliveries = screen.getByRole("heading", { name: "Delivered into a turn" }).parentElement!.nextElementSibling as HTMLElement;
     expect(within(deliveries).getByText(/Mina is reviewing the same session boundary/)).toBeTruthy();
-    expect(within(deliveries).getByText("acknowledged")).toBeTruthy();
+    // Two of the three fixture deliveries are acknowledged, so this asserts the
+    // acknowledged state is rendered rather than that exactly one row carries it.
+    expect(within(deliveries).getAllByText("acknowledged").length).toBe(2);
     expect(within(deliveries).getByText("not yet acknowledged")).toBeTruthy();
-    expect(screen.getByText(/1 of 2 delivered briefs was acknowledged/)).toBeTruthy();
+    expect(screen.getByText(/2 of 3 delivered briefs were acknowledged/)).toBeTruthy();
   });
 
   it("opens a finding from History without leaving the screen", async () => {

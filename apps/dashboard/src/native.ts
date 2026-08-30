@@ -1,3 +1,5 @@
+import type { AgentVendor } from "./model";
+
 export interface AdapterState {
   name: string;
   installed: boolean;
@@ -44,6 +46,7 @@ export interface EnrollmentRequest {
   joinCode: string;
   enableCodex: boolean;
   enableClaude: boolean;
+  enableCursor: boolean;
 }
 
 export interface NativeSessionDetail {
@@ -51,6 +54,15 @@ export interface NativeSessionDetail {
   title?: string;
   branch?: string;
   messages: Array<{ kind: string; text?: string; tool?: string; at?: string }>;
+}
+
+export interface NativeSessionOpenResult {
+  vendor: AgentVendor;
+  opened: boolean;
+  /** Plain-language outcome. Handler absence is a supported, visible state. */
+  detail: string;
+  /** A local fallback the member can copy when native opening is unavailable. */
+  fallbackCommand?: string;
 }
 
 /**
@@ -101,16 +113,21 @@ export const nativeOnboarding = {
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
   createAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateAdditionalProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
-  configureAdapters: (root: string, codex: boolean, claude: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude),
-  reconnectAdapter: (root: string, agent: "codex" | "claude") => call<AdapterState>("ReconnectAdapter", root, agent),
-  connectAgentWorktree: (root: string, agent: "codex" | "claude") => call<AdapterState>("ConnectAgentWorktree", root, agent),
+  configureAdapters: (root: string, codex: boolean, claude: boolean, cursor: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude, cursor),
+  reconnectAdapter: (root: string, agent: AgentVendor) => call<AdapterState>("ReconnectAdapter", root, agent),
+  connectAgentWorktree: (root: string, agent: AgentVendor) => call<AdapterState>("ConnectAgentWorktree", root, agent),
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
   resetEnrollment: () => call<OnboardingState>("ResetEnrollment"),
   sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),
+  openOwningSession: (workstreamId: string, prompt: string, target: "vendor" | "vscode" = "vendor") => call<NativeSessionOpenResult>("OpenOwningSession", workstreamId, prompt, target),
   setProjectPaused: (projectId: string, paused: boolean) => call<void>("SetProjectPaused", projectId, paused),
   sessionFocus: (workstreamId: string) => call<NativeSessionFocus>("SessionFocus", workstreamId),
   /** Minutes of quiet; zero or less lets the session hear again immediately. */
   setSessionFocus: (workstreamId: string, minutes: number) => call<NativeSessionFocus>("SetSessionFocus", workstreamId, minutes),
 };
 
-export type NativeOnboarding = typeof nativeOnboarding;
+// Optional on the interface so older signed desktop shells degrade by omitting
+// the action instead of making the rest of onboarding unusable during update.
+export type NativeOnboarding = Omit<typeof nativeOnboarding, "openOwningSession"> & {
+  openOwningSession?: typeof nativeOnboarding.openOwningSession;
+};
