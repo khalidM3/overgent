@@ -74,32 +74,44 @@ describe("Project Workroom behavior", () => {
     expect(within(inspector).getAllByText(/1,000/).length).toBeGreaterThan(0);
   });
 
-  it("keeps rows chronological and renders the six revisioned facts with honest Codex quality", async () => {
+  it("speaks about evidence only where it is degraded, and renders no empty scope field", async () => {
     const user = userEvent.setup();
     renderReady();
 
+    // The row is the scanning surface. The goal is its primary text, so it
+    // carries no label and no grade - except that this Codex goal is a
+    // fallback, which is the one case the reader has to know about.
     const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
     expect(codexRow.textContent).toContain("Rotate the browser session boundary");
     expect(codexRow.textContent).toContain("Edited apps/dashboard/src/session.ts · 1 parallel agent active");
-    expect(codexRow.textContent).toContain("Goal low evidence");
-    expect(codexRow.textContent).toContain("Now medium evidence");
-    expect(codexRow.textContent).not.toContain("Verification");
+    expect(codexRow.textContent).toContain("from the opening message");
+    expect(codexRow.textContent).not.toContain("evidence");
     expect(codexRow.textContent).not.toMatch(/\d+%/);
 
     const inspector = screen.getByLabelText("Details inspector");
-    expect(within(inspector).getByText("Goal")).toBeTruthy();
-    expect(within(inspector).getByText("Now")).toBeTruthy();
+    // "Goal" labelled the heading directly above it, and `scope r8` reads in
+    // the snapshot header below. Neither is repeated here.
+    expect(within(inspector).queryByText("Goal")).toBeNull();
     const codexInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
-    for (const label of ["Done", "Waiting on", "Scope", "Verification"]) expect(within(codexInspectorScope).getByText(label)).toBeTruthy();
-    expect(inspector.textContent).toContain("fallback · low evidence · derived title");
-    expect(inspector.textContent).toContain("scope r8");
-    expect(codexInspectorScope.textContent).toContain("unavailable · none evidence");
+    expect(inspector.textContent).toContain("no declared intent; taken from the opening message");
+    expect(codexInspectorScope.textContent).toContain("scope r8");
 
+    // This session reported completed work and a scope, and reported nothing
+    // it is waiting on and no verification. The two it did not report are
+    // absent rather than present and empty.
+    for (const label of ["Done", "Scope"]) expect(within(codexInspectorScope).getByText(label)).toBeTruthy();
+    for (const label of ["Waiting on", "Verification"]) expect(within(codexInspectorScope).queryByText(label)).toBeNull();
+    expect(codexInspectorScope.textContent).not.toContain("Nothing reported.");
+    expect(codexInspectorScope.textContent).not.toContain("No verification reported.");
+
+    // A session carrying the best its vendor can give says nothing at all
+    // about evidence, on the row or in the snapshot.
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     const claudeInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 11" });
-    expect(inspector.textContent).toContain("declared · high evidence · intended outcome");
-    expect(claudeInspectorScope.textContent).toContain("observed · high evidence · current action");
-    expect(claudeInspectorScope.textContent).not.toContain("observed · medium evidence");
+    for (const label of ["Waiting on", "Scope"]) expect(within(claudeInspectorScope).getByText(label)).toBeTruthy();
+    for (const label of ["Done", "Verification"]) expect(within(claudeInspectorScope).queryByText(label)).toBeNull();
+    expect(claudeInspectorScope.textContent).not.toContain("evidence");
+    expect(claudeInspectorScope.textContent).not.toContain("inferred from");
   });
 
   it("does not silently continue an active Codex session from the labelled inspector action", async () => {

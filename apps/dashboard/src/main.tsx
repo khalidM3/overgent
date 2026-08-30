@@ -693,7 +693,7 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
     <span className="session-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
     <span>
       <h3>{snapshot.goal.text}</h3>
-      <span className="session-meta">{vendorLabel(session)} · Goal {snapshot.goal.evidenceQuality} evidence · Now {snapshot.now.evidenceQuality} evidence{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
+      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}{snapshot.goal.provenance === "fallback" ? " · from the opening message" : ""}</span>
       <span className="session-doing"><ScopeStateIcon state={snapshot.state} /><span>{snapshot.now.text}</span></span>
       {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
       {activeSubagents.length > 0 && <span className="session-sub">{activeSubagents.length} working in parallel</span>}
@@ -715,7 +715,7 @@ function PersonRow({ session, tick, onClick }: { session: Workstream; tick: numb
   return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={openSessionLabel(session)}>
     <MemberChip name={session.memberName} />
     <span className="nm">{session.memberName}<span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
-    <span className="intent"><span>{snapshot.goal.text}</span><small>{snapshot.state} · {snapshot.goal.evidenceQuality} goal evidence</small></span>
+    <span className="intent"><span>{snapshot.goal.text}</span><small>{snapshot.state}</small></span>
     <Elapsed label={session.updatedLabel} tick={tick} />
   </button>;
 }
@@ -743,9 +743,27 @@ const scopeFactLabels: Record<ScopeSnapshotFact, string> = {
   "session.derivedTitle": "derived title",
 };
 
-function scopeEvidence(field: ScopeSnapshotField): string {
+/**
+ * What to say about a field's evidence, or nothing at all.
+ *
+ * Evidence quality is an exception, not an attribute. A field that carries the
+ * best its vendor can give says nothing: repeating "high evidence" on every
+ * field of every session spends the reader's attention to tell them the system
+ * is working normally, and buries the one field where it is not. Only a
+ * fallback or a low-confidence derivation earns a line, and it says what it was
+ * derived from rather than naming an internal grade.
+ */
+function scopeNote(field: ScopeSnapshotField): string | null {
+  if (field.provenance === "fallback") return "no declared intent; taken from the opening message";
+  if (field.evidenceQuality !== "low" && field.evidenceQuality !== "none") return null;
   const source = field.facts.map((fact) => scopeFactLabels[fact]).join(" + ");
-  return `${field.provenance} · ${field.evidenceQuality} evidence${source ? ` · ${source}` : ""}`;
+  return source ? `inferred from ${source}` : "inferred";
+}
+
+/** A field with no evidence at all is not rendered; an empty labelled row is
+ *  the same mistake as a filled card. */
+function scopeFieldPresent(field: ScopeSnapshotField): boolean {
+  return field.provenance !== "unavailable";
 }
 
 function ScopeStateIcon({ state }: { state: ScopeSnapshot["state"] }) {
@@ -765,11 +783,16 @@ function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
     verification: <ShieldCheck size={13} />,
     scope: <FileCode2 size={13} />,
   };
+  // A session waiting on nothing has no "Waiting on" to read. Rendering the
+  // label anyway asks the reader to check four rows to learn three facts.
+  const present = fields.filter(({ key }) => scopeFieldPresent(snapshot[key]));
+  if (present.length === 0) return null;
   return <section className="scope-tail" role="group" aria-label={`Scope snapshot revision ${snapshot.revision}`}>
     <header><span>{snapshot.state}</span><code>scope r{snapshot.revision}</code></header>
-    <ol>{fields.map(({ key, label }) => {
+    <ol>{present.map(({ key, label }) => {
       const field = snapshot[key];
-      return <li className={`scope-tail-${key}`} key={key}><span className="thread-event-icon" aria-hidden="true">{icons[key]}</span><span><strong>{label}</strong><p>{field.text}</p><small>{scopeEvidence(field)}</small></span></li>;
+      const note = scopeNote(field);
+      return <li className={`scope-tail-${key}`} key={key}><span className="thread-event-icon" aria-hidden="true">{icons[key]}</span><span><strong>{label}</strong><p>{field.text}</p>{note && <small>{note}</small>}</span></li>;
     })}</ol>
   </section>;
 }
@@ -1059,7 +1082,7 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
       <span className="grow">
         <h2>{title}</h2>
         <div className="sub">{session.memberName} · {vendorLabel(session)}</div>
-        <div className="scope-goal-evidence"><span>Goal</span> · {scopeEvidence(snapshot.goal)} · <code>scope r{snapshot.revision}</code></div>
+        {scopeNote(snapshot.goal) && <div className="scope-goal-evidence">{scopeNote(snapshot.goal)}</div>}
         {branch && <div className="inspector-status"><GitBranch size={12} aria-hidden="true" /><code>{branch}</code></div>}
         {/* What the session *is* right now belongs to the session, so it reads
             in the header beside its name. What the session *did* belongs to the
@@ -1070,7 +1093,7 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
           <small>{statusCopy(session)}</small>
           <em>Now</em>
           <span>{snapshot.now.text}</span>
-          <code>{snapshot.now.evidenceQuality} evidence{liveFacts ? ` · ${liveFacts}` : ""}</code>
+          {liveFacts && <code>{liveFacts}</code>}
           <Elapsed label={session.updatedLabel} tick={tick} />
         </div>}
       </span>

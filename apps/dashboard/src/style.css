@@ -507,9 +507,7 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 34px; }
 
 .session-inspector-bar { gap: 11px; padding-top: 18px; padding-bottom: 13px; }
-.scope-goal-evidence { margin-top: 4px; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; line-height: 1.45; }
-.scope-goal-evidence > span { color: var(--ink-2); font-family: var(--sans); font-weight: 600; }
-.scope-goal-evidence code { font-family: inherit; }
+.scope-goal-evidence { margin-top: 4px; color: var(--ink-3); font-size: 11.5px; line-height: 1.45; }
 .inspector-vendor { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px; }
 /* Vendor artwork in the colour it is supposed to be (ADR-055 amended). The
    Codex icon is a blue-violet gradient near hue 230, nowhere near --alert.
@@ -648,7 +646,7 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .scope-tail li > span:last-child { min-width: 0; }
 .scope-tail strong { display: block; color: var(--ink-2); font-size: 12px; font-weight: 600; }
 .scope-tail p { margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.45; }
-.scope-tail small { display: block; margin-top: 3px; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; line-height: 1.4; }
+.scope-tail small { display: block; margin-top: 3px; color: var(--ink-3); font-size: 11.5px; line-height: 1.4; }
 .scope-tail-verification { padding-top: 14px; }
 .thread-message { padding: 19px 0 20px; }
 .thread-message > header { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
