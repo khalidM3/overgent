@@ -304,6 +304,10 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .converge > .converge-icon { color: var(--alert); margin-top: 1px; }
 .converge h3 { grid-column: 2; margin: 0; color: var(--alert); font-size: 15.5px; font-weight: 650; letter-spacing: -.015em; }
 .converge > .converge-icon { align-self: center; }
+/* A button centres its own text. That was invisible while every finding was
+   titled with its kind and fitted on one line; a real sentence wraps, and a
+   centred heading is not how anything else on this screen is set. */
+.converge .converge-open { text-align: left; }
 .converge .converge-open::after { position: absolute; inset: 0; content: ""; border-radius: inherit; }
 .converge-chev { grid-column: 3; align-self: center; display: grid; color: var(--alert); opacity: 0; }
 .converge:hover .converge-chev, .converge .converge-open[aria-current="true"] ~ .converge-chev { opacity: 1; }

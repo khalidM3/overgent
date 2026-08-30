@@ -795,11 +795,11 @@ describe("finding detail navigation", () => {
     await user.click(screen.getByRole("button", { name: /Open Mina's session detail/ }));
     expect(screen.queryByLabelText("Selected collision detail")).toBeNull();
 
-    const back = screen.getByRole("button", { name: /Codex and Claude are touching the session boundary/ });
+    const back = screen.getByRole("button", { name: /Two of Khalid.s sessions are both changing/ });
     await user.click(back);
     expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
     // Back is only offered when something actually sent you here.
-    expect(screen.queryByRole("button", { name: /Codex and Claude are touching the session boundary/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Two of Khalid.s sessions are both changing/ })).toBeNull();
   });
 
   it("opens a Needs you card from anywhere on the card, and shows that it can be", async () => {

@@ -40,6 +40,11 @@ export type Evidence = Readonly<{
     readAt: string;
     changedAt: string;
   }>;
+  // The one thing this finding is about - a path, a contract, a dependency, a
+  // component - carried structurally so a title can name it without parsing the
+  // summary back out of prose. Absent where the finding is about a relationship
+  // rather than a named thing.
+  subject?: string;
 }>;
 
 export type IntelligenceFinding = Scope & Readonly<{
@@ -307,20 +312,20 @@ export function evaluatePair(left: WorkstreamRecord, right: WorkstreamRecord): I
   const evidence: Evidence[] = [];
   if (paths.length) {
     kind = "direct_collision"; reason = `Active workstreams overlap on ${paths[0]}.`;
-    evidence.push({ kind: "path", summary: `Both active manifests include ${paths[0]}.`, source: "git", fidelity: "structural" });
+    evidence.push({ kind: "path", summary: `Both active manifests include ${paths[0]}.`, source: "git", fidelity: "structural", subject: paths[0] });
   } else if (downstream.length) {
     kind = "downstream_impact"; reason = `A change to ${downstream[0]} affects an active consumer.`;
-    evidence.push({ kind: "dependency", summary: `One workstream changes ${downstream[0]} while the other depends on it.`, source: "reported", fidelity: "structural" });
+    evidence.push({ kind: "dependency", summary: `One workstream changes ${downstream[0]} while the other depends on it.`, source: "reported", fidelity: "structural", subject: downstream[0] });
   } else if (dependencies.length || schemas.length || routes.length) {
     kind = "shared_dependency"; const shared = dependencies[0] ?? schemas[0] ?? routes[0]!;
     reason = `Active workstreams share ${shared}; coordinate its revision and consumers.`;
-    evidence.push({ kind: dependencies.length ? "dependency" : schemas.length ? "schema" : "route", summary: `Both workstreams report ${shared}.`, source: "reported", fidelity: "structural" });
+    evidence.push({ kind: dependencies.length ? "dependency" : schemas.length ? "schema" : "route", summary: `Both workstreams report ${shared}.`, source: "reported", fidelity: "structural", subject: shared });
   } else if ((assumptions.length && /incompatible|conflict|opposite/.test(summaries)) || (/remain valid until expiry/.test(summaries) && /rotate|revoke|invalidate/.test(summaries))) {
     kind = "assumption_conflict"; reason = "The workstreams report incompatible session-validity assumptions.";
     evidence.push({ kind: "semantic", summary: "One intent preserves existing sessions while the other rotates or revokes them.", source: semanticSource, fidelity: "semantic" });
   } else if (components.length && (semantic >= 0.25 || lexical >= 0.05)) {
     kind = "likely_collision"; reason = `Active changes interact within ${components[0]}.`;
-    evidence.push({ kind: "lexical", summary: `Both workstreams report the ${components[0]} component with interacting change language.`, source: "coordination/v1", fidelity: "reported" });
+    evidence.push({ kind: "lexical", summary: `Both workstreams report the ${components[0]} component with interacting change language.`, source: "coordination/v1", fidelity: "reported", subject: components[0] });
   } else if (!documentary && !mechanical && ((providerCompatible && semantic >= 0.86) || (!providerCompatible && semantic >= 0.50 && lexical >= 0.05))) {
     kind = "redundant_work"; reason = providerCompatible
       ? "Active workstreams are strong semantic candidates for duplicate behavior; review their intended outcomes."
