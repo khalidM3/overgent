@@ -7,6 +7,7 @@ import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstrea
 import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry, SupportedVendor } from "../src/domain";
 import { deriveScopeSnapshot } from "../src/scope-snapshot";
+import { findingTitle } from "../src/finding-title";
 import type { ScopeVerificationFact } from "../src/scope-snapshot";
 
 /**
@@ -340,12 +341,38 @@ export const dashboardSnapshot = internalQuery({
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
     }
-    const findings = findingDocs.map((finding) => ({
+    // Who each session belongs to, so a finding can be titled with people
+    // rather than with identifiers.
+    const nameByWorkstream = new Map(workstreams.map((stream) => [stream.id, stream.memberName]));
+    const findings = findingDocs.map((finding) => {
+      const evidence = finding.evidence as Array<{
+        kind: string; summary: string; source: string; subject?: string;
+        contract?: { path?: string; changedSymbols?: Array<{ name: string }>; changedByWorkstreamId?: string };
+      }>;
+      // Prefer the symbol that actually moved: "a version of Refresh" is the
+      // fact the reader acts on, where the file it lives in is only where to
+      // look. The path is the fallback, and no subject at all still yields a
+      // sentence rather than a category.
+      const carrier = evidence.find((item) => item.subject || item.contract);
+      const subject = carrier?.subject
+        ?? carrier?.contract?.changedSymbols?.[0]?.name
+        ?? carrier?.contract?.path;
+      // A stale assumption is routed only to the session that read the
+      // contract, so the session that moved it has to be recovered from the
+      // evidence before the sentence can name both sides.
+      const changedBy = evidence.find((item) => item.contract?.changedByWorkstreamId)?.contract?.changedByWorkstreamId;
+      return {
       id: finding.publicId, kind: dashboardFindingKind(finding.kind), severity: finding.severity, confidence: finding.confidenceBand, state: dashboardFindingState(finding.state),
-      title: finding.kind.replaceAll("_", " "), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
-      evidence: (finding.evidence as Array<{ kind: string; summary: string; source: string }>).map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
+      title: findingTitle({
+        kind: dashboardFindingKind(finding.kind),
+        actors: finding.workstreamPublicIds.map((id: string) => nameByWorkstream.get(id) ?? "").filter(Boolean),
+        ...(changedBy && nameByWorkstream.get(changedBy) ? { counterpart: nameByWorkstream.get(changedBy)! } : {}),
+        ...(subject ? { subject } : {}),
+      }), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
+      evidence: evidence.map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
-    }));
+      };
+    });
     const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
     return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus, semanticMode }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: ownWorkspacePaused };
   },
@@ -1810,6 +1837,7 @@ async function recomputeDependencyReadiness(
       summary: `${claim} is satisfied by ${satisfaction.satisfiedBy.path} (${satisfaction.state}).`,
       source: "git",
       fidelity: "structural",
+      subject: claim,
       dependency: satisfaction,
     }];
     if (existing) {

@@ -231,7 +231,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         severity: "high",
         confidence: "deterministic",
         state: "open",
-        title: "Codex and Claude are touching the session boundary",
+        title: "Two of Khalid's sessions are both changing apps/dashboard/src/session.ts",
         reason: "Two live agent sessions report the same dashboard session path.",
         workstreamIds: ["wrk_agent_fixture_codex", "wst_atlas_session"],
         evidence: [
@@ -247,7 +247,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         severity: "medium",
         confidence: "high",
         state: "acknowledged",
-        title: "Manifest work depends on the schema generator",
+        title: "Khalid and another session both depend on protocol manifest schema v1",
         reason: "Two reported changes reference the same generated manifest contract.",
         workstreamIds: ["wst_atlas_manifest"],
         evidence: [
