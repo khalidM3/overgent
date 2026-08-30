@@ -381,6 +381,12 @@ const (
 // vendor-inferred and incomplete, so it is reported as such, and only when a
 // Codex the device can actually talk to is present.
 //
+// inferredReadsAvailable means the mechanism is usable, not merely installed.
+// The caller lowers it once a refresh for that session has demonstrably failed,
+// because a Codex that is present but cannot answer recovers no reads at all,
+// and claiming inferred coverage for it is the same silent overstatement as
+// claiming it with no Codex installed.
+//
 // Cursor's beforeReadFile hook fires before a file is read and names that file
 // in `file_path`, so its reads are observed the same way Claude's are — from the
 // vendor's own statement of which file, not from an inference about a command.
