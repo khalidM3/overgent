@@ -69,6 +69,13 @@ type Service struct {
 	// existing private, read-only app-server child when hook-derived local
 	// session state cannot identify a thread.
 	codexThreadLister func(context.Context, string, int) ([]codexappserver.Thread, error)
+	// codexReadRefreshFailed records, per session workstream, whether the last
+	// inferred-read refresh actually answered. Coverage reads it so a device
+	// with a Codex it cannot talk to stops claiming it can infer that session's
+	// reads. Held in memory only: it describes this process's live experience of
+	// the local app-server, and a restart correctly forgets it.
+	codexReadHealthMu      sync.Mutex
+	codexReadRefreshFailed map[string]bool
 }
 
 func Run(ctx context.Context, root string, sender Sender) error {
@@ -695,7 +702,7 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	}
 	// State what Stickguy can actually see of this session's reads, so an empty
 	// read set is never mistaken for a session that read nothing (ADR-052).
-	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsAvailable())
+	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsUsable(event.WorkstreamID))
 	// Only mutation paths become session work evidence. An inspection tool's
 	// paths are the read set, published below, and counting them here made a
 	// session that merely read a file collide with the session that wrote it
