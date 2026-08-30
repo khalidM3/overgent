@@ -114,6 +114,30 @@ describe("Project Workroom behavior", () => {
     expect(claudeInspectorScope.textContent).not.toContain("inferred from");
   });
 
+  it("shows the goals a session moved on from, so completed work is not read against the wrong goal", async () => {
+    renderReady();
+
+    // The row is scanned, so it carries the count rather than the list.
+    const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
+    expect(codexRow.textContent).toContain("2 earlier goals");
+
+    const inspector = screen.getByLabelText("Details inspector");
+    const scope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
+    expect(within(scope).getByText("Earlier in this session")).toBeTruthy();
+    // Oldest first: the order is the chronology, so no timestamp is repeated
+    // from the thread above.
+    const earlier = within(scope).getByText("Earlier in this session").parentElement!.querySelectorAll("ol li");
+    expect([...earlier].map((item) => item.textContent)).toEqual([
+      "Read how browser sessions are currently validated",
+      "Add a rotation helper to the session store",
+    ]);
+    expect(scope.textContent).not.toContain("no longer kept");
+
+    // A session that has only ever had one goal shows no history at all.
+    const claudeRow = screen.getByRole("button", { name: "Open Claude Code session for Mina" });
+    expect(claudeRow.textContent).not.toContain("earlier goal");
+  });
+
   it("does not silently continue an active Codex session from the labelled inspector action", async () => {
     const user = userEvent.setup();
     const openOwningSession = vi.fn(async () => ({ vendor: "codex" as const, opened: false, detail: "Codex could not be started. Copy the exact continuation command instead.", fallbackCommand: "codex continue fixture-id" }));

@@ -13,6 +13,8 @@ function scopeSnapshot(revision: number, state: ScopeSnapshot["state"], fields: 
     waitingOn: fields.waitingOn ?? unavailable("Nothing reported."),
     verification: fields.verification ?? unavailable("No verification reported."),
     scope: fields.scope ?? unavailable("No scope reported."),
+    priorGoals: fields.priorGoals ?? [],
+    priorGoalsDropped: fields.priorGoalsDropped ?? 0,
   };
 }
 
@@ -65,6 +67,10 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         paths: ["apps/dashboard/src/session.ts"],
         scopeSnapshot: scopeSnapshot(8, "implementing", {
           goal: fallback("Rotate the browser session boundary"),
+          priorGoals: [
+            { title: "Read how browser sessions are currently validated", endedAt: "2026-08-25T09:41:00Z" },
+            { title: "Add a rotation helper to the session store", intendedOutcome: "Add a rotation helper to the session store.", endedAt: "2026-08-25T09:52:00Z" },
+          ],
           now: observed("Edited apps/dashboard/src/session.ts · 1 parallel agent active", "medium", ["activity.currentAction", "activity.subagents"]),
           done: observed("Writes observed in apps/dashboard/src/session.ts.", "medium", ["activity.writes"]),
           scope: observed("Paths: apps/dashboard/src/session.ts.", "medium", ["activity.writes"]),

@@ -23,6 +23,12 @@ export interface ScopeSnapshotField {
   facts: ScopeSnapshotFact[];
 }
 
+export interface ScopeGoalRecord {
+  title: string;
+  intendedOutcome?: string;
+  endedAt: string;
+}
+
 export interface ScopeSnapshot {
   revision: number;
   state: ScopeSnapshotState;
@@ -32,6 +38,10 @@ export interface ScopeSnapshot {
   waitingOn: ScopeSnapshotField;
   verification: ScopeSnapshotField;
   scope: ScopeSnapshotField;
+  /** Goals this session pursued and moved on from, oldest first. */
+  priorGoals: ScopeGoalRecord[];
+  /** How many earlier goals were dropped to keep that list bounded. */
+  priorGoalsDropped: number;
 }
 
 export interface ScopeVerificationFact {
@@ -66,6 +76,10 @@ export interface ScopeSnapshotInput {
     verification?: ScopeVerificationFact[];
   };
   fallbackDerivedTitle?: string;
+  /** Goals this session pursued and moved on from, oldest first. */
+  priorGoals?: Array<{ title: string; intendedOutcome?: string; endedAt: string }>;
+  /** How many earlier goals were dropped to keep that list bounded. */
+  priorGoalsDropped?: number;
 }
 
 const unavailable = (text: string): ScopeSnapshotField => ({
@@ -209,6 +223,17 @@ export function deriveScopeSnapshot(input: ScopeSnapshotInput): ScopeSnapshot {
       ? observed(`${observedScopeParts.join(". ")}.`, input.vendor, observedScopeFacts)
       : unavailable("No scope reported.");
 
+  // Passed through rather than derived. These are what the session itself
+  // declared at the time, already recorded, and re-describing them here would
+  // put words in the mouth of work that has finished.
+  const priorGoals = (input.priorGoals ?? [])
+    .filter((entry) => entry.title.trim().length > 0 && entry.endedAt.trim().length > 0)
+    .map((entry) => ({
+      title: entry.title,
+      ...(entry.intendedOutcome?.trim() ? { intendedOutcome: entry.intendedOutcome } : {}),
+      endedAt: entry.endedAt,
+    }));
+
   return {
     revision: Math.max(1, Math.floor(input.revision)),
     state: scopeState(input, verification),
@@ -218,5 +243,7 @@ export function deriveScopeSnapshot(input: ScopeSnapshotInput): ScopeSnapshot {
     waitingOn: waiting,
     verification: verificationField,
     scope,
+    priorGoals,
+    priorGoalsDropped: Math.max(0, Math.floor(input.priorGoalsDropped ?? 0)),
   };
 }
