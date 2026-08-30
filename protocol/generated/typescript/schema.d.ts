@@ -1288,6 +1288,10 @@ export interface components {
                 summary: string;
                 revision: number;
             };
+            /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+            components?: string[];
+            /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+            contracts?: string[];
         };
         finding: {
             id: string;
@@ -1491,6 +1495,10 @@ export interface components {
                     summary: string;
                     revision: number;
                 };
+                /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+                components?: string[];
+                /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+                contracts?: string[];
             }[];
             findings: {
                 id: string;
@@ -2789,6 +2797,10 @@ export interface operations {
                                 summary: string;
                                 revision: number;
                             };
+                            /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+                            components?: string[];
+                            /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+                            contracts?: string[];
                         }[];
                         findings: {
                             id: string;

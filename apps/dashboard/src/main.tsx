@@ -598,7 +598,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     {mine.length === 0
       ? <p className="block-empty">No sessions are registered to you in this Project yet. Start Codex or Claude Code in this repository and the session appears here.</p>
       : <>
-          <BranchGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
+          <AreaGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
           {/* Finished work is worth keeping and not worth scrolling past, so it
               folds into one line rather than moving to a screen of its own. */}
           {mySessions.finished.length > 0 && <details className="fold">
@@ -612,7 +612,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     <div className="block-head ambient"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
     {nearby.length === 0
       ? <p className="block-empty">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>
-      : <BranchGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
+      : <AreaGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
 
     {elsewhere.length > 0 && <>
       <div className="block-head ambient"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
@@ -672,6 +672,81 @@ export function groupByBranch(sessions: readonly Workstream[]): BranchGroup[] {
   }
   // One branch, or none at all, is the ordinary case and needs no chrome.
   return groups.filter((group) => group.branch !== null).length > 1 ? groups : [{ branch: null, sessions: [...sessions] }];
+}
+
+export interface AreaGroup { area: string | null; sessions: Workstream[] }
+
+/**
+ * The area of the product a session is working in.
+ *
+ * A declared contract wins, because a contract is the thing two sessions
+ * actually collide over: two rows under one contract heading is the collision,
+ * shown as structure instead of as a separate card. A declared component is the
+ * next best. Failing both — which is every session that never called
+ * begin_work — the shared directory of its paths is what the repository itself
+ * says about where the work is.
+ */
+export function sessionArea(session: Workstream): string | null {
+  const declared = session.contracts?.[0]?.trim() || session.components?.[0]?.trim();
+  if (declared) return declared;
+  const directories = session.paths
+    .map((path) => path.split("/").slice(0, -1))
+    .filter((segments) => segments.length > 0);
+  if (directories.length === 0) return null;
+  // The deepest directory every path agrees on. One file yields its own folder;
+  // work spread across a tree yields the root they share, and nothing shared
+  // yields nothing rather than a made-up parent.
+  const shared = directories.reduce((common, segments) => {
+    const limit = Math.min(common.length, segments.length);
+    let index = 0;
+    while (index < limit && common[index] === segments[index]) index += 1;
+    return common.slice(0, index);
+  });
+  return shared.length > 0 ? shared.join("/") : null;
+}
+
+/**
+ * Sessions grouped by the part of the product they are touching, so the reader
+ * sees the shape of the work before the list of sessions.
+ *
+ * Areas holding more than one session come first: that is where work converges,
+ * and it is the reason to group at all. Everything Stickguy could not place
+ * sits last under its own heading rather than being hidden or guessed at.
+ */
+export function groupByArea(sessions: readonly Workstream[]): AreaGroup[] {
+  const groups: AreaGroup[] = [];
+  for (const session of sessions) {
+    const area = sessionArea(session);
+    const existing = groups.find((group) => group.area === area);
+    if (existing) existing.sessions.push(session);
+    else groups.push({ area, sessions: [session] });
+  }
+  // Grouping that produces one heading is chrome around a list that was already
+  // legible, so it is not applied at all.
+  const labelled = groups.filter((group) => group.area !== null);
+  if (labelled.length < 2 && !labelled.some((group) => group.sessions.length > 1)) {
+    return [{ area: null, sessions: [...sessions] }];
+  }
+  return [...groups].sort((left, right) => {
+    if (left.area === null) return 1;
+    if (right.area === null) return -1;
+    if (left.sessions.length !== right.sessions.length) return right.sessions.length - left.sessions.length;
+    return left.area.localeCompare(right.area);
+  });
+}
+
+function AreaGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
+  const groups = groupByArea(sessions);
+  if (groups.length === 1 && groups[0]!.area === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
+  return <>{groups.map((group) => <div className="area-group" key={group.area ?? "__unplaced"}>
+    <div className="area-label">
+      {group.area
+        ? <><FileCode2 size={12} aria-hidden="true" /><span>{group.area}</span></>
+        : <><FileCode2 size={12} aria-hidden="true" /><span className="unknown">not yet placed</span></>}
+      <span className="area-count">{group.sessions.length}</span>
+    </div>
+    <div className="rows">{group.sessions.map(render)}</div>
+  </div>)}</>;
 }
 
 function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {

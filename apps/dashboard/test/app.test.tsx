@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession, snapshotForProject } from "../src/fixtures";
-import { App, DesktopPreviewBanner, groupByBranch } from "../src/main";
+import { App, DesktopPreviewBanner, groupByArea, groupByBranch, sessionArea } from "../src/main";
 import type { NativeOnboarding } from "../src/native";
 import type { Workstream } from "../src/model";
 
@@ -816,5 +816,42 @@ describe("finding detail navigation", () => {
     await user.click(opener);
     expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
     expect(opener.getAttribute("aria-current")).toBe("true");
+  });
+});
+
+describe("grouping sessions by area", () => {
+  // Same shape the branch-grouping tests use: grouping reads a handful of
+  // fields, so the fixture states exactly those.
+  const session = (id: string, extra: Record<string, unknown> = {}): Workstream =>
+    ({ id, paths: [], ...extra }) as unknown as Workstream;
+
+  it("prefers a declared contract, because a contract is what two sessions collide over", () => {
+    expect(sessionArea(session("a", { contracts: ["BrowserSession rotation"], components: ["auth"], paths: ["src/a.ts"] })))
+      .toBe("BrowserSession rotation");
+  });
+
+  it("falls back to a declared component, then to the directory the paths share", () => {
+    expect(sessionArea(session("b", { components: ["protocol generation"], paths: ["src/a.ts"] }))).toBe("protocol generation");
+    expect(sessionArea(session("c", { paths: ["protocol/schemas/a.json", "protocol/schemas/b.json"] }))).toBe("protocol/schemas");
+    // Nothing in common yields nothing, rather than a parent nobody declared.
+    expect(sessionArea(session("d", { paths: ["apps/a.ts", "internal/b.go"] }))).toBeNull();
+    expect(sessionArea(session("e", { paths: [] }))).toBeNull();
+  });
+
+  it("does not group when grouping would add one heading to a list that was already legible", () => {
+    const one = [session("a", { contracts: ["Refresh"] })];
+    expect(groupByArea(one)).toEqual([{ area: null, sessions: one }]);
+  });
+
+  it("puts areas holding more than one session first, and the unplaced last", () => {
+    const sessions = [
+      session("solo", { contracts: ["Zebra"] }),
+      session("unplaced", { paths: [] }),
+      session("pair-1", { contracts: ["Alpha"] }),
+      session("pair-2", { contracts: ["Alpha"] }),
+    ];
+
+    expect(groupByArea(sessions).map((group) => [group.area, group.sessions.length]))
+      .toEqual([["Alpha", 2], ["Zebra", 1], [null, 1]]);
   });
 });
