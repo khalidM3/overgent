@@ -388,16 +388,30 @@ http.route({ pathPrefix: "/v1/context-items/", method: "GET", handler: httpActio
 })) });
 
 http.route({ pathPrefix: "/v1/findings/", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
-  const match = new URL(request.url).pathname.match(/^\/v1\/findings\/([^/]+)\/feedback$/);
-  if (!match) throw new HttpFailure("not_found", 404);
-  const body = expectObject(await readJson(request));
-  expectExactKeys(body, ["value"]);
-  const value = expectString(body.value, 6, 32);
-  if (!["useful", "not_related", "already_coordinated", "missed_severity"].includes(value)) throw new ValidationError("validation_failed");
-  const sessionHash = sha256Hex(browserSession(request));
-  await consumeEdgeRate(ctx, sessionHash, "findings.feedback", 60);
-  await ctx.runMutation(internal.service.recordFindingFeedback, { sessionHash, findingPublicId: expectId(match[1]), value, feedbackPublicId: publicId("fbk"), now: Date.now() });
-  return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  const path = new URL(request.url).pathname;
+  const feedbackMatch = path.match(/^\/v1\/findings\/([^/]+)\/feedback$/);
+  if (feedbackMatch) {
+    const body = expectObject(await readJson(request));
+    expectExactKeys(body, ["value"]);
+    const value = expectString(body.value, 6, 32);
+    if (!["useful", "not_related", "already_coordinated", "missed_severity"].includes(value)) throw new ValidationError("validation_failed");
+    const sessionHash = sha256Hex(browserSession(request));
+    await consumeEdgeRate(ctx, sessionHash, "findings.feedback", 60);
+    await ctx.runMutation(internal.service.recordFindingFeedback, { sessionHash, findingPublicId: expectId(feedbackMatch[1]), value, feedbackPublicId: publicId("fbk"), now: Date.now() });
+    return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  }
+  const stateMatch = path.match(/^\/v1\/findings\/([^/]+)\/state$/);
+  if (stateMatch) {
+    const body = expectObject(await readJson(request));
+    expectExactKeys(body, ["state"]);
+    const state = expectString(body.state, 9, 32);
+    if (!["acknowledged", "dismissed"].includes(state)) throw new ValidationError("validation_failed");
+    const sessionHash = sha256Hex(browserSession(request));
+    await consumeEdgeRate(ctx, sessionHash, "findings.state", 60);
+    await ctx.runMutation(internal.service.setFindingState, { sessionHash, findingPublicId: expectId(stateMatch[1]), state, now: Date.now() });
+    return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  }
+  throw new HttpFailure("not_found", 404);
 })) });
 
 http.route({ pathPrefix: "/v1/devices/", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {

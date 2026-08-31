@@ -265,6 +265,11 @@ type RecordFindingFeedbackJSONBody struct {
 	Value interface{} `json:"value"`
 }
 
+// SetFindingStateJSONBody defines parameters for SetFindingState.
+type SetFindingStateJSONBody struct {
+	State interface{} `json:"state"`
+}
+
 // HeartbeatJSONBody defines parameters for Heartbeat.
 type HeartbeatJSONBody struct {
 	State       HeartbeatJSONBodyState `json:"state"`
@@ -442,6 +447,9 @@ type PublishEventBatchJSONRequestBody PublishEventBatchJSONBody
 
 // RecordFindingFeedbackJSONRequestBody defines body for RecordFindingFeedback for application/json ContentType.
 type RecordFindingFeedbackJSONRequestBody RecordFindingFeedbackJSONBody
+
+// SetFindingStateJSONRequestBody defines body for SetFindingState for application/json ContentType.
+type SetFindingStateJSONRequestBody SetFindingStateJSONBody
 
 // HeartbeatJSONRequestBody defines body for Heartbeat for application/json ContentType.
 type HeartbeatJSONRequestBody HeartbeatJSONBody

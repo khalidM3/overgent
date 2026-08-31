@@ -1477,7 +1477,7 @@ function messageKindLabel(kind: SessionMessageKind): string {
  */
 function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession, back }: {
   finding: Finding; sessions: Workstream[]; viewer: string; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
-  onState: (state: FindingState) => void; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void; back: InspectorBack | null;
+  onState: (state: FindingState) => Promise<void>; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void; back: InspectorBack | null;
 }) {
   const affected = useMemo(() => sessions.filter((session) => finding.workstreamIds.includes(session.id)), [finding.workstreamIds, sessions]);
   const [feedback, setFeedback] = useState<FindingFeedback | null>(null);
@@ -1487,6 +1487,8 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
   const [decision, setDecision] = useState("");
   const [threadPending, setThreadPending] = useState(false);
   const [threadError, setThreadError] = useState("");
+  const [statePending, setStatePending] = useState(false);
+  const [stateError, setStateError] = useState(false);
   const others = otherNames(affected, viewer);
   const names = affected.map((session) => session.memberName).join(" and ");
 
@@ -1494,6 +1496,11 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
     setFeedbackPending(true);
     setFeedbackError(false);
     void onFeedback(value).then(() => setFeedback(value)).catch(() => setFeedbackError(true)).finally(() => setFeedbackPending(false));
+  };
+  const submitState = (state: FindingState) => {
+    setStatePending(true);
+    setStateError(false);
+    void onState(state).catch(() => setStateError(true)).finally(() => setStatePending(false));
   };
   const run = (operation: () => Promise<void>) => {
     setThreadPending(true); setThreadError("");
@@ -1598,10 +1605,11 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
             button claiming the same word. What is left are the two ways to stop
             reading a finding without deciding anything. */}
         <div className="finding-actions">
-          <button disabled={disabled || finding.state === "acknowledged"} className="pill" onClick={() => onState("acknowledged")}>Acknowledge</button>
-          <button disabled={disabled || finding.state === "dismissed"} className="pill" onClick={() => onState("dismissed")}>Dismiss</button>
+          <button disabled={disabled || statePending || finding.state === "acknowledged"} className="pill" onClick={() => submitState("acknowledged")}>Acknowledge</button>
+          <button disabled={disabled || statePending || finding.state === "dismissed"} className="pill" onClick={() => submitState("dismissed")}>Dismiss</button>
         </div>
       </div>
+      {stateError && <p className="form-error" role="alert">That change could not be saved.</p>}
     </div>
   </article>;
 }
