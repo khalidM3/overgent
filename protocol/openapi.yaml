@@ -164,6 +164,14 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FindingFeedbackRequest' } } } }
       responses: { '204': { description: Feedback recorded }, default: { $ref: '#/components/responses/Error' } }
+  /findings/{id}/state:
+    post:
+      operationId: setFindingState
+      description: Acknowledge or dismiss a finding. Resolution is decision-backed and is recorded through sync card resolution, not here.
+      security: [ { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SetFindingStateRequest' } } } }
+      responses: { '204': { description: Finding state recorded }, default: { $ref: '#/components/responses/Error' } }
   /projects/{id}/export:
     get:
       operationId: exportProject
@@ -313,6 +321,11 @@ components:
       additionalProperties: false
       required: [value]
       properties: { value: { enum: [useful, not_related, already_coordinated, missed_severity] } }
+    SetFindingStateRequest:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties: { state: { enum: [acknowledged, dismissed] } }
     CreateSyncCardRequest:
       type: object
       additionalProperties: false
