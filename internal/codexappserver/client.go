@@ -165,8 +165,8 @@ type Options struct {
 // This deliberately spawns its own stdio child rather than attaching to a
 // shared daemon: the Codex desktop application runs its app-server as a private
 // stdio child with no socket to join, and the shared daemon requires the
-// standalone Codex installer. A private child observes nothing of the user's
-// running sessions and only reads and writes configuration.
+// standalone Codex installer. A private child observes no live runtime state;
+// it can inspect persisted thread metadata and read or write configuration.
 func Dial(ctx context.Context, options Options) (*Client, error) {
 	executable := options.Executable
 	if executable == "" {

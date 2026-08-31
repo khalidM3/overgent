@@ -1,0 +1,15 @@
+# wasm module sizes (bytes)
+# built by wasm/guest/build.sh with zig 0.15.2, --target=wasm32-wasi-musl -Os
+module                          raw     gzip-9
+runtime-only.wasm             93989      36557
+py.wasm                      548441      99693
+py-js.wasm                   909158     144325
+four.wasm                   3752029     398165
+five.wasm                   4479689     455291
+only-go.wasm                 302335      71448
+only-java.wasm               503697      84327
+only-javascript.wasm         455339      81489
+only-ruby.wasm              2220420     200369
+only-rust.wasm              1139475     144258
+only-tsx.wasm               1539211     171323
+only-typescript.wasm        1507024     168025

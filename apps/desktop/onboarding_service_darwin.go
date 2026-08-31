@@ -22,6 +22,7 @@ import (
 	"github.com/stickguy/stickguy/internal/codexsetup"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/credential"
+	"github.com/stickguy/stickguy/internal/cursorsetup"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"github.com/stickguy/stickguy/internal/hosted"
 	"github.com/stickguy/stickguy/internal/onboarding"
@@ -75,6 +76,7 @@ type EnrollmentRequest struct {
 	JoinCode       string `json:"joinCode"`
 	EnableCodex    bool   `json:"enableCodex"`
 	EnableClaude   bool   `json:"enableClaude"`
+	EnableCursor   bool   `json:"enableCursor"`
 }
 
 type EnrollmentResult struct {
@@ -85,6 +87,11 @@ type EnrollmentResult struct {
 
 type OnboardingService struct {
 	configRoot, apiBaseURL, activationBaseURL, cliBinary string
+	// Test seams for the local-only session opener. Production leaves these nil
+	// and uses the OS URL handler / an argument-array child process.
+	homeDirectory       string
+	openSessionURL      func(string) error
+	startSessionCommand func(string, []string, string) error
 
 	credentialMu      sync.Mutex
 	credentialStatus  hosted.CredentialStatus
@@ -267,7 +274,7 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
-	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude)...)
+	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
 	if serviceErr := service.ensureService(ctx); serviceErr != nil {
 		warnings = append(warnings, "Background service: "+serviceErr.Error())
 	}
@@ -306,7 +313,7 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
-	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude)...)
+	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
 	if serviceErr := service.ensureService(ctx); serviceErr != nil {
 		warnings = append(warnings, "Background service: "+serviceErr.Error())
 	}
@@ -336,12 +343,12 @@ func (service *OnboardingService) ensureService(ctx context.Context) error {
 	return (servicemanager.Manager{Executable: executable, ConfigRoot: service.configRoot, Home: account.HomeDir, UID: uid}).Install(ctx)
 }
 
-func (service *OnboardingService) ConfigureAdapters(repositoryRoot string, enableCodex, enableClaude bool) ([]AdapterState, error) {
+func (service *OnboardingService) ConfigureAdapters(repositoryRoot string, enableCodex, enableClaude, enableCursor bool) ([]AdapterState, error) {
 	root, err := canonicalRepository(repositoryRoot)
 	if err != nil {
 		return nil, err
 	}
-	warnings := service.configureAdapters(root, enableCodex, enableClaude)
+	warnings := service.configureAdapters(root, enableCodex, enableClaude, enableCursor)
 	states := service.adapterStates([]string{root})
 	if len(warnings) > 0 {
 		return states, errors.New(strings.Join(warnings, "; "))
@@ -393,8 +400,16 @@ func (service *OnboardingService) ReconnectAdapter(repositoryRoot, agent string)
 			return AdapterState{}, err
 		}
 		return service.adapterStates([]string{root})[1], nil
+	case "cursor":
+		if _, err = (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Rebind(); err != nil {
+			return AdapterState{}, err
+		}
+		if err = service.clearAgentRuntimeVerification(cfg, root, "cursor"); err != nil {
+			return AdapterState{}, err
+		}
+		return service.adapterStates([]string{root})[2], nil
 	default:
-		return AdapterState{}, errors.New("agent must be codex or claude")
+		return AdapterState{}, errors.New("agent must be codex, claude, or cursor")
 	}
 }
 
@@ -441,19 +456,24 @@ func (service *OnboardingService) ConnectAgentWorktree(repositoryRoot, agent str
 		return AdapterState{}, err
 	}
 	agent = strings.ToLower(strings.TrimSpace(agent))
-	if agent != "codex" && agent != "claude" {
-		return AdapterState{}, errors.New("agent must be codex or claude")
+	if agent != "codex" && agent != "claude" && agent != "cursor" {
+		return AdapterState{}, errors.New("agent must be codex, claude, or cursor")
 	}
 	executable, err := service.resolveCLI()
 	if err != nil {
 		return AdapterState{}, err
 	}
-	if agent == "codex" {
-		if status, statusErr := (claudesetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil && status.Configured {
-			return AdapterState{}, errors.New("this worktree is already assigned to Claude Code; choose a different linked worktree for Codex attribution")
+	// A linked worktree attributes work to exactly one vendor, so any other
+	// vendor already bound here blocks the assignment. This is a loop rather
+	// than a pair of checks because a third vendor made the pairwise form wrong:
+	// it would have let Cursor be assigned to a worktree Codex already owned.
+	for _, other := range []string{"codex", "claude", "cursor"} {
+		if other == agent {
+			continue
 		}
-	} else if status, statusErr := (codexsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil && status.Configured {
-		return AdapterState{}, errors.New("this worktree is already assigned to Codex; choose a different linked worktree for Claude attribution")
+		if service.agentConfiguredAt(root, other, executable) {
+			return AdapterState{}, fmt.Errorf("this worktree is already assigned to %s; choose a different linked worktree for %s attribution", vendorLabel(other), vendorLabel(agent))
+		}
 	}
 	registered := false
 	for _, workspace := range cfg.Workspaces {
@@ -489,8 +509,43 @@ func (service *OnboardingService) ConnectAgentWorktree(repositoryRoot, agent str
 			return AdapterState{}, err
 		}
 		return service.adapterStates([]string{root})[1], nil
+	case "cursor":
+		if _, err = (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Setup(); err != nil {
+			return AdapterState{}, err
+		}
+		return service.adapterStates([]string{root})[2], nil
 	}
 	return AdapterState{}, errors.New("unreachable agent selection")
+}
+
+// agentConfiguredAt reports whether a vendor already owns a worktree. A status
+// error is not a claim of ownership: a drifted or unreadable configuration must
+// not silently block an assignment with a message about a different vendor.
+func (service *OnboardingService) agentConfiguredAt(root, vendor, executable string) bool {
+	switch vendor {
+	case "codex":
+		status, err := (codexsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status()
+		return err == nil && status.Configured
+	case "claude":
+		status, err := (claudesetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status()
+		return err == nil && status.Configured
+	case "cursor":
+		status, err := (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status()
+		return err == nil && status.Configured
+	}
+	return false
+}
+
+func vendorLabel(vendor string) string {
+	switch vendor {
+	case "codex":
+		return "Codex"
+	case "claude":
+		return "Claude Code"
+	case "cursor":
+		return "Cursor"
+	}
+	return vendor
 }
 
 func (service *OnboardingService) OpenLiveProject(projectID string) (string, error) {
@@ -538,8 +593,8 @@ func (service *OnboardingService) OpenLiveProject(projectID string) (string, err
 	return handoff.URL(), nil
 }
 
-func (service *OnboardingService) configureAdapters(root string, codex, claude bool) []string {
-	if !codex && !claude {
+func (service *OnboardingService) configureAdapters(root string, codex, claude, cursor bool) []string {
+	if !codex && !claude && !cursor {
 		return nil
 	}
 	executable, err := service.resolveCLI()
@@ -557,6 +612,11 @@ func (service *OnboardingService) configureAdapters(root string, codex, claude b
 			warnings = append(warnings, "Claude setup: "+err.Error())
 		}
 	}
+	if cursor {
+		if _, err = (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Setup(); err != nil {
+			warnings = append(warnings, "Cursor setup: "+err.Error())
+		}
+	}
 	return warnings
 }
 
@@ -566,8 +626,13 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 	states := []AdapterState{
 		{Name: "Codex", Binding: "not_configured", CurrentProfile: currentProfile, Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Not connected to this Project yet."},
 		{Name: "Claude Code", Binding: "not_configured", CurrentProfile: currentProfile, Fidelity: "Live sessions + bounded title intent + tools + safe paths", Detail: "Not connected to this Project yet."},
+		// Cursor's fidelity line names observed reads because its beforeReadFile
+		// hook states the file before it is read. That is stronger evidence than
+		// either other vendor provides, and it is the difference that decides
+		// whether a session can receive a stale-assumption correction at all.
+		{Name: "Cursor", Binding: "not_configured", CurrentProfile: currentProfile, Fidelity: "Live sessions + bounded prompt intent + edits + observed reads", Detail: "Not connected to this Project yet."},
 	}
-	for index, command := range []string{"codex", "claude"} {
+	for index, command := range []string{"codex", "claude", "cursor"} {
 		_, states[index].Installed = agentExecutable(command)
 	}
 	if len(roots) == 0 || cliErr != nil {
@@ -590,8 +655,14 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 			states[1].Binding = "drifted"
 			states[1].Detail = "Configuration needs review: " + statusErr.Error()
 		}
+		if status, statusErr := (cursorsetup.Manager{ProjectRoot: root, ConfigRoot: service.configRoot, Executable: executable}).Status(); statusErr == nil {
+			applyAdapterBinding(&states[2], status.Configured, status.Binding, status.PreviousProfile)
+		} else if !states[2].Configured {
+			states[2].Binding = "drifted"
+			states[2].Detail = "Configuration needs review: " + statusErr.Error()
+		}
 	}
-	for index, vendor := range []string{"codex", "claude"} {
+	for index, vendor := range []string{"codex", "claude", "cursor"} {
 		states[index].RuntimeVerified = service.agentRuntimeVerified(roots, vendor)
 		states[index].RestartRequired = states[index].Configured && !states[index].RuntimeVerified
 		states[index].ReconnectAllowed = states[index].Binding == "other_profile"
@@ -601,6 +672,12 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 			states[index].Detail = "Connected, but Codex has not trusted the activity hooks yet, so no session activity can be observed. " + codexsetup.ReviewGuidance
 		} else if states[index].RuntimeVerified {
 			states[index].Detail = "Verified by a live session event from this Project. Relevant briefs use MCP pull."
+			if vendor == "cursor" {
+				// Cursor takes a correction back through its own hook response
+				// rather than waiting to be asked for one, so saying "MCP pull"
+				// here would understate what this adapter does.
+				states[index].Detail = "Verified by a live session event from this Project. Relevant briefs are pushed into the next turn."
+			}
 		} else if states[index].RestartRequired {
 			states[index].Detail = "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection."
 		}
@@ -745,6 +822,15 @@ func agentExecutable(command string) (string, bool) {
 		}
 		nvmCandidates, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "claude"))
 		candidates = append(candidates, nvmCandidates...)
+	case "cursor":
+		// Cursor ships an editor rather than a CLI-first tool; its `cursor`
+		// shell command is installed from inside the app and is often absent
+		// even when Cursor is. The app bundle is therefore checked too, so a
+		// working Cursor is not reported as "not detected".
+		candidates = []string{
+			filepath.Join(home, "Applications", "Cursor.app", "Contents", "Resources", "app", "bin", "cursor"),
+			"/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+		}
 	default:
 		return "", false
 	}

@@ -3,111 +3,767 @@
   "$id": "https://schemas.stickguy.dev/v1/dashboard.schema.json",
   "$defs": {
     "project": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "name", "repositoryLabel", "semanticStatus", "semanticMode"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "repositoryLabel",
+        "semanticStatus",
+        "semanticMode"
+      ],
       "properties": {
-        "id": {"type": "string"}, "name": {"type": "string", "maxLength": 120},
-        "repositoryLabel": {"type": "string", "maxLength": 160},
-        "semanticStatus": {"enum": ["enabled", "degraded", "disabled"]},
-        "semanticMode": {"enum": ["offline_fallback", "managed_openai", "managed_degraded"]}
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "repositoryLabel": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "semanticStatus": {
+          "enum": [
+            "enabled",
+            "degraded",
+            "disabled"
+          ]
+        },
+        "semanticMode": {
+          "enum": [
+            "offline_fallback",
+            "managed_openai",
+            "managed_degraded"
+          ]
+        }
       }
     },
     "session": {
-      "type": "object", "additionalProperties": false,
-      "required": ["memberId", "memberName", "memberNameSource", "projects", "selectedProjectId"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "memberId",
+        "memberName",
+        "memberNameSource",
+        "projects",
+        "selectedProjectId"
+      ],
       "properties": {
-        "memberId": {"type": "string"},
-        "memberName": {"type": "string", "maxLength": 120},
-        "memberNameSource": {"enum": ["device", "member"]},
-        "projects": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/project"}},
-        "selectedProjectId": {"type": "string"}
+        "memberId": {
+          "type": "string"
+        },
+        "memberName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "memberNameSource": {
+          "enum": [
+            "device",
+            "member"
+          ]
+        },
+        "projects": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/project"
+          }
+        },
+        "selectedProjectId": {
+          "type": "string"
+        }
       }
     },
     "snapshot": {
-      "type": "object", "additionalProperties": false,
-      "required": ["project", "contextRevision", "synchronizedAt", "workstreams", "findings", "activity", "devices", "workspacePaused"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project",
+        "contextRevision",
+        "synchronizedAt",
+        "workstreams",
+        "findings",
+        "activity",
+        "devices",
+        "workspacePaused"
+      ],
       "properties": {
-        "project": {"$ref": "#/$defs/project"}, "contextRevision": {"type": "integer", "minimum": 0},
-        "synchronizedAt": {"type": "string", "maxLength": 80}, "workspacePaused": {"type": "boolean"},
-        "workstreams": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/workstream"}},
-        "findings": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/finding"}},
-        "activity": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/activity"}},
-        "devices": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/device"}}
+        "project": {
+          "$ref": "#/$defs/project"
+        },
+        "contextRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "synchronizedAt": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "workspacePaused": {
+          "type": "boolean"
+        },
+        "workstreams": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/workstream"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "activity": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/activity"
+          }
+        },
+        "devices": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/device"
+          }
+        }
       }
     },
     "workstream": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "memberName", "initials", "title", "outcome", "presence", "fidelity", "updatedLabel", "pathCount", "paths"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "memberName",
+        "initials",
+        "title",
+        "outcome",
+        "presence",
+        "fidelity",
+        "updatedLabel",
+        "pathCount",
+        "paths"
+      ],
       "properties": {
-        "id": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "initials": {"type": "string", "maxLength": 4},
-        "title": {"type": "string", "maxLength": 160}, "outcome": {"type": "string", "maxLength": 2000},
-        "presence": {"enum": ["online", "idle", "offline", "paused"]}, "fidelity": {"enum": ["mcp", "git", "manual", "hook", "hook_unverified"]},
-        "updatedLabel": {"type": "string", "maxLength": 80}, "pathCount": {"type": "integer", "minimum": 0},
-        "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}},
-        "agent": {"$ref": "#/$defs/agentSession"},
-        "largeChange": {"type": "object", "additionalProperties": false, "required": ["pathCount", "summary", "revision"], "properties": {"pathCount": {"type": "integer", "minimum": 1000}, "summary": {"type": "string", "maxLength": 500}, "revision": {"type": "integer", "minimum": 1}}}
+        "id": {
+          "type": "string"
+        },
+        "memberName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "initials": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "outcome": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "presence": {
+          "enum": [
+            "online",
+            "idle",
+            "offline",
+            "paused"
+          ]
+        },
+        "fidelity": {
+          "enum": [
+            "mcp",
+            "git",
+            "manual",
+            "hook",
+            "hook_unverified"
+          ]
+        },
+        "updatedLabel": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "pathCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "scopeSnapshot": {
+          "$ref": "scope-snapshot.schema.json"
+        },
+        "agent": {
+          "$ref": "#/$defs/agentSession"
+        },
+        "largeChange": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pathCount",
+            "summary",
+            "revision"
+          ],
+          "properties": {
+            "pathCount": {
+              "type": "integer",
+              "minimum": 1000
+            },
+            "summary": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "components": {
+          "description": "Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none.",
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "contracts": {
+          "description": "Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert.",
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        }
       }
     },
     "agentSession": {
-      "type": "object", "additionalProperties": false,
-      "required": ["vendor", "sessionAlias", "status", "capabilities", "subagents", "activity", "coordination"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "sessionAlias",
+        "status",
+        "capabilities",
+        "subagents",
+        "activity",
+        "coordination"
+      ],
       "properties": {
-        "vendor": {"enum": ["codex", "claude"]},
-        "sessionAlias": {"type": "string", "maxLength": 32},
-        "status": {"enum": ["active", "waiting", "idle", "done", "error"]},
-        "tool": {"type": "string", "maxLength": 64},
-        "branch": {"type": "string", "minLength": 1, "maxLength": 255},
-        "sessionTitle": {"type": "string", "minLength": 1, "maxLength": 160},
-        "startedAt": {"type": "string", "format": "date-time"},
-        "endedAt": {"type": "string", "format": "date-time"},
-        "capabilities": {"type": "object", "additionalProperties": false, "required": ["observeSession", "observeToolActivity", "observeSafePaths", "readExistingSession", "pollUpdates", "deliverBrief", "requestAttention", "observeReadSet"], "properties": {
-          "observeSession": {"type": "boolean"}, "observeToolActivity": {"type": "boolean"}, "observeSafePaths": {"type": "boolean"}, "readExistingSession": {"type": "boolean"}, "pollUpdates": {"type": "boolean"},
-          "deliverBrief": {"enum": ["mcp_pull", "native_pull", "native_push", "unavailable"]}, "requestAttention": {"enum": ["advisory", "unavailable"]}, "observeReadSet": {"enum": ["observed", "vendor_inferred", "self_declared", "none"]}
-        }},
-        "subagents": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["alias", "agentType", "status"], "properties": {"alias": {"type": "string", "maxLength": 32}, "agentType": {"type": "string", "maxLength": 64}, "status": {"type": "string", "maxLength": 16}}}},
-        "activity": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "at", "kind", "status", "action", "paths"], "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "occurredAt": {"type": "string", "format": "date-time"}, "kind": {"type": "string", "maxLength": 32}, "status": {"enum": ["active", "waiting", "idle", "done", "error"]}, "action": {"type": "string", "maxLength": 300}, "tool": {"type": "string", "maxLength": 64}, "paths": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 512}}}}},
-        "coordination": {"type": "array", "maxItems": 12, "items": {"type": "object", "additionalProperties": false, "required": ["id", "routedAt", "summary", "itemCount", "trigger"], "properties": {"id": {"type": "string"}, "routedAt": {"type": "string", "format": "date-time"}, "acknowledgedAt": {"type": "string", "format": "date-time"}, "summary": {"type": "string", "minLength": 1, "maxLength": 500}, "itemCount": {"type": "integer", "minimum": 1, "maximum": 64}, "trigger": {"type": "string", "maxLength": 64}}}}
+        "vendor": {
+          "enum": [
+            "codex",
+            "claude"
+          ]
+        },
+        "sessionAlias": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "status": {
+          "enum": [
+            "active",
+            "waiting",
+            "idle",
+            "done",
+            "error"
+          ]
+        },
+        "tool": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "sessionTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observeSession",
+            "observeToolActivity",
+            "observeSafePaths",
+            "readExistingSession",
+            "pollUpdates",
+            "deliverBrief",
+            "requestAttention",
+            "observeReadSet"
+          ],
+          "properties": {
+            "observeSession": {
+              "type": "boolean"
+            },
+            "observeToolActivity": {
+              "type": "boolean"
+            },
+            "observeSafePaths": {
+              "type": "boolean"
+            },
+            "readExistingSession": {
+              "type": "boolean"
+            },
+            "pollUpdates": {
+              "type": "boolean"
+            },
+            "deliverBrief": {
+              "enum": [
+                "mcp_pull",
+                "native_pull",
+                "native_push",
+                "unavailable"
+              ]
+            },
+            "requestAttention": {
+              "enum": [
+                "advisory",
+                "unavailable"
+              ]
+            },
+            "observeReadSet": {
+              "enum": [
+                "observed",
+                "vendor_inferred",
+                "self_declared",
+                "none"
+              ]
+            }
+          }
+        },
+        "subagents": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "alias",
+              "agentType",
+              "status"
+            ],
+            "properties": {
+              "alias": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "agentType": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "status": {
+                "type": "string",
+                "maxLength": 16
+              }
+            }
+          }
+        },
+        "activity": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "at",
+              "kind",
+              "status",
+              "action",
+              "paths"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "kind": {
+                "type": "string",
+                "maxLength": 32
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "waiting",
+                  "idle",
+                  "done",
+                  "error"
+                ]
+              },
+              "action": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "tool": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "paths": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "type": "string",
+                  "maxLength": 512
+                }
+              }
+            }
+          }
+        },
+        "coordination": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "routedAt",
+              "summary",
+              "itemCount",
+              "trigger"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "routedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "acknowledgedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "trigger": {
+                "type": "string",
+                "maxLength": 64
+              }
+            }
+          }
+        }
       }
     },
     "members": {
-      "type": "object", "additionalProperties": false,
-      "required": ["members"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members"
+      ],
       "properties": {
-        "members": {"type": "array", "maxItems": 100, "items": {
-          "type": "object", "additionalProperties": false,
-          "required": ["id", "name", "nameSource", "role", "isSelf", "joinedAt"],
-          "properties": {
-            "id": {"type": "string"}, "name": {"type": "string", "maxLength": 120},
-            "nameSource": {"enum": ["device", "member"]}, "role": {"enum": ["owner", "member"]},
-            "isSelf": {"type": "boolean"}, "joinedAt": {"type": "string", "format": "date-time"}
+        "members": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "nameSource",
+              "role",
+              "isSelf",
+              "joinedAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "nameSource": {
+                "enum": [
+                  "device",
+                  "member"
+                ]
+              },
+              "role": {
+                "enum": [
+                  "owner",
+                  "member"
+                ]
+              },
+              "isSelf": {
+                "type": "boolean"
+              },
+              "joinedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
           }
-        }}
+        }
       }
     },
     "memberIdentity": {
-      "type": "object", "additionalProperties": false,
-      "required": ["memberId", "memberName", "memberNameSource"],
-      "properties": {"memberId": {"type": "string"}, "memberName": {"type": "string", "maxLength": 120}, "memberNameSource": {"enum": ["device", "member"]}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "memberId",
+        "memberName",
+        "memberNameSource"
+      ],
+      "properties": {
+        "memberId": {
+          "type": "string"
+        },
+        "memberName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "memberNameSource": {
+          "enum": [
+            "device",
+            "member"
+          ]
+        }
+      }
     },
     "finding": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "kind", "severity", "confidence", "state", "title", "reason", "workstreamIds", "evidence", "firstSeen", "lastSeen"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "severity",
+        "confidence",
+        "state",
+        "title",
+        "reason",
+        "workstreamIds",
+        "evidence",
+        "firstSeen",
+        "lastSeen"
+      ],
       "properties": {
-        "id": {"type": "string"}, "kind": {"enum": ["direct_collision", "likely_collision", "redundant_work", "shared_dependency", "assumption_conflict", "downstream_impact", "stale_assumption", "dependency_ready"]},
-        "severity": {"enum": ["critical", "high", "medium", "low"]}, "confidence": {"enum": ["deterministic", "high", "medium", "low"]},
-        "state": {"enum": ["open", "acknowledged", "resolved", "dismissed"]}, "title": {"type": "string", "maxLength": 160}, "reason": {"type": "string", "maxLength": 500},
-        "workstreamIds": {"type": "array", "maxItems": 16, "items": {"type": "string"}},
-        "evidence": {"type": "array", "maxItems": 32, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "label", "source"], "properties": {"kind": {"enum": ["path", "contract", "dependency", "intent"]}, "label": {"type": "string", "maxLength": 500}, "source": {"enum": ["git", "mcp", "manual", "semantic_candidate"]}}}},
-        "firstSeen": {"type": "string", "maxLength": 80}, "lastSeen": {"type": "string", "maxLength": 80}
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "direct_collision",
+            "likely_collision",
+            "redundant_work",
+            "shared_dependency",
+            "assumption_conflict",
+            "downstream_impact",
+            "stale_assumption",
+            "dependency_ready"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "deterministic",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "state": {
+          "enum": [
+            "open",
+            "acknowledged",
+            "resolved",
+            "dismissed"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "workstreamIds": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "label",
+              "source"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "path",
+                  "contract",
+                  "dependency",
+                  "intent"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "source": {
+                "enum": [
+                  "git",
+                  "mcp",
+                  "manual",
+                  "semantic_candidate"
+                ]
+              }
+            }
+          }
+        },
+        "firstSeen": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lastSeen": {
+          "type": "string",
+          "maxLength": 80
+        }
       }
     },
     "activity": {
-      "type": "object", "additionalProperties": false, "required": ["id", "at", "actor", "kind", "summary", "fidelity"],
-      "properties": {"id": {"type": "string"}, "at": {"type": "string", "maxLength": 80}, "actor": {"type": "string", "maxLength": 120}, "kind": {"enum": ["intent", "manifest", "finding", "checkpoint", "pause"]}, "summary": {"type": "string", "maxLength": 500}, "fidelity": {"enum": ["mcp", "git", "manual", "hook_unverified", "structural"]}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "at",
+        "actor",
+        "kind",
+        "summary",
+        "fidelity"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "actor": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "kind": {
+          "enum": [
+            "intent",
+            "manifest",
+            "finding",
+            "checkpoint",
+            "pause"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "fidelity": {
+          "enum": [
+            "mcp",
+            "git",
+            "manual",
+            "hook_unverified",
+            "structural"
+          ]
+        }
+      }
     },
     "device": {
-      "type": "object", "additionalProperties": false, "required": ["id", "label", "platform", "status", "lastSeen"],
-      "properties": {"id": {"type": "string"}, "label": {"type": "string", "maxLength": 120}, "platform": {"type": "string", "maxLength": 64}, "status": {"enum": ["online", "idle", "offline", "paused"]}, "lastSeen": {"type": "string", "maxLength": 80}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "platform",
+        "status",
+        "lastSeen"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "platform": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "status": {
+          "enum": [
+            "online",
+            "idle",
+            "offline",
+            "paused"
+          ]
+        },
+        "lastSeen": {
+          "type": "string",
+          "maxLength": 80
+        }
+      }
     }
   }
 }

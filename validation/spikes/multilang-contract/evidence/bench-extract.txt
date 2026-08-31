@@ -1,0 +1,27 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/stickguy/stickguy/validation/spikes/multilang-contract/multilang
+cpu: Apple M1
+BenchmarkExtract/wasm/dataclasses.py-8         	     300	  13755935 ns/op	   4.69 MB/s	   20640 B/op	     304 allocs/op
+BenchmarkExtract/wasm/dataclasses.py-8         	     300	  13752714 ns/op	   4.69 MB/s	   20640 B/op	     304 allocs/op
+BenchmarkExtract/wasm/dataclasses.py-8         	     300	  13889243 ns/op	   4.65 MB/s	   20640 B/op	     304 allocs/op
+BenchmarkExtract/wasm/argparse.py-8            	     300	  23775470 ns/op	   4.28 MB/s	   46680 B/op	     747 allocs/op
+BenchmarkExtract/wasm/argparse.py-8            	     300	  23092949 ns/op	   4.40 MB/s	   46680 B/op	     747 allocs/op
+BenchmarkExtract/wasm/argparse.py-8            	     300	  22969305 ns/op	   4.43 MB/s	   46680 B/op	     747 allocs/op
+BenchmarkExtract/wasm/uri.js-8                 	     300	   5084400 ns/op	   3.96 MB/s	   10224 B/op	     163 allocs/op
+BenchmarkExtract/wasm/uri.js-8                 	     300	   5126324 ns/op	   3.93 MB/s	   10224 B/op	     163 allocs/op
+BenchmarkExtract/wasm/uri.js-8                 	     300	   5075142 ns/op	   3.97 MB/s	   10224 B/op	     163 allocs/op
+BenchmarkExtract/wasm/convertPathData.js-8     	     300	   8009718 ns/op	   3.54 MB/s	    4584 B/op	      75 allocs/op
+BenchmarkExtract/wasm/convertPathData.js-8     	     300	   7801733 ns/op	   3.64 MB/s	    4584 B/op	      75 allocs/op
+BenchmarkExtract/wasm/convertPathData.js-8     	     300	   7730631 ns/op	   3.67 MB/s	    4584 B/op	      75 allocs/op
+BenchmarkExtract/wasm/typescript-sample.ts.txt-8         	     300	   8442810 ns/op	   2.61 MB/s	   50320 B/op	     389 allocs/op
+BenchmarkExtract/wasm/typescript-sample.ts.txt-8         	     300	   7520554 ns/op	   2.93 MB/s	   50320 B/op	     389 allocs/op
+BenchmarkExtract/wasm/typescript-sample.ts.txt-8         	     300	   7925373 ns/op	   2.78 MB/s	   50320 B/op	     389 allocs/op
+BenchmarkExtract/native/typescript.go.txt-8              	     300	    165545 ns/op	  71.47 MB/s	  107392 B/op	    3360 allocs/op
+BenchmarkExtract/native/typescript.go.txt-8              	     300	    162614 ns/op	  72.76 MB/s	  107392 B/op	    3360 allocs/op
+BenchmarkExtract/native/typescript.go.txt-8              	     300	    161688 ns/op	  73.18 MB/s	  107392 B/op	    3360 allocs/op
+BenchmarkExtract/native/typescript-sample.ts.txt-8       	     300	    238533 ns/op	  92.46 MB/s	  218416 B/op	    4734 allocs/op
+BenchmarkExtract/native/typescript-sample.ts.txt-8       	     300	    240005 ns/op	  91.89 MB/s	  218416 B/op	    4734 allocs/op
+BenchmarkExtract/native/typescript-sample.ts.txt-8       	     300	    264885 ns/op	  83.26 MB/s	  218416 B/op	    4734 allocs/op
+PASS
+ok  	github.com/stickguy/stickguy/validation/spikes/multilang-contract/multilang	53.066s

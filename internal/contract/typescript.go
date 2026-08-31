@@ -2,10 +2,17 @@ package contract
 
 import "strings"
 
-// TypeScript and TSX extraction is a bounded scanner rather than a parser:
-// ADR-019 keeps the root Go module free of CGO and of Node invocation, so no
-// TypeScript grammar is available. The scanner recognizes top-level exported
-// declarations and captures the declaration header up to the start of the body.
+// TypeScript and TSX extraction is a bounded scanner rather than a parser. It
+// predates ADR-063, which made real grammars available by running tree-sitter
+// as WebAssembly; migrating .ts and .tsx onto that path re-baselines every
+// stored fingerprint and is a separate decision, so this scanner is still the
+// TypeScript extractor. The scanner recognizes top-level exported declarations
+// and captures the declaration header up to the start of the body.
+//
+// Its limitations are why ADR-063 rejected extending it to further languages:
+// the desync case below yields no fingerprint for real files in this very
+// repository, and applying it to JavaScript recovers no symbols at all from
+// CommonJS, which reads as a stable contract rather than as an unsupported one.
 //
 // Recognized forms, each optionally preceded by `declare`, `abstract`, or
 // `async`:

@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stickguy/stickguy/internal/agentactivity"
+	"github.com/stickguy/stickguy/internal/codexappserver"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	git "github.com/stickguy/stickguy/internal/git"
@@ -64,6 +65,17 @@ type Service struct {
 	// held; content is read on demand and never copied (ADR-036).
 	transcriptMu sync.Mutex
 	transcripts  map[string]string
+	// codexThreadLister is replaceable only in tests. Production starts the
+	// existing private, read-only app-server child when hook-derived local
+	// session state cannot identify a thread.
+	codexThreadLister func(context.Context, string, int) ([]codexappserver.Thread, error)
+	// codexReadRefreshFailed records, per session workstream, whether the last
+	// inferred-read refresh actually answered. Coverage reads it so a device
+	// with a Codex it cannot talk to stops claiming it can infer that session's
+	// reads. Held in memory only: it describes this process's live experience of
+	// the local app-server, and a restart correctly forgets it.
+	codexReadHealthMu      sync.Mutex
+	codexReadRefreshFailed map[string]bool
 }
 
 func Run(ctx context.Context, root string, sender Sender) error {
@@ -347,6 +359,8 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return daemon.Response{OK: true}
 	case "begin_work", "update_intent", "check_coordination", "report_checkpoint", "acknowledge_context", "finish_work", "report_event":
 		return s.handleLifecycle(ctx, q)
+	case "resolve_agent_session":
+		return s.handleAgentSessionResolution(ctx, q)
 	case "get_resolutions":
 		return s.handleCollaboration(ctx, q)
 	case "session_detail":
@@ -431,7 +445,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if q.AgentEvent != "SessionStart" && q.AgentEvent != "UserPromptSubmit" {
 		return daemon.Response{OK: true, Data: result}
 	}
-	if q.AgentVendor != "claude" && q.AgentVendor != "codex" || !validContractID(q.AgentWorkstreamID) {
+	if q.AgentVendor != "claude" && q.AgentVendor != "codex" && q.AgentVendor != "cursor" || !validContractID(q.AgentWorkstreamID) {
 		return daemon.Response{OK: true, Data: result}
 	}
 	// A focused session is skipped before anything is fetched or claimed. The
@@ -442,7 +456,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if _, focused, e := s.store.FocusedUntil(ctx, q.AgentWorkstreamID, time.Now()); e == nil && focused {
 		return daemon.Response{OK: true, Data: result}
 	}
-	if _, ok := workspaceForCWD(s.cfg, q.AgentCWD); !ok {
+	if _, _, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots); !ok {
 		return daemon.Response{OK: true, Data: result}
 	}
 	provider, ok := s.sender.(briefProvider)
@@ -652,12 +666,17 @@ func (s *Service) handleCollaboration(ctx context.Context, q daemon.Request) dae
 }
 
 func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon.Response {
-	workspace, ok := workspaceForCWD(s.cfg, q.AgentCWD)
+	// A vendor may report several workspace roots for one session — Cursor sends
+	// `workspace_roots` as an array for a multi-root workspace — and only this
+	// process knows which of them the member registered. The first registered
+	// root wins, and it is what a session-scoped variable is later pinned to, so
+	// every later hook in that session resolves to the same repository.
+	cwd, workspace, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots)
 	if !ok {
 		return daemon.Response{Error: "agent session is not inside a registered repository"}
 	}
 	event, err := agentactivity.NormalizePaths(agentactivity.Event{
-		Vendor: q.AgentVendor, CWD: q.AgentCWD, WorkstreamID: q.AgentWorkstreamID,
+		Vendor: q.AgentVendor, CWD: cwd, WorkstreamID: q.AgentWorkstreamID,
 		SessionAlias: q.AgentSessionAlias, Kind: q.AgentEvent, Status: q.AgentStatus,
 		Action: q.AgentAction, Tool: q.AgentTool, AgentType: q.AgentType,
 		SubagentAlias: q.AgentSubagentAlias, CandidatePaths: q.AgentPaths,
@@ -683,7 +702,7 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	}
 	// State what Stickguy can actually see of this session's reads, so an empty
 	// read set is never mistaken for a session that read nothing (ADR-052).
-	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsAvailable())
+	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsUsable(event.WorkstreamID))
 	// Only mutation paths become session work evidence. An inspection tool's
 	// paths are the read set, published below, and counting them here made a
 	// session that merely read a file collide with the session that wrote it
@@ -706,9 +725,25 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	// Claude names its transcript in the hook payload; Codex does not, but names
 	// every rollout after the session id, so it is discoverable locally.
 	transcriptPath := q.AgentTranscriptPath
+	if !sessiontranscript.TranscriptAvailable(event.Vendor) {
+		// Cursor publishes no session record this device can parse, so no path is
+		// attempted. See internal/sessiontranscript/cursor.go for what that costs
+		// and what supplies the session title instead.
+		transcriptPath = ""
+	}
 	if transcriptPath == "" && event.Vendor == "codex" {
 		if home, homeErr := os.UserHomeDir(); homeErr == nil {
 			transcriptPath = sessiontranscript.LocateCodexRollout(home, q.AgentVendorSessionID)
+		}
+	}
+	// A vendor that writes no transcript Stickguy can read may still have named
+	// this session. Cursor's adapter derives that name from the submitted prompt
+	// and runs it through ClassifyCoordinationTitle before it arrives here, so
+	// this value is already classifier output (ADR-042). A transcript title,
+	// where one exists, is the better name and overwrites it below.
+	if q.AgentSessionTitle != "" {
+		if title, titleErr := agentactivity.ClassifyCoordinationTitle(q.AgentSessionTitle); titleErr == nil {
+			payload["sessionTitle"] = title
 		}
 	}
 	if transcriptPath != "" {
@@ -729,6 +764,19 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if err := s.store.RecordAgentObservation(ctx, workspace.ID, event.Vendor, time.Now()); err != nil {
 		return daemon.Response{Error: err.Error()}
 	}
+	if event.Vendor == "codex" {
+		canonicalCWD, canonical := canonicalDirectory(event.CWD)
+		if !canonical {
+			return daemon.Response{OK: true, Data: map[string]any{"accepted": false}}
+		}
+		if err := s.store.RecordAgentSession(ctx, store.AgentSession{
+			WorkspaceID: workspace.ID, Vendor: event.Vendor,
+			WorkstreamID: event.WorkstreamID, CWD: canonicalCWD,
+			Status: event.Status, ObservedAt: time.Now(),
+		}); err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+	}
 	// A read set is fed by inspection tools only; an edit is a write, and the
 	// manifest pipeline already reports it.
 	if agentactivity.ReadTool(event.Tool) && len(event.CandidatePaths) > 0 {
@@ -741,16 +789,31 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 		s.publishCodexInferredReads(ctx, workspace, q.AgentVendorSessionID, event.WorkstreamID)
 	}
 	shared := s.shareTranscript(ctx, workspace, event, transcript)
-	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared}}
+	// The resolved root is returned so an adapter whose later hooks report no
+	// working directory can pin this one for the rest of the session.
+	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared, "workspaceRoot": workspace.Root}}
+}
+
+// workspaceForAnyRoot resolves the first candidate root that lies inside a
+// registered repository, returning the candidate itself alongside the workspace
+// so relative paths in the event still resolve against the directory the vendor
+// actually reported.
+func workspaceForAnyRoot(cfg config.Config, primary string, candidates []string) (string, config.Workspace, bool) {
+	for _, candidate := range append([]string{primary}, candidates...) {
+		if candidate == "" {
+			continue
+		}
+		if workspace, ok := workspaceForCWD(cfg, candidate); ok {
+			return candidate, workspace, true
+		}
+	}
+	return "", config.Workspace{}, false
 }
 
 func workspaceForCWD(cfg config.Config, cwd string) (config.Workspace, bool) {
-	abs, err := filepath.Abs(cwd)
-	if err != nil {
+	abs, ok := canonicalDirectory(cwd)
+	if !ok {
 		return config.Workspace{}, false
-	}
-	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
-		abs = resolved
 	}
 	var selected config.Workspace
 	for _, candidate := range cfg.Workspaces {
@@ -763,6 +826,20 @@ func workspaceForCWD(cfg config.Config, cwd string) (config.Workspace, bool) {
 		}
 	}
 	return selected, selected.Root != ""
+}
+
+func canonicalDirectory(directory string) (string, bool) {
+	if directory == "" {
+		return "", false
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return "", false
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		absolute = resolved
+	}
+	return filepath.Clean(absolute), true
 }
 
 func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExistingProjectMember bool) (config.Workspace, error) {
@@ -1067,7 +1144,10 @@ func validateVerification(values []daemon.VerificationSummary) error {
 func verificationPayload(values []daemon.VerificationSummary) []map[string]any {
 	out := make([]map[string]any, len(values))
 	for i, value := range values {
-		item := map[string]any{"state": value.State, "checkKind": value.CheckKind, "label": value.Label, "summary": value.Summary, "source": "mcp", "observedAt": value.ObservedAt}
+		item := map[string]any{"state": value.State, "checkKind": value.CheckKind, "label": value.Label, "summary": value.Summary, "source": "mcp"}
+		if value.ObservedAt != "" {
+			item["observedAt"] = value.ObservedAt
+		}
 		if value.AffectedComponent != "" {
 			item["affectedComponent"] = value.AffectedComponent
 		}

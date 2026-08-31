@@ -15,7 +15,9 @@ import {
   CircleDot,
   Code2,
   Command,
+  Copy,
   Eye,
+  ExternalLink,
   FileCode2,
   FileText,
   GitBranch,
@@ -46,8 +48,11 @@ import { DesktopOnboarding } from "./desktop-onboarding";
 import { NewProjectScreen } from "./new-project";
 import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
-import type { DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
-import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding } from "./native";
+import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
+
+/** How each connected vendor is named in the interface. */
+const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
+import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding, type NativeSessionOpenResult } from "./native";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
 import "./style.css";
@@ -294,6 +299,12 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const effectiveSelection: Selection | null = selection ?? (defaultSession ? { kind: "session", id: defaultSession.id } : null);
   const selectedSession = effectiveSelection?.kind === "session" ? snapshot.workstreams.find((stream) => stream.id === effectiveSelection.id) ?? null : null;
   const selectedCollision = effectiveSelection?.kind === "collision" ? snapshot.findings.find((finding) => finding.id === effectiveSelection.id) ?? null : null;
+  const previousCollision = trail.length > 1 && trail[trail.length - 2]?.kind === "collision"
+    ? snapshot.findings.find((finding) => finding.id === trail[trail.length - 2]!.id) ?? null
+    : null;
+  const selectedSessionFinding = selectedSession
+    ? previousCollision ?? openFindings.find((finding) => finding.workstreamIds.includes(selectedSession.id)) ?? null
+    : null;
   const anyLive = snapshot.workstreams.some((stream) => stream.presence === "online" || stream.agent?.status === "active");
   const tick = useSecondTick(anyLive);
 
@@ -438,7 +449,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
 
       <aside className="inspector" aria-label="Details inspector">
       {selectedSession
-        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
+        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} nativeApi={nativeApi} finding={selectedSessionFinding} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
           : selectedCollision
             ? <CollisionInspector
                 finding={selectedCollision} sessions={snapshot.workstreams} viewer={identity.name} projectId={projectId} source={source}
@@ -587,7 +598,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     {mine.length === 0
       ? <p className="block-empty">No sessions are registered to you in this Project yet. Start Codex or Claude Code in this repository and the session appears here.</p>
       : <>
-          <BranchGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
+          <AreaGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
           {/* Finished work is worth keeping and not worth scrolling past, so it
               folds into one line rather than moving to a screen of its own. */}
           {mySessions.finished.length > 0 && <details className="fold">
@@ -601,7 +612,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     <div className="block-head ambient"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
     {nearby.length === 0
       ? <p className="block-empty">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>
-      : <BranchGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
+      : <AreaGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
 
     {elsewhere.length > 0 && <>
       <div className="block-head ambient"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
@@ -612,7 +623,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
 }
 
 function vendorLabel(session: Workstream): string {
-  return session.agent?.vendor === "codex" ? "Codex" : session.agent?.vendor === "claude" ? "Claude Code" : "No agent connected";
+  return session.agent ? VENDOR_LABELS[session.agent.vendor] : "No agent connected";
 }
 
 /** The file an agent is touching right now, which is newer than its path list. */
@@ -663,6 +674,81 @@ export function groupByBranch(sessions: readonly Workstream[]): BranchGroup[] {
   return groups.filter((group) => group.branch !== null).length > 1 ? groups : [{ branch: null, sessions: [...sessions] }];
 }
 
+export interface AreaGroup { area: string | null; sessions: Workstream[] }
+
+/**
+ * The area of the product a session is working in.
+ *
+ * A declared contract wins, because a contract is the thing two sessions
+ * actually collide over: two rows under one contract heading is the collision,
+ * shown as structure instead of as a separate card. A declared component is the
+ * next best. Failing both — which is every session that never called
+ * begin_work — the shared directory of its paths is what the repository itself
+ * says about where the work is.
+ */
+export function sessionArea(session: Workstream): string | null {
+  const declared = session.contracts?.[0]?.trim() || session.components?.[0]?.trim();
+  if (declared) return declared;
+  const directories = session.paths
+    .map((path) => path.split("/").slice(0, -1))
+    .filter((segments) => segments.length > 0);
+  if (directories.length === 0) return null;
+  // The deepest directory every path agrees on. One file yields its own folder;
+  // work spread across a tree yields the root they share, and nothing shared
+  // yields nothing rather than a made-up parent.
+  const shared = directories.reduce((common, segments) => {
+    const limit = Math.min(common.length, segments.length);
+    let index = 0;
+    while (index < limit && common[index] === segments[index]) index += 1;
+    return common.slice(0, index);
+  });
+  return shared.length > 0 ? shared.join("/") : null;
+}
+
+/**
+ * Sessions grouped by the part of the product they are touching, so the reader
+ * sees the shape of the work before the list of sessions.
+ *
+ * Areas holding more than one session come first: that is where work converges,
+ * and it is the reason to group at all. Everything Stickguy could not place
+ * sits last under its own heading rather than being hidden or guessed at.
+ */
+export function groupByArea(sessions: readonly Workstream[]): AreaGroup[] {
+  const groups: AreaGroup[] = [];
+  for (const session of sessions) {
+    const area = sessionArea(session);
+    const existing = groups.find((group) => group.area === area);
+    if (existing) existing.sessions.push(session);
+    else groups.push({ area, sessions: [session] });
+  }
+  // Grouping that produces one heading is chrome around a list that was already
+  // legible, so it is not applied at all.
+  const labelled = groups.filter((group) => group.area !== null);
+  if (labelled.length < 2 && !labelled.some((group) => group.sessions.length > 1)) {
+    return [{ area: null, sessions: [...sessions] }];
+  }
+  return [...groups].sort((left, right) => {
+    if (left.area === null) return 1;
+    if (right.area === null) return -1;
+    if (left.sessions.length !== right.sessions.length) return right.sessions.length - left.sessions.length;
+    return left.area.localeCompare(right.area);
+  });
+}
+
+function AreaGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
+  const groups = groupByArea(sessions);
+  if (groups.length === 1 && groups[0]!.area === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
+  return <>{groups.map((group) => <div className="area-group" key={group.area ?? "__unplaced"}>
+    <div className="area-label">
+      {group.area
+        ? <><FileCode2 size={12} aria-hidden="true" /><span>{group.area}</span></>
+        : <><FileCode2 size={12} aria-hidden="true" /><span className="unknown">not yet placed</span></>}
+      <span className="area-count">{group.sessions.length}</span>
+    </div>
+    <div className="rows">{group.sessions.map(render)}</div>
+  </div>)}</>;
+}
+
 function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
   const groups = groupByBranch(sessions);
   if (groups.length === 1 && groups[0]!.branch === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
@@ -677,17 +763,19 @@ function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; r
 function SessionRow({ session, tick, converging, selected, onClick }: { session: Workstream; tick: number; converging: boolean; selected: boolean; onClick: () => void }) {
   const path = currentPath(session);
   const activeSubagents = session.agent?.subagents.filter((agent) => agent.status !== "done") ?? [];
+  const snapshot = session.scopeSnapshot;
   return <button className="session-row" aria-current={selected ? "true" : undefined} onClick={onClick} aria-label={openSessionLabel(session)}>
     <span className="session-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={19} /> : <Code2 size={18} />}</span>
     <span>
-      <h3>{session.agent?.sessionTitle ?? session.title}</h3>
-      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}</span>
-      <span className="session-doing"><LiveAction session={session} /></span>
+      <h3>{snapshot.goal.text}</h3>
+      <span className="session-meta">{vendorLabel(session)}{session.agent?.branch ? ` · ${session.agent.branch}` : ""}{priorGoalCount(snapshot) > 0 ? ` · ${priorGoalCount(snapshot)} earlier ${priorGoalCount(snapshot) === 1 ? "goal" : "goals"}` : ""}{snapshot.goal.provenance === "fallback" ? " · from the opening message" : ""}</span>
+      <span className="session-doing"><ScopeStateIcon state={snapshot.state} /><span>{snapshot.now.text}</span></span>
       {path && <span className={isLive(session) ? "session-files live" : "session-files"}><span className="p path-swap" key={path}>{path}</span><span className="c">{session.pathCount.toLocaleString()} {session.pathCount === 1 ? "file" : "files"}</span></span>}
       {activeSubagents.length > 0 && <span className="session-sub">{activeSubagents.length} working in parallel</span>}
     </span>
     <span className="session-right">
       {converging && <span className="session-warn" title="Converging with another session"><AlertTriangle size={14} /></span>}
+      <span className="session-state">{snapshot.state}</span>
       <Elapsed label={session.updatedLabel} tick={tick} />
       <span className="chev"><ChevronRight size={15} /></span>
     </span>
@@ -698,12 +786,114 @@ function SessionRow({ session, tick, converging, selected, onClick }: { session:
  *  Which agent is doing it is the next question, and reading it off a name is
  *  impossible, so the vendor is a mark rather than another word of prose. */
 function PersonRow({ session, tick, onClick }: { session: Workstream; tick: number; onClick: () => void }) {
+  const snapshot = session.scopeSnapshot;
   return <button className={`person-row ${session.presence}`} onClick={onClick} aria-label={openSessionLabel(session)}>
     <MemberChip name={session.memberName} />
     <span className="nm">{session.memberName}<span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
-    <span className="intent"><LiveAction session={session} /></span>
+    <span className="intent"><span>{snapshot.goal.text}</span><small>{snapshot.state}</small></span>
     <Elapsed label={session.updatedLabel} tick={tick} />
   </button>;
+}
+
+const scopeFields: Array<{ key: keyof Pick<ScopeSnapshot, "goal" | "now" | "done" | "waitingOn" | "verification" | "scope">; label: string }> = [
+  { key: "goal", label: "Goal" },
+  { key: "now", label: "Now" },
+  { key: "done", label: "Done" },
+  { key: "waitingOn", label: "Waiting on" },
+  { key: "verification", label: "Verification" },
+  { key: "scope", label: "Scope" },
+];
+
+const scopeFactLabels: Record<ScopeSnapshotFact, string> = {
+  "intent.intendedOutcome": "intended outcome",
+  "intent.approachSummary": "approach summary",
+  "intent.components": "components",
+  "intent.contracts": "contracts",
+  "intent.waitingOn": "waiting on",
+  "activity.currentAction": "current action",
+  "activity.writes": "observed writes",
+  "activity.subagents": "subagent events",
+  "contract.fingerprints": "contract fingerprints",
+  "checkpoint.verification": "checkpoint verification",
+  "session.derivedTitle": "derived title",
+};
+
+/**
+ * What to say about a field's evidence, or nothing at all.
+ *
+ * Evidence quality is an exception, not an attribute. A field that carries the
+ * best its vendor can give says nothing: repeating "high evidence" on every
+ * field of every session spends the reader's attention to tell them the system
+ * is working normally, and buries the one field where it is not. Only a
+ * fallback or a low-confidence derivation earns a line, and it says what it was
+ * derived from rather than naming an internal grade.
+ */
+function scopeNote(field: ScopeSnapshotField): string | null {
+  if (field.provenance === "fallback") return "no declared intent; taken from the opening message";
+  if (field.evidenceQuality !== "low" && field.evidenceQuality !== "none") return null;
+  const source = field.facts.map((fact) => scopeFactLabels[fact]).join(" + ");
+  return source ? `inferred from ${source}` : "inferred";
+}
+
+/**
+ * How many goals this session has already been through, including any the
+ * bounded history had to drop. The dropped ones are counted here and named as
+ * dropped in the inspector, so a truncated history never reads as a whole one.
+ */
+function priorGoalCount(snapshot: ScopeSnapshot): number {
+  return snapshot.priorGoals.length + snapshot.priorGoalsDropped;
+}
+
+/** A field with no evidence at all is not rendered; an empty labelled row is
+ *  the same mistake as a filled card. */
+function scopeFieldPresent(field: ScopeSnapshotField): boolean {
+  return field.provenance !== "unavailable";
+}
+
+function ScopeStateIcon({ state }: { state: ScopeSnapshot["state"] }) {
+  if (state === "complete") return <Check size={12} aria-hidden="true" />;
+  if (state === "waiting") return <Pause size={12} aria-hidden="true" />;
+  if (state === "verifying") return <ShieldCheck size={12} aria-hidden="true" />;
+  return <Activity size={12} aria-hidden="true" />;
+}
+
+function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
+  const fields = [scopeFields[2]!, scopeFields[3]!, scopeFields[5]!, scopeFields[4]!];
+  const icons: Record<(typeof fields)[number]["key"], ReactNode> = {
+    goal: <CircleDot size={13} />,
+    now: <Activity size={13} />,
+    done: <Check size={13} />,
+    waitingOn: <Pause size={13} />,
+    verification: <ShieldCheck size={13} />,
+    scope: <FileCode2 size={13} />,
+  };
+  // A session waiting on nothing has no "Waiting on" to read. Rendering the
+  // label anyway asks the reader to check four rows to learn three facts.
+  const present = fields.filter(({ key }) => scopeFieldPresent(snapshot[key]));
+  if (present.length === 0 && snapshot.priorGoals.length === 0 && !scopeNote(snapshot.goal)) return null;
+  return <section className="scope-tail" role="group" aria-label={`Scope snapshot revision ${snapshot.revision}`}>
+    <header><span>{snapshot.state}</span><code>scope r{snapshot.revision}</code></header>
+    {/* Where the goal came from is worth saying once, down here with the rest
+        of the derivation. In the fixed header it cost content area on every
+        scroll to answer a question nobody had yet. */}
+    {scopeNote(snapshot.goal) && <p className="scope-goal-note">{scopeNote(snapshot.goal)}</p>}
+    {/* Goals this session finished with belong before what it is doing now, in
+        the order it pursued them. No timestamp: the order is the chronology,
+        and the thread above already carries when things happened. */}
+    {snapshot.priorGoals.length > 0 && <div className="scope-prior">
+      <span className="thread-event-icon" aria-hidden="true"><CircleDot size={13} /></span>
+      <span>
+        <strong>Earlier in this session</strong>
+        <ol>{snapshot.priorGoals.map((goal, index) => <li key={`${goal.endedAt}-${index}`}>{goal.title}</li>)}</ol>
+        {snapshot.priorGoalsDropped > 0 && <small>{snapshot.priorGoalsDropped} earlier {snapshot.priorGoalsDropped === 1 ? "goal is" : "goals are"} no longer kept</small>}
+      </span>
+    </div>}
+    <ol>{present.map(({ key, label }) => {
+      const field = snapshot[key];
+      const note = scopeNote(field);
+      return <li className={`scope-tail-${key}`} key={key}><span className="thread-event-icon" aria-hidden="true">{icons[key]}</span><span><strong>{label}</strong><p>{field.text}</p>{note && <small>{note}</small>}</span></li>;
+    })}</ol>
+  </section>;
 }
 
 /** Who you would actually go and talk to: everyone on the finding except you. */
@@ -932,7 +1122,7 @@ function InspectorBackLink({ back }: { back: InspectorBack | null }) {
   return <button className="inspector-back" onClick={back.onBack}><ChevronLeft size={13} aria-hidden="true" />{back.label}</button>;
 }
 
-function SessionInspector({ session, source, tick, isViewer, localControl, back }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean; localControl: boolean; back: InspectorBack | null }) {
+function SessionInspector({ session, source, nativeApi, finding, tick, isViewer, localControl, back }: { session: Workstream; source: FixtureProjectSource; nativeApi: NativeOnboarding; finding: Finding | null; tick: number; isViewer: boolean; localControl: boolean; back: InspectorBack | null }) {
   const [shared, setShared] = useState<SessionMessagesSnapshot | null>(null);
   const [own, setOwn] = useState<LocalSessionDetail | null>(null);
   const [messageError, setMessageError] = useState("");
@@ -979,7 +1169,8 @@ function SessionInspector({ session, source, tick, isViewer, localControl, back 
     : (shared?.messages ?? []).map((message) => ({ id: message.id, kind: message.kind, text: message.text, at: message.capturedAt }));
   const feed = sessionTimeline(conversation, session);
   const { scrollRef, following, onScroll, jumpToNow } = useFollowTail(session.id, feed.length);
-  const title = session.agent?.sessionTitle ?? own?.title ?? session.title;
+  const snapshot = session.scopeSnapshot;
+  const title = snapshot.goal.text;
   const branch = session.agent?.branch ?? own?.branch;
   const liveFacts = [session.agent?.tool, showPath ? path : undefined].filter((value): value is string => Boolean(value)).join(" · ");
 
@@ -996,8 +1187,10 @@ function SessionInspector({ session, source, tick, isViewer, localControl, back 
             thread below. Carrying the newest event in both places was what made
             a strictly chronological feed read as though it were out of order. */}
         {!complete && <div className="inspector-live" aria-label="Current session activity" aria-live="polite">
-          <Activity size={12} aria-hidden="true" />
+          <ScopeStateIcon state={snapshot.state} />
           <small>{statusCopy(session)}</small>
+          <em>Now</em>
+          <span>{snapshot.now.text}</span>
           {liveFacts && <code>{liveFacts}</code>}
           <Elapsed label={session.updatedLabel} tick={tick} />
         </div>}
@@ -1012,11 +1205,13 @@ function SessionInspector({ session, source, tick, isViewer, localControl, back 
         {detailsOpen && <SessionDetailsPanel session={session} mine={mine} subagents={subagents} path={path} onClose={() => setDetailsOpen(false)} />}
       </div>
     </div>
+    {isViewer && localControl && (session.agent?.vendor === "codex" || session.agent?.vendor === "claude") && nativeApi.openOwningSession && <OwningSessionActions session={session} finding={finding} nativeApi={nativeApi} />}
     <div className="inspector-body chat-inspector-body" ref={scrollRef} onScroll={onScroll}>
       {messageError && <p className="form-error" role="alert">{messageError}</p>}
       {feed.length > 0
         ? <ol className="session-thread">{feed.map((item) => <SessionFeedRow key={item.id} item={item} session={session} isViewer={isViewer} tick={tick} />)}</ol>
           : <div className="conversation-empty"><MessageSquare size={18} /><div><strong>{session.agent ? "This session has not said anything yet." : "No agent conversation is available."}</strong><p>{session.outcome}</p></div></div>}
+      <ScopeSnapshotTail snapshot={snapshot} />
     </div>
     {/* Only once the reader has left the tail does a control to return to it
         mean anything. At the tail it would be a button that does nothing. */}
@@ -1026,6 +1221,51 @@ function SessionInspector({ session, source, tick, isViewer, localControl, back 
       <ChevronRight size={14} aria-hidden="true" />
     </button>}
   </>;
+}
+
+function OwningSessionActions({ session, finding, nativeApi }: { session: Workstream; finding: Finding | null; nativeApi: NativeOnboarding }) {
+  const [pending, setPending] = useState(false);
+  const [confirmCodex, setConfirmCodex] = useState(false);
+  const [result, setResult] = useState<NativeSessionOpenResult | null>(null);
+  const [copied, setCopied] = useState(false);
+  const vendor = session.agent?.vendor;
+  if (vendor !== "codex" && vendor !== "claude") return null;
+  const prompt = finding
+    ? `Stickguy found: ${finding.title}\n\n${finding.reason}\n\nReview this coordination finding before continuing.`
+    : `Review the current Stickguy coordination context for “${session.agent?.sessionTitle ?? session.title}” before continuing.`;
+
+  const open = (target: "vendor" | "vscode" = "vendor", confirmed = false) => {
+    if (!nativeApi.openOwningSession || !vendor) return;
+    // Continuing an already active Codex task in another process can interleave
+    // history. Make that choice explicit instead of treating "open" as harmless.
+    if (vendor === "codex" && session.agent?.status === "active" && !confirmed) {
+      setConfirmCodex(true);
+      setResult(null);
+      return;
+    }
+    setConfirmCodex(false);
+    setPending(true);
+    setCopied(false);
+    void nativeApi.openOwningSession(session.id, prompt, target)
+      .then(setResult)
+      .catch((error: unknown) => setResult({ vendor, opened: false, detail: error instanceof Error ? error.message : "The owning session could not be opened." }))
+      .finally(() => setPending(false));
+  };
+
+  const copyFallback = () => {
+    if (!result?.fallbackCommand) return;
+    void navigator.clipboard.writeText(result.fallbackCommand).then(() => setCopied(true));
+  };
+
+  return <section className="session-open" aria-label="Open the owning session">
+    <div className="session-open-actions">
+      <button className="pill" disabled={pending} onClick={() => open("vendor")}><ExternalLink size={13} aria-hidden="true" />{vendor === "codex" ? "Continue in Codex" : "Open in Claude Code"}</button>
+      {vendor === "claude" && <button className="text-button" disabled={pending} onClick={() => open("vscode")}>Open in VS Code</button>}
+    </div>
+    {vendor === "claude" && !result && !confirmCodex && <p className="session-open-note">Uses Claude Code's local open handler, which may be unavailable before its first interactive prompt or when an organization disables it. A copyable command is provided if opening fails.</p>}
+    {confirmCodex && <div className="session-open-state" role="alert"><p>This Codex session is still reported active. Continuing it elsewhere can interleave its history.</p><div><button className="pill" onClick={() => open("vendor", true)}>Continue exact session</button><button className="text-button" onClick={() => setConfirmCodex(false)}>Cancel</button></div></div>}
+    {result && <div className={`session-open-state${result.opened ? " opened" : ""}`} role="status"><p>{result.detail}</p>{result.fallbackCommand && <button className="text-button" onClick={copyFallback}><Copy size={12} aria-hidden="true" />{copied ? "Command copied" : "Copy command"}</button>}</div>}
+  </section>;
 }
 
 type TranscriptMessage = { id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string };
@@ -1215,7 +1455,7 @@ function briefDeliveryLabel(delivery: NonNullable<Workstream["agent"]>["capabili
   return ({ mcp_pull: "MCP pull", native_pull: "Agent pull", native_push: "Next-turn push", unavailable: "Unavailable" } as const)[delivery];
 }
 
-function SessionMessageIcon({ kind, vendor }: { kind: SessionMessageKind; vendor?: "codex" | "claude" }) {
+function SessionMessageIcon({ kind, vendor }: { kind: SessionMessageKind; vendor?: AgentVendor }) {
   if (kind === "assistant" && vendor) return <VendorMark vendor={vendor} size={14} />;
   if (kind === "user") return <UserRound size={14} />;
   if (kind === "system") return <ShieldCheck size={14} />;

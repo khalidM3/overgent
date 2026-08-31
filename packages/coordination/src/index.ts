@@ -76,6 +76,30 @@ export const PROJECT_HOOK_MCP_CAPABILITIES: HarnessCapabilities = {
   observeReadSet: "none",
 };
 
+/**
+ * The capability record for one vendor's hook-and-MCP adapter.
+ *
+ * Two facts vary by vendor and must not be flattened into one default:
+ *
+ * - How a brief reaches a turn. Codex and Claude are asked for one through the
+ *   MCP server (`mcp_pull`). Cursor's own hook response carries context back
+ *   into the turn that triggered it, so its briefs are pushed (`native_push`).
+ *   Reporting Cursor as `mcp_pull` would understate delivery; reporting the
+ *   others as `native_push` would promise a channel that does not exist.
+ * - Whether the member can read their own session back. Claude and Codex write
+ *   a parsable session record; Cursor does not, so `readExistingSession` is
+ *   false for it (see internal/sessiontranscript/cursor.go).
+ *
+ * `observeReadSet` still comes from what the device actually reported for that
+ * session, and is applied over this record by the caller.
+ */
+export function vendorCapabilities(vendor: string): HarnessCapabilities {
+  if (vendor === "cursor") {
+    return { ...PROJECT_HOOK_MCP_CAPABILITIES, deliverBrief: "native_push", readExistingSession: false };
+  }
+  return PROJECT_HOOK_MCP_CAPABILITIES;
+}
+
 export function canDeliverRelevantUpdate(capabilities: HarnessCapabilities): boolean {
   return capabilities.deliverBrief !== "unavailable";
 }

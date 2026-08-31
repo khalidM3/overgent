@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession, snapshotForProject } from "../src/fixtures";
-import { App, DesktopPreviewBanner, groupByBranch } from "../src/main";
+import { App, DesktopPreviewBanner, groupByArea, groupByBranch, sessionArea } from "../src/main";
 import type { NativeOnboarding } from "../src/native";
 import type { Workstream } from "../src/model";
 
@@ -63,7 +63,7 @@ describe("Project Workroom behavior", () => {
     expect(coverage.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
-    expect(within(inspector).getByRole("heading", { name: "Audit session validity checks" })).toBeTruthy();
+    expect(within(inspector).getByRole("heading", { name: "Audit session validity checks before changing the rotation boundary." })).toBeTruthy();
     expect(within(inspector).getAllByText(/Waiting for input/).length).toBeGreaterThan(0);
     expect(within(inspector).queryByText(/sub-a1b2c3/)).toBeNull();
     expect(within(inspector).queryByLabelText("Session details")).toBeNull();
@@ -72,6 +72,87 @@ describe("Project Workroom behavior", () => {
     await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
     expect(within(inspector).getByText(/Git observed/)).toBeTruthy();
     expect(within(inspector).getAllByText(/1,000/).length).toBeGreaterThan(0);
+  });
+
+  it("speaks about evidence only where it is degraded, and renders no empty scope field", async () => {
+    const user = userEvent.setup();
+    renderReady();
+
+    // The row is the scanning surface. The goal is its primary text, so it
+    // carries no label and no grade - except that this Codex goal is a
+    // fallback, which is the one case the reader has to know about.
+    const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
+    expect(codexRow.textContent).toContain("Rotate the browser session boundary");
+    expect(codexRow.textContent).toContain("Edited apps/dashboard/src/session.ts · 1 parallel agent active");
+    expect(codexRow.textContent).toContain("from the opening message");
+    expect(codexRow.textContent).not.toContain("evidence");
+    expect(codexRow.textContent).not.toMatch(/\d+%/);
+
+    const inspector = screen.getByLabelText("Details inspector");
+    // "Goal" labelled the heading directly above it, and `scope r8` reads in
+    // the snapshot header below. Neither is repeated here.
+    expect(within(inspector).queryByText("Goal")).toBeNull();
+    const codexInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
+    expect(inspector.textContent).toContain("no declared intent; taken from the opening message");
+    expect(codexInspectorScope.textContent).toContain("scope r8");
+
+    // This session reported completed work and a scope, and reported nothing
+    // it is waiting on and no verification. The two it did not report are
+    // absent rather than present and empty.
+    for (const label of ["Done", "Scope"]) expect(within(codexInspectorScope).getByText(label)).toBeTruthy();
+    for (const label of ["Waiting on", "Verification"]) expect(within(codexInspectorScope).queryByText(label)).toBeNull();
+    expect(codexInspectorScope.textContent).not.toContain("Nothing reported.");
+    expect(codexInspectorScope.textContent).not.toContain("No verification reported.");
+
+    // A session carrying the best its vendor can give says nothing at all
+    // about evidence, on the row or in the snapshot.
+    await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
+    const claudeInspectorScope = within(inspector).getByRole("group", { name: "Scope snapshot revision 11" });
+    for (const label of ["Waiting on", "Scope"]) expect(within(claudeInspectorScope).getByText(label)).toBeTruthy();
+    for (const label of ["Done", "Verification"]) expect(within(claudeInspectorScope).queryByText(label)).toBeNull();
+    expect(claudeInspectorScope.textContent).not.toContain("evidence");
+    expect(claudeInspectorScope.textContent).not.toContain("inferred from");
+  });
+
+  it("shows the goals a session moved on from, so completed work is not read against the wrong goal", async () => {
+    renderReady();
+
+    // The row is scanned, so it carries the count rather than the list.
+    const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
+    expect(codexRow.textContent).toContain("2 earlier goals");
+
+    const inspector = screen.getByLabelText("Details inspector");
+    const scope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
+    expect(within(scope).getByText("Earlier in this session")).toBeTruthy();
+    // Oldest first: the order is the chronology, so no timestamp is repeated
+    // from the thread above.
+    const earlier = within(scope).getByText("Earlier in this session").parentElement!.querySelectorAll("ol li");
+    expect([...earlier].map((item) => item.textContent)).toEqual([
+      "Read how browser sessions are currently validated",
+      "Add a rotation helper to the session store",
+    ]);
+    expect(scope.textContent).not.toContain("no longer kept");
+
+    // A session that has only ever had one goal shows no history at all.
+    const claudeRow = screen.getByRole("button", { name: "Open Claude Code session for Mina" });
+    expect(claudeRow.textContent).not.toContain("earlier goal");
+  });
+
+  it("does not silently continue an active Codex session from the labelled inspector action", async () => {
+    const user = userEvent.setup();
+    const openOwningSession = vi.fn(async () => ({ vendor: "codex" as const, opened: false, detail: "Codex could not be started. Copy the exact continuation command instead.", fallbackCommand: "codex continue fixture-id" }));
+    const api = { openOwningSession } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} />);
+
+    const inspector = screen.getByLabelText("Details inspector");
+    await user.click(await within(inspector).findByRole("button", { name: "Continue in Codex" }));
+    expect(within(inspector).getByText(/still reported active/)).toBeTruthy();
+    expect(openOwningSession).not.toHaveBeenCalled();
+
+    await user.click(within(inspector).getByRole("button", { name: "Continue exact session" }));
+    expect(openOwningSession).toHaveBeenCalledWith(expect.stringMatching(/^wrk_agent_/), expect.stringContaining("Stickguy found:"), "vendor");
+    expect(await within(inspector).findByText(/Copy the exact continuation command/)).toBeTruthy();
+    expect(within(inspector).getByRole("button", { name: "Copy command" })).toBeTruthy();
   });
 
   it("ends completed sessions in the chronology instead of pinning a finished activity strip", async () => {
@@ -391,7 +472,7 @@ describe("session content", () => {
     renderReady();
     await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
     const inspector = screen.getByLabelText("Details inspector");
-    expect(await within(inspector).findByText("Waiting for approval to continue")).toBeTruthy();
+    expect((await within(inspector).findAllByText("Waiting for approval to continue")).length).toBeGreaterThan(0);
     expect(within(inspector).getByText(/Read · apps\/dashboard\/src\/session.ts/)).toBeTruthy();
   });
 });
@@ -487,9 +568,11 @@ describe("agent health and the coordination ledger", () => {
     expect(screen.getByText(/Acknowledgement records that the agent read the correction, not that it followed it/)).toBeTruthy();
     const deliveries = screen.getByRole("heading", { name: "Delivered into a turn" }).parentElement!.nextElementSibling as HTMLElement;
     expect(within(deliveries).getByText(/Mina is reviewing the same session boundary/)).toBeTruthy();
-    expect(within(deliveries).getByText("acknowledged")).toBeTruthy();
+    // Two of the three fixture deliveries are acknowledged, so this asserts the
+    // acknowledged state is rendered rather than that exactly one row carries it.
+    expect(within(deliveries).getAllByText("acknowledged").length).toBe(2);
     expect(within(deliveries).getByText("not yet acknowledged")).toBeTruthy();
-    expect(screen.getByText(/1 of 2 delivered briefs was acknowledged/)).toBeTruthy();
+    expect(screen.getByText(/2 of 3 delivered briefs were acknowledged/)).toBeTruthy();
   });
 
   it("opens a finding from History without leaving the screen", async () => {
@@ -712,11 +795,11 @@ describe("finding detail navigation", () => {
     await user.click(screen.getByRole("button", { name: /Open Mina's session detail/ }));
     expect(screen.queryByLabelText("Selected collision detail")).toBeNull();
 
-    const back = screen.getByRole("button", { name: /Codex and Claude are touching the session boundary/ });
+    const back = screen.getByRole("button", { name: /Two of Khalid.s sessions are both changing/ });
     await user.click(back);
     expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
     // Back is only offered when something actually sent you here.
-    expect(screen.queryByRole("button", { name: /Codex and Claude are touching the session boundary/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Two of Khalid.s sessions are both changing/ })).toBeNull();
   });
 
   it("opens a Needs you card from anywhere on the card, and shows that it can be", async () => {
@@ -733,5 +816,42 @@ describe("finding detail navigation", () => {
     await user.click(opener);
     expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
     expect(opener.getAttribute("aria-current")).toBe("true");
+  });
+});
+
+describe("grouping sessions by area", () => {
+  // Same shape the branch-grouping tests use: grouping reads a handful of
+  // fields, so the fixture states exactly those.
+  const session = (id: string, extra: Record<string, unknown> = {}): Workstream =>
+    ({ id, paths: [], ...extra }) as unknown as Workstream;
+
+  it("prefers a declared contract, because a contract is what two sessions collide over", () => {
+    expect(sessionArea(session("a", { contracts: ["BrowserSession rotation"], components: ["auth"], paths: ["src/a.ts"] })))
+      .toBe("BrowserSession rotation");
+  });
+
+  it("falls back to a declared component, then to the directory the paths share", () => {
+    expect(sessionArea(session("b", { components: ["protocol generation"], paths: ["src/a.ts"] }))).toBe("protocol generation");
+    expect(sessionArea(session("c", { paths: ["protocol/schemas/a.json", "protocol/schemas/b.json"] }))).toBe("protocol/schemas");
+    // Nothing in common yields nothing, rather than a parent nobody declared.
+    expect(sessionArea(session("d", { paths: ["apps/a.ts", "internal/b.go"] }))).toBeNull();
+    expect(sessionArea(session("e", { paths: [] }))).toBeNull();
+  });
+
+  it("does not group when grouping would add one heading to a list that was already legible", () => {
+    const one = [session("a", { contracts: ["Refresh"] })];
+    expect(groupByArea(one)).toEqual([{ area: null, sessions: one }]);
+  });
+
+  it("puts areas holding more than one session first, and the unplaced last", () => {
+    const sessions = [
+      session("solo", { contracts: ["Zebra"] }),
+      session("unplaced", { paths: [] }),
+      session("pair-1", { contracts: ["Alpha"] }),
+      session("pair-2", { contracts: ["Alpha"] }),
+    ];
+
+    expect(groupByArea(sessions).map((group) => [group.area, group.sessions.length]))
+      .toEqual([["Alpha", 2], ["Zebra", 1], [null, 1]]);
   });
 });

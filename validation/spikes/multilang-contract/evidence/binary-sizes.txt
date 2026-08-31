@@ -1,0 +1,9 @@
+# linked binary sizes (bytes), go build -trimpath -ldflags '-s -w', darwin/arm64
+variant                                             bytes
+a: baseline Go program, no parser                 1641346
+b: + wazero runtime, no grammar blob              4911618
+c: + wazero + 4-grammar wasm embedded raw         8695202
+d: + wazero + 4-grammar wasm embedded gzip        5525746
+gotreesitter, full 206-grammar registry          26705602
+gotreesitter, 4-grammar subset build tags         8371442
+production stickguy binary today                 23826706
