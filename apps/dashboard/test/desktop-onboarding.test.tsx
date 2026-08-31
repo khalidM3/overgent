@@ -37,6 +37,30 @@ describe("desktop onboarding", () => {
     expect(within(connections).getByText(/Settings . Hooks/)).toBeTruthy();
   });
 
+  it("leads with one heading and keeps the full sharing detail one disclosure away", async () => {
+    const api = {
+      state: vi.fn(async () => initial),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+    } as unknown as NativeOnboarding;
+    render(<DesktopOnboarding api={api} />);
+    await screen.findByRole("heading", { name: /Connect the Project/ });
+    // Three stacked restatements of the same idea pushed the first input below
+    // the fold for no gain, so the eyebrow above the heading is gone.
+    expect(screen.queryByText("One repository, one shared view")).toBeNull();
+    // The summary line is what a member reads at the moment of highest
+    // friction. The full boundary must stay reachable and stay exact.
+    expect(screen.getByText(/never your source, diffs, prompts, or credentials/)).toBeTruthy();
+    const disclosure = screen.getByText("Exactly what is and is not shared").closest("details");
+    expect(disclosure).toBeTruthy();
+    expect(within(disclosure as HTMLElement).getByText(/never cross the wire/)).toBeTruthy();
+    // Connecting installs a background service and writes agent configuration.
+    // Saying so before the button is the difference between consent and a
+    // surprise.
+    expect(screen.getByText(/starts Stickguy’s background service on this Mac/)).toBeTruthy();
+  });
+
   it("creates a Project, opts both detected agents in, and exposes the one-use invite", async () => {
     const user = userEvent.setup();
     let calls = 0;
@@ -50,8 +74,11 @@ describe("desktop onboarding", () => {
     render(<DesktopOnboarding api={api} />);
     await screen.findByRole("heading", { name: /Connect the Project/ });
     await user.click(screen.getByRole("button", { name: "Choose…" }));
-    await user.click(screen.getByRole("checkbox", { name: /Codex/ }));
-    await user.click(screen.getByRole("checkbox", { name: /Claude Code/ }));
+    // Detected agents arrive already ticked. Enrolling without connecting one
+    // leaves the Project observing Git alone, which reads as a broken install,
+    // so the detected default is what the member should have to opt out of.
+    expect((screen.getByRole("checkbox", { name: /Codex/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox", { name: /Claude Code/ }) as HTMLInputElement).checked).toBe(true);
     await user.click(screen.getByRole("button", { name: "Create and connect" }));
     expect(await screen.findByRole("heading", { name: "atlas" })).toBeTruthy();
     expect(screen.getByText("inv_test.secret")).toBeTruthy();
