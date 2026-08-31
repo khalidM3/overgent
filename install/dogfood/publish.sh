@@ -18,6 +18,7 @@ deploy=false
 
 origin="${STICKGUY_DOGFOOD_ORIGIN:?set STICKGUY_DOGFOOD_ORIGIN to the public origin}"
 convex="${STICKGUY_DOGFOOD_CONVEX:?set STICKGUY_DOGFOOD_CONVEX to the Convex site URL}"
+project="${STICKGUY_DOGFOOD_VERCEL_PROJECT:-stickguy-dogfood}"
 origin="${origin%/}"
 convex="${convex%/}"
 
@@ -102,8 +103,12 @@ if [ "$deploy" != true ]; then
 fi
 
 echo
-echo "Deploying to $origin ..."
-(cd "$staging" && vercel deploy --prod --yes)
+echo "Deploying to $origin (project $project) ..."
+# The staging directory is recreated on every run and so is never linked to a
+# project. Without an explicit --project, vercel takes the directory name and
+# helpfully creates a brand new project, which deploys the build to a URL
+# nobody has and leaves the real origin serving the previous one.
+(cd "$staging" && vercel deploy --prod --yes --project "$project")
 
 # The installer pins a checksum of the binary served beside it. If a cached
 # edge copy of one outlives the other, members get a checksum failure rather
