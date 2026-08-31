@@ -1671,13 +1671,26 @@ export function DesktopPreviewBanner({ live = false }: { live?: boolean }) {
   return <div className="desktop-preview-banner" role="status"><strong>Stickguy Dev</strong><span>{live ? "Local live Project data · menu bar controls available" : "Fixture data · open a live Project from the menu bar"}</span></div>;
 }
 
+export function FixtureDataBanner() {
+  return <div className="desktop-preview-banner" role="status"><strong>Sample data</strong><span>Design fixture harness · nothing here is a real Project</span></div>;
+}
+
 const root = document.getElementById("root");
 if (root) {
   const parameters = new URLSearchParams(window.location.search);
   const desktopPreview = parameters.get("desktop") === "preview" || window.location.protocol === "wails:";
-  if (desktopPreview) document.documentElement.dataset.desktopPreview = "true";
+  const onboarding = parameters.get("desktop") === "onboarding";
+  // Fixtures are a design harness, so they are opt-in and always labelled. They
+  // used to be what an unrecognised URL fell back to, which meant any plain
+  // browser hit on this origin rendered an invented Project - session titles,
+  // findings, agent transcripts - with nothing on screen saying it was fake.
+  // The live view already has an honest unauthenticated state, so it is the
+  // safe thing to land on when the URL asks for nothing in particular.
+  const fixtures = parameters.get("fixtures") === "1" || (desktopPreview && parameters.get("live") !== "1");
+  const banner = !onboarding && (fixtures || desktopPreview);
+  if (banner) document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
-    {desktopPreview && parameters.get("desktop") !== "onboarding" && <DesktopPreviewBanner live={parameters.get("live") === "1"} />}
-    {parameters.get("desktop") === "onboarding" ? <DesktopOnboarding /> : parameters.get("live") === "1" ? <LiveApp /> : <App />}
+    {banner && (desktopPreview ? <DesktopPreviewBanner live={!fixtures} /> : <FixtureDataBanner />)}
+    {onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : <LiveApp />}
   </StrictMode>);
 }
