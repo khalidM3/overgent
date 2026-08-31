@@ -222,6 +222,14 @@ func (m Manager) plist() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode LaunchAgent: %w", err)
 	}
+	// encoding/xml always writes an empty element as a start/end pair, and
+	// launchd rejects <true></true> with a bare EIO from bootstrap even though
+	// plutil -lint accepts the file. Only the boolean elements are ever empty,
+	// and every attacker-influenced value is escaped character data, so this
+	// cannot rewrite anything but the two booleans encoded just above.
+	for _, name := range []string{"true", "false"} {
+		encoded = bytes.ReplaceAll(encoded, []byte("<"+name+"></"+name+">"), []byte("<"+name+"/>"))
+	}
 	return append([]byte(xml.Header+`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`+"\n"), append(encoded, '\n')...), nil
 }
 
