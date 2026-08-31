@@ -4,14 +4,18 @@
 // signature with the body and comments removed, and a hash per signature. Raw
 // source, bodies, and diffs never leave this package.
 //
-// Only .go, .ts, and .tsx files are fingerprintable. Every other extension has
-// no fingerprint and therefore never produces a contract finding.
+// Go, TypeScript and TSX use their own extractors; Python, JavaScript, Java,
+// Rust, C#, PHP, C, C++, Scala, Kotlin and Dart are parsed by tree-sitter.
+// Every other extension has no fingerprint and therefore never produces a
+// contract finding.
 //
 // Go extraction uses the standard library go/parser and go/ast. TypeScript and
-// TSX extraction uses a bounded scanner written in pure Go: ADR-019 keeps the
-// root module free of CGO and of Node invocation, so no TypeScript parser is
-// linked in. The scanner is deliberately best-effort; see typescript.go for the
-// exact recognized forms and their limitations.
+// TSX extraction uses a bounded scanner written in pure Go; it is deliberately
+// best-effort, and typescript.go documents the exact recognized forms and their
+// limitations. Python and JavaScript are parsed by tree-sitter grammars running
+// as WebAssembly under wazero (ADR-063), which keeps ADR-019's CGO-free,
+// never-invoke-Node boundary because the C toolchain is a build-time dependency
+// producing a vendored module rather than a link-time one.
 //
 // Extraction never returns an error. A file that cannot be parsed, is too
 // large, or is not fingerprintable simply has no fingerprint, so manifest
@@ -25,44 +29,50 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/stickguy/stickguy/internal/contract/fingerprint"
 )
+
+// The fingerprint value types and their bounds live in the leaf package
+// internal/contract/fingerprint so the tree-sitter extractor under this package
+// can share them without an import cycle (ADR-063). They are aliased rather
+// than wrapped so every existing caller of contract.File and contract.Symbol
+// keeps compiling against the same type.
 
 // MaxSignatureRunes bounds a normalized signature. A longer declaration is
 // truncated and marked so a reader can tell the text is not the whole header.
-const MaxSignatureRunes = 500
+const MaxSignatureRunes = fingerprint.MaxSignatureRunes
 
 // TruncationMarker terminates a signature that exceeded MaxSignatureRunes.
-const TruncationMarker = "…"
+const TruncationMarker = fingerprint.TruncationMarker
 
 // MaxSourceBytes refuses files large enough to make extraction unbounded work.
-const MaxSourceBytes = 1 << 20
+const MaxSourceBytes = fingerprint.MaxSourceBytes
 
 // MaxSymbols bounds the exported surface recorded for one file.
-const MaxSymbols = 200
+const MaxSymbols = fingerprint.MaxSymbols
 
 // Symbol is one exported declaration in a file's API surface.
-type Symbol struct {
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Signature     string `json:"signature"`
-	SignatureHash string `json:"signatureHash"`
-}
+type Symbol = fingerprint.Symbol
 
 // File is the fingerprint of one repository-relative path.
-type File struct {
-	Path             string   `json:"path"`
-	FileContractHash string   `json:"fileContractHash"`
-	Symbols          []Symbol `json:"symbols"`
-}
+type File = fingerprint.File
 
 // Fingerprintable reports whether a repository-relative path has a contract
 // fingerprint at all. Extraction and comparison are limited to these languages.
+//
+// It answers the static question "is this a language Stickguy fingerprints",
+// not "will extraction succeed here and now". A wasm-backed language stays
+// fingerprintable on a platform without wazero's compiler; Extract returns no
+// fingerprint there and WasmStatus explains why. Reporting the language as
+// unsupported instead would hide a platform gap behind a language gap, which
+// ADR-063 forbids.
 func Fingerprintable(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go", ".ts", ".tsx":
 		return true
 	}
-	return false
+	return wasmFingerprintable(path)
 }
 
 // Extract derives the fingerprint of one file. The second result is false when
@@ -76,6 +86,11 @@ func Fingerprintable(path string) bool {
 func Extract(path string, source []byte, deny func(signature string) bool) (File, bool) {
 	if !Fingerprintable(path) || len(source) > MaxSourceBytes {
 		return File{}, false
+	}
+	// A wasm-backed language assembles its own File, because the tree-sitter
+	// extractor already applies the same gate, sort, bound and hash tail.
+	if wasmFingerprintable(path) {
+		return extractWasm(path, source, deny)
 	}
 	var symbols []Symbol
 	var ok bool

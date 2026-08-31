@@ -65,7 +65,7 @@ Manifest revisions represent complete current state, not unreliable filesystem d
 
 The manifest content hash is SHA-256 over the ordered entry stream. For every entry, serialize these fields in order: `path`, then for each of `baseline`, `index`, and `worktree`, the literal layer name, its status or the empty string, and its old path or the empty string. Separate every field with one NUL byte and include the trailing NUL. The empty manifest hashes the empty byte string. This encoding is shared by Go and TypeScript and must not be inferred from ordinary JSON serialization.
 
-A contract fingerprint is derived structural metadata, never source (ADR-044, ADR-048). Only `.go`, `.ts`, and `.tsx` paths are fingerprinted; every other path has no fingerprint and can never produce a contract finding. A symbol signature is the normalized declaration with the body and comments removed, bounded to 500 characters and marked when truncated, and `signatureHash` is SHA-256 over that normalized text. `fileContractHash` is SHA-256 over the sorted symbol stream, where each symbol contributes exactly `name`, `:`, `signatureHash`, and a newline; the empty exported surface hashes the empty byte string. A body-only edit leaves `fileContractHash` unchanged and therefore produces no contract evidence. The secret classifier drops a denied signature from both the symbol list and the hash, so the two never disagree.
+A contract fingerprint is derived structural metadata, never source (ADR-044, ADR-048). Only `.go`, `.ts`, `.tsx`, `.py`, `.pyi`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.java`, `.rs`, `.cs`, `.php`, `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.scala`, `.sc`, `.kt`, `.kts`, and `.dart` paths are fingerprinted (ADR-063); every other path has no fingerprint and can never produce a contract finding. A symbol signature is the normalized declaration with the body and comments removed, bounded to 500 characters and marked when truncated, and `signatureHash` is SHA-256 over that normalized text. `fileContractHash` is SHA-256 over the sorted symbol stream, where each symbol contributes exactly `name`, `:`, `signatureHash`, and a newline; the empty exported surface hashes the empty byte string. A body-only edit leaves `fileContractHash` unchanged and therefore produces no contract evidence. The secret classifier drops a denied signature from both the symbol list and the hash, so the two never disagree.
 
 A fingerprints event names the workstream that published it. That workstream is the change attribution once the service confirms it belongs to the publishing workspace; an event without it is attributed to the workspace's most recently active workstream instead.
 
@@ -120,6 +120,11 @@ MCP resolves workspace from client working directory or explicit trusted config,
 
 Tools never mutate Git/worktrees or control the external agent loop. `CoordinationBrief` prioritizes directly relevant unresolved decisions/findings, then evidence/dependency changes and workstreams. It includes `briefId`, `contextRevision`, trigger, budget/size/truncation, stable item IDs/revisions/relevance reasons, and cursor. Findings carry kind, confidence band, severity, provenance, and lifecycle state; raw vector scores are not the user contract. Raw test output/commands are forbidden; verification is bounded structured metadata.
 
+`VerificationSummary.observedAt` is optional when the reporting harness did not
+provide a timestamp. Stickguy does not substitute receipt time or the current
+clock, because that would make an idempotent retry byte-different and would
+present an invented observation time as evidence.
+
 ## 7. Capabilities and errors
 
 Workspace capability example:
@@ -135,3 +140,56 @@ Stable error body:
 ```
 
 Codes are stable; messages may change. Never automatically retry authentication, authorization, validation, or incompatible-version errors.
+
+
+### Goals a session moved on from
+
+`ScopeSnapshot` carries `priorGoals`, oldest first, plus `priorGoalsDropped`.
+A session is not one task: an objective is restated, an agent proposes something
+adjacent, and work accumulates past the goal on record. With only a current
+goal, `done` and `goal` drift apart until the finished work listed beside a goal
+mostly does not belong to it.
+
+A prior goal is appended when `workstream.intent_reported` moves the title or
+intended outcome. A components, contracts, or `waitingOn` edit is a material
+revision but not a new objective, and treating it as one would manufacture a
+history the session never had.
+
+This is durable state on the workstream, not a query over `activityEvents`.
+Those rows carry `expiresAt` and are read newest-first under a bound, so a
+derived history would lose a session's earliest goals as its events aged out —
+a history that silently shortens is worse than none. The list is bounded and
+`priorGoalsDropped` counts what fell off the front, so a truncated history is
+never presented as a whole one.
+
+## 8. Scope snapshots
+
+Every dashboard workstream may carry a revisioned `ScopeSnapshot`. It is a
+pull-only projection and has no route into a brief, hook response, agent turn,
+or interruption channel. The projection renders exactly six fields: Goal, Now,
+Done, Waiting on, Verification, and Scope, plus one honest state:
+`implementing`, `verifying`, `waiting`, or `complete`. It never invents a
+percentage. A future reported step contract may render a count such as “2 of 5
+reported steps”; no such count is inferred from paths, tools, or elapsed time.
+
+Field sources follow strict precedence. Declared facts from
+`workstream.intent_reported` win first; observed writes, contract fingerprints,
+subagent events, and structured checkpoint verification are second; the
+verbatim classifier-approved session `derivedTitle` is a low-evidence fallback
+for Goal only. A field with no applicable fact says that it was not reported
+rather than copying the title into a different meaning.
+
+Every field carries its precedence class, exact canonical fact kinds, and
+evidence quality. `high` means the fact is directly declared or directly
+attributed to the workstream; `medium` means the observation is useful but its
+session attribution is incomplete; `low` is the derived-title fallback; `none`
+means no evidence exists. Codex hook observations remain at most `medium` until
+the session-identity lane can bind declarations and checkpoints to the same
+session workstream. Claude Code and Cursor may show `high` for vendor-observed
+facts their adapters attribute directly. These distinctions must remain visible
+where the field is rendered.
+
+Rendering is deterministic from approved structured facts. A managed model may
+improve wording only from those same facts and may not change meaning, state,
+provenance, or evidence quality. Agent history and transcript content are never
+ScopeSnapshot inputs, as required by `coordination-harness.md` section 8.

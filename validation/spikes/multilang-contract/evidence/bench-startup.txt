@@ -1,0 +1,9 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/stickguy/stickguy/validation/spikes/multilang-contract/multilang
+cpu: Apple M1
+BenchmarkRuntimeStartup/compiler-8         	       5	  74578050 ns/op
+BenchmarkRuntimeStartup/interpreter-8      	       5	  10976367 ns/op
+BenchmarkInterpreterExtract-8              	       5	1011766950 ns/op	   0.06 MB/s	43789907 B/op	 1455993 allocs/op
+PASS
+ok  	github.com/stickguy/stickguy/validation/spikes/multilang-contract/multilang	6.827s

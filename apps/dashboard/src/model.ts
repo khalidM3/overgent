@@ -8,6 +8,11 @@ export type ShellState =
   | "version_mismatch";
 
 export type Presence = "online" | "idle" | "offline" | "paused";
+/**
+ * Coding-agent vendors with a local adapter (ADR-039). Kept as one name so a new
+ * vendor cannot be added to some surfaces and forgotten on others.
+ */
+export type AgentVendor = "codex" | "claude" | "cursor";
 export type Fidelity = "mcp" | "git" | "manual" | "hook" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
 export type SemanticMode = "offline_fallback" | "managed_openai" | "managed_degraded";
@@ -24,6 +29,46 @@ export interface HarnessCapabilities {
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
 export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
 export type Severity = "critical" | "high" | "medium" | "low";
+export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "complete";
+export type ScopeSnapshotProvenance = "declared" | "observed" | "fallback" | "unavailable";
+export type ScopeSnapshotEvidenceQuality = "high" | "medium" | "low" | "none";
+export type ScopeSnapshotFact =
+  | "intent.intendedOutcome"
+  | "intent.approachSummary"
+  | "intent.components"
+  | "intent.contracts"
+  | "intent.waitingOn"
+  | "activity.currentAction"
+  | "activity.writes"
+  | "activity.subagents"
+  | "contract.fingerprints"
+  | "checkpoint.verification"
+  | "session.derivedTitle";
+export interface ScopeSnapshotField {
+  text: string;
+  provenance: ScopeSnapshotProvenance;
+  evidenceQuality: ScopeSnapshotEvidenceQuality;
+  facts: ScopeSnapshotFact[];
+}
+export interface ScopeGoalRecord {
+  title: string;
+  intendedOutcome?: string;
+  endedAt: string;
+}
+export interface ScopeSnapshot {
+  revision: number;
+  state: ScopeSnapshotState;
+  goal: ScopeSnapshotField;
+  now: ScopeSnapshotField;
+  done: ScopeSnapshotField;
+  waitingOn: ScopeSnapshotField;
+  verification: ScopeSnapshotField;
+  scope: ScopeSnapshotField;
+  /** Goals this session pursued and moved on from, oldest first. */
+  priorGoals: ScopeGoalRecord[];
+  /** How many earlier goals were dropped to keep that list bounded. */
+  priorGoalsDropped: number;
+}
 
 export interface ProjectSummary {
   id: string;
@@ -44,8 +89,13 @@ export interface Workstream {
   updatedLabel: string;
   pathCount: number;
   paths: string[];
+  scopeSnapshot: ScopeSnapshot;
+  /** Components this session declared it is working in. */
+  components?: string[];
+  /** Contracts this session declared it is changing or consuming. */
+  contracts?: string[];
   agent?: {
-    vendor: "codex" | "claude";
+    vendor: AgentVendor;
     sessionAlias?: string;
     branch?: string;
     /** What this chat session is actually about, from the vendor's own session record. */
@@ -141,7 +191,7 @@ export interface LocalSessionMessage { kind: SessionMessageKind | "tool"; text?:
 export interface LocalSessionDetail { available: boolean; title?: string; branch?: string; messages: LocalSessionMessage[] }
 export interface SessionMessagesSnapshot {
   workstreamId: string;
-  messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: "codex" | "claude"; capturedAt: string; expiresAt: string }>;
+  messages: Array<{ id: string; kind: SessionMessageKind; text: string; vendor: AgentVendor; capturedAt: string; expiresAt: string }>;
 }
 
 export interface ProjectSnapshot {
