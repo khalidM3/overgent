@@ -244,7 +244,7 @@ func TestSessionWorkstreamMatchesTheHookDerivedIdentity(t *testing.T) {
 	if !ok {
 		t.Fatal("derivation rejected a valid session id")
 	}
-	if got := sessionWorkstream(); got != expected {
+	if got := sessionWorkstream(context.Background(), "", "", nil); got != expected {
 		t.Fatalf("MCP session workstream = %q, hook-derived = %q", got, expected)
 	}
 	if !strings.HasPrefix(expected, "wrk_agent_") {
@@ -252,11 +252,64 @@ func TestSessionWorkstreamMatchesTheHookDerivedIdentity(t *testing.T) {
 	}
 }
 
-// Codex passes a minimal environment to MCP servers and exports no session
-// identity. That must degrade to the workspace workstream rather than guess.
+// A Codex MCP process has no vendor session environment, so begin_work asks the
+// local service to bind its cwd to the one live hook-derived session. Before
+// this regression was fixed, the request carried no AgentWorkstreamID and its
+// intent landed on the workspace workstream.
+func TestCodexBeginWorkUsesTheDaemonResolvedSessionWorkstream(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	root := t.TempDir()
+	const threadID = "01a04ac6-684c-7650-a8b4-311eb918f98a"
+	expected, _, ok := agentactivity.WorkstreamIDFor("codex", threadID)
+	if !ok {
+		t.Fatal("derivation rejected a valid Codex thread id")
+	}
+	resolveCalls, beginCalls := 0, 0
+	bridge := &server{
+		paths: config.Paths{Socket: "fixture.sock"},
+		cfg: config.Config{Workspaces: []config.Workspace{{
+			ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", Root: root,
+		}}},
+		cwd: root,
+		daemonCall: func(_ context.Context, _ string, request daemon.Request) (daemon.Response, error) {
+			switch request.Method {
+			case "resolve_agent_session":
+				resolveCalls++
+				if request.AgentVendor != "codex" || request.AgentCWD != root {
+					t.Fatalf("resolution request=%#v", request)
+				}
+				return daemon.Response{OK: true, Data: map[string]any{"workstreamId": expected, "identified": true}}, nil
+			case "begin_work":
+				beginCalls++
+				if request.AgentWorkstreamID != expected {
+					t.Fatalf("begin_work session=%q, want %q", request.AgentWorkstreamID, expected)
+				}
+				return daemon.Response{OK: true, Data: map[string]any{"intentRevision": 1}}, nil
+			default:
+				t.Fatalf("unexpected daemon method %q", request.Method)
+				return daemon.Response{}, nil
+			}
+		},
+	}
+	_, output, err := bridge.beginWork(context.Background(), nil, intentInput{
+		commonInput:    commonInput{WorkspaceID: "wsp_fixture"},
+		IdempotencyKey: "begin_codex", Title: "Close session identity gap", Outcome: "Route intent to this Codex session",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveCalls != 1 || beginCalls != 1 || output.WorkstreamID != expected {
+		t.Fatalf("resolve=%d begin=%d output=%#v", resolveCalls, beginCalls, output)
+	}
+}
+
+// No unique local-service answer must degrade to the workspace workstream
+// rather than guess at a Codex thread.
 func TestSessionWorkstreamIsEmptyWithoutAVendorSessionIdentity(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
-	if got := sessionWorkstream(); got != "" {
+	if got := sessionWorkstream(context.Background(), "fixture.sock", "/repo", func(_ context.Context, _ string, _ daemon.Request) (daemon.Response, error) {
+		return daemon.Response{OK: true, Data: map[string]any{"identified": false, "ambiguous": true}}, nil
+	}); got != "" {
 		t.Fatalf("unidentified session produced workstream %q", got)
 	}
 }

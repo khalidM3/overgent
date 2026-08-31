@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/stickguy/stickguy/internal/agentactivity"
+	"github.com/stickguy/stickguy/internal/codexappserver"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	gitobs "github.com/stickguy/stickguy/internal/git"
@@ -848,6 +849,118 @@ func TestLifecyclePrefersTheCallingAgentSessionWorkstream(t *testing.T) {
 	invalid, cast := rejected.Data.(lifecycleResult)
 	if !rejected.OK || !cast || invalid.Brief == nil || invalid.Brief.WorkstreamID != workspace.WorkstreamID {
 		t.Fatalf("malformed identity was not rejected: %#v", rejected)
+	}
+}
+
+func TestCodexSessionResolutionRoutesBeginWorkAndFailsClosedOnCheckoutAmbiguity(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		store:  db,
+		cfg:    config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}},
+		sender: &lifecycleFixtureSender{},
+		codexThreadLister: func(context.Context, string, int) ([]codexappserver.Thread, error) {
+			t.Fatal("hook-derived service state was sufficient; app-server fallback must not run")
+			return nil, nil
+		},
+	}
+	first, _, ok := agentactivity.WorkstreamIDFor("codex", "01a04ac6-684c-7650-a8b4-311eb918f98a")
+	if !ok {
+		t.Fatal("first Codex thread id was rejected")
+	}
+	start := func(workstreamID string) {
+		t.Helper()
+		response := service.handle(ctx, daemon.Request{
+			Method: "agent_event", AgentVendor: "codex", AgentCWD: root,
+			AgentWorkstreamID: workstreamID, AgentSessionAlias: "codex-fixture",
+			AgentEvent: "SessionStart", AgentStatus: "active", AgentAction: "Session started",
+		})
+		if !response.OK {
+			t.Fatalf("session start=%#v", response)
+		}
+	}
+	start(first)
+
+	resolved := service.handle(ctx, daemon.Request{Method: "resolve_agent_session", AgentVendor: "codex", AgentCWD: root})
+	resolution, cast := resolved.Data.(agentSessionResolution)
+	if !resolved.OK || !cast || !resolution.Identified || resolution.WorkstreamID != first || resolution.Ambiguous {
+		t.Fatalf("single-session resolution=%#v", resolved)
+	}
+	begin := service.handle(ctx, daemon.Request{
+		Method: "begin_work", WorkspaceID: workspace.ID, AgentWorkstreamID: resolution.WorkstreamID,
+		IdempotencyKey: "begin_codex_session", Title: "Close the Codex identity gap", IntendedOutcome: "Route begin_work to this session",
+	})
+	if !begin.OK {
+		t.Fatalf("begin_work=%#v", begin)
+	}
+	queue, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var intentWorkstream string
+	for _, item := range queue {
+		if item.Kind != "workstream.intent_reported" {
+			continue
+		}
+		var envelope eventEnvelopeForTest
+		if err = json.Unmarshal(item.Payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		intentWorkstream, _ = envelope.Payload["workstreamId"].(string)
+	}
+	if intentWorkstream != first {
+		t.Fatalf("begin_work intent workstream=%q, want %q", intentWorkstream, first)
+	}
+
+	second, _, ok := agentactivity.WorkstreamIDFor("codex", "019f54c4-fd53-7d71-a61b-9b552fc3f730")
+	if !ok {
+		t.Fatal("second Codex thread id was rejected")
+	}
+	start(second)
+	ambiguous := service.handle(ctx, daemon.Request{Method: "resolve_agent_session", AgentVendor: "codex", AgentCWD: root})
+	ambiguousResolution, cast := ambiguous.Data.(agentSessionResolution)
+	if !ambiguous.OK || !cast || ambiguousResolution.Identified || !ambiguousResolution.Ambiguous || ambiguousResolution.WorkstreamID != "" {
+		t.Fatalf("two sessions in one checkout must be unidentified: %#v", ambiguous)
+	}
+}
+
+func TestCodexSessionResolutionFallsBackToRecentExactCWDThreadList(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	const threadID = "01a04ac6-684c-7650-a8b4-311eb918f98a"
+	service := &Service{
+		store: db,
+		cfg:   config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}},
+		codexThreadLister: func(_ context.Context, cwd string, limit int) ([]codexappserver.Thread, error) {
+			if cwd != root || limit != 2 {
+				t.Fatalf("thread/list cwd=%q limit=%d", cwd, limit)
+			}
+			return []codexappserver.Thread{{ID: threadID, CWD: root, UpdatedAt: time.Now().Unix()}}, nil
+		},
+	}
+	response := service.handle(ctx, daemon.Request{Method: "resolve_agent_session", AgentVendor: "codex", AgentCWD: root})
+	resolution, cast := response.Data.(agentSessionResolution)
+	want, _, _ := agentactivity.WorkstreamIDFor("codex", threadID)
+	if !response.OK || !cast || !resolution.Identified || resolution.WorkstreamID != want {
+		t.Fatalf("fallback resolution=%#v", response)
 	}
 }
 

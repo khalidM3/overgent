@@ -4,7 +4,7 @@
   "title": "VerificationSummary",
   "type": "object",
   "additionalProperties": false,
-  "required": ["state", "checkKind", "label", "summary", "source", "observedAt"],
+  "required": ["state", "checkKind", "label", "summary", "source"],
   "properties": {
     "state": {"enum": ["not_run", "running", "passed", "failed", "unknown"]},
     "checkKind": {"type": "string", "minLength": 1, "maxLength": 80},

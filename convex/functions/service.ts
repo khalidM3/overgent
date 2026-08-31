@@ -3,9 +3,19 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
+import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
 import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
-import type { ManifestEntry } from "../src/domain";
+import type { ManifestEntry, SupportedVendor } from "../src/domain";
+import { deriveScopeSnapshot } from "../src/scope-snapshot";
+import { findingTitle } from "../src/finding-title";
+import type { ScopeVerificationFact } from "../src/scope-snapshot";
+
+/**
+ * Display names for the vendors this deployment accepts, used only when a
+ * session has no title of its own yet. A vendor missing from this map falls back
+ * to its own identifier rather than to another vendor's name.
+ */
+const VENDOR_LABELS: Readonly<Record<SupportedVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
 
 const DAY = 86_400_000;
 const ACTIVITY_RETENTION = 30 * DAY;
@@ -221,6 +231,8 @@ export const dashboardSnapshot = internalQuery({
     const projectWorkstreams = await ctx.db.query("workstreams").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).collect();
     const activityDocs = await ctx.db.query("activityEvents").withIndex("by_project_received", (q) => q.eq("projectId", auth.project._id)).order("desc").take(60);
     const findingDocs = await ctx.db.query("findings").withIndex("by_project_seen", (q) => q.eq("projectId", auth.project._id)).take(100);
+    const contractDocs = await ctx.db.query("contractFingerprints").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(501);
+    if (contractDocs.length > 500) fail("page_too_large");
     const decisionDocs = await ctx.db.query("decisions").withIndex("by_project_updated", (q) => q.eq("projectId", auth.project._id)).order("desc").take(100);
     const deliveryDocs = await ctx.db.query("contextDeliveries").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).order("desc").take(100);
     const coordinationSummary = new Map<string, string>([
@@ -297,20 +309,72 @@ export const dashboardSnapshot = internalQuery({
             trigger: delivery.trigger,
           };
         }) : [];
+      const scopeSnapshot = deriveScopeSnapshot({
+        revision: stream.revision,
+        workstreamStatus: stream.status,
+        ...(stream.agentStatus === undefined ? {} : { agentStatus: stream.agentStatus }),
+        ...(stream.vendor === undefined ? {} : { vendor: stream.vendor }),
+        declared: {
+          ...(stream.intendedOutcome === undefined ? {} : { intendedOutcome: stream.intendedOutcome }),
+          ...(stream.approachSummary === undefined ? {} : { approachSummary: stream.approachSummary }),
+          ...(stream.components === undefined ? {} : { components: stream.components }),
+          ...(stream.contracts === undefined ? {} : { contracts: stream.contracts }),
+          ...(stream.waitingOnDeclared ? { waitingOn: stream.waitingOn ?? [] } : {}),
+        },
+        observed: {
+          ...(stream.currentAction === undefined ? {} : { currentAction: stream.currentAction }),
+          writes: paths,
+          writeCount: pathCount,
+          contractPaths: contractDocs.filter((contract) => contract.changedByWorkstreamPublicId === stream.publicId).map((contract) => contract.path),
+          subagents: (stream.subagents ?? []).map((subagent) => ({ agentType: subagent.agentType, status: subagent.status })),
+          verification: stream.latestVerification ?? [],
+        },
+        ...(stream.priorGoals === undefined ? {} : { priorGoals: stream.priorGoals }),
+        ...(stream.priorGoalsDropped === undefined ? {} : { priorGoalsDropped: stream.priorGoalsDropped }),
+        ...(stream.sessionTitle === undefined ? {} : { fallbackDerivedTitle: stream.sessionTitle }),
+      });
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
-        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...PROJECT_HOOK_MCP_CAPABILITIES, observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
-        pathCount, paths, ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
+        ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...vendorCapabilities(stream.vendor), observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
+        pathCount, paths, scopeSnapshot,
+        ...(stream.components?.length ? { components: stream.components.slice(0, 16) } : {}),
+        ...(stream.contracts?.length ? { contracts: stream.contracts.slice(0, 16) } : {}), ...(pathCount >= 1000 ? { largeChange: { pathCount, summary: "Broad metadata-only change; inspect evidence before inferring severity.", revision: manifestRevision } } : {}),
       });
       if (device && !devices.some((candidate) => candidate.id === device.publicId)) devices.push({ id: device.publicId, label: device.label, platform: device.appVersion, status: presence, lastSeen: relativeLabel(args.now, device.lastSeenAt ?? 0) });
     }
-    const findings = findingDocs.map((finding) => ({
+    // Who each session belongs to, so a finding can be titled with people
+    // rather than with identifiers.
+    const nameByWorkstream = new Map(workstreams.map((stream) => [stream.id, stream.memberName]));
+    const findings = findingDocs.map((finding) => {
+      const evidence = finding.evidence as Array<{
+        kind: string; summary: string; source: string; subject?: string;
+        contract?: { path?: string; changedSymbols?: Array<{ name: string }>; changedByWorkstreamId?: string };
+      }>;
+      // Prefer the symbol that actually moved: "a version of Refresh" is the
+      // fact the reader acts on, where the file it lives in is only where to
+      // look. The path is the fallback, and no subject at all still yields a
+      // sentence rather than a category.
+      const carrier = evidence.find((item) => item.subject || item.contract);
+      const subject = carrier?.subject
+        ?? carrier?.contract?.changedSymbols?.[0]?.name
+        ?? carrier?.contract?.path;
+      // A stale assumption is routed only to the session that read the
+      // contract, so the session that moved it has to be recovered from the
+      // evidence before the sentence can name both sides.
+      const changedBy = evidence.find((item) => item.contract?.changedByWorkstreamId)?.contract?.changedByWorkstreamId;
+      return {
       id: finding.publicId, kind: dashboardFindingKind(finding.kind), severity: finding.severity, confidence: finding.confidenceBand, state: dashboardFindingState(finding.state),
-      title: finding.kind.replaceAll("_", " "), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
-      evidence: (finding.evidence as Array<{ kind: string; summary: string; source: string }>).map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
+      title: findingTitle({
+        kind: dashboardFindingKind(finding.kind),
+        actors: finding.workstreamPublicIds.map((id: string) => nameByWorkstream.get(id) ?? "").filter(Boolean),
+        ...(changedBy && nameByWorkstream.get(changedBy) ? { counterpart: nameByWorkstream.get(changedBy)! } : {}),
+        ...(subject ? { subject } : {}),
+      }), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
+      evidence: evidence.map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
-    }));
+      };
+    });
     const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
     return { project: { id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus, semanticMode }, contextRevision, synchronizedAt: "just now", workstreams, findings, activity, devices, workspacePaused: ownWorkspacePaused };
   },
@@ -1172,22 +1236,54 @@ async function applyProjection(
       const workstreamPublicId = String(payload.workstreamId);
       const current = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", workstreamPublicId)).unique();
       const summary = String(payload.intendedOutcome);
+      const hasApproach = typeof payload.approachSummary === "string";
+      const approachSummary = hasApproach ? String(payload.approachSummary) : undefined;
+      const hasComponents = Array.isArray(payload.components);
+      const components = hasComponents ? stringValues(payload.components) : undefined;
+      const hasContracts = Array.isArray(payload.contracts);
+      const contracts = hasContracts ? stringValues(payload.contracts) : undefined;
       const hasWaitingOn = Array.isArray(payload.waitingOn);
       const waitingOn = hasWaitingOn ? stringValues(payload.waitingOn) : undefined;
       if (!current) {
         await ctx.db.insert("workstreams", {
           publicId: workstreamPublicId, projectId: project._id, memberId: member._id, workspaceId: workspace._id,
-          scopeKey: workspace.scopeKey, title: String(payload.title), summary, status: "active", revision: 1, updatedAt: now,
-          ...(waitingOn !== undefined ? { waitingOn } : {}),
+          scopeKey: workspace.scopeKey, title: String(payload.title), summary, intendedOutcome: summary, status: "active", revision: 1, updatedAt: now,
+          ...(approachSummary !== undefined ? { approachSummary } : {}),
+          ...(components !== undefined ? { components } : {}),
+          ...(contracts !== undefined ? { contracts } : {}),
+          ...(waitingOn !== undefined ? { waitingOn, waitingOnDeclared: true } : {}),
         });
         await bumpScope(ctx, workspace.scopeKey, now);
       } else {
         if (current.projectId !== project._id || current.workspaceId !== workspace._id) fail("forbidden");
-        const material = current.title !== String(payload.title) || current.summary !== summary ||
+        const material = current.title !== String(payload.title) || current.summary !== summary || current.intendedOutcome !== summary ||
+          approachSummary !== undefined && current.approachSummary !== approachSummary ||
+          components !== undefined && JSON.stringify(current.components ?? []) !== JSON.stringify(components) ||
+          contracts !== undefined && JSON.stringify(current.contracts ?? []) !== JSON.stringify(contracts) ||
           waitingOn !== undefined && JSON.stringify(current.waitingOn ?? []) !== JSON.stringify(waitingOn);
+        // A goal closes only when the goal itself moved. `material` is also
+        // true for a components, contracts, or waitingOn edit, and treating
+        // those as a new objective would manufacture a history of goals the
+        // session never actually changed between.
+        const goalMoved = current.title !== String(payload.title) || current.intendedOutcome !== summary;
+        const priorGoals = goalMoved
+          ? [...(current.priorGoals ?? []), {
+              title: current.title,
+              ...(current.intendedOutcome !== undefined ? { intendedOutcome: current.intendedOutcome } : {}),
+              endedAt: new Date(now).toISOString(),
+            }]
+          : undefined;
+        const kept = priorGoals ? priorGoals.slice(-MAX_PRIOR_GOALS) : undefined;
         await ctx.db.patch(current._id, {
-          title: String(payload.title), summary, revision: current.revision + 1, status: "active", updatedAt: now,
-          ...(waitingOn !== undefined ? { waitingOn } : {}),
+          title: String(payload.title), summary, intendedOutcome: summary, revision: current.revision + 1, status: "active", updatedAt: now,
+          ...(approachSummary !== undefined ? { approachSummary } : {}),
+          ...(components !== undefined ? { components } : {}),
+          ...(contracts !== undefined ? { contracts } : {}),
+          ...(waitingOn !== undefined ? { waitingOn, waitingOnDeclared: true } : {}),
+          ...(kept !== undefined ? {
+            priorGoals: kept,
+            priorGoalsDropped: (current.priorGoalsDropped ?? 0) + (priorGoals!.length - kept.length),
+          } : {}),
         });
         if (material) await bumpScope(ctx, workspace.scopeKey, now);
       }
@@ -1243,16 +1339,19 @@ async function applyProjection(
       // strength of prose would be a guess. Judgment also reads the bounded
       // summary, because labelling a contract change provisional is advisory
       // and being approximately right there is better than saying nothing.
-      // They collapse into one field once structured verification actually
-      // reaches the wire; today the local serializer emits a nested `source`
-      // key that the hosted gate rejects, so it never arrives.
-      const verification = Array.isArray(payload.verification) ? payload.verification as Array<Record<string, unknown>> : [];
+      // ScopeSnapshot keeps the structured array itself so the dashboard can
+      // show exactly which checks were reported without reading prose or raw
+      // command output.
+      const verification = scopeVerificationFacts(payload.verification);
       const latestCheckpointPassed = verification.length > 0 && verification.every((item) => item.state === "passed");
-      await ctx.db.patch(checkpointWorkstream._id, { latestCheckpointPassed });
       const verificationState = reportedVerificationState(payload.verification) ?? readVerificationState(checkpointSummary);
-      if (checkpointWorkstream.verificationState !== verificationState) {
-        await ctx.db.patch(checkpointWorkstream._id, { verificationState, updatedAt: now });
-      }
+      await ctx.db.patch(checkpointWorkstream._id, {
+        latestCheckpointPassed,
+        latestVerification: verification,
+        verificationState,
+        revision: checkpointWorkstream.revision + 1,
+        updatedAt: now,
+      });
       await readjudicateContractFindings(ctx, checkpointWorkstream, verificationState, now);
       const basedOnBriefId = typeof payload.basedOnBriefId === "string" ? payload.basedOnBriefId : "";
       if (basedOnBriefId) await upsertStaleAssumption(ctx, project, checkpointWorkstream, basedOnBriefId, now);
@@ -1264,7 +1363,7 @@ async function applyProjection(
     case "agent.activity_reported": {
       if (event.sequence <= workspace.lastProjectedSequence) return;
       const workstreamPublicId = String(payload.workstreamId);
-      const vendor = String(payload.vendor) as "codex" | "claude";
+      const vendor = String(payload.vendor) as SupportedVendor;
       const agentStatus = String(payload.status) as "active" | "waiting" | "idle" | "done" | "error";
       const activityKind = String(payload.kind);
       const currentAction = String(payload.action);
@@ -1285,7 +1384,7 @@ async function applyProjection(
       const record = {
         title: typeof payload.sessionTitle === "string" && payload.sessionTitle !== ""
           ? payload.sessionTitle
-          : workstream?.sessionTitle ?? `${vendor === "codex" ? "Codex" : "Claude Code"} · ${String(payload.sessionAlias)}`,
+          : workstream?.sessionTitle ?? `${VENDOR_LABELS[vendor] ?? vendor} · ${String(payload.sessionAlias)}`,
         summary: currentAction, status: agentStatus === "done" ? "done" as const : agentStatus === "error" ? "blocked" as const : agentStatus === "idle" ? "idle" as const : "active" as const,
         vendor, sessionAlias: String(payload.sessionAlias), agentStatus, activityKind, currentAction,
         toolName: typeof payload.tool === "string" ? payload.tool : undefined,
@@ -1328,6 +1427,7 @@ async function applyProjection(
       if (event.sequence <= workspace.lastProjectedSequence) return;
       if (String(payload.workspaceId) !== workspace.publicId) fail("forbidden");
       const changedBy = await attributeContractChange(ctx, project, workspace, payload.workstreamId);
+      let scopeSnapshotChanged = false;
       for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
         const entry = raw as ContractFingerprintEntry;
         const existing = await ctx.db.query("contractFingerprints")
@@ -1343,6 +1443,7 @@ async function applyProjection(
             projectId: project._id, scopeKey: workspace.scopeKey, path: entry.path, revision: 1, ...record,
           });
           await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
+          scopeSnapshotChanged = true;
           continue;
         }
         // A body-only edit leaves the hash alone; nothing is compared and
@@ -1353,12 +1454,14 @@ async function applyProjection(
           continue;
         }
         await ctx.db.patch(existing._id, { ...record, revision: existing.revision + 1 });
+        scopeSnapshotChanged = true;
         await upsertContractFindings(ctx, project, workspace, {
           path: entry.path, previousSymbols: existing.symbols, nextSymbols: entry.symbols,
           nextHash: entry.fileContractHash, changedByWorkstreamPublicId: changedBy, now,
         });
         await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
       }
+      if (scopeSnapshotChanged) await bumpWorkstreamRevision(ctx, changedBy, now);
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
@@ -1409,7 +1512,7 @@ async function applyProjection(
         const expiresAt = now + project.retentionDays * DAY;
         await ctx.db.insert("sessionMessages", {
           publicId: String(payload.messageId), workstreamId: workstream._id, projectId: project._id, memberId: member._id,
-          vendor: payload.vendor as "codex" | "claude", kind: kind as "user" | "assistant" | "thinking" | "system",
+          vendor: payload.vendor as SupportedVendor, kind: kind as "user" | "assistant" | "thinking" | "system",
           text, capturedAt: now, expiresAt,
         });
       }
@@ -1480,7 +1583,7 @@ async function applyProjection(
         if (previous) await ctx.db.patch(previous._id, { state: "superseded" });
       }
       await ctx.db.patch(manifest._id, { state: "active", contentHash: hash, pathCount: entries.length, activatedAt: now });
-      await ctx.db.patch(workstream._id, { currentManifestId: manifest._id, updatedAt: now });
+      await ctx.db.patch(workstream._id, { currentManifestId: manifest._id, revision: workstream.revision + 1, updatedAt: now });
       await upsertPathFindings(ctx, project, manifest, workstream, entries, now);
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
@@ -1569,18 +1672,24 @@ async function upsertContractFindings(
     const fingerprint = sha256Hex(`${workspace.scopeKey}\u0000contract\u0000${reader.workstreamPublicId}\u0000${change.path}\u0000${change.nextHash}`);
     const primary = changedSymbols[0]!;
     const others = changedSymbols.length > 1 ? ` ${changedSymbols.length - 1} other symbol(s) in the file also changed.` : "";
-    const reason = boundedText(
-      `${change.path}: ${primary.name} changed after this session ${readQualifier} it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
-      500,
-    );
     // The symbol diff is structural either way; what varies is the strength of
     // the claim that this session read the file at all (ADR-052).
+    //
+    // These two are declared before `reason`, which reads `readQualifier`.
+    // Declared after it, every stale_assumption threw a temporal-dead-zone
+    // ReferenceError inside publishEvents, which failed the whole event batch —
+    // so no session of any vendor could receive a stale-assumption correction,
+    // and the device's queue stalled behind the throwing batch.
     const readFidelity = readFidelityOf(reader.fidelity);
     const readQualifier = readFidelity === "observed"
       ? "read"
       : readFidelity === "vendor_inferred"
         ? "appears to have read"
         : "said it expected to read";
+    const reason = boundedText(
+      `${change.path}: ${primary.name} changed after this session ${readQualifier} it (was ${primary.oldSignature || "absent"}; now ${primary.newSignature || "removed"}).${others}`,
+      500,
+    );
     const evidence = [{
       kind: "symbol",
       summary: boundedText(`${change.path}: ${changedSymbols.map((symbol) => symbol.name).join(", ")} no longer match what this session ${readQualifier}.`, 500),
@@ -1730,6 +1839,7 @@ async function recomputeDependencyReadiness(
       summary: `${claim} is satisfied by ${satisfaction.satisfiedBy.path} (${satisfaction.state}).`,
       source: "git",
       fidelity: "structural",
+      subject: claim,
       dependency: satisfaction,
     }];
     if (existing) {
@@ -1861,6 +1971,23 @@ function reportedVerificationState(reported: unknown): VerificationState | undef
   const states = reported.map((entry) => String((entry as { state?: unknown }).state ?? ""));
   if (states.some((state) => state !== "passed")) return "unverified";
   return "passed";
+}
+
+function scopeVerificationFacts(reported: unknown): ScopeVerificationFact[] {
+  if (!Array.isArray(reported)) return [];
+  return reported.map((raw) => {
+    const item = raw as Record<string, unknown>;
+    return {
+      state: String(item.state) as ScopeVerificationFact["state"],
+      checkKind: String(item.checkKind),
+      label: String(item.label),
+      summary: String(item.summary),
+      ...(typeof item.affectedComponent === "string" ? { affectedComponent: item.affectedComponent } : {}),
+      ...(typeof item.manifestRevision === "number" ? { manifestRevision: item.manifestRevision } : {}),
+      source: String(item.source) as ScopeVerificationFact["source"],
+      ...(typeof item.observedAt === "string" ? { observedAt: item.observedAt } : {}),
+    };
+  });
 }
 
 function overlapValues(left: readonly string[] = [], right: readonly string[] = []): string[] {
@@ -2251,6 +2378,12 @@ async function requireWorkstream(ctx: MutationCtx, publicId: string, projectId: 
   return workstream;
 }
 
+async function bumpWorkstreamRevision(ctx: MutationCtx, publicId: string, now: number): Promise<void> {
+  const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique();
+  if (!workstream) fail("workstream_not_found");
+  await ctx.db.patch(workstream._id, { revision: workstream.revision + 1, updatedAt: now });
+}
+
 async function requireManifest(ctx: MutationCtx, publicId: string, projectId: Id<"projects">, key: string) {
   const manifest = await ctx.db.query("changeManifests").withIndex("by_public_id", (q) => q.eq("publicId", publicId)).unique();
   if (!manifest) fail("manifest_not_found");
@@ -2307,6 +2440,11 @@ function relativeLabel(now: number, then: number): string {
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr`;
 }
+
+/** Matches priorGoals maxItems in scope-snapshot.schema.json. A session that
+ *  restates its objective more than this many times is served better by an
+ *  honest count of what was dropped than by an unbounded list. */
+const MAX_PRIOR_GOALS = 15;
 
 function activityKind(type: string): "intent" | "manifest" | "finding" | "checkpoint" | "pause" | "agent" {
   if (type === "agent.activity_reported" || type === "session.read_set_reported") return "agent";

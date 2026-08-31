@@ -32,6 +32,15 @@ type Event struct {
 	AgentType      string
 	SubagentAlias  string
 	CandidatePaths []string
+	// CandidateRoots holds every workspace root a vendor reported for this
+	// session, for vendors that report more than one. Cursor sends
+	// `workspace_roots` as an array, and only the daemon knows which of them
+	// this device has registered, so the choice is made there rather than here.
+	CandidateRoots []string
+	// SessionTitle is a vendor-visible title already passed through
+	// ClassifyCoordinationTitle (ADR-042). It carries classifier output only;
+	// the text it was derived from never reaches this struct.
+	SessionTitle string
 	// TranscriptPath is the vendor-named transcript for this session (ADR-036).
 	TranscriptPath string
 	// VendorSessionID is the raw id the vendor used. It is used locally to find
@@ -41,6 +50,13 @@ type Event struct {
 
 var identifier = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._:-]{0,63}$`)
 
+// Parse decodes a Claude- or Codex-shaped hook payload, which share a record
+// format: top-level `session_id`, `cwd`, and `hook_event_name`.
+//
+// Cursor is deliberately not routed here. Its payload shares none of those three
+// fields, and its beforeReadFile carries the whole file being read, which this
+// function's map[string]any decode would materialize. Cursor has its own decoder
+// in cursor.go; see ParseCursor.
 func Parse(vendor string, input []byte) (Event, error) {
 	if vendor != "codex" && vendor != "claude" {
 		return Event{}, errors.New("unsupported activity vendor")
@@ -150,8 +166,12 @@ var shareableKinds = map[string]bool{"user": true, "assistant": true, "thinking"
 // derivation: a coordination brief is filtered by the workstream it is
 // requested for, so an MCP client that computed a different identity than its
 // own hooks could never be shown a finding routed to its session.
+// The identity passed as sessionID is whatever the vendor uses to join its own
+// hooks together: Claude and Codex send `session_id`, Cursor sends
+// `conversation_id`. Cursor's `session_id` appears only on sessionStart and
+// sessionEnd, so hashing it would give one chat a new workstream per hook.
 func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias string, ok bool) {
-	if vendor != "codex" && vendor != "claude" {
+	if vendor != "codex" && vendor != "claude" && vendor != "cursor" {
 		return "", "", false
 	}
 	if sessionID == "" || len(sessionID) > 512 {
@@ -351,22 +371,32 @@ const (
 //
 // Codex has no file-reading tool: it inspects source through the shell, and a
 // shell observation carries a command rather than a list of files, so no hook
-// event ever names a file it read. Self-declaration does not fill that gap
-// either, because Codex passes a minimal environment to MCP servers and exports
-// no session identity, so the paths an MCP client declares are attributed to
-// the workspace workstream while the session's own read set stays empty.
+// event ever names a file it read. MCP self-declaration can add exact paths
+// when the local service can resolve one live Codex thread for the client's
+// cwd. A checkout with zero or multiple candidates stays unidentified rather
+// than assigning one session's reads to another.
 //
 // What does fill it, partially, is Codex's own classification of the commands
 // it ran, recovered from the app-server at turn boundaries. That evidence is
 // vendor-inferred and incomplete, so it is reported as such, and only when a
 // Codex the device can actually talk to is present.
 //
+// inferredReadsAvailable means the mechanism is usable, not merely installed.
+// The caller lowers it once a refresh for that session has demonstrably failed,
+// because a Codex that is present but cannot answer recovers no reads at all,
+// and claiming inferred coverage for it is the same silent overstatement as
+// claiming it with no Codex installed.
+//
+// Cursor's beforeReadFile hook fires before a file is read and names that file
+// in `file_path`, so its reads are observed the same way Claude's are — from the
+// vendor's own statement of which file, not from an inference about a command.
+//
 // Reporting that honestly is the entire point. A session with no read coverage
 // can never receive a stale_assumption finding, so silence for it means
 // absence of evidence, not absence of drift.
 func ReadCoverage(vendor string, inferredReadsAvailable bool) string {
 	switch vendor {
-	case "claude":
+	case "claude", "cursor":
 		return CoverageObserved
 	case "codex":
 		if inferredReadsAvailable {

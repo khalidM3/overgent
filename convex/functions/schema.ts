@@ -132,7 +132,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("idle"), v.literal("done"), v.literal("blocked")),
     revision: v.number(),
     currentManifestId: v.optional(v.id("changeManifests")),
-    vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"))),
+    vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor"))),
     sessionAlias: v.optional(v.string()),
     agentStatus: v.optional(v.union(v.literal("active"), v.literal("waiting"), v.literal("idle"), v.literal("done"), v.literal("error"))),
     activityKind: v.optional(v.string()),
@@ -143,8 +143,42 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     endedAt: v.optional(v.number()),
     safePaths: v.optional(v.array(v.string())),
+    // Canonical declarations are kept independently from the rolling activity
+    // summary so a later hook action cannot overwrite the workstream's stated
+    // goal or approach.
+    intendedOutcome: v.optional(v.string()),
+    approachSummary: v.optional(v.string()),
+    components: v.optional(v.array(v.string())),
+    contracts: v.optional(v.array(v.string())),
     waitingOn: v.optional(v.array(v.string())),
+    waitingOnDeclared: v.optional(v.boolean()),
+    // Goals this session pursued and moved on from, oldest first. A session is
+    // not one task, and keeping only the current goal let `done` accumulate
+    // past the goal shown beside it until the two described different work.
+    //
+    // This is durable state rather than a query over activityEvents, which
+    // carries expiresAt and is read newest-60-first: deriving the history from
+    // there would make a session's earlier goals disappear as the events aged
+    // out, which is worse than not showing them at all.
+    priorGoals: v.optional(v.array(v.object({
+      title: v.string(),
+      intendedOutcome: v.optional(v.string()),
+      endedAt: v.string(),
+    }))),
+    // What fell off the front of that bounded list, so a truncated history is
+    // never presented as a whole one.
+    priorGoalsDropped: v.optional(v.number()),
     latestCheckpointPassed: v.optional(v.boolean()),
+    latestVerification: v.optional(v.array(v.object({
+      state: v.union(v.literal("not_run"), v.literal("running"), v.literal("passed"), v.literal("failed"), v.literal("unknown")),
+      checkKind: v.string(),
+      label: v.string(),
+      summary: v.string(),
+      affectedComponent: v.optional(v.string()),
+      manifestRevision: v.optional(v.number()),
+      source: v.union(v.literal("manual"), v.literal("mcp"), v.literal("hook")),
+      observedAt: v.optional(v.string()),
+    }))),
     subagents: v.optional(v.array(v.object({ alias: v.string(), agentType: v.string(), status: v.string() }))),
     // What this workstream last said about verification of its own work
     // (ADR-045). Absent until it reports a checkpoint that says.
@@ -425,7 +459,11 @@ export default defineSchema({
     workstreamId: v.id("workstreams"),
     projectId: v.id("projects"),
     memberId: v.id("members"),
-    vendor: v.union(v.literal("codex"), v.literal("claude")),
+    // Cursor writes no conversation messages today: it publishes no session
+    // record this device can read, so nothing reaches the message gate. It is
+    // accepted here because the union states what the contract permits, not
+    // which vendors happen to exercise it.
+    vendor: v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor")),
     // "reasoning_summary" and "system" are legacy: hooks never actually supplied
     // them. Retained so pre-ADR-036 rows validate; current code writes only
     // user, assistant, and thinking.

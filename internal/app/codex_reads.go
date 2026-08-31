@@ -33,6 +33,49 @@ func (s *Service) codexInferredReadsAvailable() bool {
 	return err == nil
 }
 
+// codexInferredReadsUsable narrows codexInferredReadsAvailable from "a Codex is
+// installed" to "a Codex is installed and the last refresh for this session
+// actually worked".
+//
+// Locating the executable only proves a file is on disk. A Codex too old to
+// answer, one that exits on start, a spawn that fails, or a thread read that
+// exhausts codexReadRefreshBudget all leave the session with no recovered reads
+// while Locate keeps succeeding — so coverage went on claiming vendor_inferred
+// for a mechanism that was demonstrably not working. A member was then told
+// their contract drift was covered while nothing was being observed, which is
+// the exact silent overstatement ADR-052 exists to remove.
+//
+// A session whose refresh has never been attempted keeps the optimistic answer.
+// That preserves the rule above these constants — a session with no reads yet
+// still has the coverage its vendor allows — and means the downgrade is only
+// ever made from evidence, never from a guess. The consequence is a one-event
+// lag: the turn boundary whose refresh first fails has already reported its
+// coverage, and every event after it reports none.
+func (s *Service) codexInferredReadsUsable(sessionWorkstreamID string) bool {
+	if !s.codexInferredReadsAvailable() {
+		return false
+	}
+	s.codexReadHealthMu.Lock()
+	defer s.codexReadHealthMu.Unlock()
+	return !s.codexReadRefreshFailed[sessionWorkstreamID]
+}
+
+// recordCodexReadRefresh remembers whether the refresh mechanism answered for
+// this session. Recovering zero reads is a success: a session that genuinely
+// read nothing is not a broken mechanism, and treating it as one would silence
+// coverage for a session that is working correctly.
+func (s *Service) recordCodexReadRefresh(sessionWorkstreamID string, failed bool) {
+	if sessionWorkstreamID == "" {
+		return
+	}
+	s.codexReadHealthMu.Lock()
+	defer s.codexReadHealthMu.Unlock()
+	if s.codexReadRefreshFailed == nil {
+		s.codexReadRefreshFailed = map[string]bool{}
+	}
+	s.codexReadRefreshFailed[sessionWorkstreamID] = failed
+}
+
 // publishCodexInferredReads recovers the file reads Codex's own classifier
 // attributed to the commands this session ran, and adds them to the session's
 // read set as vendor-inferred evidence (ADR-052).
@@ -56,11 +99,17 @@ func (s *Service) publishCodexInferredReads(ctx context.Context, workspace confi
 	client, err := codexappserver.Dial(budget, codexappserver.Options{})
 	if err != nil {
 		// A machine without Codex, or a Codex too old to answer, is an ordinary
-		// condition. The session keeps its honest "no coverage" state.
+		// condition. The session keeps its honest "no coverage" state, and the
+		// failure is recorded so coverage stops claiming this device can infer
+		// reads it cannot actually recover.
+		s.recordCodexReadRefresh(sessionWorkstreamID, true)
 		return
 	}
 	defer client.Close()
 	cwd, reads, err := client.ThreadReads(budget, vendorSessionID)
+	// A read that errors or exhausts the budget is a broken mechanism; one that
+	// answers with no reads is a working mechanism reporting an empty result.
+	s.recordCodexReadRefresh(sessionWorkstreamID, err != nil)
 	if err != nil || len(reads) == 0 {
 		return
 	}

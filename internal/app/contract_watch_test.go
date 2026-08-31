@@ -458,3 +458,58 @@ for line in sys.stdin:
 		t.Fatalf("fidelity=%v, want vendor_inferred", entry["fidelity"])
 	}
 }
+
+// A Codex on disk that cannot actually answer recovers no reads at all, so
+// coverage must stop claiming it can infer them. Locating the executable only
+// proves a file exists; before this, a spawn failure, a Codex too old to
+// answer, or a thread read that exhausted the budget all left coverage
+// reporting vendor_inferred while nothing was being observed — telling a member
+// their contract drift was covered when it was not.
+func TestCodexCoverageDegradesOnceTheReadRefreshHasFailed(t *testing.T) {
+	ctx := context.Background()
+	// Locatable, but it exits immediately, so the app-server child cannot be
+	// dialed. That is the "present but not usable" state exactly.
+	unusable := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(unusable, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STICKGUY_CODEX_EXECUTABLE", unusable)
+	fixture := newContractWatchFixture(t)
+	vendorSessionID := "01a04ac6-684c-7650-a8b4-311eb918f98a"
+	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", vendorSessionID)
+	if !ok {
+		t.Fatal("workstream id")
+	}
+	event := func(kind, action string) {
+		t.Helper()
+		if response := fixture.service.handle(ctx, daemon.Request{
+			Method: "agent_event", AgentVendor: "codex", AgentCWD: fixture.root,
+			AgentWorkstreamID: workstream, AgentSessionAlias: "codex-a1b2c3",
+			AgentVendorSessionID: vendorSessionID, AgentEvent: kind,
+			AgentStatus: "active", AgentAction: action,
+		}); !response.OK {
+			t.Fatalf("%s response=%#v", kind, response)
+		}
+	}
+	coverage := func() any {
+		t.Helper()
+		published := payloadsOfKind(t, fixture.db, "agent.activity_reported")
+		return published[len(published)-1]["readCoverage"]
+	}
+
+	// Before any refresh has been attempted the optimistic answer stands: a
+	// session with no reads yet still has the coverage its vendor allows.
+	event("SessionStart", "Session started")
+	if got := coverage(); got != "vendor_inferred" {
+		t.Fatalf("before any refresh readCoverage=%v, want vendor_inferred", got)
+	}
+
+	// The turn boundary attempts the refresh, and it fails.
+	event("Stop", "Turn finished")
+
+	// Every event after that must report what this device can actually see.
+	event("UserPromptSubmit", "Working on a new request")
+	if got := coverage(); got != "none" {
+		t.Fatalf("after a failed refresh readCoverage=%v, want none", got)
+	}
+}

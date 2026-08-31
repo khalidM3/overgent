@@ -549,7 +549,7 @@ export interface components {
                 contractSymbol: {
                     name: string;
                     /** @enum {unknown} */
-                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                     signature: string;
                     signatureHash: string;
                 };
@@ -602,7 +602,7 @@ export interface components {
                     contractSymbol: {
                         name: string;
                         /** @enum {unknown} */
-                        kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                        kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                         signature: string;
                         signatureHash: string;
                     };
@@ -778,7 +778,7 @@ export interface components {
                     /** @enum {unknown} */
                     source: "manual" | "mcp" | "hook";
                     /** Format: date-time */
-                    observedAt: string;
+                    observedAt?: string;
                 }[];
             } | {
                 id: string;
@@ -956,7 +956,7 @@ export interface components {
                 /** @enum {unknown} */
                 source: "manual" | "mcp" | "hook";
                 /** Format: date-time */
-                observedAt: string;
+                observedAt?: string;
             }[];
         } | {
             id: string;
@@ -1001,6 +1001,90 @@ export interface components {
                 semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded";
             }[];
             selectedProjectId: string;
+        };
+        field: {
+            text: string;
+            /** @enum {unknown} */
+            provenance: "declared" | "observed" | "fallback" | "unavailable";
+            /** @enum {unknown} */
+            evidenceQuality: "high" | "medium" | "low" | "none";
+            facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+        };
+        /**
+         * ScopeSnapshot
+         * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+         */
+        "scope-snapshot.schema": {
+            revision: number;
+            /** @enum {unknown} */
+            state: "implementing" | "verifying" | "waiting" | "complete";
+            goal: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            now: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            done: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            waitingOn: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            verification: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            scope: {
+                text: string;
+                /** @enum {unknown} */
+                provenance: "declared" | "observed" | "fallback" | "unavailable";
+                /** @enum {unknown} */
+                evidenceQuality: "high" | "medium" | "low" | "none";
+                facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+            };
+            /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+            priorGoals: {
+                title: string;
+                intendedOutcome?: string;
+                /** Format: date-time */
+                endedAt: string;
+            }[];
+            /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+            priorGoalsDropped: number;
+            $defs: {
+                field: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+            };
         };
         agentSession: {
             /** @enum {unknown} */
@@ -1069,6 +1153,82 @@ export interface components {
             updatedLabel: string;
             pathCount: number;
             paths: string[];
+            /**
+             * ScopeSnapshot
+             * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+             */
+            scopeSnapshot?: {
+                revision: number;
+                /** @enum {unknown} */
+                state: "implementing" | "verifying" | "waiting" | "complete";
+                goal: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                now: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                done: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                waitingOn: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                verification: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                scope: {
+                    text: string;
+                    /** @enum {unknown} */
+                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                    /** @enum {unknown} */
+                    evidenceQuality: "high" | "medium" | "low" | "none";
+                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                };
+                /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                priorGoals: {
+                    title: string;
+                    intendedOutcome?: string;
+                    /** Format: date-time */
+                    endedAt: string;
+                }[];
+                /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                priorGoalsDropped: number;
+                $defs: {
+                    field: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                };
+            };
             agent?: {
                 /** @enum {unknown} */
                 vendor: "codex" | "claude";
@@ -1128,6 +1288,10 @@ export interface components {
                 summary: string;
                 revision: number;
             };
+            /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+            components?: string[];
+            /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+            contracts?: string[];
         };
         finding: {
             id: string;
@@ -1196,6 +1360,82 @@ export interface components {
                 updatedLabel: string;
                 pathCount: number;
                 paths: string[];
+                /**
+                 * ScopeSnapshot
+                 * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                 */
+                scopeSnapshot?: {
+                    revision: number;
+                    /** @enum {unknown} */
+                    state: "implementing" | "verifying" | "waiting" | "complete";
+                    goal: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    now: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    done: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    waitingOn: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    verification: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    scope: {
+                        text: string;
+                        /** @enum {unknown} */
+                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                        /** @enum {unknown} */
+                        evidenceQuality: "high" | "medium" | "low" | "none";
+                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                    };
+                    /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                    priorGoals: {
+                        title: string;
+                        intendedOutcome?: string;
+                        /** Format: date-time */
+                        endedAt: string;
+                    }[];
+                    /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                    priorGoalsDropped: number;
+                    $defs: {
+                        field: {
+                            text: string;
+                            /** @enum {unknown} */
+                            provenance: "declared" | "observed" | "fallback" | "unavailable";
+                            /** @enum {unknown} */
+                            evidenceQuality: "high" | "medium" | "low" | "none";
+                            facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                        };
+                    };
+                };
                 agent?: {
                     /** @enum {unknown} */
                     vendor: "codex" | "claude";
@@ -1255,6 +1495,10 @@ export interface components {
                     summary: string;
                     revision: number;
                 };
+                /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+                components?: string[];
+                /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+                contracts?: string[];
             }[];
             findings: {
                 id: string;
@@ -1343,13 +1587,13 @@ export interface components {
             /** @enum {unknown} */
             source: "manual" | "mcp" | "hook";
             /** Format: date-time */
-            observedAt: string;
+            observedAt?: string;
         };
         safePath: string;
         contractSymbol: {
             name: string;
             /** @enum {unknown} */
-            kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+            kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
             signature: string;
             signatureHash: string;
         };
@@ -1399,7 +1643,7 @@ export interface components {
                 contractSymbol: {
                     name: string;
                     /** @enum {unknown} */
-                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                    kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                     signature: string;
                     signatureHash: string;
                 };
@@ -1622,7 +1866,7 @@ export interface components {
                 /** @enum {unknown} */
                 source: "manual" | "mcp" | "hook";
                 /** Format: date-time */
-                observedAt: string;
+                observedAt?: string;
             }[];
         };
         resolution: {
@@ -2418,6 +2662,82 @@ export interface operations {
                             updatedLabel: string;
                             pathCount: number;
                             paths: string[];
+                            /**
+                             * ScopeSnapshot
+                             * @description A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.
+                             */
+                            scopeSnapshot?: {
+                                revision: number;
+                                /** @enum {unknown} */
+                                state: "implementing" | "verifying" | "waiting" | "complete";
+                                goal: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                now: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                done: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                waitingOn: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                verification: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                scope: {
+                                    text: string;
+                                    /** @enum {unknown} */
+                                    provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                    /** @enum {unknown} */
+                                    evidenceQuality: "high" | "medium" | "low" | "none";
+                                    facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                };
+                                /** @description Goals this session pursued and moved on from, oldest first, so completed work stays attached to the goal it belonged to. A session is not one task: an objective is restated, an agent proposes something adjacent, and work accumulates past the goal on record. Carrying only the current goal made `done` and `goal` drift apart until the list of finished work mostly did not belong to the goal displayed beside it. Bounded, and `priorGoalsDropped` counts what fell off the front rather than letting the list imply it is complete. */
+                                priorGoals: {
+                                    title: string;
+                                    intendedOutcome?: string;
+                                    /** Format: date-time */
+                                    endedAt: string;
+                                }[];
+                                /** @description How many earlier goals were discarded to keep priorGoals bounded. Present so a truncated history never reads as a whole one. */
+                                priorGoalsDropped: number;
+                                $defs: {
+                                    field: {
+                                        text: string;
+                                        /** @enum {unknown} */
+                                        provenance: "declared" | "observed" | "fallback" | "unavailable";
+                                        /** @enum {unknown} */
+                                        evidenceQuality: "high" | "medium" | "low" | "none";
+                                        facts: ("intent.intendedOutcome" | "intent.approachSummary" | "intent.components" | "intent.contracts" | "intent.waitingOn" | "activity.currentAction" | "activity.writes" | "activity.subagents" | "contract.fingerprints" | "checkpoint.verification" | "session.derivedTitle")[];
+                                    };
+                                };
+                            };
                             agent?: {
                                 /** @enum {unknown} */
                                 vendor: "codex" | "claude";
@@ -2477,6 +2797,10 @@ export interface operations {
                                 summary: string;
                                 revision: number;
                             };
+                            /** @description Components this workstream declared it is working in. Used to group sessions by area of the product; absent for a session that declared none. */
+                            components?: string[];
+                            /** @description Contracts this workstream declared it is changing or consuming. The strongest grouping key there is: two sessions under one contract is the collision, shown as structure rather than as a separate alert. */
+                            contracts?: string[];
                         }[];
                         findings: {
                             id: string;
@@ -2629,7 +2953,7 @@ export interface operations {
                             contractSymbol: {
                                 name: string;
                                 /** @enum {unknown} */
-                                kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum";
+                                kind: "func" | "method" | "type" | "field" | "interface_member" | "const" | "var" | "function" | "class" | "interface" | "enum" | "reexport" | "namespace";
                                 signature: string;
                                 signatureHash: string;
                             };
@@ -2888,7 +3212,7 @@ export interface operations {
                                 /** @enum {unknown} */
                                 source: "manual" | "mcp" | "hook";
                                 /** Format: date-time */
-                                observedAt: string;
+                                observedAt?: string;
                             }[];
                         } | {
                             id: string;
@@ -3835,7 +4159,7 @@ export interface operations {
                             /** @enum {unknown} */
                             source: "manual" | "mcp" | "hook";
                             /** Format: date-time */
-                            observedAt: string;
+                            observedAt?: string;
                         }[];
                     } | {
                         id: string;

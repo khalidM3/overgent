@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/config"
 	"github.com/stickguy/stickguy/internal/daemon"
 	"os"
@@ -313,5 +314,99 @@ func TestCreateReusesAnEnrolledDeviceAndRefusesAConnectedRepository(t *testing.T
 
 	if _, err = enrolledDevice(paths, connected); err == nil {
 		t.Fatal("a repository already connected to a Project must be refused")
+	}
+}
+
+// Cursor's hook response is its own shape: `env` publishes the session-scoped
+// workspace root from sessionStart, and `additional_context` carries a
+// correction into the turn that triggered the hook. Neither is Claude's
+// `hookSpecificOutput`, so the two paths are asserted separately.
+func TestCursorHookPublishesTheWorkspaceRootAndPushesContext(t *testing.T) {
+	root := t.TempDir()
+	input := []byte(`{"conversation_id":"conv-1","session_id":"sess-1","hook_event_name":"sessionStart","workspace_roots":["` + root + `"]}`)
+	var output bytes.Buffer
+	var methods []string
+	call := func(_ context.Context, _ string, request daemon.Request) (daemon.Response, error) {
+		methods = append(methods, request.Method)
+		if request.AgentVendor != "cursor" || request.AgentEvent != "SessionStart" {
+			t.Fatalf("unexpected request: %+v", request)
+		}
+		if request.Method == "agent_event" {
+			// The service answers with the root it actually resolved, which is
+			// what later hooks in this session are pinned to.
+			return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "workspaceRoot": root}}, nil
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"additionalContext": "Coordination update: Refresh changed."}}, nil
+	}
+	if err := runCursorHook(context.Background(), "unused", "sessionStart", bytes.NewReader(input), &output, call); err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %q", output.String())
+	}
+	env, ok := decoded["env"].(map[string]any)
+	if !ok || env["STICKGUY_CURSOR_WORKSPACE_ROOT"] != root {
+		t.Fatalf("sessionStart did not publish the workspace root: %q", output.String())
+	}
+	if decoded["additional_context"] != "Coordination update: Refresh changed." {
+		t.Fatalf("correction was not pushed into the turn: %q", output.String())
+	}
+	if strings.Contains(output.String(), "hookSpecificOutput") {
+		t.Fatalf("Cursor must not be handed Claude's response shape: %q", output.String())
+	}
+	if len(methods) != 2 || methods[0] != "agent_event" || methods[1] != "agent_injection" {
+		t.Fatalf("unexpected call sequence: %v", methods)
+	}
+}
+
+// afterFileEdit carries no workspace root and no event name, so the session
+// variable and the installed --event are the only things that can place it.
+// It is also not an injection point: it must observe and stay silent.
+func TestCursorEditHookUsesTheSessionVariableAndEmitsNothing(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(agentactivity.CursorWorkspaceRootEnv, root)
+	input := []byte(`{"conversation_id":"conv-1","file_path":"` + filepath.Join(root, "frontend", "session.ts") + `"}`)
+	var output bytes.Buffer
+	var methods []string
+	call := func(_ context.Context, _ string, request daemon.Request) (daemon.Response, error) {
+		methods = append(methods, request.Method)
+		if request.AgentCWD != root || request.AgentEvent != "PostToolUse" || request.AgentTool != "edit" {
+			t.Fatalf("unexpected request: %+v", request)
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "workspaceRoot": root}}, nil
+	}
+	if err := runCursorHook(context.Background(), "unused", "afterFileEdit", bytes.NewReader(input), &output, call); err != nil {
+		t.Fatal(err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("an observation-only hook wrote output: %q", output.String())
+	}
+	if len(methods) != 1 || methods[0] != "agent_event" {
+		t.Fatalf("unexpected call sequence: %v", methods)
+	}
+}
+
+// Nothing Stickguy cannot do may reach a Cursor turn (ADR-017), so an
+// unreachable service, an unknown event, and unreadable input all produce no
+// output and no error.
+func TestCursorHookFailsOpenWithoutOutput(t *testing.T) {
+	root := t.TempDir()
+	valid := `{"conversation_id":"conv-1","hook_event_name":"sessionStart","workspace_roots":["` + root + `"]}`
+	failing := func(_ context.Context, _ string, _ daemon.Request) (daemon.Response, error) {
+		return daemon.Response{}, context.DeadlineExceeded
+	}
+	for name, input := range map[string]string{"valid": valid, "malformed": "{not json", "empty": ""} {
+		var output bytes.Buffer
+		if err := runCursorHook(context.Background(), "unused", "sessionStart", strings.NewReader(input), &output, failing); err != nil {
+			t.Fatalf("%s: hook returned an error: %v", name, err)
+		}
+		if output.Len() != 0 {
+			t.Fatalf("%s: hook wrote output despite failure: %q", name, output.String())
+		}
+	}
+	var output bytes.Buffer
+	if err := runCursorHook(context.Background(), "unused", "beforeShellExecution", strings.NewReader(valid), &output, failing); err != nil || output.Len() != 0 {
+		t.Fatalf("an unconfigured event produced %q / %v", output.String(), err)
 	}
 }
