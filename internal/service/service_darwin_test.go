@@ -18,13 +18,21 @@ func TestLaunchAgentPlistUsesArgumentArrayAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, expected := range []string{"<string>--config-root</string>", "<string>/Users/test/Library/Application Support/Stickguy</string>", "<key>KeepAlive</key>", "<true></true>", "<key>ThrottleInterval</key>"} {
+	for _, expected := range []string{"<string>--config-root</string>", "<string>/Users/test/Library/Application Support/Stickguy</string>", "<key>KeepAlive</key>", "<true/>", "<key>ThrottleInterval</key>"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("plist missing %q:\n%s", expected, text)
 		}
 	}
 	if strings.Contains(text, "sh -c") {
 		t.Fatal("plist shell-concatenates arguments")
+	}
+	// launchd rejects the expanded empty element with a bare "Bootstrap failed:
+	// 5: Input/output error", so every install fails while plutil -lint still
+	// reports the file as valid. Only the self-closing form bootstraps.
+	for _, rejected := range []string{"<true></true>", "<false></false>"} {
+		if strings.Contains(text, rejected) {
+			t.Fatalf("plist uses %q, which launchd refuses to bootstrap:\n%s", rejected, text)
+		}
 	}
 }
 

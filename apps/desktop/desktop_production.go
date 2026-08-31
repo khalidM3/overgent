@@ -22,7 +22,13 @@ func desktopProductName() string       { return "Stickguy" }
 func desktopMenuLabel() string         { return "Stickguy beta" }
 func desktopStartURL() string          { return "/?desktop=onboarding" }
 func desktopURLScheme() string         { return "stickguy" }
-func desktopAPIBaseURL() string        { return "https://api.stickguy.dev" }
+// apiBaseURL is the hosted origin a production build talks to. Releases keep the
+// default; a private build for a closed test overrides it with
+// -X main.apiBaseURL=... so the app does not have to be edited to point at a
+// different deployment. Activation rejects anything that is not HTTPS.
+var apiBaseURL = "https://api.stickguy.dev"
+
+func desktopAPIBaseURL() string        { return apiBaseURL }
 func desktopActivationBaseURL() string { return desktopAPIBaseURL() }
 func desktopCLIBinary() string {
 	executable, err := os.Executable()
