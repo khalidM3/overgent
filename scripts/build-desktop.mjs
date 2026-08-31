@@ -34,8 +34,19 @@ if (!development) {
   if (cliBuild.status !== 0) process.exit(cliBuild.status ?? 1);
 }
 
+// A production build normally talks to the released hosted origin. A closed
+// test deployment overrides it here rather than by editing the source, and the
+// value has to be a clean HTTPS origin because that is all activation accepts.
+const productionAPIOrigin = String(process.env.STICKGUY_PRODUCTION_API_ORIGIN ?? "").replace(/\/$/, "");
+if (productionAPIOrigin) {
+  let parsed;
+  try { parsed = new URL(productionAPIOrigin); } catch { throw new Error("STICKGUY_PRODUCTION_API_ORIGIN must be a valid HTTPS URL"); }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/") {
+    throw new Error("STICKGUY_PRODUCTION_API_ORIGIN must be a clean HTTPS origin");
+  }
+}
 const buildArguments = ["build"];
-if (!development) buildArguments.push("-tags", "production", "-trimpath", "-ldflags", "-w -s");
+if (!development) buildArguments.push("-tags", "production", "-trimpath", "-ldflags", `-w -s${productionAPIOrigin ? ` -X main.apiBaseURL=${productionAPIOrigin}` : ""}`);
 buildArguments.push("-o", executable, ".");
 const build = spawnSync("go", buildArguments, {
   cwd: desktop,
