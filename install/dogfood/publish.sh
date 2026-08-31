@@ -39,6 +39,20 @@ if [ "$node_major" -lt 22 ]; then
   echo "Node 22 or newer is required (found ${node_major}.x). Try: nvm use 22" >&2
   exit 1
 fi
+# Checked before the build rather than after it. The build takes minutes, and
+# a missing CLI discovered at the deploy step wastes all of them. nvm installs
+# global binaries per Node version, so requiring Node 22 above can itself be
+# what takes vercel off PATH.
+if [ "$deploy" = true ]; then
+  vercel_bin="${STICKGUY_DOGFOOD_VERCEL_BIN:-vercel}"
+  if ! command -v "$vercel_bin" >/dev/null 2>&1; then
+    echo "The vercel CLI is not on PATH for Node ${node_major}.x." >&2
+    echo "Install it for this version:  npm i -g vercel" >&2
+    echo "Or point at an existing one:  STICKGUY_DOGFOOD_VERCEL_BIN=\$(nvm which 20 >/dev/null 2>&1 && dirname \$(nvm which 20))/vercel" >&2
+    echo "Or stage without deploying by re-running without --deploy." >&2
+    exit 1
+  fi
+fi
 
 commit="$(git -C "$root" rev-parse HEAD)"
 short="$(git -C "$root" rev-parse --short HEAD)"
@@ -108,7 +122,7 @@ echo "Deploying to $origin (project $project) ..."
 # project. Without an explicit --project, vercel takes the directory name and
 # helpfully creates a brand new project, which deploys the build to a URL
 # nobody has and leaves the real origin serving the previous one.
-(cd "$staging" && vercel deploy --prod --yes --project "$project")
+(cd "$staging" && "$vercel_bin" deploy --prod --yes --project "$project")
 
 # The installer pins a checksum of the binary served beside it. If a cached
 # edge copy of one outlives the other, members get a checksum failure rather
