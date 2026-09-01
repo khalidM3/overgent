@@ -20,6 +20,11 @@ var codexEvents = []string{
 	"PostToolUse", "SubagentStart", "SubagentStop", "Stop", "SessionEnd",
 }
 
+// codexSessionEndTimeout is the ceiling Codex enforces on a synchronous
+// SessionEnd handler. Exceeding it is not an error: Codex silently lowers the
+// value and warns, which is worse than matching it.
+const codexSessionEndTimeout = 3
+
 type handler struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
@@ -325,6 +330,15 @@ func expected(event, command string) group {
 	timeout := 5
 	if injectionBoundary {
 		timeout = 2
+	}
+	// Codex caps a synchronous SessionEnd at codexSessionEndTimeout and prints
+	// "clamping SessionEnd hook timeout to 3s in <path>" every time it has to,
+	// so asking for 5 bought nothing and put a Stickguy-owned filename in front
+	// of the member on every session they closed. Writing the cap is also what
+	// Codex hashes for hook trust — it normalizes before hashing (ADR-051) — so
+	// a binding already trusted at 5 stays trusted through this change.
+	if event == "SessionEnd" && commandVendor(command) == "codex" {
+		timeout = codexSessionEndTimeout
 	}
 	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd" && !injectionBoundary, Timeout: timeout}}}
 }
