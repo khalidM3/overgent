@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,8 +35,15 @@ func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
 	if !state.Enrolled || state.ProjectID != "prj_test" || state.RepositoryRoot != repository || state.RepositoryLabel != filepath.Base(repository) {
 		t.Fatalf("unexpected bounded state: %+v", state)
 	}
-	if len(state.Adapters) != 2 {
-		t.Fatalf("adapter count=%d", len(state.Adapters))
+	// Named rather than counted: this assertion was left at 2 when the Cursor
+	// adapter landed, and a bare count says nothing about which one went
+	// missing when it next changes.
+	var names []string
+	for _, adapter := range state.Adapters {
+		names = append(names, adapter.Name)
+	}
+	if !slices.Equal(names, []string{"Codex", "Claude Code", "Cursor"}) {
+		t.Fatalf("adapters=%v", names)
 	}
 }
 
