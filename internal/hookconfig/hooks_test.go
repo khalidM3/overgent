@@ -211,3 +211,55 @@ func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
 		t.Fatalf("teardown lost unrelated settings: %v", document)
 	}
 }
+
+// Codex silently lowers a SessionEnd timeout above its ceiling and warns while
+// doing it, so the value written has to be the ceiling itself. Claude has no
+// such cap and keeps the ordinary observation budget.
+func TestCodexSessionEndTimeoutMatchesTheCodexCeiling(t *testing.T) {
+	codex, _ := Command("/a/stickguy", "/state", "codex")
+	configured := expected("SessionEnd", codex).Hooks[0]
+	if configured.Async || configured.Timeout != codexSessionEndTimeout {
+		t.Fatalf("codex SessionEnd handler=%#v", configured)
+	}
+	claude, _ := Command("/a/stickguy", "/state", "claude")
+	configured = expected("SessionEnd", claude).Hooks[0]
+	if configured.Async || configured.Timeout != 5 {
+		t.Fatalf("claude SessionEnd handler=%#v", configured)
+	}
+}
+
+// A member who installed before the ceiling was honoured has a 5s SessionEnd on
+// disk. That is the shape legacyExpected describes, so setup must repair it in
+// place rather than refusing the file as drift and leaving the warning running.
+func TestInstallRepairsAnOverLongCodexSessionEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
+	command, _ := Command("/a/stickguy", "/state", "codex")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := map[string]any{"hooks": map[string]any{"SessionEnd": []group{{Hooks: []handler{legacyExpected("SessionEnd", command)}}}}}
+	encoded, _ := json.Marshal(stale)
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(path, command)
+	if err != nil || inspection.State != BindingPartial {
+		t.Fatalf("stale inspection=%#v err=%v", inspection, err)
+	}
+	if err = Install(path, command); err != nil {
+		t.Fatal(err)
+	}
+	if ok, statusErr := Status(path, command); statusErr != nil || !ok {
+		t.Fatalf("repaired status=%v err=%v", ok, statusErr)
+	}
+	data, _ := os.ReadFile(path)
+	var document struct {
+		Hooks map[string][]group `json:"hooks"`
+	}
+	if err = json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	if written := document.Hooks["SessionEnd"][0].Hooks[0].Timeout; written != codexSessionEndTimeout {
+		t.Fatalf("SessionEnd timeout on disk = %d, want %d: %s", written, codexSessionEndTimeout, data)
+	}
+}
