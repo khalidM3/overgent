@@ -76,6 +76,13 @@ type Service struct {
 	// the local app-server, and a restart correctly forgets it.
 	codexReadHealthMu      sync.Mutex
 	codexReadRefreshFailed map[string]bool
+	publishHealthMu        sync.RWMutex
+	lastPublishError       string
+	// midTurnFetchMu guards the per-workstream throttle on PostToolUse brief
+	// fetches, so an agent making a tool call every second does not pay a
+	// hosted roundtrip on each one.
+	midTurnFetchMu sync.Mutex
+	midTurnFetch   map[string]time.Time
 }
 
 func Run(ctx context.Context, root string, sender Sender) error {
@@ -188,15 +195,19 @@ func (s *Service) flushLoop(ctx context.Context) {
 func (s *Service) flush(ctx context.Context) bool {
 	pending, err := s.store.Pending(ctx)
 	if err != nil {
+		s.recordPublishError("load_queue", err)
 		return false
 	}
 	if len(pending) == 0 {
+		s.clearPublishError()
 		return true
 	}
 	ws, err := s.store.Workspaces(ctx)
 	if err != nil {
+		s.recordPublishError("load_workspaces", err)
 		return false
 	}
+	anyQuarantined := false
 	paused := map[string]bool{}
 	for _, w := range ws {
 		paused[w.ID] = w.Paused
@@ -217,18 +228,127 @@ func (s *Service) flush(ctx context.Context) bool {
 			n := min(100, len(events))
 			window := events[:n]
 			batch, e := store.Batch(window)
-			if e != nil || s.sender.Send(ctx, workspaceID, batch) != nil {
+			if e != nil {
+				s.recordPublishError("build_batch", e)
 				return false
+			}
+			if e = s.sender.Send(ctx, workspaceID, batch); e != nil {
+				if !permanentRejection(e) {
+					s.recordPublishError("send_batch", e)
+					return false
+				}
+				// The batch is all-or-nothing, so a permanent rejection says
+				// nothing about which event the backend refused. Retrying
+				// each one alone quarantines exactly the refused events
+				// instead of wedging the queue behind them forever (B24).
+				ok, retryErr := s.retryIndividually(ctx, workspaceID, window)
+				if !ok {
+					s.recordPublishError("send_batch", retryErr)
+					return false
+				}
+				anyQuarantined = true
+				events = events[n:]
+				continue
 			}
 			for _, event := range window {
 				if e := s.store.Ack(ctx, event.ID); e != nil {
+					s.recordPublishError("ack_batch", e)
 					return false
 				}
 			}
 			events = events[n:]
 		}
 	}
+	if anyQuarantined {
+		// The queue is drained, but "rejected" must stay visible: clearing it
+		// would report a flush that abandoned events as a healthy publish.
+		return true
+	}
+	s.clearPublishError()
 	return true
+}
+
+// permanentRejection reports whether the backend refused this content with a
+// verdict a retry cannot change. Credential problems (401) and rate limits
+// (429) are recoverable states, not verdicts on the events.
+func permanentRejection(err error) bool {
+	var api *hosted.APIError
+	if !errors.As(err, &api) || api.Retryable {
+		return false
+	}
+	return api.Status >= 400 && api.Status < 500 && api.Status != 401 && api.Status != 408 && api.Status != 429
+}
+
+// retryIndividually resends a rejected window one event at a time, acking the
+// accepted and quarantining the refused. A transient failure mid-way stops the
+// pass; whatever was not reached stays pending for the next flush.
+func (s *Service) retryIndividually(ctx context.Context, workspaceID string, window []store.QueueEvent) (bool, error) {
+	for _, event := range window {
+		single, e := store.Batch([]store.QueueEvent{event})
+		if e != nil {
+			return false, e
+		}
+		if e = s.sender.Send(ctx, workspaceID, single); e != nil {
+			if !permanentRejection(e) {
+				return false, e
+			}
+			if e = s.store.Quarantine(ctx, event.ID); e != nil {
+				return false, e
+			}
+			s.recordPublishReason("send_event", "rejected")
+			continue
+		}
+		if e = s.store.Ack(ctx, event.ID); e != nil {
+			return false, e
+		}
+	}
+	return true, nil
+}
+
+func (s *Service) recordPublishError(operation string, err error) {
+	s.recordPublishReason(operation, publishFailureReason(err))
+}
+
+func (s *Service) recordPublishReason(operation, reason string) {
+	s.publishHealthMu.Lock()
+	s.lastPublishError = reason
+	s.publishHealthMu.Unlock()
+	// Raw transport errors can contain URLs, response bodies, or credentials.
+	// The closed reason retains an actionable cause without crossing the log
+	// privacy boundary.
+	slog.Warn("event publishing degraded", "operation", operation, "reason", reason)
+}
+
+func (s *Service) clearPublishError() {
+	s.publishHealthMu.Lock()
+	s.lastPublishError = ""
+	s.publishHealthMu.Unlock()
+}
+
+func (s *Service) publishError() string {
+	s.publishHealthMu.RLock()
+	defer s.publishHealthMu.RUnlock()
+	return s.lastPublishError
+}
+
+func publishFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "offline"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "rate_limited"), strings.Contains(message, "rate limited"), strings.Contains(message, "429"), strings.Contains(message, "quota"):
+		return "quota"
+	case strings.Contains(message, "paused"):
+		return "paused"
+	case strings.Contains(message, "timeout"), strings.Contains(message, "unavailable"), strings.Contains(message, "connection"), strings.Contains(message, "no such host"), strings.Contains(message, "network"):
+		return "offline"
+	default:
+		return "provider_error"
+	}
 }
 
 func retryDelay(failures int) time.Duration {
@@ -300,7 +420,8 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		// A focus the member has forgotten is the failure mode of any mute, so
 		// the count travels with the health that the menu bar already reads.
 		focused, _ := s.store.ActiveFocus(ctx, time.Now())
-		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "scans": s.scans, "scanCycles": s.scanCycles.Load(), "pid": os.Getpid()}}
+		quarantined, _ := s.store.QuarantinedCount(ctx)
+		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "pid": os.Getpid()}}
 	case "pause", "resume":
 		// Pause is scoped to whatever the caller named. A member reading one
 		// Project means that Project, and asking them to name every workspace
@@ -432,6 +553,23 @@ func (s *Service) handleFocus(ctx context.Context, q daemon.Request) daemon.Resp
 	}
 }
 
+// claimMidTurnFetch grants at most one mid-turn brief fetch per workstream
+// per window. Unlike delivery claims this is in-memory: losing it on restart
+// costs one extra fetch, never a duplicate delivery.
+func (s *Service) claimMidTurnFetch(workstreamID string, now time.Time) bool {
+	const window = 20 * time.Second
+	s.midTurnFetchMu.Lock()
+	defer s.midTurnFetchMu.Unlock()
+	if s.midTurnFetch == nil {
+		s.midTurnFetch = map[string]time.Time{}
+	}
+	if last, seen := s.midTurnFetch[workstreamID]; seen && now.Sub(last) < window {
+		return false
+	}
+	s.midTurnFetch[workstreamID] = now
+	return true
+}
+
 func focusState(session string, until time.Time, focused bool) map[string]any {
 	state := map[string]any{"sessionId": session, "focused": focused}
 	if focused {
@@ -442,7 +580,16 @@ func focusState(session string, until time.Time, focused bool) map[string]any {
 
 func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) daemon.Response {
 	result := agentInjectionResult{}
-	if q.AgentEvent != "SessionStart" && q.AgentEvent != "UserPromptSubmit" {
+	// PostToolUse is a boundary the vendor renders additional context at, and
+	// for an agent working autonomously through a long turn it is the only
+	// boundary that arrives before the work lands (B28). It is rate-limited
+	// and carries only coordination_required items; everything else waits for
+	// a natural turn boundary.
+	midTurn := q.AgentEvent == "PostToolUse"
+	if q.AgentEvent != "SessionStart" && q.AgentEvent != "UserPromptSubmit" && !midTurn {
+		return daemon.Response{OK: true, Data: result}
+	}
+	if midTurn && !s.claimMidTurnFetch(q.AgentWorkstreamID, time.Now()) {
 		return daemon.Response{OK: true, Data: result}
 	}
 	if q.AgentVendor != "claude" && q.AgentVendor != "codex" && q.AgentVendor != "cursor" || !validContractID(q.AgentWorkstreamID) {
@@ -483,9 +630,16 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	}
 	pendingItems := make([]hosted.BriefItem, 0, len(undelivered))
 	for _, item := range brief.Items {
-		if undeliveredSet[store.InjectionItem{ID: item.ID, Revision: item.Revision}] {
-			pendingItems = append(pendingItems, item)
+		if !undeliveredSet[store.InjectionItem{ID: item.ID, Revision: item.Revision}] {
+			continue
 		}
+		// Mid-turn interruption is reserved for corrections that cannot wait
+		// for the turn to finish. A routine item claimed here would be marked
+		// delivered without the emphasis its natural boundary would give it.
+		if midTurn && item.AdvisoryAction != "coordination_required" {
+			continue
+		}
+		pendingItems = append(pendingItems, item)
 	}
 	selected := selectInjectionItems(pendingItems)
 	selectedCandidates := make([]store.InjectionItem, 0, len(selected))

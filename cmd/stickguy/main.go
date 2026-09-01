@@ -141,7 +141,7 @@ func run(args []string) error {
 			return e
 		}
 		if joinFlags.NArg() != 1 {
-			return errors.New("join requires one invite code")
+			return errors.New("join requires one invite link or code")
 		}
 		service := onboarding.New(*apiBase)
 		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version}, joinFlags.Arg(0))
@@ -561,7 +561,13 @@ func runAgentHook(ctx context.Context, socket, vendor string, stdin io.Reader, s
 	observeContext, cancelObserve := context.WithTimeout(hookContext, 700*time.Millisecond)
 	_, err = call(observeContext, socket, request)
 	cancelObserve()
-	if event.Kind != "SessionStart" && event.Kind != "UserPromptSubmit" {
+	// PostToolUse is the only boundary that can reach an agent working
+	// autonomously through a long turn before its work lands (B28). Claude
+	// renders hookSpecificOutput.additionalContext there; other vendors do
+	// not, so for them mid-turn stays a no-op. The daemon rate-limits the
+	// fetch and restricts mid-turn payloads to coordination_required items.
+	midTurnBoundary := event.Kind == "PostToolUse" && event.Vendor == "claude"
+	if event.Kind != "SessionStart" && event.Kind != "UserPromptSubmit" && !midTurnBoundary {
 		return nil
 	}
 	// A failed observation never suppresses a pending correction: the event is
@@ -768,10 +774,10 @@ func safeDoctorSummary(value any) map[string]any {
 	if !ok {
 		return safe
 	}
-	allowedStrings := []string{"status"}
-	allowedNumbers := []string{"bootCount", "workspaces", "pausedWorkspaces", "focusedSessions", "pending", "scans", "scanCycles"}
+	allowedStrings := []string{"status", "lastPublishError"}
+	allowedNumbers := []string{"bootCount", "workspaces", "pausedWorkspaces", "focusedSessions", "pending", "quarantined", "scans", "scanCycles"}
 	for _, key := range allowedStrings {
-		if item, ok := object[key].(string); ok && len(item) <= 40 {
+		if item, ok := object[key].(string); ok && len(item) <= 40 && (key != "lastPublishError" || isDegradedReason(item)) {
 			safe[key] = item
 		}
 	}
@@ -785,6 +791,15 @@ func safeDoctorSummary(value any) map[string]any {
 		}
 	}
 	return safe
+}
+
+func isDegradedReason(value string) bool {
+	switch value {
+	case "", "not_configured", "quota", "provider_error", "offline", "paused", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func removeAllAgentBindings(configRoot string, paths config.Paths, portable bool) error {

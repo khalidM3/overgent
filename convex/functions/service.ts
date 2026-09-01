@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
-import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, SESSION_STOP_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry, SupportedVendor } from "../src/domain";
 import { deriveScopeSnapshot } from "../src/scope-snapshot";
 import { findingTitle } from "../src/finding-title";
@@ -381,7 +381,10 @@ export const dashboardSnapshot = internalQuery({
 });
 
 export const recordSemanticHealth = internalMutation({
-  args: { tokenHash: v.string(), workstreamPublicId: v.string(), degraded: v.boolean(), now: v.number() },
+  args: {
+    tokenHash: v.string(), workstreamPublicId: v.string(), degraded: v.boolean(), now: v.number(),
+    reason: v.optional(v.union(v.literal("not_configured"), v.literal("quota"), v.literal("provider_error"), v.literal("offline"), v.literal("paused"))),
+  },
   handler: async (ctx, args) => {
     const device = await requireDevice(ctx, args.tokenHash);
     const workstream = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", args.workstreamPublicId)).unique();
@@ -389,7 +392,11 @@ export const recordSemanticHealth = internalMutation({
     await requireMembership(ctx, device._id, workstream.projectId);
     const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", workstream.scopeKey)).unique();
     if (!scope) fail("not_found");
-    await ctx.db.patch(scope._id, args.degraded ? { semanticDegradedAt: args.now } : { semanticHealthyAt: args.now });
+    // A degraded flag without a cause is the state the status banner cannot
+    // render; every site that knows why must say so (B34/B37).
+    await ctx.db.patch(scope._id, args.degraded
+      ? { semanticDegradedAt: args.now, semanticDegradedReason: args.reason ?? "provider_error" }
+      : { semanticHealthyAt: args.now, semanticDegradedReason: undefined });
     return true;
   },
 });
@@ -1178,7 +1185,10 @@ async function expireQuietSessions(ctx: MutationCtx, now: number, limit: number)
     if (expired >= limit) break;
     const candidates = await ctx.db
       .query("workstreams")
-      .withIndex("by_status_updated", (q) => q.eq("status", status).lte("updatedAt", now - SESSION_IDLE_TIMEOUT_MS))
+      // The index bound must match the per-status window the predicate
+      // applies, or a stopped session between the two would never even be
+      // considered (B31).
+      .withIndex("by_status_updated", (q) => q.eq("status", status).lte("updatedAt", now - (status === "idle" ? SESSION_STOP_TIMEOUT_MS : SESSION_IDLE_TIMEOUT_MS)))
       .take(limit - expired);
     for (const session of candidates) {
       if (!sessionHasGoneQuiet(session, now)) continue;
@@ -1413,6 +1423,7 @@ async function applyProjection(
         ...(activityKind === "SessionStart" ? { startedAt: lifecycleAt } : workstream?.startedAt === undefined ? {} : { startedAt: workstream.startedAt }),
         ...(activityKind === "SessionEnd" ? { endedAt: lifecycleAt } : workstream?.endedAt === undefined ? {} : { endedAt: workstream.endedAt }),
         safePaths, subagents: subagents.slice(0, 32), updatedAt: now,
+        ...(incomingPaths.length > 0 ? { lastWritePaths: [...new Set(incomingPaths)].sort().slice(0, 100), lastWriteAt: now } : {}),
         readCoverage: readCoverageOf(payload.readCoverage) ?? workstream?.readCoverage,
       };
       if (workstream) {
@@ -1446,10 +1457,11 @@ async function applyProjection(
     case "workspace.contract_fingerprints_reported": {
       if (event.sequence <= workspace.lastProjectedSequence) return;
       if (String(payload.workspaceId) !== workspace.publicId) fail("forbidden");
-      const changedBy = await attributeContractChange(ctx, project, workspace, payload.workstreamId);
       let scopeSnapshotChanged = false;
+      const changedByWorkstreams = new Set<string>();
       for (const raw of Array.isArray(payload.entries) ? payload.entries : []) {
         const entry = raw as ContractFingerprintEntry;
+        const changedBy = await attributeContractChange(ctx, project, workspace, payload.workstreamId, entry.path);
         const existing = await ctx.db.query("contractFingerprints")
           .withIndex("by_scope_path", (q) => q.eq("scopeKey", workspace.scopeKey).eq("path", entry.path)).unique();
         if (existing && existing.projectId !== project._id) fail("forbidden");
@@ -1464,6 +1476,7 @@ async function applyProjection(
           });
           await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
           scopeSnapshotChanged = true;
+          changedByWorkstreams.add(changedBy);
           continue;
         }
         // A body-only edit leaves the hash alone; nothing is compared and
@@ -1475,13 +1488,16 @@ async function applyProjection(
         }
         await ctx.db.patch(existing._id, { ...record, revision: existing.revision + 1 });
         scopeSnapshotChanged = true;
+        changedByWorkstreams.add(changedBy);
         await upsertContractFindings(ctx, project, workspace, {
           path: entry.path, previousSymbols: existing.symbols, nextSymbols: entry.symbols,
           nextHash: entry.fileContractHash, changedByWorkstreamPublicId: changedBy, now,
         });
         await recomputeDependencyClaimsForScope(ctx, project, workspace.scopeKey, now);
       }
-      if (scopeSnapshotChanged) await bumpWorkstreamRevision(ctx, changedBy, now);
+      if (scopeSnapshotChanged) {
+        for (const changedBy of changedByWorkstreams) await bumpWorkstreamRevision(ctx, changedBy, now);
+      }
       await ctx.db.patch(workspace._id, { lastProjectedSequence: event.sequence, updatedAt: now });
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
@@ -1604,6 +1620,25 @@ async function applyProjection(
       }
       await ctx.db.patch(manifest._id, { state: "active", contentHash: hash, pathCount: entries.length, activatedAt: now });
       await ctx.db.patch(workstream._id, { currentManifestId: manifest._id, revision: workstream.revision + 1, updatedAt: now });
+      if (workstream.vendor === undefined) {
+        // Git observes the combined checkout. Whatever no live agent session
+        // accounts for is the adapterless member's work - the only evidence
+        // they leave (B29). Claimed-by-anyone paths stay unattributed here:
+        // same-file edits by an agent and a manual member in one checkout are
+        // genuinely indistinguishable, and claiming otherwise would fabricate
+        // coverage.
+        const scopePeers = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).collect();
+        const claimed = new Set<string>();
+        for (const peer of scopePeers) {
+          if (!peer.vendor || peer.status === "done") continue;
+          for (const path of peer.safePaths ?? []) claimed.add(path);
+          for (const path of peer.lastWritePaths ?? []) claimed.add(path);
+        }
+        await ctx.db.patch(workstream._id, {
+          residualPaths: residualManifestPaths(entries.map((entry) => entry.path), claimed),
+          residualAt: now,
+        });
+      }
       await upsertPathFindings(ctx, project, manifest, workstream, entries, now);
       await bumpScope(ctx, workspace.scopeKey, now);
       return;
@@ -1619,17 +1654,32 @@ type ChangedSymbol = { name: string; oldSignature: string; newSignature: string 
 // names its workstream is believed once the workstream is confirmed to belong
 // to this workspace; a publisher that does not, or that names a workstream this
 // service has not projected yet, falls back to derivation.
-async function attributeContractChange(
+export async function attributeContractChange(
   ctx: MutationCtx,
   project: Doc<"projects">,
   workspace: Doc<"workspaces">,
   reported: unknown,
+  path: string,
 ): Promise<string> {
+  let named: Doc<"workstreams"> | null = null;
   if (typeof reported === "string" && reported !== "") {
-    const named = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", reported)).unique();
+    named = await ctx.db.query("workstreams").withIndex("by_public_id", (q) => q.eq("publicId", reported)).unique();
     if (named && (named.projectId !== project._id || named.workspaceId !== workspace._id)) fail("forbidden");
-    if (named) return named.publicId;
+    // An agent that explicitly published its own fingerprint remains exact.
+    if (named?.vendor) return named.publicId;
   }
+  // Git observes the combined checkout, so its event names the workspace
+  // workstream. Hook mutation paths are the stronger per-session attribution:
+  // choose the most recently active agent in this workspace whose latest
+  // mutation event reported this exact path. Read-tool paths never enter this
+  // field, and replacing rather than accumulating it avoids attributing a
+  // later manual edit to an agent that touched the path much earlier.
+  const candidates = await ctx.db.query("workstreams").withIndex("by_scope", (q) => q.eq("scopeKey", workspace.scopeKey)).collect();
+  const author = candidates
+    .filter((candidate) => candidate.workspaceId === workspace._id && candidate.vendor !== undefined && candidate.status !== "done" && candidate.lastWritePaths?.includes(path))
+    .sort((left, right) => (right.lastWriteAt ?? 0) - (left.lastWriteAt ?? 0))[0];
+  if (author) return author.publicId;
+  if (named) return named.publicId;
   return changingWorkstream(ctx, workspace);
 }
 
@@ -1662,7 +1712,7 @@ function diffContractSymbols(previous: readonly ContractSymbol[], next: readonly
 // upsertContractFindings raises one stale_assumption finding per (session,
 // path, new hash) for every other live session whose read set holds an older
 // contract for the path. The fingerprint makes redelivery a no-op.
-async function upsertContractFindings(
+export async function upsertContractFindings(
   ctx: MutationCtx,
   project: Doc<"projects">,
   workspace: Doc<"workspaces">,
@@ -2117,7 +2167,13 @@ async function upsertPathFindings(
   }
 }
 
-async function upsertAgentPathFindings(
+// residualManifestPaths keeps the manifest paths no live agent session has
+// claimed, bounded and sorted for stable fingerprints.
+export function residualManifestPaths(paths: readonly string[], claimed: ReadonlySet<string>): string[] {
+  return [...new Set(paths.filter((path) => !claimed.has(path)))].sort().slice(0, 200);
+}
+
+export async function upsertAgentPathFindings(
   ctx: MutationCtx,
   project: Doc<"projects">,
   workstream: Doc<"workstreams">,
@@ -2133,15 +2189,65 @@ async function upsertAgentPathFindings(
       const workstreamIds = [workstream.publicId, peer.publicId].sort();
       const fingerprint = sha256Hex(`${workstream.scopeKey}\0agent-hook\0${workstreamIds.join("\0")}\0${path}`);
       const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
-      const evidence = [{ kind: "path", summary: `Both active agent sessions reported work on ${path}.`, source: "hook", fidelity: "structural" }];
+      // Two agents editing one file is real information but not, by itself,
+      // interference: different single lines of shared/settings.ts drew a
+      // high/next_turn interruption for two fully compatible edits (B26),
+      // which is the "trains people to ignore it" mode. Bare file overlap is
+      // a quiet structural notice. Interruption needs corroboration, and the
+      // deterministic evidence available here is the file's contract having
+      // moved while both sessions were live - then someone's assumptions
+      // about the file are genuinely at risk, not merely nearby.
+      const contract = await ctx.db.query("contractFingerprints")
+        .withIndex("by_scope_path", (q) => q.eq("scopeKey", workstream.scopeKey).eq("path", path)).unique();
+      const bothLiveSince = Math.max(workstream.startedAt ?? now, peer.startedAt ?? now);
+      const corroborated = contract !== null && contract.revision > 1 && contract.updatedAt >= bothLiveSince;
+      const severity = corroborated ? ("high" as const) : ("medium" as const);
+      const evidence = [{ kind: "path", summary: corroborated
+        ? `Both active agent sessions reported work on ${path}, and its contract changed while both were live.`
+        : `Both active agent sessions reported work on ${path}.`, source: "hook", fidelity: "structural" }];
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          lastSeenAt: now, evidence, state: "open", expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+          // Corroboration can arrive after the first sighting; the finding
+          // escalates in place rather than waiting to be re-raised. It never
+          // steps back down: the contract movement already happened.
+          ...(corroborated && existing.severity !== "high"
+            ? { severity, delivery: decideDelivery(relationshipForKind("direct_collision"), severity), revision: existing.revision + 1 }
+            : {}),
+        });
+      } else {
+        await ctx.db.insert("findings", {
+          publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey,
+          kind: "direct_collision", severity, confidenceBand: "deterministic", workstreamPublicIds: workstreamIds,
+          evidence, reason: `Active ${workstream.vendor} and ${peer.vendor} sessions overlap on ${path}.`, state: "open",
+          delivery: decideDelivery(relationshipForKind("direct_collision"), severity),
+          fingerprint, engineVersion: "agent-path/v1", revision: 1, firstSeenAt: now, lastSeenAt: now,
+          expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+        });
+      }
+    }
+  }
+  // A member without an adapter leaves only residual git evidence on the
+  // workspace workstream (B29). Attribution by elimination is real but weaker
+  // than a hook report, so the finding is capped at a quiet dashboard notice
+  // with a non-deterministic band - honest about what was actually observed.
+  for (const peer of peers) {
+    if (peer._id === workstream._id || peer.vendor !== undefined || peer.status === "done") continue;
+    if (peer.residualAt === undefined || now - peer.residualAt > 600_000) continue;
+    const overlaps = [...new Set((peer.residualPaths ?? []).filter((path) => ownPaths.has(path)))].sort();
+    for (const path of overlaps) {
+      const workstreamIds = [workstream.publicId, peer.publicId].sort();
+      const fingerprint = sha256Hex(`${workstream.scopeKey} residual ${workstreamIds.join(" ")} ${path}`);
+      const existing = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("fingerprint", fingerprint)).unique();
+      const evidence = [{ kind: "path", summary: `An agent session reported work on ${path}, which recent git history attributes to a member working without an adapter.`, source: "git", fidelity: "residual" }];
       if (existing) {
         await ctx.db.patch(existing._id, { lastSeenAt: now, evidence, state: "open", expiresAt: now + DEFAULT_RETENTION_DAYS * DAY });
       } else {
         await ctx.db.insert("findings", {
           publicId: `fnd_${fingerprint.slice(0, 32)}`, projectId: project._id, scopeKey: workstream.scopeKey,
-          kind: "direct_collision", severity: "high", confidenceBand: "deterministic", workstreamPublicIds: workstreamIds,
-          evidence, reason: `Active ${workstream.vendor} and ${peer.vendor} sessions overlap on ${path}.`, state: "open",
-          delivery: decideDelivery(relationshipForKind("direct_collision"), "high"),
+          kind: "direct_collision", severity: "medium", confidenceBand: "medium", workstreamPublicIds: workstreamIds,
+          evidence, reason: `An active ${workstream.vendor} session and a member without an adapter overlap on ${path}.`, state: "open",
+          delivery: decideDelivery(relationshipForKind("direct_collision"), "medium"),
           fingerprint, engineVersion: "agent-path/v1", revision: 1, firstSeenAt: now, lastSeenAt: now,
           expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
         });
@@ -2192,7 +2298,16 @@ async function upsertSemanticIntelligence(
   }
   if (!object) fail("semantic_object_missing");
   const existingEmbedding = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object!._id)).unique();
-  const embedding = { scopeKey: workstream.scopeKey, providerName: "stickguy", modelVersion: "stickguy-concepts/v1", contentRevision: object.revision, vector: conceptVector(text), expiresAt: now + DEFAULT_RETENTION_DAYS * DAY };
+  const fallbackModelVersion = "stickguy-concepts/v1/1024";
+  const embedding = {
+    scopeKey: workstream.scopeKey,
+    scopeModelKey: `${workstream.scopeKey.length}:${workstream.scopeKey}${fallbackModelVersion}`,
+    providerName: "stickguy",
+    modelVersion: fallbackModelVersion,
+    contentRevision: object.revision,
+    vector: conceptVector(text),
+    expiresAt: now + DEFAULT_RETENTION_DAYS * DAY,
+  };
   if (existingEmbedding) await ctx.db.patch(existingEmbedding._id, embedding);
   else await ctx.db.insert("semanticEmbeddings", { objectId: object._id, ...embedding });
 
