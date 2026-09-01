@@ -90,8 +90,12 @@ func (s *Service) recordCodexReadRefresh(sessionWorkstreamID string, failed bool
 // best-effort, and a compound command that genuinely reads files can come back
 // `unknown`, so what lands here is evidence of lower fidelity and is recorded
 // as such rather than being presented as observation.
-func (s *Service) publishCodexInferredReads(ctx context.Context, workspace config.Workspace, vendorSessionID, sessionWorkstreamID string) {
-	if vendorSessionID == "" || sessionWorkstreamID == "" {
+//
+// sessionWorkstreamID is the parse-time session handle and keys the refresh
+// health this file tracks; publishedWorkstreamID is that handle scoped to the
+// enrollment, and is what the recovered reads are published under (B24).
+func (s *Service) publishCodexInferredReads(ctx context.Context, workspace config.Workspace, vendorSessionID, sessionWorkstreamID, publishedWorkstreamID string) {
+	if vendorSessionID == "" || sessionWorkstreamID == "" || publishedWorkstreamID == "" {
 		return
 	}
 	budget, cancel := context.WithTimeout(ctx, codexReadRefreshBudget)
@@ -133,7 +137,7 @@ func (s *Service) publishCodexInferredReads(ctx context.Context, workspace confi
 		seen[read.Path] = true
 		candidates = append(candidates, read.Path)
 	}
-	s.publishReadSet(ctx, workspace, sessionWorkstreamID, candidates, store.ReadFidelityVendorInferred, inferredReadPathsPerTurn)
+	s.publishReadSet(ctx, workspace, publishedWorkstreamID, candidates, store.ReadFidelityVendorInferred, inferredReadPathsPerTurn)
 }
 
 // withinRoot reports whether a directory is the workspace root or beneath it,
