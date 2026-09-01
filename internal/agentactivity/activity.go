@@ -170,6 +170,12 @@ var shareableKinds = map[string]bool{"user": true, "assistant": true, "thinking"
 // hooks together: Claude and Codex send `session_id`, Cursor sends
 // `conversation_id`. Cursor's `session_id` appears only on sessionStart and
 // sessionEnd, so hashing it would give one chat a new workstream per hook.
+//
+// What this derives is the local session handle, not the identity that reaches
+// the hosted service. The daemon scopes the handle to an enrollment through
+// PublishedWorkstreamID before anything is published, so hooks and the MCP
+// server still only need to agree here — both hand the daemon the same handle
+// and the daemon translates them the same way.
 func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias string, ok bool) {
 	if vendor != "codex" && vendor != "claude" && vendor != "cursor" {
 		return "", "", false
@@ -179,6 +185,25 @@ func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias strin
 	}
 	sum := sha256.Sum256([]byte("stickguy.agent-session.v1\x00" + vendor + "\x00" + sessionID))
 	return fmt.Sprintf("wrk_agent_%x", sum[:16]), fmt.Sprintf("%s-%x", vendor, sum[:3]), true
+}
+
+// PublishedWorkstreamID scopes a locally derived agent-session handle to the
+// enrollment it is being published into.
+//
+// WorkstreamIDFor is a pure function of (vendor, session id) so that every
+// hook, adapter, and MCP process can derive it before it knows anything about
+// a project. But the hosted service binds a workstream to one (project,
+// workspace) pair, and an agent session routinely outlives a re-enrollment:
+// publishing the unscoped handle into the new project collides with the
+// binding the old project still holds, and the hosted service correctly
+// refuses every event the session sends from then on (B24). Only the daemon
+// knows which enrollment an observation belongs to, so it — and nothing
+// upstream of it — performs this translation, and it must apply it uniformly:
+// a brief is filtered by the workstream it is requested for, so an identity
+// published one way and requested another would never see its own findings.
+func PublishedWorkstreamID(workstreamID, projectID, workspaceID string) string {
+	sum := sha256.Sum256([]byte("stickguy.agent-session-scope.v1\x00" + projectID + "\x00" + workspaceID + "\x00" + workstreamID))
+	return fmt.Sprintf("wrk_agent_%x", sum[:16])
 }
 
 // ClassifyCoordinationTitle permits only the short vendor-visible label used
