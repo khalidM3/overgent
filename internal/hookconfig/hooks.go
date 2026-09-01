@@ -96,11 +96,13 @@ func Install(path, command string) error {
 					if candidate.Command != command {
 						return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
 					}
+					// The command matched exactly, so this handler is this
+					// profile's own. Its tuning is Stickguy's to set: repair it
+					// rather than refusing the file. Refusing here protected
+					// nothing and stranded the member, because a hand-edited
+					// timeout is indistinguishable from an older Stickguy's.
 					wanted := expected(event, command).Hooks[0]
 					if candidate != wanted {
-						if candidate != legacyExpected(event, command) {
-							return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
-						}
 						groups[groupIndex].Hooks[handlerIndex] = wanted
 						hooks[event], err = json.Marshal(groups)
 						if err != nil {
@@ -152,11 +154,14 @@ func Inspect(path, command string) (Inspection, error) {
 						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
 					}
 					existingCommands[candidate.Command] = true
-					wanted := expected(event, candidate.Command).Hooks[0]
-					if candidate == wanted {
+					// Only the command decides ownership; the vendor check above
+					// already made that call. A handler of ours whose tuning
+					// differs — an older Stickguy's, or one a member edited — is
+					// incomplete, not foreign, so it reports partial and Install
+					// repairs it. Reporting drift here was a dead end: the
+					// desktop row offers reconnect only for another profile.
+					if candidate == expected(event, candidate.Command).Hooks[0] {
 						present[event] = true
-					} else if candidate != legacyExpected(event, candidate.Command) {
-						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
 					}
 				}
 			}
@@ -341,10 +346,6 @@ func expected(event, command string) group {
 		timeout = codexSessionEndTimeout
 	}
 	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd" && !injectionBoundary, Timeout: timeout}}}
-}
-
-func legacyExpected(event, command string) handler {
-	return handler{Type: "command", Command: command, Async: event != "SessionEnd", Timeout: 5}
 }
 
 func managed(command string) bool {
