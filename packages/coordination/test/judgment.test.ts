@@ -150,6 +150,26 @@ describe("deterministic judgment", () => {
     expect(explanation).toContain("probably redundant");
   });
 
+  // B25: CONCEPT_GROUPS are synonym *groups*, but sharedBehaviorTerms tested
+  // each word against both sides, so it only ever found words the two summaries
+  // literally shared - which is what the fallback already does. A pair that
+  // reached the same concept through different synonyms matched nothing, and
+  // the explanation collapsed to the generic sentence. These are the real
+  // intent summaries from dogfood round 10 (SG-06): "credentials" and "login
+  // sessions" are both group 0, "role" and "privilege" are both group 1, and
+  // the old code named neither.
+  it("names a concept two summaries reached through different synonyms", () => {
+    const left = "New backend/revoke.go: revoke active BrowserSession credentials when a member's role changes, with audit logging";
+    const right = "Implement invalidation of all current login sessions after a privilege change";
+    expect(sharedBehaviorTerms(left, right).length).toBeGreaterThan(0);
+    const duplicate = candidate({
+      workstreams: [workstream("wrk_a", { summary: left }), workstream("wrk_b", { summary: right })],
+    });
+    const explanation = deterministicJudgment(duplicate).explanation;
+    expect(explanation).toContain("Both describe");
+    expect(explanation).toContain("probably redundant");
+  });
+
   it("prefers the curated vocabulary over incidental shared words", () => {
     // "credential" is vocabulary; "browser" is merely a word both used.
     expect(sharedBehaviorTerms("Rotate browser credentials.", "Revoke browser credentials.")[0]).toBe("credential");

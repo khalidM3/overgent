@@ -182,8 +182,24 @@ export function joinTerms(terms: readonly string[]): string {
 export function sharedBehaviorTerms(left: string, right: string, limit = 3): string[] {
   const shared: string[] = [];
   for (const group of CONCEPT_GROUPS) {
-    for (const word of group) {
-      if (behaviorWord(word).test(left) && behaviorWord(word).test(right)) shared.push(word);
+    // A group is a set of synonyms, so the two summaries share its concept when
+    // each side used *any* word in it - not only when they used the same one.
+    // Testing every word against both sides found only words the summaries
+    // literally shared, which is what the fallback below already does, and left
+    // the vocabulary unable to name the cross-synonym pairs it exists for
+    // ("credentials" against "login sessions", "role" against "privilege").
+    const literals = group.filter((word) => behaviorWord(word).test(left) && behaviorWord(word).test(right));
+    if (literals.length > 0) {
+      // The words both members actually wrote are more concrete than the
+      // concept label, so they still win - all of them, as before - whenever
+      // the group has any.
+      shared.push(...literals);
+      continue;
+    }
+    if (group.some((word) => behaviorWord(word).test(left)) && group.some((word) => behaviorWord(word).test(right))) {
+      // Neither side's own word can stand for the pair without misquoting the
+      // other, so the group's canonical term names the concept instead.
+      shared.push(group[0]!);
     }
   }
   if (shared.length === 0) {
