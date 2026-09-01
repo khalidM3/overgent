@@ -198,8 +198,8 @@ func TestReadSetIsCapturedFromInspectionToolsAndDedupedPerSession(t *testing.T) 
 	if len(published) != 1 {
 		t.Fatalf("published %d read-set events, want 1", len(published))
 	}
-	if published[0]["sessionWorkstreamId"] != session {
-		t.Fatalf("session=%v", published[0]["sessionWorkstreamId"])
+	if want := agentactivity.PublishedWorkstreamID(session, fixture.workspace.ProjectID, fixture.workspace.ID); published[0]["sessionWorkstreamId"] != want {
+		t.Fatalf("session=%v, want the published identity %q", published[0]["sessionWorkstreamId"], want)
 	}
 	entries := published[0]["entries"].([]any)
 	if len(entries) != 1 || entries[0].(map[string]any)["path"] != "internal/session/rotate.go" {
@@ -442,8 +442,8 @@ for line in sys.stdin:
 	if len(published) != 1 {
 		t.Fatalf("published %d read-set events, want 1", len(published))
 	}
-	if published[0]["sessionWorkstreamId"] != workstream {
-		t.Fatalf("session=%v", published[0]["sessionWorkstreamId"])
+	if want := agentactivity.PublishedWorkstreamID(workstream, fixture.workspace.ProjectID, fixture.workspace.ID); published[0]["sessionWorkstreamId"] != want {
+		t.Fatalf("session=%v, want the published identity %q", published[0]["sessionWorkstreamId"], want)
 	}
 	entries := published[0]["entries"].([]any)
 	// The read outside the registered repository is dropped, not recorded.
