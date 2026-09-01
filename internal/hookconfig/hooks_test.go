@@ -8,6 +8,13 @@ import (
 	"testing"
 )
 
+// legacyHandler is the shape Stickguy wrote before injection boundaries were
+// bounded and before the Codex SessionEnd ceiling was honoured. It lives here
+// now because it is only interesting as an input to repair.
+func legacyHandler(event, command string) handler {
+	return handler{Type: "command", Command: command, Async: event != "SessionEnd", Timeout: 5}
+}
+
 func TestInstallStatusRemovePreservesUnrelatedSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -126,13 +133,13 @@ func TestInjectionBoundariesAreSynchronousAndBounded(t *testing.T) {
 	}
 }
 
-func TestInstallMigratesOnlyRecognizedLegacyInjectionHandlers(t *testing.T) {
+func TestInstallMigratesLegacyInjectionHandlers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
 	command, _ := Command("/a/stickguy", "/state", "codex")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := map[string]any{"hooks": map[string]any{"SessionStart": []group{{Hooks: []handler{legacyExpected("SessionStart", command)}}}}}
+	legacy := map[string]any{"hooks": map[string]any{"SessionStart": []group{{Hooks: []handler{legacyHandler("SessionStart", command)}}}}}
 	encoded, _ := json.Marshal(legacy)
 	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		t.Fatal(err)
@@ -237,7 +244,7 @@ func TestInstallRepairsAnOverLongCodexSessionEnd(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stale := map[string]any{"hooks": map[string]any{"SessionEnd": []group{{Hooks: []handler{legacyExpected("SessionEnd", command)}}}}}
+	stale := map[string]any{"hooks": map[string]any{"SessionEnd": []group{{Hooks: []handler{legacyHandler("SessionEnd", command)}}}}}
 	encoded, _ := json.Marshal(stale)
 	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		t.Fatal(err)
@@ -261,5 +268,86 @@ func TestInstallRepairsAnOverLongCodexSessionEnd(t *testing.T) {
 	}
 	if written := document.Hooks["SessionEnd"][0].Hooks[0].Timeout; written != codexSessionEndTimeout {
 		t.Fatalf("SessionEnd timeout on disk = %d, want %d: %s", written, codexSessionEndTimeout, data)
+	}
+}
+
+// The friend's case from the closed test: he edited the SessionEnd timeout in
+// his own hooks.json to silence Codex's clamp warning, and Stickguy answered
+// "managed Stickguy activity hook drifted" on a row whose only affordance,
+// reconnect, is offered for another profile and so never appeared. A handler
+// carrying this profile's exact command is ours whatever its tuning says.
+func TestMemberEditedTuningIsRepairedNotRefused(t *testing.T) {
+	for _, edited := range []int{4, 30, 0} {
+		path := filepath.Join(t.TempDir(), "hooks.json")
+		command, _ := Command("/a/stickguy", "/state", "codex")
+		if err := Install(path, command); err != nil {
+			t.Fatal(err)
+		}
+		rewriteSessionEndTimeout(t, path, edited)
+
+		inspection, err := Inspect(path, command)
+		if err != nil {
+			t.Fatalf("timeout %d: inspect refused a hook carrying our own command: %v", edited, err)
+		}
+		if inspection.State != BindingPartial {
+			t.Fatalf("timeout %d: state=%q, want %q", edited, inspection.State, BindingPartial)
+		}
+		if err = Install(path, command); err != nil {
+			t.Fatalf("timeout %d: install refused to repair: %v", edited, err)
+		}
+		if ok, statusErr := Status(path, command); statusErr != nil || !ok {
+			t.Fatalf("timeout %d: repaired status=%v err=%v", edited, ok, statusErr)
+		}
+	}
+}
+
+// Ownership is still decided by the command alone. A hook belonging to another
+// profile must never be rewritten, however plausible its tuning looks.
+func TestAnotherProfilesHookIsStillRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.json")
+	mine, _ := Command("/a/stickguy", "/state", "codex")
+	theirs, _ := Command("/a/stickguy", "/other state", "codex")
+	if err := Install(path, theirs); err != nil {
+		t.Fatal(err)
+	}
+	rewriteSessionEndTimeout(t, path, 4)
+	inspection, err := Inspect(path, mine)
+	if err == nil && inspection.State == BindingCurrent {
+		t.Fatalf("another profile's hook was adopted: %#v", inspection)
+	}
+	before, _ := os.ReadFile(path)
+	if err = Install(path, mine); err == nil {
+		t.Fatal("expected Install to refuse another profile's hook")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatalf("refused install still wrote the file:\n%s\n%s", before, after)
+	}
+}
+
+func rewriteSessionEndTimeout(t *testing.T, path string, timeout int) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	var hooks map[string][]group
+	if err = json.Unmarshal(document["hooks"], &hooks); err != nil {
+		t.Fatal(err)
+	}
+	hooks["SessionEnd"][0].Hooks[0].Timeout = timeout
+	if document["hooks"], err = json.Marshal(hooks); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
