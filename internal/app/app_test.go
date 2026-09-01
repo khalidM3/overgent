@@ -329,8 +329,9 @@ func TestProjectSessionContentComesFromTranscriptAndRejectsSecrets(t *testing.T)
 	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{}}
 	base := daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: sessionID, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request", AgentTranscriptPath: transcript}
 	response := service.handle(ctx, base)
-	// The owner still sees their own complete session locally.
-	detail := service.handle(ctx, daemon.Request{Method: "session_detail", AgentWorkstreamID: sessionID})
+	// The owner still sees their own complete session locally. The dashboard
+	// asks by the published identity, the only one the hosted service shows it.
+	detail := service.handle(ctx, daemon.Request{Method: "session_detail", AgentWorkstreamID: agentactivity.PublishedWorkstreamID(sessionID, workspace.ProjectID, workspace.ID)})
 	data := detail.Data.(map[string]any)
 	if !detail.OK || data["available"] != true || data["title"] != "Navigation layout" {
 		t.Fatalf("owner must always see their own session: %#v", data)
@@ -864,8 +865,14 @@ func TestLifecyclePrefersTheCallingAgentSessionWorkstream(t *testing.T) {
 	if !identified.OK || !cast || result.Brief == nil {
 		t.Fatalf("identified response=%#v", identified)
 	}
-	if result.Brief.WorkstreamID != session {
-		t.Fatalf("brief workstream = %q, want the calling session %q", result.Brief.WorkstreamID, session)
+	// The brief is requested for the calling session's published identity — the
+	// same scoping its activity hooks publish under — never the raw handle.
+	published := agentactivity.PublishedWorkstreamID(session, workspace.ProjectID, workspace.ID)
+	if result.Brief.WorkstreamID != published || result.Brief.WorkstreamID == session {
+		t.Fatalf("brief workstream = %q, want the calling session's published identity %q", result.Brief.WorkstreamID, published)
+	}
+	if result.WorkstreamID != published {
+		t.Fatalf("reported workstream = %q, want %q", result.WorkstreamID, published)
 	}
 
 	// A vendor that exposes no session identity must degrade to the workspace
@@ -952,8 +959,10 @@ func TestCodexSessionResolutionRoutesBeginWorkAndFailsClosedOnCheckoutAmbiguity(
 		}
 		intentWorkstream, _ = envelope.Payload["workstreamId"].(string)
 	}
-	if intentWorkstream != first {
-		t.Fatalf("begin_work intent workstream=%q, want %q", intentWorkstream, first)
+	// Resolution returns the parse-time handle; the intent it routes must land
+	// on the published identity the session's own activity events carry.
+	if want := agentactivity.PublishedWorkstreamID(first, workspace.ProjectID, workspace.ID); intentWorkstream != want {
+		t.Fatalf("begin_work intent workstream=%q, want %q", intentWorkstream, want)
 	}
 
 	second, _, ok := agentactivity.WorkstreamIDFor("codex", "019f54c4-fd53-7d71-a61b-9b552fc3f730")
@@ -999,6 +1008,77 @@ func TestCodexSessionResolutionFallsBackToRecentExactCWDThreadList(t *testing.T)
 	}
 }
 
+// B24: a workstream identity derived only from (vendor, session id) survives
+// re-enrollment, so an agent session that outlives one publishes the identity
+// the hosted service still holds bound to the old project, and every event it
+// sends is correctly refused. The published identity must therefore be scoped
+// to the enrollment it is published into: stable while the enrollment stands,
+// different once the same checkout is enrolled into a new project.
+func TestReenrolledProjectDoesNotReuseTheOldProjectsSessionWorkstream(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_first", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+
+	session, _, ok := agentactivity.WorkstreamIDFor("claude", "b4f019ed-0c2a-4f0e-9a1d-2f7b4c1d8e55")
+	if !ok {
+		t.Fatal("derivation rejected a valid session id")
+	}
+	observe := daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: session, AgentSessionAlias: "claude-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request"}
+	for range 2 {
+		if response := service.handle(ctx, observe); !response.OK {
+			t.Fatalf("agent event=%#v", response)
+		}
+	}
+
+	// The member re-enrolls the same checkout into a new project. The agent
+	// session was never restarted, so its hooks keep reporting the same vendor
+	// session id.
+	reenrolled := workspace
+	reenrolled.ProjectID = "prj_second"
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: reenrolled.ID, ProjectID: reenrolled.ProjectID, WorkstreamID: reenrolled.WorkstreamID, MemberID: reenrolled.MemberID, DeviceID: "dev_fixture", SessionID: reenrolled.SessionID, Root: root, Baseline: reenrolled.Baseline, Fingerprint: reenrolled.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	service.cfg = config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{reenrolled}}
+	if response := service.handle(ctx, observe); !response.OK {
+		t.Fatalf("post-re-enrollment agent event=%#v", response)
+	}
+
+	queue, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var published []string
+	for _, item := range queue {
+		if item.Kind != "agent.activity_reported" {
+			continue
+		}
+		var envelope eventEnvelopeForTest
+		if err = json.Unmarshal(item.Payload, &envelope); err != nil {
+			t.Fatal(err)
+		}
+		workstreamID, _ := envelope.Payload["workstreamId"].(string)
+		published = append(published, workstreamID)
+	}
+	if len(published) != 3 || published[0] == "" {
+		t.Fatalf("published activity identities=%q", published)
+	}
+	if published[0] != published[1] {
+		t.Fatalf("one enrollment split one session across identities %q and %q", published[0], published[1])
+	}
+	if published[2] == published[0] {
+		t.Fatalf("re-enrolled project reused the old project's workstream identity %q", published[2])
+	}
+}
+
 // Focus is the inbound control (the outbound one is pause). The property that
 // matters most is not that a focused session is quiet - it is that nothing is
 // consumed while it is quiet, so every correction is still waiting afterwards.
@@ -1018,7 +1098,10 @@ func TestFocusSuppressesInjectionWithoutConsumingIt(t *testing.T) {
 	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &injectionFixtureSender{revision: 1}}
 	inject := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: session, AgentEvent: "UserPromptSubmit"}
 
-	focus := service.handle(ctx, daemon.Request{Method: "focus", AgentWorkstreamID: session, FocusSeconds: 900})
+	// The dashboard's focus switch names the published identity — the only one
+	// the hosted service ever showed the member.
+	published := agentactivity.PublishedWorkstreamID(session, workspace.ProjectID, workspace.ID)
+	focus := service.handle(ctx, daemon.Request{Method: "focus", AgentWorkstreamID: published, FocusSeconds: 900})
 	state, _ := focus.Data.(map[string]any)
 	if !focus.OK || state["focused"] != true || state["until"] == nil {
 		t.Fatalf("focus=%#v", focus)
@@ -1032,7 +1115,7 @@ func TestFocusSuppressesInjectionWithoutConsumingIt(t *testing.T) {
 	// The correction must survive the quiet period. Claiming it while it was
 	// suppressed would have retired it unread, which is strictly worse than
 	// delivering it twice.
-	resumed := service.handle(ctx, daemon.Request{Method: "unfocus", AgentWorkstreamID: session})
+	resumed := service.handle(ctx, daemon.Request{Method: "unfocus", AgentWorkstreamID: published})
 	if !resumed.OK || resumed.Data.(map[string]any)["focused"] != false {
 		t.Fatalf("unfocus=%#v", resumed)
 	}

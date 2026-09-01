@@ -526,6 +526,11 @@ type agentInjectionResult struct {
 // not the same control and deliberately not symmetric: a member who wants
 // quiet should absorb the risk of missing a correction, not hide their work
 // from teammates who are relying on seeing it.
+//
+// The session named here is the published workstream identity: the dashboard
+// and CLI only ever see the identity the hosted service shows them, and the
+// injection path scopes each hook's parse-time handle before reading focus, so
+// both sides of the switch speak the same identity.
 func (s *Service) handleFocus(ctx context.Context, q daemon.Request) daemon.Response {
 	session := q.AgentWorkstreamID
 	if !validContractID(session) {
@@ -595,15 +600,20 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if q.AgentVendor != "claude" && q.AgentVendor != "codex" && q.AgentVendor != "cursor" || !validContractID(q.AgentWorkstreamID) {
 		return daemon.Response{OK: true, Data: result}
 	}
+	_, workspace, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots)
+	if !ok {
+		return daemon.Response{OK: true, Data: result}
+	}
+	// Focus and delivery state are keyed by the published identity because it
+	// is the only identity a member ever sees: the dashboard's focus switch
+	// names the workstream id the hosted service showed it.
+	session := agentactivity.PublishedWorkstreamID(q.AgentWorkstreamID, workspace.ProjectID, workspace.ID)
 	// A focused session is skipped before anything is fetched or claimed. The
 	// order matters more than the saved work: claiming marks a correction
 	// delivered, so claiming for a session that will not be shown it would
 	// retire the correction unread. Nothing is consumed here, so every pending
 	// item is still waiting when the focus lapses.
-	if _, focused, e := s.store.FocusedUntil(ctx, q.AgentWorkstreamID, time.Now()); e == nil && focused {
-		return daemon.Response{OK: true, Data: result}
-	}
-	if _, _, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots); !ok {
+	if _, focused, e := s.store.FocusedUntil(ctx, session, time.Now()); e == nil && focused {
 		return daemon.Response{OK: true, Data: result}
 	}
 	provider, ok := s.sender.(briefProvider)
@@ -612,7 +622,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	}
 	fetchContext, cancel := context.WithTimeout(ctx, injectionFetchTimeout)
 	defer cancel()
-	brief, err := provider.CreateBrief(fetchContext, q.AgentWorkstreamID, "refresh", "", injectionBudget)
+	brief, err := provider.CreateBrief(fetchContext, session, "refresh", "", injectionBudget)
 	if err != nil || len(brief.Items) == 0 {
 		return daemon.Response{OK: true, Data: result}
 	}
@@ -620,7 +630,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	for _, item := range brief.Items {
 		candidates = append(candidates, store.InjectionItem{ID: item.ID, Revision: item.Revision})
 	}
-	undelivered, err := s.store.UndeliveredInjectionItems(fetchContext, q.AgentWorkstreamID, candidates)
+	undelivered, err := s.store.UndeliveredInjectionItems(fetchContext, session, candidates)
 	if err != nil || len(undelivered) == 0 {
 		return daemon.Response{OK: true, Data: result}
 	}
@@ -655,7 +665,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if fetchContext.Err() != nil {
 		return daemon.Response{OK: true, Data: result}
 	}
-	claimed, err := s.store.ClaimInjectionDeliveries(fetchContext, q.AgentWorkstreamID, selectedCandidates, time.Now())
+	claimed, err := s.store.ClaimInjectionDeliveries(fetchContext, session, selectedCandidates, time.Now())
 	if err != nil || len(claimed) == 0 {
 		return daemon.Response{OK: true, Data: result}
 	}
@@ -748,7 +758,7 @@ func (s *Service) transcriptPath(workstreamID string) string {
 // shareTranscript projects session messages for an enrolled Project member.
 // The workspace pause gate is enforced synchronously by flush, and every
 // candidate is classified before it can be enqueued (ADR-047).
-func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspace, event agentactivity.Event, transcript sessiontranscript.Session) int {
+func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspace, workstreamID string, event agentactivity.Event, transcript sessiontranscript.Session) int {
 	if len(transcript.Messages) == 0 {
 		return 0
 	}
@@ -763,9 +773,9 @@ func (s *Service) shareTranscript(ctx context.Context, workspace config.Workspac
 		}
 		// A stable identity per message makes redelivery a hosted no-op, so a
 		// restart or a repeated hook never duplicates shared content.
-		digest := sha256.Sum256([]byte(event.WorkstreamID + "\x00" + strconv.Itoa(index) + "\x00" + message.Kind + "\x00" + message.Text))
+		digest := sha256.Sum256([]byte(workstreamID + "\x00" + strconv.Itoa(index) + "\x00" + message.Kind + "\x00" + message.Text))
 		messagePayload := map[string]any{
-			"messageId": fmt.Sprintf("msg_%x", digest[:16]), "workstreamId": event.WorkstreamID,
+			"messageId": fmt.Sprintf("msg_%x", digest[:16]), "workstreamId": workstreamID,
 			"vendor": event.Vendor, "sessionAlias": event.SessionAlias,
 			"kind": message.Kind, "text": message.Text,
 		}
@@ -840,8 +850,14 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 		// blocked or modified because an activity candidate was rejected.
 		return daemon.Response{OK: true, Data: map[string]any{"accepted": false}}
 	}
+	// The hook hands over the parse-time session handle; what leaves this device
+	// is that handle scoped to the enrollment it is observed under, so a session
+	// that outlives a re-enrollment starts a fresh workstream in the new project
+	// instead of colliding with the binding the old project still holds (B24).
+	// The unscoped handle keeps addressing local session state below.
+	published := agentactivity.PublishedWorkstreamID(event.WorkstreamID, workspace.ProjectID, workspace.ID)
 	payload := map[string]any{
-		"workstreamId": event.WorkstreamID, "vendor": event.Vendor,
+		"workstreamId": published, "vendor": event.Vendor,
 		"sessionAlias": event.SessionAlias, "kind": event.Kind,
 		"status": event.Status, "action": event.Action,
 	}
@@ -903,7 +919,9 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if transcriptPath != "" {
 		if parsed, readErr := sessiontranscript.Read(transcriptPath, sessiontranscript.MaxMessages); readErr == nil {
 			transcript = parsed
-			s.rememberTranscript(event.WorkstreamID, transcriptPath)
+			// Keyed by the published identity: the dashboard asks for a session's
+			// content by the workstream id the hosted service showed it.
+			s.rememberTranscript(published, transcriptPath)
 			if title, titleErr := agentactivity.ClassifyCoordinationTitle(transcript.Title); titleErr == nil {
 				payload["sessionTitle"] = title
 			}
@@ -923,6 +941,11 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 		if !canonical {
 			return daemon.Response{OK: true, Data: map[string]any{"accepted": false}}
 		}
+		// Deliberately the unscoped handle: session resolution returns this row
+		// to the MCP server, whose other identity path (the vendor's own session
+		// environment) is also unscoped, and every request either identity makes
+		// travels back through the daemon, which scopes it once there. Storing
+		// the published identity here would scope those requests twice.
 		if err := s.store.RecordAgentSession(ctx, store.AgentSession{
 			WorkspaceID: workspace.ID, Vendor: event.Vendor,
 			WorkstreamID: event.WorkstreamID, CWD: canonicalCWD,
@@ -934,15 +957,15 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	// A read set is fed by inspection tools only; an edit is a write, and the
 	// manifest pipeline already reports it.
 	if agentactivity.ReadTool(event.Tool) && len(event.CandidatePaths) > 0 {
-		s.publishReadSet(ctx, workspace, event.WorkstreamID, event.CandidatePaths, store.ReadFidelityObserved, readPathsPerEvent)
+		s.publishReadSet(ctx, workspace, published, event.CandidatePaths, store.ReadFidelityObserved, readPathsPerEvent)
 	}
 	// Codex names no file it reads, so its read set is recovered from its own
 	// command classification at a turn boundary rather than from tool events
 	// (ADR-052). This runs after the turn, never during it.
 	if event.Vendor == "codex" && (event.Kind == "Stop" || event.Kind == "SessionEnd") {
-		s.publishCodexInferredReads(ctx, workspace, q.AgentVendorSessionID, event.WorkstreamID)
+		s.publishCodexInferredReads(ctx, workspace, q.AgentVendorSessionID, event.WorkstreamID, published)
 	}
-	shared := s.shareTranscript(ctx, workspace, event, transcript)
+	shared := s.shareTranscript(ctx, workspace, published, event, transcript)
 	// The resolved root is returned so an adapter whose later hooks report no
 	// working directory can pin this one for the rest of the session.
 	return daemon.Response{OK: true, Data: map[string]any{"accepted": true, "sharedMessages": shared, "workspaceRoot": workspace.Root}}
@@ -1062,6 +1085,9 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 }
 
 type lifecycleResult struct {
+	// WorkstreamID is the published identity this call was attributed to, so an
+	// MCP client reports the same identity the hosted service and dashboard use.
+	WorkstreamID   string                    `json:"workstreamId,omitempty"`
 	Duplicate      bool                      `json:"duplicate"`
 	IntentRevision int64                     `json:"intentRevision,omitempty"`
 	Brief          *hosted.CoordinationBrief `json:"brief,omitempty"`
@@ -1070,10 +1096,11 @@ type lifecycleResult struct {
 }
 
 func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.Response {
-	workstreamID := workspaceWorkstream(s.cfg, q.WorkspaceID)
-	if workstreamID == "" {
+	workspace, found := workspaceByID(s.cfg, q.WorkspaceID)
+	if !found || workspace.WorkstreamID == "" {
 		return daemon.Response{Error: "workspace not found"}
 	}
+	workstreamID := workspace.WorkstreamID
 	// An MCP client that could identify its own agent session gets that
 	// session's workstream. Findings are routed to the per-session workstream
 	// the activity hooks create, and a brief is filtered by the workstream it
@@ -1082,10 +1109,16 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 	// The same split made an agent's own intent land on a second identity and
 	// then collide with itself. A vendor that exposes no session identity still
 	// falls back to the workspace workstream.
+	//
+	// What the MCP server hands over is the parse-time session handle — it can
+	// derive that before it knows anything about a project. It is scoped here,
+	// exactly as the activity hooks' events are, so an intent and the activity
+	// it describes land on one identity (B24). The workspace workstream is
+	// hosted-issued and already bound to this enrollment, so it passes through.
 	if q.AgentWorkstreamID != "" && validContractID(q.AgentWorkstreamID) {
-		workstreamID = q.AgentWorkstreamID
+		workstreamID = agentactivity.PublishedWorkstreamID(q.AgentWorkstreamID, workspace.ProjectID, workspace.ID)
 	}
-	result := lifecycleResult{}
+	result := lifecycleResult{WorkstreamID: workstreamID}
 	trigger := ""
 	var readSetPaths []string
 	var publication *store.LifecyclePublication
@@ -1194,12 +1227,10 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 		result.IntentRevision, result.Duplicate = revision, duplicate
 	}
 	if len(readSetPaths) > 0 {
-		if workspace, found := workspaceByID(s.cfg, q.WorkspaceID); found {
-			// These are the paths an MCP client said it expects to consume, not
-			// files anything watched it open, so they enter the read set as the
-			// agent's own claim (ADR-052).
-			s.publishReadSet(ctx, workspace, workstreamID, readSetPaths, store.ReadFidelitySelfDeclared, readPathsPerEvent)
-		}
+		// These are the paths an MCP client said it expects to consume, not
+		// files anything watched it open, so they enter the read set as the
+		// agent's own claim (ADR-052).
+		s.publishReadSet(ctx, workspace, workstreamID, readSetPaths, store.ReadFidelitySelfDeclared, readPathsPerEvent)
 	}
 	if trigger != "" {
 		budget := int(q.ApproximateTokenBudget)
