@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/stickguy/stickguy/internal/app"
@@ -137,6 +139,51 @@ func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID
 	return s.finishExisting(ctx, options, client, project.ID, deviceID)
 }
 
+// An invite must survive until the recipient actually sits down: ten minutes
+// forced a synchronous exchange ("are you at your computer right now?"), which
+// is the failure mode of a code, not a link. Seven days matches GitHub's org
+// invites; the invite stays one-use and revocable from the members screen.
+const inviteLifetimeSeconds = 7 * 24 * 3600
+
+var inviteCodePattern = regexp.MustCompile(`^inv_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$`)
+
+// ParseInviteCode extracts the canonical invite code from whatever form the
+// member pasted: the bare code, the join-page URL whose fragment carries it
+// (fragments never reach server logs), or the desktop deep link. Every form
+// resolves to the same code so the one string an owner shares works anywhere.
+func ParseInviteCode(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 2048 {
+		return "", errors.New("invite code is empty or too large")
+	}
+	candidate := trimmed
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil {
+			return "", errors.New("invite link could not be parsed")
+		}
+		switch {
+		case strings.EqualFold(parsed.Scheme, "https"):
+			if strings.Trim(parsed.Path, "/") != "join" || parsed.Fragment == "" {
+				return "", errors.New("invite link must be a /join URL carrying the code after #")
+			}
+			candidate = parsed.Fragment
+		case strings.EqualFold(parsed.Scheme, "stickguy"):
+			// A scheme URL puts the first segment in Host ("stickguy://join/…").
+			if !strings.EqualFold(parsed.Host, "join") {
+				return "", errors.New("invite deep link must use stickguy://join/")
+			}
+			candidate = strings.Trim(parsed.Path, "/")
+		default:
+			return "", errors.New("invite link must be https or stickguy scheme")
+		}
+	}
+	if !inviteCodePattern.MatchString(candidate) {
+		return "", errors.New("join code must have the form invite.secret")
+	}
+	return candidate, nil
+}
+
 func (s Service) Join(ctx context.Context, options Options, joinCode string) (Result, error) {
 	if err := validateOptions(options, false); err != nil {
 		return Result{}, err
@@ -144,10 +191,11 @@ func (s Service) Join(ctx context.Context, options Options, joinCode string) (Re
 	if err := preflightRepository(ctx, options.RepositoryRoot); err != nil {
 		return Result{}, err
 	}
-	inviteID, inviteSecret, ok := strings.Cut(joinCode, ".")
-	if !ok || inviteID == "" || inviteSecret == "" || strings.Contains(inviteSecret, ".") {
-		return Result{}, errors.New("join code must have the form invite.secret")
+	code, err := ParseInviteCode(joinCode)
+	if err != nil {
+		return Result{}, err
 	}
+	inviteID, inviteSecret, _ := strings.Cut(code, ".")
 	publicClient, err := s.Client("")
 	if err != nil {
 		return Result{}, err
@@ -217,7 +265,7 @@ func (s Service) finish(ctx context.Context, options Options, client API, projec
 	}
 	joinCode := ""
 	if createInvite {
-		invite, inviteErr := client.CreateInvite(ctx, projectID, 600, 1)
+		invite, inviteErr := client.CreateInvite(ctx, projectID, inviteLifetimeSeconds, 1)
 		if inviteErr != nil {
 			rollback()
 			return Result{}, fmt.Errorf("create invite: %w", inviteErr)
@@ -253,7 +301,7 @@ func (s Service) finishExisting(ctx context.Context, options Options, client API
 	if err != nil {
 		return Result{}, fmt.Errorf("create dashboard ticket: %w", err)
 	}
-	invite, err := client.CreateInvite(ctx, projectID, 600, 1)
+	invite, err := client.CreateInvite(ctx, projectID, inviteLifetimeSeconds, 1)
 	if err != nil {
 		return Result{}, fmt.Errorf("create invite: %w", err)
 	}

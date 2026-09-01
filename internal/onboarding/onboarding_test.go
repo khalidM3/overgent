@@ -95,3 +95,34 @@ func makeOnboardingRepository(t *testing.T) string {
 	runGit("remote", "add", "origin", "https://example.test/stickguy/fixture.git")
 	return root
 }
+
+// An invite travels as a link, and the same string must work wherever it is
+// pasted: the bare code, the join-page URL whose fragment carries it (the
+// fragment never reaches server logs), or the desktop deep link. A member
+// should never have to dissect a URL to extract a code by hand.
+func TestParseInviteCodeAcceptsEveryLinkForm(t *testing.T) {
+	cases := map[string]string{
+		"inv_49b778cd.sec_ret-42":                                  "inv_49b778cd.sec_ret-42",
+		"https://dash.example.com/join#inv_49b778cd.sec_ret-42":    "inv_49b778cd.sec_ret-42",
+		"https://dash.example.com/join/#inv_49b778cd.sec_ret-42":   "inv_49b778cd.sec_ret-42",
+		"stickguy://join/inv_49b778cd.sec_ret-42":                  "inv_49b778cd.sec_ret-42",
+	}
+	for input, want := range cases {
+		code, err := ParseInviteCode(input)
+		if err != nil || code != want {
+			t.Fatalf("ParseInviteCode(%q) = %q, %v; want %q", input, code, err, want)
+		}
+	}
+	for _, invalid := range []string{
+		"",
+		"no-dot-here",
+		"https://dash.example.com/join",
+		"https://dash.example.com/join#not a code",
+		"stickguy://settings/inv_x.secret",
+		"javascript:alert(1)#inv_x.secret",
+	} {
+		if _, err := ParseInviteCode(invalid); err == nil {
+			t.Fatalf("ParseInviteCode(%q) accepted invalid input", invalid)
+		}
+	}
+}

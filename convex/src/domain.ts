@@ -701,6 +701,16 @@ export function contractConfidenceBand(fidelity: ReadFidelity): "deterministic" 
 // shorter than a working day.
 export const SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
 
+// A session that reported `Stop` is between turns or gone, and between turns
+// it emits nothing - so a long silence after Stop carries real information
+// much sooner than mid-turn silence does. Headless `claude -p` runs exit
+// right after Stop without ever sending SessionEnd (B31), and every minute
+// such a phantom stays live it can pair into findings against unrelated later
+// work. Ten minutes is far longer than any deliberate pause between prompts
+// in a session someone is actually driving, and expiry remains reversible:
+// the next event revives the session automatically.
+export const SESSION_STOP_TIMEOUT_MS = 10 * 60_000;
+
 // expiredSessionsPredicate decides whether one workstream has gone quiet long
 // enough to stop counting as live.
 //
@@ -712,8 +722,9 @@ export const SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
 export function sessionHasGoneQuiet(
   session: { status: string; vendor?: string | undefined; updatedAt: number },
   now: number,
-  timeout = SESSION_IDLE_TIMEOUT_MS,
+  timeout?: number,
 ): boolean {
   if (session.vendor === undefined || session.status === "done") return false;
-  return now - session.updatedAt >= timeout;
+  const window = timeout ?? (session.status === "idle" ? SESSION_STOP_TIMEOUT_MS : SESSION_IDLE_TIMEOUT_MS);
+  return now - session.updatedAt >= window;
 }

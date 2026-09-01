@@ -398,3 +398,39 @@ func TestASecondWriterWaitsInsteadOfFailingBusy(t *testing.T) {
 		t.Fatalf("both writes should have landed, got %d", count)
 	}
 }
+
+// B23: re-enrolling a profile against an existing state.db derives a new
+// workspace id for the same root, and the UNIQUE(root) constraint then
+// crash-looped the service forever with a raw sqlite error. A new enrollment
+// claiming a known root is a replacement, not a conflict.
+func TestReenrollmentReplacesWorkspaceWithSameRoot(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	original := Workspace{
+		ID: "wsp_old", ProjectID: "prj_old", WorkstreamID: "wrk_old",
+		MemberID: "mem_old", DeviceID: "dev_old", SessionID: "ses_old",
+		Root: "/repo", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque",
+	}
+	if err = db.UpsertWorkspace(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	replacement := Workspace{
+		ID: "wsp_new", ProjectID: "prj_new", WorkstreamID: "wrk_new",
+		MemberID: "mem_new", DeviceID: "dev_new", SessionID: "ses_new",
+		Root: "/repo", Baseline: strings.Repeat("b", 40), Fingerprint: "opaque",
+	}
+	if err = db.UpsertWorkspace(ctx, replacement); err != nil {
+		t.Fatalf("re-enrollment over an existing root must replace, got: %v", err)
+	}
+	workspaces, err := db.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 1 || workspaces[0].ID != "wsp_new" || workspaces[0].ProjectID != "prj_new" {
+		t.Fatalf("workspaces after re-enrollment: %#v", workspaces)
+	}
+}

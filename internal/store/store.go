@@ -141,6 +141,20 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 			}
 		}
 	}
+	hasQuarantine, err := hasColumn(db, `PRAGMA table_info(event_queue)`, "quarantined_at")
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect event queue migration: %w", err)
+	}
+	if !hasQuarantine {
+		// Quarantine keeps a permanently rejected event out of the publish
+		// path without pretending it was delivered: an ack advances the
+		// cursor, a quarantine only steps aside.
+		if _, err = db.Exec(`ALTER TABLE event_queue ADD COLUMN quarantined_at INTEGER`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate event queue quarantine: %w", err)
+		}
+	}
 	hasFidelity, err := hasColumn(db, `PRAGMA table_info(session_read_sets)`, "fidelity")
 	if err != nil {
 		db.Close()
@@ -592,6 +606,16 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 	if _, e = tx.ExecContext(ctx, `INSERT INTO projects(id) VALUES(?) ON CONFLICT DO NOTHING`, w.ProjectID); e != nil {
 		return e
 	}
+	// A different workspace id claiming this root is a re-enrollment: the old
+	// binding is dead, and letting UNIQUE(root) throw crash-looped the service
+	// forever on a raw sqlite error (B23). The dead workspace's queued events
+	// stay; the backend refuses their stale binding and they quarantine.
+	if _, e = tx.ExecContext(ctx, `DELETE FROM workstreams WHERE workspace_id IN (SELECT id FROM workspaces WHERE root=? AND id<>?)`, w.Root, w.ID); e != nil {
+		return e
+	}
+	if _, e = tx.ExecContext(ctx, `DELETE FROM workspaces WHERE root=? AND id<>?`, w.Root, w.ID); e != nil {
+		return e
+	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO workspaces(id,project_id,workstream_id,member_id,device_id,session_id,root,baseline,repository_fingerprint,paused,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,workstream_id=excluded.workstream_id,member_id=excluded.member_id,device_id=excluded.device_id,session_id=excluded.session_id,root=excluded.root,baseline=excluded.baseline,repository_fingerprint=excluded.repository_fingerprint`, w.ID, w.ProjectID, w.WorkstreamID, w.MemberID, w.DeviceID, w.SessionID, w.Root, w.Baseline, w.Fingerprint, w.Paused, w.Revision); e != nil {
 		return e
 	}
@@ -889,7 +913,7 @@ func Batch(events []QueueEvent) ([]byte, error) {
 	}{Events: envelopes})
 }
 func (s *Store) Pending(ctx context.Context) ([]QueueEvent, error) {
-	rows, e := s.db.QueryContext(ctx, `SELECT id,workspace_id,sequence,kind,payload FROM event_queue WHERE acked_at IS NULL ORDER BY workspace_id,sequence`)
+	rows, e := s.db.QueryContext(ctx, `SELECT id,workspace_id,sequence,kind,payload FROM event_queue WHERE acked_at IS NULL AND quarantined_at IS NULL ORDER BY workspace_id,sequence`)
 	if e != nil {
 		return nil, e
 	}
@@ -923,6 +947,21 @@ func (s *Store) Ack(ctx context.Context, id string) error {
 	}
 	return tx.Commit()
 }
+// Quarantine removes an event from the publish path without recording a
+// delivery. The row is kept: a quarantined event is evidence of a rejected
+// binding, and deleting it would silently destroy the only record that work
+// was observed and refused.
+func (s *Store) Quarantine(ctx context.Context, id string) error {
+	_, e := s.db.ExecContext(ctx, `UPDATE event_queue SET quarantined_at=? WHERE id=? AND acked_at IS NULL`, time.Now().Unix(), id)
+	return e
+}
+
+func (s *Store) QuarantinedCount(ctx context.Context) (int, error) {
+	var n int
+	e := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event_queue WHERE quarantined_at IS NOT NULL`).Scan(&n)
+	return n, e
+}
+
 func (s *Store) CleanupAcknowledged(ctx context.Context, before time.Time) (int64, error) {
 	r, e := s.db.ExecContext(ctx, `DELETE FROM event_queue WHERE acked_at IS NOT NULL AND acked_at<?`, before.Unix())
 	if e != nil {

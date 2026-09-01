@@ -3,6 +3,13 @@ import { v } from "convex/values";
 
 const role = v.union(v.literal("owner"), v.literal("member"));
 const manifestState = v.union(v.literal("staging"), v.literal("active"), v.literal("superseded"));
+const degradedReason = v.union(
+  v.literal("not_configured"),
+  v.literal("quota"),
+  v.literal("provider_error"),
+  v.literal("offline"),
+  v.literal("paused"),
+);
 
 export default defineSchema({
   projects: defineTable({
@@ -114,7 +121,15 @@ export default defineSchema({
     contextRevision: v.number(),
     semanticHealthyAt: v.optional(v.number()),
     semanticDegradedAt: v.optional(v.number()),
+    semanticDegradedReason: v.optional(degradedReason),
     semanticProviderName: v.optional(v.string()),
+    // The model currently selected for this repository scope. It drives the
+    // bounded migration that removes vectors from an incompatible space.
+    semanticModelVersion: v.optional(v.string()),
+    judgmentDegradedAt: v.optional(v.number()),
+    judgmentDegradedReason: v.optional(degradedReason),
+    judgmentProviderName: v.optional(v.string()),
+    judgmentRecoversAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_scope", ["scopeKey"])
@@ -143,6 +158,15 @@ export default defineSchema({
     startedAt: v.optional(v.number()),
     endedAt: v.optional(v.number()),
     safePaths: v.optional(v.array(v.string())),
+    // The most recent hook-reported mutation paths are attribution evidence
+    // for the next Git-observed contract change. Read-tool paths never enter.
+    lastWritePaths: v.optional(v.array(v.string())),
+    lastWriteAt: v.optional(v.number()),
+    // Manifest paths no live agent session claimed. They are the only work
+    // evidence a member without an adapter leaves, so they are what lets that
+    // member participate in collision detection at all (B29).
+    residualPaths: v.optional(v.array(v.string())),
+    residualAt: v.optional(v.number()),
     // Canonical declarations are kept independently from the rolling activity
     // summary so a later hook action cannot overwrite the workstream's stated
     // goal or approach.
@@ -354,6 +378,10 @@ export default defineSchema({
   semanticEmbeddings: defineTable({
     objectId: v.id("semanticObjects"),
     scopeKey: v.string(),
+    // Convex vector filters support equality and OR, but not AND. Keep the
+    // individual fields for inspection/migration and filter searches on this
+    // collision-safe composite so both scope and model are mandatory.
+    scopeModelKey: v.optional(v.string()),
     providerName: v.string(),
     modelVersion: v.string(),
     contentRevision: v.number(),
@@ -363,7 +391,7 @@ export default defineSchema({
     .index("by_object", ["objectId"])
     .index("by_scope_model", ["scopeKey", "modelVersion"])
     .index("by_expiry", ["expiresAt"])
-    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 1024, filterFields: ["scopeKey"] }),
+    .vectorIndex("by_vector", { vectorField: "vector", dimensions: 1024, filterFields: ["scopeKey", "modelVersion", "scopeModelKey"] }),
 
   contextDeliveries: defineTable({
     publicId: v.string(),

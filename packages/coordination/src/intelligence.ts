@@ -141,7 +141,27 @@ const UNINFORMATIVE_WORDS = new Set([
   "implement", "implements", "implementing", "handle", "handles", "handling",
 ]);
 
-const behaviorWord = (word: string) => new RegExp(`\\b${word}[a-z]*\\b`, "i");
+// A trailing "e" diverges from the noun form exactly where the suffix begins
+// ("invalidate"/"invalidation", "rotate"/"rotation"), so it is dropped before
+// the wildcard - but only on words long enough that the stem stays distinctive.
+// "role" must not become "rol" and start matching "rollback".
+const behaviorWord = (word: string) => {
+  const stem = word.length >= 6 && word.endsWith("e") ? word.slice(0, -1) : word;
+  return new RegExp(`\\b${stem}[a-z]*\\b`, "i");
+};
+
+// Tokens of any path either summary names. A path fragment echoed by both
+// prompts ("shared", "settings" from shared/settings.ts) reads specific while
+// naming nothing behavioural, so the fallback must never surface one.
+function pathFragmentTokens(...texts: readonly string[]): Set<string> {
+  const fragments = new Set<string>();
+  for (const text of texts) {
+    for (const path of text.match(/[\w.-]*\/[\w./-]+|\b[\w-]+\.[a-z]{1,4}\b/g) ?? []) {
+      for (const token of path.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? []) fragments.add(token);
+    }
+  }
+  return fragments;
+}
 
 // significantWords keeps the words from a bounded intent summary that could
 // identify a behavior, in the order the member wrote them so the rendering is
@@ -196,16 +216,21 @@ export function sharedBehaviorTerms(left: string, right: string, limit = 3): str
       shared.push(...literals);
       continue;
     }
-    if (group.some((word) => behaviorWord(word).test(left)) && group.some((word) => behaviorWord(word).test(right))) {
+    const leftWord = group.find((word) => behaviorWord(word).test(left));
+    const rightWord = group.find((word) => behaviorWord(word).test(right));
+    if (leftWord !== undefined && rightWord !== undefined) {
       // Neither side's own word can stand for the pair without misquoting the
-      // other, so the group's canonical term names the concept instead.
-      shared.push(group[0]!);
+      // other, so quote both - the vocabulary each member actually used is
+      // what lets a receiving agent recognise its own work in the finding,
+      // where the group's category label ("auth") names nobody's.
+      shared.push(`${leftWord}/${rightWord}`);
     }
   }
   if (shared.length === 0) {
+    const pathFragments = pathFragmentTokens(left, right);
     const rightWords = new Set(significantWords(right));
     for (const word of significantWords(left)) {
-      if (rightWords.has(word)) shared.push(word);
+      if (rightWords.has(word) && !pathFragments.has(word)) shared.push(word);
     }
   }
   return shared.slice(0, Math.max(0, limit));

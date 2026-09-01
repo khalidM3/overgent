@@ -385,3 +385,47 @@ describe("declared exploratory work", () => {
     expect(drift.delivery).toBe("next_turn");
   });
 });
+
+// B25b: behaviorWord("invalidate") was /\binvalidate[a-z]*\b/, which does not
+// match "invalidation" - the stem diverges at the final "e". The revoke group
+// is the strongest shared signal in the canonical SG-06 pair and was missed
+// entirely on that stem mismatch.
+describe("behavior word stemming", () => {
+  it("matches a noun form reached by dropping the verb's final e", () => {
+    const terms = sharedBehaviorTerms(
+      "Invalidate all refresh grants for the project",
+      "Add refresh grant invalidation to the project purge",
+    );
+    expect(terms).toContain("invalidate");
+  });
+});
+
+// B25a: a cross-synonym group match was rendered as the group's first word - a
+// category label like "auth" that neither member wrote. The explanation should
+// quote the vocabulary each side actually used so the receiving agent
+// recognises its own work in the finding.
+describe("cross-synonym naming", () => {
+  it("names each member's own word instead of the category label", () => {
+    const left = "New backend/revoke.go: revoke active BrowserSession credentials when a member's role changes, with audit logging";
+    const right = "Implement invalidation of all current login sessions after a privilege change";
+    const terms = sharedBehaviorTerms(left, right);
+    expect(terms.some((term) => term.includes("credential"))).toBe(true);
+    expect(terms).not.toContain("auth");
+  });
+});
+
+// B30: the last-resort fallback echoed the components of a path both prompts
+// mentioned - "Both describe shared, settings and rename work" for two edits to
+// shared/settings.ts. Path fragments read specific while naming nothing
+// behavioural, the exact failure the stop list exists to prevent.
+describe("fallback path fragment suppression", () => {
+  it("never names the components of a path both summaries mention", () => {
+    const terms = sharedBehaviorTerms(
+      "Update shared/settings.ts to rename the retry label",
+      "Edit shared/settings.ts so the retry count wording changes",
+    );
+    expect(terms).not.toContain("shared");
+    expect(terms).not.toContain("settings");
+    expect(terms).toContain("retry");
+  });
+});
