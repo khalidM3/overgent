@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/stickguy/stickguy/internal/agentactivity"
 	"github.com/stickguy/stickguy/internal/codexappserver"
@@ -28,6 +29,40 @@ type fakeSender struct {
 	mu      sync.Mutex
 	events  int
 	batches map[string][][]byte
+}
+
+type failingPublishSender struct{ err error }
+
+func (s failingPublishSender) Send(context.Context, string, []byte) error { return s.err }
+
+func TestDoctorSurfacesLastPublishErrorAfterSendFailure(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := store.Workspace{
+		ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture",
+		MemberID: "mem_fixture", DeviceID: "dev_fixture", SessionID: "ses_fixture",
+		Root: "/fixture", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque",
+	}
+	if err = db.UpsertWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{store: db, sender: failingPublishSender{err: errors.New("hosted publish unavailable")}}
+	if service.flush(ctx) {
+		t.Fatal("flush unexpectedly succeeded")
+	}
+	response := service.handle(ctx, daemon.Request{Method: "doctor"})
+	data, ok := response.Data.(map[string]any)
+	if !response.OK || !ok {
+		t.Fatalf("doctor response=%#v", response)
+	}
+	lastError, _ := data["lastPublishError"].(string)
+	if lastError == "" {
+		t.Fatalf("doctor did not surface last publish error: %#v", data)
+	}
 }
 
 type lifecycleFixtureSender struct{ briefs int }
@@ -1091,5 +1126,112 @@ func TestPauseScopesToOneProject(t *testing.T) {
 	empty := service.handle(ctx, daemon.Request{Method: "pause", ProjectID: "prj_absent"})
 	if !empty.OK || empty.Data.(map[string]any)["workspaces"] != 0 {
 		t.Fatalf("absent project=%#v", empty)
+	}
+}
+
+// B24: a permanently rejected event (the backend 403s a stale workstream
+// binding) wedged the queue forever - the batch is all-or-nothing, flush
+// swallowed the error, and nothing ever published again while every surface
+// reported healthy. A permanent rejection must quarantine the refused events
+// so the queue drains, and doctor must say it happened.
+func TestPermanentRejectionQuarantinesInsteadOfWedging(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := store.Workspace{
+		ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture",
+		MemberID: "mem_fixture", DeviceID: "dev_fixture", SessionID: "ses_fixture",
+		Root: "/fixture", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque",
+	}
+	if err = db.UpsertWorkspace(ctx, workspace); err != nil {
+		t.Fatal(err)
+	}
+	rejection := &hosted.APIError{Status: 403, Code: "forbidden", Retryable: false}
+	service := &Service{store: db, sender: failingPublishSender{err: rejection}}
+	service.flush(ctx)
+	pending, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("permanently rejected events still pending: %d", len(pending))
+	}
+	response := service.handle(ctx, daemon.Request{Method: "doctor"})
+	data, ok := response.Data.(map[string]any)
+	if !response.OK || !ok {
+		t.Fatalf("doctor response=%#v", response)
+	}
+	if reason, _ := data["lastPublishError"].(string); reason != "rejected" {
+		t.Fatalf("doctor lastPublishError=%q, want rejected", reason)
+	}
+	quarantined, _ := data["quarantined"].(int)
+	if quarantined == 0 {
+		t.Fatalf("doctor did not surface quarantined count: %#v", data)
+	}
+}
+
+type midTurnFixtureSender struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (*midTurnFixtureSender) Send(context.Context, string, []byte) error { return nil }
+func (s *midTurnFixtureSender) CreateBrief(_ context.Context, workstreamID, trigger, _ string, budget int) (hosted.CoordinationBrief, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	return hosted.CoordinationBrief{
+		BriefID: "brf_mid_turn", WorkstreamID: workstreamID, Trigger: trigger,
+		RequestedBudget: budget, RenderedSize: 120,
+		Items: []hosted.BriefItem{
+			{ID: "fnd_urgent", Revision: 1, Kind: "finding", Text: "shared.Settings contract changed after you read it.", RelevanceReason: "This finding directly involves the current workstream.", AdvisoryAction: "coordination_required", Priority: 100},
+			{ID: "fnd_routine", Revision: 1, Kind: "finding", Text: "A peer session is working nearby.", RelevanceReason: "Ambient coordination.", AdvisoryAction: "review_recommended", Priority: 10},
+		},
+	}, nil
+}
+
+// B28: "next turn" meant the next time the human typed. Injection was gated to
+// SessionStart/UserPromptSubmit, so an agent working autonomously through a
+// long turn could never receive a correction before its work landed - which is
+// exactly what "found before the affected work is finished" claims. PostToolUse
+// is a boundary the vendor renders context at, so a coordination_required item
+// must reach it; routine items still wait for a natural boundary, and repeated
+// tool calls must not each pay a hosted fetch.
+func TestMidTurnInjectionDeliversUrgentFindingsOnly(t *testing.T) {
+	ctx := context.Background()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &midTurnFixtureSender{}
+	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	request := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "PostToolUse"}
+	first := service.handle(ctx, request)
+	result, ok := first.Data.(agentInjectionResult)
+	if !first.OK || !ok {
+		t.Fatalf("mid-turn injection response=%#v", first)
+	}
+	if !strings.Contains(result.AdditionalContext, "shared.Settings") {
+		t.Fatalf("urgent finding not delivered mid-turn: %#v", result)
+	}
+	if strings.Contains(result.AdditionalContext, "working nearby") {
+		t.Fatalf("routine item delivered mid-turn: %#v", result)
+	}
+	// A second tool call moments later must not pay another hosted fetch.
+	service.handle(ctx, request)
+	sender.mu.Lock()
+	calls := sender.calls
+	sender.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("mid-turn fetches=%d, want 1 (throttled)", calls)
 	}
 }

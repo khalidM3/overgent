@@ -470,7 +470,20 @@ describe("quiet session expiry", () => {
 
   it("leaves a session that is merely between turns alone", () => {
     expect(sessionHasGoneQuiet(session({ updatedAt: now - 60_000 }), now)).toBe(false);
-    expect(sessionHasGoneQuiet(session({ updatedAt: now - SESSION_IDLE_TIMEOUT_MS + 1 }), now)).toBe(false);
+    expect(sessionHasGoneQuiet(session({ status: "active", updatedAt: now - SESSION_IDLE_TIMEOUT_MS + 1 }), now)).toBe(false);
+  });
+
+  // B31: a headless `claude -p` run exits after `Stop` and never sends
+  // `SessionEnd`, so it sat live for the full thirty minutes and paired into
+  // findings against unrelated later work. A session that reported idle emits
+  // nothing while genuinely between turns, so a much shorter quiet window is
+  // honest for it - and revival on the next prompt is automatic either way. A
+  // mid-turn (active) session keeps the long window: its hooks fire
+  // continuously, so silence there needs more benefit of the doubt.
+  it("ends an idle session on the short quiet window", () => {
+    expect(sessionHasGoneQuiet(session({ updatedAt: now - 12 * 60_000 }), now)).toBe(true);
+    expect(sessionHasGoneQuiet(session({ status: "active", updatedAt: now - 12 * 60_000 }), now)).toBe(false);
+    expect(sessionHasGoneQuiet(session({ updatedAt: now - 9 * 60_000 }), now)).toBe(false);
   });
 
   // Completing these on the member's behalf would be a claim Stickguy cannot
