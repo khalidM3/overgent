@@ -273,13 +273,13 @@ describe("Project Workroom behavior", () => {
     await user.click(screen.getByRole("button", { name: "Invite people to this Project" }));
     const people = screen.getByRole("main", { name: "People" });
     expect(await within(people).findByRole("heading", { name: /Members/ })).toBeTruthy();
-    expect(within(people).getByRole("button", { name: "Create one-use invite" })).toBeTruthy();
+    expect(within(people).getByRole("button", { name: "Create invite link" })).toBeTruthy();
 
     // Settings still reaches the same surface rather than carrying a second copy.
     await user.click(within(people).getByRole("button", { name: "Back to Atlas launch" }));
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
     const settings = screen.getByRole("main", { name: "Settings" });
-    expect(within(settings).queryByRole("button", { name: "Create one-use invite" })).toBeNull();
+    expect(within(settings).queryByRole("button", { name: "Create invite link" })).toBeNull();
     await user.click(await within(settings).findByRole("button", { name: /Members & invites/ }));
     // Reached from Settings, back goes to Settings rather than always the workroom.
     const nested = screen.getByRole("main", { name: "People" });
@@ -853,5 +853,27 @@ describe("grouping sessions by area", () => {
 
     expect(groupByArea(sessions).map((group) => [group.area, group.sessions.length]))
       .toEqual([["Alpha", 2], ["Zebra", 1], [null, 1]]);
+  });
+});
+
+// The landing an invite link opens on. Its one job is that a shared link never
+// dead-ends: it renders before authentication, keeps the invite in the URL
+// fragment (which never reaches server logs), and hands the recipient the one
+// command that redeems it.
+describe("invite join landing", () => {
+  it("turns a valid fragment into the join command without transmitting it", async () => {
+    const { JoinLanding } = await import("../src/main");
+    render(<JoinLanding fragment="inv_49b778cd.sec_ret-42" />);
+    expect(screen.getByRole("heading", { name: /invited to a Stickguy Project/i })).toBeTruthy();
+    const command = screen.getByText(/^stickguy join /);
+    expect(command.textContent).toContain("/join#inv_49b778cd.sec_ret-42");
+    expect(screen.getByText(/sends it nowhere/i)).toBeTruthy();
+  });
+
+  it("states plainly when the fragment is missing or damaged", async () => {
+    const { JoinLanding } = await import("../src/main");
+    render(<JoinLanding fragment="" />);
+    expect(screen.getByRole("alert").textContent).toContain("incomplete");
+    expect(screen.queryByText(/^stickguy join /)).toBeNull();
   });
 });

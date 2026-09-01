@@ -158,7 +158,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   const [access, setAccess] = useState<ProjectAccess | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
   const refresh = () => source.getProjectAccess(projectId).then(setAccess).catch(() => setError("Project access controls could not be loaded."));
   useEffect(() => { void refresh(); }, [projectId]);
@@ -168,23 +168,23 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   };
   const copy = () => {
     setCopied(false);
-    void navigator.clipboard?.writeText(inviteCode).then(() => setCopied(true)).catch(() => setError("The invite code could not be copied. Select it and copy manually."));
+    void navigator.clipboard?.writeText(inviteLink).then(() => setCopied(true)).catch(() => setError("The invite link could not be copied. Select it and copy manually."));
   };
   const owner = access?.role === "owner";
 
-  return <Screen title="People" sub={projectName} backLabel={backLabel} onBack={onBack} lede="Everyone who can see this Project's coordination facts, and the one-use codes that let someone in.">
-    <ScreenSection title="Invite a teammate" help="An invite is a one-use code that expires in ten minutes. Whoever redeems it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
+  return <Screen title="People" sub={projectName} backLabel={backLabel} onBack={onBack} lede="Everyone who can see this Project's coordination facts, and the one-use invite links that let someone in.">
+    <ScreenSection title="Invite a teammate" help="An invite is a one-use link that expires in seven days and can be revoked below. Whoever opens it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
       <div className="screen-actions">
         {owner
-          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteCode(result.code); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create one-use invite</button>
+          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteLink(`${window.location.origin}/join#${result.code}`); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create invite link</button>
           : <p className="settings-help warning">Only the Project owner can invite people.</p>}
       </div>
-      {inviteCode && <div className="invite-code" role="status">
-        <strong>Share this code privately</strong>
-        <code>{inviteCode}</code>
+      {inviteLink && <div className="invite-code" role="status">
+        <strong>Share this link privately</strong>
+        <code>{inviteLink}</code>
         <div className="screen-actions">
-          <button className="pill" onClick={copy}>{copied ? "Copied" : "Copy code"}</button>
-          <span className="settings-help">Shown once. Redeem with <code>stickguy join</code>.</span>
+          <button className="pill" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+          <span className="settings-help">Shown once. The code after # never reaches server logs; the same string also works with <code>stickguy join</code>.</span>
         </div>
       </div>}
     </ScreenSection>

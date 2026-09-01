@@ -1675,6 +1675,24 @@ export function FixtureDataBanner() {
   return <div className="desktop-preview-banner" role="status"><strong>Sample data</strong><span>Design fixture harness · nothing here is a real Project</span></div>;
 }
 
+/**
+ * The landing an invite link opens on. It renders before any authentication -
+ * the recipient has no session by definition - and it never transmits the
+ * invite: the code rides the URL fragment, which browsers keep out of request
+ * lines and server logs, and this page only reads it back into instructions.
+ *
+ * Deliberately minimal until the onboarding UI pass: its job is that a shared
+ * link never dead-ends, not to be the finished welcome.
+ */
+export function JoinLanding({ fragment = window.location.hash.slice(1) }: { fragment?: string }) {
+  const valid = /^inv_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$/.test(fragment);
+  if (!valid) {
+    return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">Invite link</p><h1>This invite link is incomplete.</h1><p>The part after <code>#</code> is missing or damaged. Ask whoever invited you to copy the link again from People &rarr; Invite a teammate.</p></section></main>;
+  }
+  const command = `stickguy join ${window.location.origin}/join#${fragment}`;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="join-title"><span className="state-symbol"><UserPlus size={20} /></span><p className="eyebrow">Project invite</p><h1 id="join-title">You&rsquo;ve been invited to a Stickguy Project.</h1><p>Stickguy coordinates coding agents working in the same repository. Joining shares session presence and classifier-passing coordination facts &mdash; never source, prompts, or credentials.</p><div className="disclosure"><strong>1. Install Stickguy</strong><p>Already installed? Skip ahead. Otherwise run:</p><code>{`curl -fsSL ${window.location.origin}/install.sh | sh`}</code></div><div className="disclosure"><strong>2. Join from your checkout</strong><p>Run this inside the repository this Project coordinates:</p><code>{command}</code></div><button className="pill solid" onClick={() => { void navigator.clipboard?.writeText(command); }}>Copy the command</button><p className="microcopy">This invite is one-use and expires seven days after it was created. The code after # stays in your browser; this page sends it nowhere.</p></section></main>;
+}
+
 const root = document.getElementById("root");
 if (root) {
   const parameters = new URLSearchParams(window.location.search);
@@ -1691,6 +1709,6 @@ if (root) {
   if (banner) document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
     {banner && (desktopPreview ? <DesktopPreviewBanner live={!fixtures} /> : <FixtureDataBanner />)}
-    {onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : <LiveApp />}
+    {window.location.pathname.replace(/\/+$/, "") === "/join" ? <JoinLanding /> : onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : <LiveApp />}
   </StrictMode>);
 }

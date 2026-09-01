@@ -127,7 +127,9 @@ export class LiveProjectSource extends FixtureProjectSource {
   }
 
   override async createInvite(projectId: string): Promise<{ code: string }> {
-    const invite = await request<{ id: string; secret: string }>(`/projects/${encodeURIComponent(projectId)}/invites`, { method: "POST", body: JSON.stringify({ expiresInSeconds: 600, maxUses: 1 }) });
+    const invite = await request<{ id: string; secret: string }>(`/projects/${encodeURIComponent(projectId)}/invites`, { method: "POST", // Seven days, one use, revocable below - an invite is a link that must
+    // survive until the recipient sits down, not a synchronous exchange.
+    body: JSON.stringify({ expiresInSeconds: 604_800, maxUses: 1 }) });
     return { code: `${invite.id}.${invite.secret}` };
   }
 
