@@ -44,6 +44,18 @@ export type AttentionItem =
   | { kind: "finding"; id: string; finding: Finding }
   | { kind: "health"; id: string; session: Workstream; signal: HealthSignal };
 
+/**
+ * Whether a finding is interrupt-worthy, by the same rule the engine routes
+ * briefs with. The judgment layer already decided where each finding belongs
+ * (ADR-045/046); the workroom re-deriving admission from ownership alone was
+ * the UI second-guessing its own engine. A record that predates a judged
+ * verdict falls back to the engine's own severity rule (decideDelivery).
+ */
+export function interruptWorthy(finding: Finding): boolean {
+  if (finding.delivery) return finding.delivery === "next_turn";
+  return finding.severity === "high" || finding.severity === "critical";
+}
+
 const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 const HEALTH_ORDER: Record<HealthKind, number> = { error: 0, waiting: 1, stalled: 2 };
 
@@ -129,7 +141,7 @@ export function sessionHealth(session: Workstream, now: number): HealthSignal | 
  */
 export function attentionItems(snapshot: ProjectSnapshot, mineIds: ReadonlySet<string>, now: number): AttentionItem[] {
   const findings = snapshot.findings
-    .filter((finding) => finding.state === "open" && finding.workstreamIds.some((id) => mineIds.has(id)))
+    .filter((finding) => finding.state === "open" && interruptWorthy(finding) && finding.workstreamIds.some((id) => mineIds.has(id)))
     .sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity])
     .map((finding): AttentionItem => ({ kind: "finding", id: finding.id, finding }));
 

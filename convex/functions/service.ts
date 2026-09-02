@@ -336,6 +336,9 @@ export const dashboardSnapshot = internalQuery({
       workstreams.push({
         id: stream.publicId, memberName: member?.displayName ?? "Project member", initials: initials(member?.displayName ?? "PM"),
         title: stream.title, outcome: stream.currentAction ?? stream.summary, presence, fidelity: stream.vendor ? "hook" : "manual", updatedLabel: relativeLabel(args.now, stream.updatedAt),
+        // The label is what a row prints; the timestamp is ground truth for
+        // sorting and for clocks that count from a real moment (§8.2).
+        updatedAt: new Date(stream.updatedAt).toISOString(),
         ...(stream.vendor ? { agent: { vendor: stream.vendor, sessionAlias: stream.sessionAlias, status: stream.agentStatus, tool: stream.toolName, ...(stream.branch ? { branch: stream.branch } : {}), ...(stream.sessionTitle ? { sessionTitle: stream.sessionTitle } : {}), ...(stream.startedAt === undefined ? {} : { startedAt: new Date(stream.startedAt).toISOString() }), ...(stream.endedAt === undefined ? {} : { endedAt: new Date(stream.endedAt).toISOString() }), capabilities: { ...vendorCapabilities(stream.vendor), observeReadSet: readCoverageOf(stream.readCoverage) ?? "none" }, subagents: stream.subagents ?? [], activity: sessionActivity, coordination } } : {}),
         pathCount, paths, scopeSnapshot,
         ...(stream.components?.length ? { components: stream.components.slice(0, 16) } : {}),
@@ -349,7 +352,7 @@ export const dashboardSnapshot = internalQuery({
     const findings = findingDocs.map((finding) => {
       const evidence = finding.evidence as Array<{
         kind: string; summary: string; source: string; subject?: string;
-        contract?: { path?: string; changedSymbols?: Array<{ name: string }>; changedByWorkstreamId?: string };
+        contract?: { path?: string; changedSymbols?: Array<{ name: string; oldSignature?: string; newSignature?: string }>; changedByWorkstreamId?: string; readAt?: string; changedAt?: string };
       }>;
       // Prefer the symbol that actually moved: "a version of Refresh" is the
       // fact the reader acts on, where the file it lives in is only where to
@@ -371,8 +374,21 @@ export const dashboardSnapshot = internalQuery({
         ...(changedBy && nameByWorkstream.get(changedBy) ? { counterpart: nameByWorkstream.get(changedBy)! } : {}),
         ...(subject ? { subject } : {}),
       }), reason: finding.reason, workstreamIds: finding.workstreamPublicIds,
-      evidence: evidence.map((item) => ({ kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source) })),
+      // The structured contract survives the projection: the changed symbols
+      // with their old and new signatures are the one artifact that shows the
+      // exact point of divergence, and flattening them to prose threw away
+      // the most persuasive thing the engine produces.
+      evidence: evidence.map((item) => ({
+        kind: dashboardEvidenceKind(item.kind), label: item.summary, source: dashboardEvidenceSource(item.source),
+        ...(item.subject ? { subject: item.subject } : {}),
+        ...(item.contract ? { contract: item.contract } : {}),
+      })),
       firstSeen: relativeLabel(args.now, finding.firstSeenAt), lastSeen: relativeLabel(args.now, finding.lastSeenAt),
+      firstSeenAt: new Date(finding.firstSeenAt).toISOString(), lastSeenAt: new Date(finding.lastSeenAt).toISOString(),
+      // Where the judgment layer routed this finding (ADR-045/046). The
+      // workroom uses it to decide what reaches "Needs you" rather than
+      // re-deriving a weaker version from ownership alone.
+      ...(finding.delivery ? { delivery: finding.delivery } : {}),
       };
     });
     const activity = activityDocs.slice(0, 20).map((event) => ({ id: event.eventId, at: relativeLabel(args.now, event.receivedAt), actor: memberById.get(event.memberId)?.displayName ?? "Project member", kind: activityKind(event.type), summary: activitySummary(event.type, event.payload), fidelity: dashboardFidelity(event.source) }));
@@ -2710,13 +2726,28 @@ async function decisionContract(ctx: QueryCtx | MutationCtx, decision: Doc<"deci
     if (member) affectedMemberIds.push(member.publicId);
   }
   const affectedWorkstreamIds: string[] = [];
+  // Per-session delivery state, so the surface that recorded the decision can
+  // show the loop closing: queued until the brief is pulled at the session's
+  // next turn boundary, then delivered, then considered. This is the fact the
+  // member is waiting on after typing a decision, and it already existed in
+  // decisionDeliveries - it was only ever readable from History.
+  const deliveries: Array<{ workstreamId: string; deliveredAt: string; acknowledgedAt?: string }> = [];
   for (const id of decision.affectedWorkstreamIds) {
     const workstream = await ctx.db.get(id);
-    if (workstream) affectedWorkstreamIds.push(workstream.publicId);
+    if (!workstream) continue;
+    affectedWorkstreamIds.push(workstream.publicId);
+    const delivery = await ctx.db.query("decisionDeliveries").withIndex("by_decision_workstream", (q) => q.eq("decisionId", decision._id).eq("workstreamId", workstream._id)).unique();
+    if (delivery) {
+      deliveries.push({
+        workstreamId: workstream.publicId,
+        deliveredAt: new Date(delivery.deliveredAt).toISOString(),
+        ...(delivery.acknowledgedAt === undefined ? {} : { acknowledgedAt: new Date(delivery.acknowledgedAt).toISOString() }),
+      });
+    }
   }
   return {
     id: decision.publicId, ...(card ? { syncCardId: card.publicId } : {}), summary: decision.summary,
-    affectedMemberIds, affectedWorkstreamIds, revision: decision.revision, createdAt: new Date(decision.createdAt).toISOString(),
+    affectedMemberIds, affectedWorkstreamIds, deliveries, revision: decision.revision, createdAt: new Date(decision.createdAt).toISOString(),
   };
 }
 
