@@ -6,7 +6,6 @@ import remarkGfm from "remark-gfm";
 import {
   Activity,
   AlertTriangle,
-  ArrowUp,
   BellOff,
   Bot,
   Check,
@@ -48,7 +47,7 @@ import { DesktopOnboarding } from "./desktop-onboarding";
 import { NewProjectScreen } from "./new-project";
 import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
-import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
+import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, Resolution, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 
 /** How each connected vendor is named in the interface. */
 const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
@@ -67,7 +66,7 @@ interface AppProps {
   navigate?: (url: string) => void;
 }
 
-type Selection = { kind: "session"; id: string } | { kind: "collision"; id: string };
+type Selection = { kind: "session"; id: string } | { kind: "finding"; id: string };
 type View = "workroom" | "history";
 /** Settings, People and Add a Project are screens, not dialogs. */
 type ScreenName = "settings" | "people" | "new-project";
@@ -282,13 +281,16 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const nearby = useMemo(() => snapshot.workstreams.filter((stream) => stream.memberName !== identity.name).sort((left, right) => presenceRank(left) - presenceRank(right)), [snapshot.workstreams, identity.name]);
   const mineIds = useMemo(() => new Set(mine.map((stream) => stream.id)), [mine]);
   const openFindings = snapshot.findings.filter((finding) => finding.state === "open");
-  // Only what reaches your own work is yours to act on; the rest stays quiet.
-  const elsewhere = openFindings.filter((finding) => !finding.workstreamIds.some((id) => mineIds.has(id)));
   // Fixture snapshots are authored at fixed times, so wall-clock arithmetic over
   // them would report every session as silent for months. Live snapshots carry
   // real event times and are measured against the real clock.
   const now = source.live ? Date.now() : newestEventTime(snapshot) ?? Date.now();
   const needsYou = useMemo(() => attentionItems(snapshot, mineIds, now), [snapshot, mineIds, now]);
+  // Everything open that the lead block did not admit: findings on other
+  // people's work, and findings on yours that the judgment layer routed to
+  // the dashboard rather than into a turn. Visible, never competing.
+  const needsYouFindingIds = useMemo(() => new Set(needsYou.flatMap((item) => (item.kind === "finding" ? [item.id] : []))), [needsYou]);
+  const elsewhere = openFindings.filter((finding) => !needsYouFindingIds.has(finding.id));
   const converging = useMemo(() => needsYou.flatMap((item) => (item.kind === "finding" ? [item.finding] : [])), [needsYou]);
   const convergingWorkstreams = useMemo(() => new Set(converging.flatMap((finding) => finding.workstreamIds)), [converging]);
   // Ranked by what you would do about it, then by the same elapsed label the
@@ -296,10 +298,12 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const mySessions = useMemo(() => orderSessions(mine, now, (session) => elapsedFromLabel(session.updatedLabel) ?? Number.POSITIVE_INFINITY), [mine, now]);
 
   const defaultSession = mine.find((stream) => stream.agent?.status === "active") ?? mine[0] ?? snapshot.workstreams[0];
-  const effectiveSelection: Selection | null = selection ?? (defaultSession ? { kind: "session", id: defaultSession.id } : null);
+  // History gets no default: falling back to "your most active session" is
+  // right beside a live list and pure non-sequitur beside a record.
+  const effectiveSelection: Selection | null = selection ?? (view === "workroom" && defaultSession ? { kind: "session", id: defaultSession.id } : null);
   const selectedSession = effectiveSelection?.kind === "session" ? snapshot.workstreams.find((stream) => stream.id === effectiveSelection.id) ?? null : null;
-  const selectedCollision = effectiveSelection?.kind === "collision" ? snapshot.findings.find((finding) => finding.id === effectiveSelection.id) ?? null : null;
-  const previousCollision = trail.length > 1 && trail[trail.length - 2]?.kind === "collision"
+  const selectedCollision = effectiveSelection?.kind === "finding" ? snapshot.findings.find((finding) => finding.id === effectiveSelection.id) ?? null : null;
+  const previousCollision = trail.length > 1 && trail[trail.length - 2]?.kind === "finding"
     ? snapshot.findings.find((finding) => finding.id === trail[trail.length - 2]!.id) ?? null
     : null;
   const selectedSessionFinding = selectedSession
@@ -355,13 +359,15 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const previousSelection = trail.length > 1 ? trail[trail.length - 2]! : null;
   const inspectorBack = previousSelection
     ? {
-        label: previousSelection.kind === "collision"
-          ? snapshot.findings.find((finding) => finding.id === previousSelection.id)?.title ?? "collision"
+        label: previousSelection.kind === "finding"
+          ? snapshot.findings.find((finding) => finding.id === previousSelection.id)?.title ?? "finding"
           : snapshot.workstreams.find((stream) => stream.id === previousSelection.id)?.agent?.sessionTitle ?? "session",
         onBack: popSelection,
       }
     : null;
-  const showView = (next: View) => { setView(next); setScreens([]); };
+  // Whatever was selected belonged to the view being left; carrying it across
+  // rendered a stale panel beside an unrelated list.
+  const showView = (next: View) => { setView(next); setScreens([]); setSelection(null); };
 
   if (projects.length === 0) return <EmptyView />;
 
@@ -429,20 +435,25 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
 
             <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
 
-            {offline && <div className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>}
-            {/* Pausing only ever stops this device publishing, so the notice
-                says whose sharing stopped. Nobody can pause a teammate. */}
-            {snapshot.workspacePaused && <div className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Stickguy app or menu bar.</span></div>}</div>}
-            {identity.source === "device" && !identityPromptDismissed && <div className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>}
-            {attention && <div className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "collision", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>}
+            <NoticeQueue notices={[
+              // Most actionable first: a new finding outranks this device's own
+              // states, and setup advice comes last. One renders; the rest wait
+              // behind a count rather than stacking above the content.
+              ...(attention ? [<div key="attention" className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "finding", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>] : []),
+              // Pausing only ever stops this device publishing, so the notice
+              // says whose sharing stopped. Nobody can pause a teammate.
+              ...(snapshot.workspacePaused ? [<div key="paused" className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Stickguy app or menu bar.</span></div>}</div>] : []),
+              ...(offline ? [<div key="offline" className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>] : []),
+              ...(identity.source === "device" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
+            ]} />
 
             {view === "workroom"
               ? <WorkroomView
                   snapshot={snapshot} mine={mine} mySessions={mySessions} nearby={nearby} needsYou={needsYou} elsewhere={elsewhere}
-                  convergingWorkstreams={convergingWorkstreams} selection={effectiveSelection} viewer={identity.name} tick={tick}
-                  onSelectSession={openSession} onSelectFinding={(id) => setSelection({ kind: "collision", id })}
+                  convergingWorkstreams={convergingWorkstreams} selection={effectiveSelection} tick={tick}
+                  onSelectSession={openSession} onSelectFinding={(id) => setSelection({ kind: "finding", id })}
                 />
-              : <HistoryView snapshot={snapshot} tick={tick} selection={effectiveSelection} onSelectFinding={(id) => setSelection({ kind: "collision", id })} onSelectSession={(id) => setSelection({ kind: "session", id })} />}
+              : <HistoryView snapshot={snapshot} tick={tick} now={now} selection={effectiveSelection} onSelectFinding={(id) => setSelection({ kind: "finding", id })} />}
           </div>
         </div>
       </main>
@@ -451,8 +462,8 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
       {selectedSession
         ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} nativeApi={nativeApi} finding={selectedSessionFinding} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
           : selectedCollision
-            ? <CollisionInspector
-                finding={selectedCollision} sessions={snapshot.workstreams} viewer={identity.name} projectId={projectId} source={source}
+            ? <FindingInspector
+                finding={selectedCollision} sessions={snapshot.workstreams} projectId={projectId} source={source}
                 card={snapshot.collaboration.syncCards.find((entry) => entry.findingId === selectedCollision.id) ?? null}
                 disabled={offline}
                 onState={(state) => source.setFindingState(projectId, selectedCollision.id, state)}
@@ -567,6 +578,24 @@ function FocusControl({ source, session }: { source: FixtureProjectSource; sessi
   </button>;
 }
 
+/**
+ * At most one notice above the content.
+ *
+ * Offline, paused, a name prompt and a coordination update could all be true at
+ * once, and four stacked rows pushed the block the screen exists for below the
+ * fold. The most actionable notice renders; the rest are a count the reader can
+ * open, so nothing is hidden and nothing is in the way.
+ */
+function NoticeQueue({ notices }: { notices: ReactNode[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (notices.length === 0) return null;
+  if (notices.length === 1 || expanded) return <>{notices}</>;
+  return <>
+    {notices[0]}
+    <button className="text-button notice-more" onClick={() => setExpanded(true)}>{notices.length - 1} more {notices.length === 2 ? "notice" : "notices"}</button>
+  </>;
+}
+
 function useProjectSnapshot(source: FixtureProjectSource, projectId: string): ProjectSnapshot {
   return useSyncExternalStore((listener) => source.subscribe(projectId, listener), () => source.get(projectId), () => source.get(projectId));
 }
@@ -578,9 +607,9 @@ function presenceRank(stream: Workstream): number {
   return 3;
 }
 
-function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere, convergingWorkstreams, selection, viewer, tick, onSelectSession, onSelectFinding }: {
+function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere, convergingWorkstreams, selection, tick, onSelectSession, onSelectFinding }: {
   snapshot: ProjectSnapshot; mine: Workstream[]; mySessions: OrderedSessions; nearby: Workstream[]; needsYou: AttentionItem[]; elsewhere: Finding[];
-  convergingWorkstreams: Set<string>; selection: Selection | null; viewer: string; tick: number;
+  convergingWorkstreams: Set<string>; selection: Selection | null; tick: number;
   onSelectSession: (id: string) => void; onSelectFinding: (id: string) => void;
 }) {
   return <>
@@ -591,32 +620,37 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     {needsYou.length === 0
       ? <p className="block-empty">Nothing is reaching your work right now.</p>
       : needsYou.map((item) => item.kind === "finding"
-          ? <ConvergeBlock key={item.id} finding={item.finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} selected={selection?.kind === "collision" && selection.id === item.finding.id} onSelect={() => onSelectFinding(item.finding.id)} onOpenSession={onSelectSession} />
+          ? <ConvergeBlock key={item.id} finding={item.finding} sessions={snapshot.workstreams} tick={tick} selected={selection?.kind === "finding" && selection.id === item.finding.id} onSelect={() => onSelectFinding(item.finding.id)} onOpenSession={onSelectSession} />
           : <HealthBlock key={item.id} session={item.session} signal={item.signal} tick={tick} selected={selection?.kind === "session" && selection.id === item.session.id} onOpen={() => onSelectSession(item.session.id)} />)}
 
-    <div className="block-head ambient"><h2>Your sessions</h2><span className="count">{mine.length}</span></div>
-    {mine.length === 0
-      ? <p className="block-empty">No sessions are registered to you in this Project yet. Start Codex or Claude Code in this repository and the session appears here.</p>
+    {/* One block, grouped by the part of the product being touched, across
+        everyone. Splitting your sessions from teammates' made the grouping
+        unable to do its one job: "who else is in my lane" was answered only
+        by reading two lists and matching their headings. The self/other
+        distinction survives as row richness - your rows carry live activity,
+        a teammate's row carries intent - which is how the two row types
+        already differed. */}
+    <div className="block-head ambient"><h2>Sessions</h2><span className="count">{mine.length + nearby.length}</span></div>
+    {mine.length + nearby.length === 0
+      ? <p className="block-empty">No sessions are registered in this Project yet. Start Codex or Claude Code in this repository and the session appears here.</p>
       : <>
-          <AreaGroups sessions={mySessions.live} render={(stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />} />
+          <AreaGroups sessions={[...mySessions.live, ...nearby]} findings={snapshot.findings} render={(stream) => mine.some((candidate) => candidate.id === stream.id)
+            ? <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />
+            : <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />
           {/* Finished work is worth keeping and not worth scrolling past, so it
               folds into one line rather than moving to a screen of its own. */}
           {mySessions.finished.length > 0 && <details className="fold">
             <summary>{mySessions.finished.length} finished session{mySessions.finished.length === 1 ? "" : "s"}</summary>
             <div className="rows">{mySessions.finished.map((stream) => <SessionRow key={stream.id} session={stream} tick={tick} converging={convergingWorkstreams.has(stream.id)} selected={selection?.kind === "session" && selection.id === stream.id} onClick={() => onSelectSession(stream.id)} />)}</div>
           </details>}
+          {/* A Project of one is a finished Project (ADR-054): a fact about
+              the Project, not a setup step the member has failed to do. */}
+          {nearby.length === 0 && <p className="block-note">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>}
         </>}
-
-    {/* A Project of one is a finished Project, so this block states a fact about
-        the Project rather than naming a setup step the member has not done. */}
-    <div className="block-head ambient"><h2>Nearby</h2><span className="count">{nearby.length}</span></div>
-    {nearby.length === 0
-      ? <p className="block-empty">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>
-      : <AreaGroups sessions={nearby} render={(stream) => <PersonRow key={stream.id} session={stream} tick={tick} onClick={() => onSelectSession(stream.id)} />} />}
 
     {elsewhere.length > 0 && <>
       <div className="block-head ambient"><h2>Elsewhere in the Project</h2><span className="count">{elsewhere.length}</span></div>
-      {elsewhere.map((finding) => <ConvergeBlock key={finding.id} finding={finding} sessions={snapshot.workstreams} viewer={viewer} tick={tick} quiet selected={selection?.kind === "collision" && selection.id === finding.id} onSelect={() => onSelectFinding(finding.id)} onOpenSession={onSelectSession} />)}
+      {elsewhere.map((finding) => <ConvergeBlock key={finding.id} finding={finding} sessions={snapshot.workstreams} tick={tick} quiet selected={selection?.kind === "finding" && selection.id === finding.id} onSelect={() => onSelectFinding(finding.id)} onOpenSession={onSelectSession} />)}
     </>}
 
   </>;
@@ -648,30 +682,6 @@ function isLive(session: Workstream): boolean {
 function LiveAction({ session }: { session: Workstream }) {
   if (!isLive(session)) return <>{session.outcome}</>;
   return <span className="livetext">{session.outcome}<span className="ellipsis" /></span>;
-}
-
-/**
- * Sessions grouped by the branch they are working on.
- *
- * Branch answers "who else is in my lane", and until now it was a word at the
- * end of a row rather than something the eye could group by. A Project working
- * on one branch gains nothing from a heading that repeats itself, so grouping
- * appears only once a list actually spans more than one branch; sessions with
- * no reported branch keep their place in a final unlabelled group rather than
- * being given a branch they never claimed.
- */
-interface BranchGroup { branch: string | null; sessions: Workstream[] }
-
-export function groupByBranch(sessions: readonly Workstream[]): BranchGroup[] {
-  const groups: BranchGroup[] = [];
-  for (const session of sessions) {
-    const branch = session.agent?.branch?.trim() || null;
-    const existing = groups.find((group) => group.branch === branch);
-    if (existing) existing.sessions.push(session);
-    else groups.push({ branch, sessions: [session] });
-  }
-  // One branch, or none at all, is the ordinary case and needs no chrome.
-  return groups.filter((group) => group.branch !== null).length > 1 ? groups : [{ branch: null, sessions: [...sessions] }];
 }
 
 export interface AreaGroup { area: string | null; sessions: Workstream[] }
@@ -735,29 +745,31 @@ export function groupByArea(sessions: readonly Workstream[]): AreaGroup[] {
   });
 }
 
-function AreaGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
-  const groups = groupByArea(sessions);
-  if (groups.length === 1 && groups[0]!.area === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
-  return <>{groups.map((group) => <div className="area-group" key={group.area ?? "__unplaced"}>
-    <div className="area-label">
-      {group.area
-        ? <><FileCode2 size={12} aria-hidden="true" /><span>{group.area}</span></>
-        : <><FileCode2 size={12} aria-hidden="true" /><span className="unknown">not yet placed</span></>}
-      <span className="area-count">{group.sessions.length}</span>
-    </div>
-    <div className="rows">{group.sessions.map(render)}</div>
-  </div>)}</>;
+/**
+ * Whether an open finding spans two or more sessions of one area group. When
+ * it does, the group label is the collision: showing the relationship as
+ * structure beats asking the reader to reassemble it from per-row warnings.
+ */
+function groupConverges(group: AreaGroup, findings: readonly Finding[] | undefined): boolean {
+  if (!findings) return false;
+  return findings.some((finding) => finding.state === "open"
+    && finding.workstreamIds.filter((id) => group.sessions.some((session) => session.id === id)).length >= 2);
 }
 
-function BranchGroups({ sessions, render }: { sessions: readonly Workstream[]; render: (session: Workstream) => ReactNode }) {
-  const groups = groupByBranch(sessions);
-  if (groups.length === 1 && groups[0]!.branch === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
-  return <>{groups.map((group) => <div className="branch-group" key={group.branch ?? "__unlabelled"}>
-    <div className="branch-label">{group.branch
-      ? <><GitBranch size={12} aria-hidden="true" /><code>{group.branch}</code><span>{group.sessions.length}</span></>
-      : <><GitBranch size={12} aria-hidden="true" /><span className="unknown">no branch reported</span><span>{group.sessions.length}</span></>}</div>
-    <div className="rows">{group.sessions.map(render)}</div>
-  </div>)}</>;
+function AreaGroups({ sessions, findings, render }: { sessions: readonly Workstream[]; findings?: readonly Finding[]; render: (session: Workstream) => ReactNode }) {
+  const groups = groupByArea(sessions);
+  if (groups.length === 1 && groups[0]!.area === null) return <div className="rows">{groups[0]!.sessions.map(render)}</div>;
+  return <>{groups.map((group) => {
+    const converging = groupConverges(group, findings);
+    return <div className="area-group" key={group.area ?? "__unplaced"}>
+      <div className="area-label">
+        {converging ? <AlertTriangle size={12} aria-hidden="true" className="area-warn" /> : <FileCode2 size={12} aria-hidden="true" />}
+        {group.area ? <span>{group.area}</span> : <span className="unknown">not yet placed</span>}
+        <span className="area-count">{group.sessions.length}{converging ? " · colliding" : ""}</span>
+      </div>
+      <div className="rows">{group.sessions.map(render)}</div>
+    </div>;
+  })}</>;
 }
 
 function SessionRow({ session, tick, converging, selected, onClick }: { session: Workstream; tick: number; converging: boolean; selected: boolean; onClick: () => void }) {
@@ -896,12 +908,6 @@ function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
   </section>;
 }
 
-/** Who you would actually go and talk to: everyone on the finding except you. */
-function otherNames(affected: Workstream[], viewer: string): string {
-  const names = [...new Set(affected.map((stream) => stream.memberName).filter((name) => name !== viewer))];
-  return names.length > 0 ? names.join(" and ") : "your teammate";
-}
-
 /**
  * Where a collision will show up other than here.
  *
@@ -940,38 +946,56 @@ function joinNames(values: string[]): string {
 }
 
 function findingHeadline(finding: Finding): string {
-  return finding.kind === "direct_collision" ? "Collision detected" : finding.kind === "redundant_work" ? "Redundant work" : finding.kind === "shared_dependency" ? "Shared dependency" : finding.kind === "assumption_conflict" ? "Assumption conflict" : finding.kind === "downstream_impact" ? "Downstream impact" : finding.kind === "stale_assumption" ? "Stale assumption" : "Possible collision";
+  return finding.kind === "direct_collision" ? "Collision detected" : finding.kind === "redundant_work" ? "Redundant work" : finding.kind === "shared_dependency" ? "Shared dependency" : finding.kind === "assumption_conflict" ? "Assumption conflict" : finding.kind === "downstream_impact" ? "Downstream impact" : finding.kind === "stale_assumption" ? "Stale assumption" : finding.kind === "dependency_ready" ? "Dependency ready" : "Possible collision";
 }
 
 function evidenceKindLabel(kind: Finding["evidence"][number]["kind"]): string {
   return ({ path: "same file", contract: "same contract", dependency: "shared dependency", intent: "related intent" } as const)[kind];
 }
 
+/**
+ * Whether the reason line says anything the headline has not already said.
+ *
+ * On live data both sentences are derived from the same evidence, so the
+ * reason often restates the title in different words and the card spends a
+ * line repeating itself. Only a reason whose every significant word already
+ * appears in the title folds away; an uncertain case keeps its explanation,
+ * because a summary must never be an unexplained alarm.
+ */
+function reasonAddsFacts(finding: Finding): boolean {
+  const titleWords = new Set(plainWords(finding.title).split(" "));
+  return plainWords(finding.reason).split(" ").some((word) => word.length > 3 && !titleWords.has(word));
+}
+
 /** Both sides of a collision, each one a line you can open. */
-function ConvergeBlock({ finding, sessions, viewer, tick, quiet = false, selected, onSelect, onOpenSession }: {
-  finding: Finding; sessions: Workstream[]; viewer: string; tick: number; quiet?: boolean; selected: boolean; onSelect: () => void; onOpenSession: (id: string) => void;
+function ConvergeBlock({ finding, sessions, tick, quiet = false, selected, onSelect, onOpenSession }: {
+  finding: Finding; sessions: Workstream[]; tick: number; quiet?: boolean; selected: boolean; onSelect: () => void; onOpenSession: (id: string) => void;
 }) {
   const affected = sessions.filter((stream) => finding.workstreamIds.includes(stream.id));
   const names = affected.map((stream) => stream.memberName).join(" and ");
-  const others = otherNames(affected, viewer);
-  return <section className={quiet ? "converge quiet" : "converge"} aria-label={`${findingHeadline(finding)} ${names}`}>
-    <span className="converge-icon"><AlertTriangle size={18} /></span>
+  // A ready dependency is the one finding that is good news, so it reads at
+  // ambient weight with a neutral mark rather than dressed as an alarm.
+  const positive = finding.kind === "dependency_ready";
+  return <section className={quiet || positive ? "converge quiet" : "converge"} aria-label={`${findingHeadline(finding)} ${names}`}>
+    <span className="converge-icon">{positive ? <Check size={18} /> : <AlertTriangle size={18} />}</span>
     {/* The card's own headline is the control that opens it, stretched across
         the whole block so the affordance is the card rather than one line of
-        text inside it. The two session rows and the decision button sit above
-        that overlay and keep their own targets. */}
+        text inside it. The session rows sit above that overlay and keep their
+        own targets. */}
     <h3><button className="converge-open" onClick={onSelect} aria-label={`${findingHeadline(finding)} ${names}`} aria-current={selected ? "true" : undefined}>{finding.title}</button></h3>
     <span className="converge-chev" aria-hidden="true"><ChevronRight size={16} /></span>
-    <p className="why">{finding.reason}</p>
-    <div className="pair">{affected.map((stream) => <button className="mini" key={stream.id} onClick={() => onOpenSession(stream.id)} aria-label={`Open ${stream.memberName}'s side of this collision`}>
+    {reasonAddsFacts(finding) && <p className="why">{finding.reason}</p>}
+    <div className="pair">{affected.map((stream) => <button className="mini" key={stream.id} onClick={() => onOpenSession(stream.id)} aria-label={`Open ${stream.memberName}'s side of this finding`}>
       <MemberChip name={stream.memberName} />
       <span className="nm">{stream.memberName}<span className="row-vendor" title={vendorLabel(stream)}>{stream.agent ? <VendorMark vendor={stream.agent.vendor} size={13} /> : <Code2 size={12} />}</span> <em>· {stream.agent?.sessionTitle ?? stream.title}</em></span>
       <Elapsed label={stream.updatedLabel} tick={tick} />
       <span className="chev"><ChevronRight size={14} /></span>
     </button>)}</div>
     <div className="converge-actions">
-      <button className="pill solid" onClick={onSelect}>Decide this with {others}</button>
-      <span className="converge-meta">first seen <Since label={finding.firstSeen} tick={tick} /> ago</span>
+      {/* The headline already opens the finding; a second button opening the
+          same panel was two controls for one intent. Severity earns a word
+          only when it is the reason this card outranks its neighbours. */}
+      <span className="converge-meta">{finding.severity === "high" || finding.severity === "critical" ? <><span className="strong">{finding.severity}</span> · </> : null}first seen <Since label={finding.firstSeen} tick={tick} /> ago</span>
     </div>
   </section>;
 }
@@ -1028,82 +1052,155 @@ function HealthBlock({ session, signal, tick, selected, onOpen }: {
 }
 
 /**
- * What already happened, in one place.
- *
- * This was two tabs. "Ledger" named a filing cabinet rather than anything a
- * person goes looking for, and "Decisions" survived ADR-037 deleting the
- * standalone decision surface it was built for, so half the sidebar answered a
- * question nobody had asked in words they did not use. Both answered the same
- * question - what has this Project already handled - so they are one screen
- * with a name people already own.
- *
- * It stops at delivery. Stickguy knows a correction was routed and whether the
- * agent acknowledged reading it, and does not know whether the agent then did
- * the right thing; wording that implied otherwise would fail the fidelity rules
- * this screen is subordinate to.
+ * One case: a finding's whole lifecycle, or a decision that never had one.
+ * History used to be three independently ordered lists - Raised, Delivered,
+ * Settled - which stored the lifecycle the data already carried as a puzzle
+ * for the reader to reassemble. A case is the unit a person actually
+ * investigates: what was caught, what was concluded, and whether the loop
+ * closed.
  */
-function HistoryView({ snapshot, tick, selection, onSelectFinding, onSelectSession }: {
-  snapshot: ProjectSnapshot; tick: number; selection: Selection | null;
-  onSelectFinding: (id: string) => void; onSelectSession: (id: string) => void;
+interface HistoryCase {
+  id: string;
+  finding: Finding | null;
+  title: string;
+  resolution: Resolution | null;
+  /** Epoch ms of the case's newest movement, for ordering and day dividers. */
+  at: number | null;
+}
+
+function caseTime(iso: string | undefined, label: string | undefined, now: number): number | null {
+  if (iso) {
+    const parsed = Date.parse(iso);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const elapsed = label ? elapsedFromLabel(label) : null;
+  return elapsed === null ? null : now - elapsed * 1_000;
+}
+
+export function historyCases(snapshot: ProjectSnapshot, now: number): HistoryCase[] {
+  const cards = snapshot.collaboration.syncCards;
+  const cases: HistoryCase[] = snapshot.findings.map((finding) => {
+    const card = cards.find((candidate) => candidate.findingId === finding.id);
+    const resolution = card?.resolution ?? null;
+    const at = caseTime(resolution?.createdAt ?? finding.lastSeenAt, finding.lastSeen, now);
+    return { id: finding.id, finding, title: finding.title, resolution, at };
+  });
+  const claimed = new Set(cases.flatMap((entry) => (entry.resolution ? [entry.resolution.id] : [])));
+  for (const resolution of snapshot.collaboration.resolutions) {
+    if (claimed.has(resolution.id)) continue;
+    const card = cards.find((candidate) => candidate.resolution?.id === resolution.id);
+    cases.push({ id: resolution.id, finding: null, title: card?.title ?? "Coordination decision", resolution, at: caseTime(resolution.createdAt, undefined, now) });
+  }
+  // Newest movement first; anything undatable keeps its place at the end.
+  return cases.sort((left, right) => (right.at ?? -Infinity) - (left.at ?? -Infinity));
+}
+
+/** Today, Yesterday, or the date - the divider a chronological log reads by. */
+function dayLabel(at: number, now: number): string {
+  const day = new Date(at); const today = new Date(now);
+  const startOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOf(today) - startOf(day)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return day.toLocaleDateString([], { day: "numeric", month: "short", year: day.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+}
+
+function caseClock(at: number | null): string | null {
+  return at === null ? null : new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+type HistoryFilter = "all" | "open" | "settled" | "dismissed";
+
+function caseFilterBand(entry: HistoryCase): Exclude<HistoryFilter, "all"> {
+  if (entry.finding === null || entry.finding.state === "resolved") return "settled";
+  if (entry.finding.state === "dismissed") return "dismissed";
+  return "open";
+}
+
+/**
+ * The arc is the whole story on one mono line: raised, then how it ended,
+ * then whether the conclusion reached every affected agent. An unclosed loop
+ * is the one thing on this screen still converging on someone, so it is the
+ * one thing here allowed to take colour.
+ */
+function CaseArc({ entry, now }: { entry: HistoryCase; now: number }) {
+  const steps: ReactNode[] = [];
+  if (entry.finding) {
+    const raisedAt = caseClock(caseTime(entry.finding.firstSeenAt, entry.finding.firstSeen, now));
+    steps.push(<span className="step" key="raised">{findingHeadline(entry.finding).toLowerCase()}{raisedAt ? ` · ${raisedAt}` : ""}</span>);
+  }
+  if (entry.resolution) {
+    const decidedAt = caseClock(caseTime(entry.resolution.createdAt, undefined, now));
+    steps.push(<span className="step" key="decided">decided{decidedAt ? ` ${decidedAt}` : ""}</span>);
+    const targets = entry.resolution.affectedWorkstreamIds.length;
+    const considered = (entry.resolution.deliveries ?? []).filter((delivery) => delivery.acknowledgedAt).length;
+    steps.push(<span className="step" key="delivered">sent to {targets} session{targets === 1 ? "" : "s"}</span>);
+    steps.push(considered >= targets
+      ? <span className="step done" key="considered">{targets === 1 ? "considered" : "all considered"}</span>
+      : <span className="step waiting" key="considered">{targets - considered} not yet considered</span>);
+  } else if (entry.finding?.state === "dismissed") {
+    steps.push(<span className="step" key="dismissed">dismissed</span>);
+  } else if (entry.finding) {
+    // Open is a fact, not an alarm: the workroom is the surface that shouts
+    // about open findings. Only a decided case whose conclusion has not yet
+    // reached every agent takes colour here.
+    steps.push(<span className="step" key="open">still open</span>);
+  }
+  return <div className="case-arc">{steps.flatMap((step, index) => index === 0 ? [step] : [<span className="sep" key={`sep-${index}`} aria-hidden="true">→</span>, step])}</div>;
+}
+
+/**
+ * What already happened, as a case log.
+ *
+ * It stops at consideration. Stickguy knows a decision was routed and whether
+ * the agent acknowledged reading it, and does not know whether the agent then
+ * did the right thing; wording that implied otherwise would fail the fidelity
+ * rules this screen is subordinate to.
+ */
+function HistoryView({ snapshot, tick, now, selection, onSelectFinding }: {
+  snapshot: ProjectSnapshot; tick: number; now: number; selection: Selection | null;
+  onSelectFinding: (id: string) => void;
 }) {
-  // `firstSeen` is still a prose label from the service, so comparing the
-  // strings sorted "44m ago" above "12 min ago". Parse to seconds and put the
-  // most recent first; anything unparseable keeps its place at the end.
-  const findings = [...snapshot.findings].sort((left, right) => (elapsedFromLabel(left.firstSeen) ?? Infinity) - (elapsedFromLabel(right.firstSeen) ?? Infinity));
-  const deliveries = snapshot.workstreams
-    .flatMap((session) => (session.agent?.coordination ?? []).map((entry) => ({ session, entry })))
-    .sort((left, right) => (left.entry.routedAt < right.entry.routedAt ? 1 : -1));
-  const acknowledged = deliveries.filter((item) => item.entry.acknowledgedAt).length;
-  const resolved = snapshot.collaboration.syncCards.filter((card) => card.state === "resolved" && card.resolution);
-  const loose = snapshot.collaboration.resolutions.filter((resolution) => !resolved.some((card) => card.resolution?.id === resolution.id));
+  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const cases = useMemo(() => historyCases(snapshot, now), [snapshot, now]);
+  const visible = filter === "all" ? cases : cases.filter((entry) => caseFilterBand(entry) === filter);
   const membersOn = (ids: string[]) => [...new Set(snapshot.workstreams.filter((stream) => ids.includes(stream.id)).map((stream) => stream.memberName))];
+  const counts = { all: cases.length, open: 0, settled: 0, dismissed: 0 };
+  for (const entry of cases) counts[caseFilterBand(entry)] += 1;
 
+  let lastDay: string | null = null;
   return <>
-    <div className="block-head lead"><h2>Raised</h2><span className="count">{findings.length}</span></div>
-    <p className="block-note">Everything this Project has caught, whether or not it reached you.</p>
-    {findings.length === 0
-      ? <p className="block-empty">Nothing has been raised in this Project yet.</p>
-      : <ol className="ledger">{findings.map((finding) => <li key={finding.id}>
-          <button aria-current={selection?.kind === "collision" && selection.id === finding.id ? "true" : undefined} onClick={() => onSelectFinding(finding.id)} aria-label={`Open ${findingHeadline(finding)}`}>
-            <span className="lt">{finding.title}</span>
-            <span className="lw">{finding.reason}</span>
-            <span className="lp">{membersOn(finding.workstreamIds).map((name) => <MemberChip key={name} name={name} />)}</span>
-            <span className="lf">
-              <span>{findingHeadline(finding).toLowerCase()}</span>
-              <span>{finding.severity} severity</span>
-              <span>{finding.confidence} confidence</span>
-              <span>{finding.state}</span>
-              <span>raised <Since label={finding.firstSeen} tick={tick} /> ago</span>
-            </span>
-          </button>
-        </li>)}</ol>}
-
-    <div className="block-head ambient"><h2>Delivered into a turn</h2><span className="count">{deliveries.length}</span></div>
-    {deliveries.length === 0
-      ? <p className="block-empty">No coordination has been routed into an agent turn yet.</p>
-      : <>
-          <ol className="ledger">{deliveries.map(({ session, entry }) => <li key={entry.id}>
-            <button aria-current={selection?.kind === "session" && selection.id === session.id ? "true" : undefined} onClick={() => onSelectSession(session.id)} aria-label={openSessionLabel(session)}>
-              <span className="lt">{entry.summary}</span>
-              <span className="lp"><MemberChip name={session.memberName} /><span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
-              <span className="lf">
-                <span>{session.memberName}</span>
-                <span>{entry.itemCount} item{entry.itemCount === 1 ? "" : "s"}</span>
-                <span>at {coordinationTriggerLabel(entry.trigger).toLowerCase()}</span>
-                <span>{entry.acknowledgedAt ? "acknowledged" : "not yet acknowledged"}</span>
-              </span>
-            </button>
-          </li>)}</ol>
-          <p className="block-note">{acknowledged} of {deliveries.length} delivered brief{deliveries.length === 1 ? "" : "s"} {acknowledged === 1 ? "was" : "were"} acknowledged by the receiving agent. Acknowledgement records that the agent read the correction, not that it followed it.</p>
-        </>}
-
-    <div className="block-head ambient"><h2>Settled</h2><span className="count">{resolved.length + loose.length}</span></div>
-    {resolved.length + loose.length === 0
-      ? <p className="block-empty">Nothing has been settled yet. Resolving a collision records the outcome here and delivers it to every affected session.</p>
-      : <div>
-          {resolved.map((card) => <article className="decision-entry" key={card.id}><h3>{card.title}</h3><p>{card.resolution?.summary}</p><div className="sent">Delivered to {card.resolution?.affectedWorkstreamIds.length ?? 0} session{(card.resolution?.affectedWorkstreamIds.length ?? 0) === 1 ? "" : "s"} · revision {card.revision}</div></article>)}
-          {loose.map((resolution) => <article className="decision-entry" key={resolution.id}><h3>Coordination decision</h3><p>{resolution.summary}</p><div className="sent">Delivered to {resolution.affectedWorkstreamIds.length} session{resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {resolution.revision}</div></article>)}
-        </div>}
+    <div className="block-head lead"><h2>History</h2><span className="count">{cases.length}</span></div>
+    <p className="block-note">Everything this Project has caught and what became of it, newest first.</p>
+    {cases.length > 0 && <div className="case-filter" role="group" aria-label="Filter history">
+      {(["all", "open", "settled", "dismissed"] as const).map((value) => <button key={value} className="text-button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "open" ? "Open" : value === "settled" ? "Settled" : "Dismissed"}{value !== "all" && counts[value] > 0 ? ` ${counts[value]}` : ""}</button>)}
+    </div>}
+    {cases.length === 0 && <p className="block-empty">Nothing has been raised in this Project yet. When a finding is caught, decided, or dismissed, its whole story lands here.</p>}
+    {cases.length > 0 && visible.length === 0 && <p className="block-empty">Nothing here under this filter.</p>}
+    <ol className="case-log">
+      {visible.map((entry) => {
+        const day = entry.at === null ? null : dayLabel(entry.at, now);
+        const divider = day !== null && day !== lastDay ? day : null;
+        if (day !== null) lastDay = day;
+        const people = entry.finding ? membersOn(entry.finding.workstreamIds) : membersOn(entry.resolution?.affectedWorkstreamIds ?? []);
+        return <li key={entry.id}>
+          {divider && <p className="day-divide">{divider}</p>}
+          {entry.finding
+            ? <button className="case" aria-current={selection?.kind === "finding" && selection.id === entry.finding.id ? "true" : undefined} onClick={() => onSelectFinding(entry.finding!.id)} aria-label={`Open ${findingHeadline(entry.finding)}`}>
+                <span className="case-title">{entry.title}</span>
+                <span className="case-people">{people.map((name) => <MemberChip key={name} name={name} />)}</span>
+                <CaseArc entry={entry} now={now} />
+                {entry.resolution && <span className="case-decision"><strong>Decision</strong> {entry.resolution.summary}</span>}
+              </button>
+            : <div className="case still">
+                <span className="case-title">{entry.title}</span>
+                <span className="case-people">{people.map((name) => <MemberChip key={name} name={name} />)}</span>
+                <CaseArc entry={entry} now={now} />
+                {entry.resolution && <span className="case-decision"><strong>Decision</strong> {entry.resolution.summary}</span>}
+              </div>}
+        </li>;
+      })}
+    </ol>
 
     {/* The raw event stream is the least-read thing on the screen and the
         hardest to scan, so it is available rather than in the way. */}
@@ -1472,47 +1569,197 @@ function messageKindLabel(kind: SessionMessageKind): string {
 }
 
 /**
- * A finding and its sync card are one object at two ages, so the conversation
- * and the decision live here rather than behind a separate tab.
+ * The one changed declaration set behind a contract-drift finding, shown as
+ * the drift it is: what the reading session believed, what is now true, and
+ * who moved it. This is the exact point of divergence the engine already
+ * stores; describing it in prose while discarding the signatures was the
+ * projection throwing away its most persuasive artifact.
  */
-function CollisionInspector({ finding, sessions, viewer, projectId, source, card, disabled, onState, onFeedback, onOpenSession, back }: {
-  finding: Finding; sessions: Workstream[]; viewer: string; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
+function DivergenceBlock({ contract, sessions, onOpenSession }: { contract: NonNullable<Finding["evidence"][number]["contract"]>; sessions: Workstream[]; onOpenSession: (id: string) => void }) {
+  const changer = contract.changedByWorkstreamId ? sessions.find((session) => session.id === contract.changedByWorkstreamId) ?? null : null;
+  const symbols = contract.changedSymbols ?? [];
+  if (symbols.length === 0 && !contract.path) return null;
+  const timing = [
+    contract.readAt ? `read ${sessionMessageTime(contract.readAt)}` : null,
+    contract.changedAt ? `changed ${sessionMessageTime(contract.changedAt)}` : null,
+  ].filter((value): value is string => value !== null).join(" · ");
+  return <div className="contract-diff">
+    <div className="cd-file">
+      <code>{contract.path}</code>
+      {changer
+        ? <button className="text-button" onClick={() => onOpenSession(changer.id)}>changed by {changer.memberName}'s {vendorLabel(changer)} session</button>
+        : <span>changed by another session</span>}
+      {timing && <span className="cd-timing">{timing}</span>}
+    </div>
+    {symbols.map((symbol) => <div className="cd-symbol" key={symbol.name}>
+      {symbol.oldSignature
+        ? <div className="cd-line"><span className="cd-tag was">was</span><code>{symbol.oldSignature}</code></div>
+        : <div className="cd-line"><span className="cd-tag now">new</span><code>{symbol.name}</code></div>}
+      {symbol.oldSignature && (symbol.newSignature
+        ? <div className="cd-line"><span className="cd-tag now">now</span><code>{symbol.newSignature}</code></div>
+        : <div className="cd-line"><span className="cd-tag was">now</span><code>removed</code></div>)}
+      {!symbol.oldSignature && symbol.newSignature && <div className="cd-line"><span className="cd-tag now">now</span><code>{symbol.newSignature}</code></div>}
+    </div>)}
+  </div>;
+}
+
+/**
+ * Both sides of a two-party finding, side by side: who, what they set out to
+ * do, and what they are doing right now, from the same scope snapshot the
+ * workroom rows already carry. Comparing the sides used to mean opening one
+ * session, going back, opening the other, and holding the first in your head.
+ * Full transcripts stay behind the drill-in, which each pane still offers.
+ */
+function TwinPanes({ affected, onOpenSession }: { affected: Workstream[]; onOpenSession: (id: string) => void }) {
+  return <div className="twin">
+    {affected.map((session) => <div className="twin-side" key={session.id}>
+      <button className="twin-who" onClick={() => onOpenSession(session.id)} aria-label={`Open ${session.memberName}'s session detail`}>
+        <MemberChip name={session.memberName} />
+        <span className="nm">{session.memberName}<span className="row-vendor" title={vendorLabel(session)}>{session.agent ? <VendorMark vendor={session.agent.vendor} size={13} /> : <Code2 size={12} />}</span></span>
+        <span className="chev"><ChevronRight size={13} /></span>
+      </button>
+      <dl>
+        <dt>Goal</dt><dd>{session.scopeSnapshot.goal.text}</dd>
+        <dt>Now</dt><dd>{session.scopeSnapshot.now.text}</dd>
+      </dl>
+    </div>)}
+  </div>;
+}
+
+/**
+ * How each side of a decision is named inside a suggested outcome. A member
+ * name works until both sides are the same person - the product's first case -
+ * where the vendor is what tells the two sessions apart.
+ */
+function sideName(session: Workstream, affected: Workstream[]): string {
+  const sameName = affected.filter((candidate) => candidate.memberName === session.memberName);
+  return sameName.length > 1 ? `${session.memberName}'s ${vendorLabel(session)} session` : session.memberName;
+}
+
+/**
+ * Suggested outcomes, phrased per finding kind. A chip prefills the composer
+ * rather than acting on its own: the summary is what gets injected into the
+ * affected agents' turns, so the member always sees and can edit the exact
+ * words before anything is sent. "Settled outside Stickguy" is a first-class
+ * outcome, because a conclusion reached in Slack still has to reach the
+ * agents that are working from stale assumptions.
+ */
+function outcomeTemplates(finding: Finding, affected: Workstream[], sessions: Workstream[]): string[] {
+  const templates: string[] = [];
+  const [first, second] = affected;
+  const a = first ? sideName(first, affected) : "one side";
+  const b = second ? sideName(second, affected) : "the other";
+  if (finding.kind === "direct_collision" || finding.kind === "likely_collision") {
+    if (first && second) {
+      templates.push(`${a}'s change lands first — ${b} rebases on the result before continuing. `);
+      templates.push(`${b}'s change lands first — ${a} rebases on the result before continuing. `);
+      templates.push(`Both continue — the boundary between them is: `);
+    }
+  } else if (finding.kind === "redundant_work") {
+    if (first && second) {
+      templates.push(`Keep ${a}'s implementation — ${b} winds theirs down. `);
+      templates.push(`Keep ${b}'s implementation — ${a} winds theirs down. `);
+    }
+  } else if (finding.kind === "stale_assumption") {
+    const contract = finding.evidence.find((item) => item.contract)?.contract;
+    const subject = finding.evidence.find((item) => item.subject)?.subject ?? contract?.path ?? "the contract";
+    const changer = contract?.changedByWorkstreamId ? sessions.find((session) => session.id === contract.changedByWorkstreamId) : undefined;
+    templates.push(`The new ${subject} shape is canonical — rework what was built against the old one. `);
+    templates.push(`The old ${subject} shape stands — ${changer ? sideName(changer, affected.concat(changer)) : "the session that changed it"} reverts. `);
+  } else if (finding.kind === "shared_dependency" || finding.kind === "downstream_impact" || finding.kind === "assumption_conflict") {
+    if (first && second) templates.push(`${a} lands first — ${b} picks up the new revision before continuing. `);
+  }
+  templates.push("Settled outside Stickguy — the conclusion: ");
+  return templates;
+}
+
+/** The send control names its targets, because delivery is the actual effect. */
+function sendLabel(affected: Workstream[]): string {
+  if (affected.length === 0) return "Send to the affected sessions";
+  if (affected.length === 1) return `Send to ${affected[0]!.memberName}'s session`;
+  if (affected.length === 2) return "Send to both sessions";
+  return `Send to ${affected.length} sessions`;
+}
+
+/**
+ * The decision's afterlife, where the decision was made. Delivery and
+ * acknowledgement were always recorded; they were only ever readable in
+ * History, so the member who just typed a decision was left in exactly the
+ * uncertainty the system had already resolved. Wording stays subordinate to
+ * honest fidelity: considered proves the agent read it, never that it
+ * complied.
+ */
+function ResolutionTracker({ resolution, sessions, onOpenSession }: { resolution: Resolution; sessions: Workstream[]; onOpenSession: (id: string) => void }) {
+  return <div className="deliv">
+    {resolution.affectedWorkstreamIds.map((id) => {
+      const session = sessions.find((candidate) => candidate.id === id);
+      const delivery = resolution.deliveries?.find((candidate) => candidate.workstreamId === id);
+      const state = delivery?.acknowledgedAt
+        ? { label: `considered · ${sessionMessageTime(delivery.acknowledgedAt)}`, done: true }
+        : delivery
+          ? { label: `delivered · ${sessionMessageTime(delivery.deliveredAt)}`, done: false }
+          : { label: "queued for its next turn", done: false };
+      return <div className="deliv-row" key={id}>
+        {session
+          ? <button className="text-button deliv-who" onClick={() => onOpenSession(id)}><MemberChip name={session.memberName} />{session.memberName}'s {vendorLabel(session)} session</button>
+          : <span className="deliv-who gone">a session no longer in this Project</span>}
+        <span className={state.done ? "deliv-state done" : "deliv-state"}>{state.label}</span>
+      </div>;
+    })}
+    <p className="deliv-note">Considered records that the agent read the decision, not that it followed it.</p>
+  </div>;
+}
+
+/**
+ * A finding and its decision are one object at two ages, so the divergence,
+ * both sides, and the decision live here rather than behind separate tabs.
+ * Three exits and no more: send a decision to the affected sessions, record
+ * that it was settled elsewhere (which still sends the conclusion), or
+ * dismiss it with the reason - which is also the feedback that trains the
+ * engine. Acknowledge and the standalone feedback row expressed the same
+ * intents twice and are gone.
+ */
+function FindingInspector({ finding, sessions, projectId, source, card, disabled, onState, onFeedback, onOpenSession, back }: {
+  finding: Finding; sessions: Workstream[]; projectId: string; source: FixtureProjectSource; card: SyncCard | null; disabled: boolean;
   onState: (state: FindingState) => Promise<void>; onFeedback: (value: FindingFeedback) => Promise<void>; onOpenSession: (id: string) => void; back: InspectorBack | null;
 }) {
   const affected = useMemo(() => sessions.filter((session) => finding.workstreamIds.includes(session.id)), [finding.workstreamIds, sessions]);
-  const [feedback, setFeedback] = useState<FindingFeedback | null>(null);
-  const [feedbackError, setFeedbackError] = useState(false);
-  const [feedbackPending, setFeedbackPending] = useState(false);
-  const [comment, setComment] = useState("");
   const [decision, setDecision] = useState("");
   const [threadPending, setThreadPending] = useState(false);
   const [threadError, setThreadError] = useState("");
+  const [dismissOpen, setDismissOpen] = useState(false);
   const [statePending, setStatePending] = useState(false);
   const [stateError, setStateError] = useState(false);
-  const others = otherNames(affected, viewer);
   const names = affected.map((session) => session.memberName).join(" and ");
+  const contract = finding.evidence.find((item) => item.contract?.changedSymbols?.length || item.contract?.path)?.contract ?? null;
+  const plainEvidence = finding.evidence.filter((item) => !item.contract);
 
-  const submitFeedback = (value: FindingFeedback) => {
-    setFeedbackPending(true);
-    setFeedbackError(false);
-    void onFeedback(value).then(() => setFeedback(value)).catch(() => setFeedbackError(true)).finally(() => setFeedbackPending(false));
-  };
-  const submitState = (state: FindingState) => {
-    setStatePending(true);
-    setStateError(false);
-    void onState(state).catch(() => setStateError(true)).finally(() => setStatePending(false));
-  };
   const run = (operation: () => Promise<void>) => {
     setThreadPending(true); setThreadError("");
     void operation()
       .catch((cause: unknown) => setThreadError(cause instanceof Error && cause.message.includes("revision") ? "Someone changed this first. Reload and try again." : "That change could not be saved."))
       .finally(() => setThreadPending(false));
   };
-  const feedbackMessage = feedback ? "Feedback recorded" : feedbackError ? "Feedback could not be recorded" : "Was this collision useful?";
-  const submitDecision = (open: SyncCard) => {
+  // One step: the card is plumbing, created on the way past when the first
+  // decision lands. A button that created an empty card and then revealed the
+  // composer was a workflow state with no user meaning.
+  const submitDecision = () => {
     const summary = decision.trim();
     if (!summary) return;
-    run(async () => { await source.resolveSyncCard(projectId, open.id, open.revision, summary, finding.workstreamIds); setDecision(""); onState("resolved"); });
+    run(async () => {
+      const target = card ? { id: card.id, revision: card.revision } : await source.createSyncCard(projectId, finding.id, finding.title, finding.reason);
+      await source.resolveSyncCard(projectId, target.id, target.revision, summary, finding.workstreamIds);
+      setDecision("");
+    });
+  };
+  // Dismissing and telling the engine why are one gesture: the reasons are the
+  // feedback vocabulary, so closing the item is what trains the detector.
+  const dismiss = (reason: FindingFeedback) => {
+    setStatePending(true); setStateError(false);
+    void onFeedback(reason)
+      .then(() => onState("dismissed"))
+      .catch(() => setStateError(true))
+      .finally(() => { setStatePending(false); setDismissOpen(false); });
   };
 
   const kindLabel = findingHeadline(finding);
@@ -1522,7 +1769,7 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
   // genuinely something else; the reason carries the content either way.
   const titleRepeatsKind = plainWords(finding.title) === plainWords(kindLabel);
 
-  return <article className="collision-detail" aria-label="Selected collision detail">
+  return <article className="collision-detail" aria-label="Selected finding detail">
     <InspectorBackLink back={back} />
     <div className="inspector-bar">
       <span className="grow">
@@ -1534,81 +1781,78 @@ function CollisionInspector({ finding, sessions, viewer, projectId, source, card
     <div className="inspector-body">
       {/* What is true, then where else it will show up. Both are prose because
           both are statements a person could have written; everything machine
-          derived is in the evidence block below. */}
+          derived is in the evidence blocks below. */}
       <p className="collision-reason">{finding.reason}</p>
       <p className="branch-context">{branchStatement(affected)}</p>
 
       <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Users size={13} /></span><span>Sessions</span><span className="inspector-head-count">{affected.length}</span></h3>
-      <div className="pair">{affected.map((session) => <button className="mini" key={session.id} onClick={() => onOpenSession(session.id)} aria-label={`Open ${session.memberName}'s session detail`}>
-        <span className="mini-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={17} /> : <Code2 size={16} />}</span>
-        <span className="nm">{session.memberName} <em>· {vendorLabel(session)}</em></span>
-        <span className="clock">{session.updatedLabel}</span>
-        <span className="chev"><ChevronRight size={14} /></span>
-        <span className="doing">{session.outcome}</span>
-      </button>)}</div>
+      {affected.length === 2
+        ? <TwinPanes affected={affected} onOpenSession={onOpenSession} />
+        : <div className="pair">{affected.map((session) => <button className="mini" key={session.id} onClick={() => onOpenSession(session.id)} aria-label={`Open ${session.memberName}'s session detail`}>
+            <span className="mini-icon">{session.agent ? <VendorMark vendor={session.agent.vendor} size={17} /> : <Code2 size={16} />}</span>
+            <span className="nm">{session.memberName} <em>· {vendorLabel(session)}</em></span>
+            <span className="clock">{session.updatedLabel}</span>
+            <span className="chev"><ChevronRight size={14} /></span>
+            <span className="doing">{session.outcome}</span>
+          </button>)}</div>}
 
-      <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Search size={13} /></span><span>Evidence</span></h3>
-      <ul className="evidence-list">{finding.evidence.map((item) => <li key={`${item.kind}-${item.label}`}>
-        <span className="e-label">{item.label}</span>
-        <span className="e-src">{evidenceKindLabel(item.kind)} · {item.source.replaceAll("_", " ")}</span>
-      </li>)}</ul>
+      {contract && <>
+        <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><FileCode2 size={13} /></span><span>What changed</span></h3>
+        <DivergenceBlock contract={contract} sessions={sessions} onOpenSession={onOpenSession} />
+      </>}
+
+      {plainEvidence.length > 0 && <>
+        <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Search size={13} /></span><span>Evidence</span></h3>
+        <ul className="evidence-list">{plainEvidence.map((item) => <li key={`${item.kind}-${item.label}`}>
+          <span className="e-label">{item.label}</span>
+          <span className="e-src">{evidenceKindLabel(item.kind)} · {item.source.replaceAll("_", " ")}</span>
+        </li>)}</ul>
+      </>}
       <p className="evidence-age">first seen {finding.firstSeen} · last changed {finding.lastSeen}</p>
 
       <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><Check size={13} /></span><span>Decision</span></h3>
-      {/* The decision is the one thing on this screen that reaches an agent, so
-          it is the composer rather than a field in a row of fields, it names
-          its own delivery before it is written, and the discussion below it is
-          plainly labelled as going nowhere. */}
+      {/* The decision is the one thing on this screen that reaches an agent,
+          so it is the composer rather than a field in a row of fields, it
+          names its own delivery before it is written, and after sending it
+          shows that delivery actually happening. */}
       {card?.resolution
-        ? <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p><div className="sent">Delivered to {card.resolution.affectedWorkstreamIds.length} session{card.resolution.affectedWorkstreamIds.length === 1 ? "" : "s"} · revision {card.revision}</div></div>
-        : card
-          ? <form className="composer" onSubmit={(event) => { event.preventDefault(); submitDecision(card); }}>
+        ? <>
+            <div className="decision-note"><div className="lbl"><Check size={13} />Decision from {names}</div><p>{card.resolution.summary}</p></div>
+            <ResolutionTracker resolution={card.resolution} sessions={sessions} onOpenSession={onOpenSession} />
+          </>
+        : <>
+            <div className="outcomes" aria-label="Suggested outcomes">
+              {outcomeTemplates(finding, affected, sessions).map((template) => <button key={template} className="pill outcome" disabled={disabled || threadPending} onClick={() => setDecision(template)}>{template.replace(/[—:]\s*$/, "").trim()}</button>)}
+            </div>
+            <form className="composer" onSubmit={(event) => { event.preventDefault(); submitDecision(); }}>
               <textarea
-                value={decision} rows={2} placeholder="What did you decide?" aria-label={`Decision for ${card.title}`}
+                value={decision} rows={2} placeholder="How should the work proceed?" aria-label={`Decision for ${finding.title}`}
                 onChange={(event) => setDecision(event.target.value)}
-                onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); submitDecision(card); } }}
+                onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); submitDecision(); } }}
               />
               <div className="composer-foot">
                 <span className="routing-note"><Route size={13} aria-hidden="true" />{routingStatement(affected)}</span>
-                <button className="pill solid" disabled={threadPending || disabled || decision.trim().length === 0}>Record decision</button>
+                <button className="pill solid" disabled={threadPending || disabled || decision.trim().length === 0}>{sendLabel(affected)}</button>
               </div>
             </form>
-          : <div className="decision-invite">
-              <p>{routingStatement(affected)}</p>
-              <button className="pill solid" disabled={disabled || threadPending} onClick={() => run(() => source.createSyncCard(projectId, finding.id, finding.title, finding.reason))}>Decide this with {others}</button>
-            </div>}
+          </>}
       <p className="advisory-note">Advisory only. Stickguy delivers the decision and never blocks or controls an agent.</p>
-
-      {card && <>
-        <h3 className="inspector-head"><span className="inspector-head-icon" aria-hidden="true"><MessageSquare size={13} /></span><span>Discussion</span>{card.comments.length > 0 && <span className="inspector-head-count">{card.comments.length}</span>}</h3>
-        {card.comments.length > 0 && <ol className="comment-thread">{card.comments.map((entry) => <li key={entry.id}>
-          <MemberChip name={entry.memberName} />
-          <span className="c-who">{entry.memberName}<time>{sessionMessageTime(entry.createdAt)}</time></span>
-          <p className="c-body">{entry.body}</p>
-        </li>)}</ol>}
-        {card.state === "open" && <form className="composer inline" onSubmit={(event) => { event.preventDefault(); const body = comment.trim(); if (!body) return; run(async () => { await source.commentSyncCard(projectId, card.id, body); setComment(""); }); }}>
-          <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a comment…" aria-label={`Comment on ${card.title}`} />
-          <button className="icon-button send" disabled={threadPending || disabled || comment.trim().length === 0} aria-label="Add comment"><ArrowUp size={15} /></button>
-        </form>}
-        <p className="thread-note">Comments stay here for the people reading this Project. Only the decision above reaches an agent.</p>
-      </>}
       {threadError && <p className="form-error" role="alert">{threadError}</p>}
 
-      <div className="finding-foot">
-        <div className="finding-feedback" aria-label="Collision feedback">
-          <span role="status">{feedbackMessage}</span>
-          <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("useful")}>Useful</button>
-          <button disabled={disabled || feedbackPending} className="text-button" onClick={() => submitFeedback("not_related")}>Not related</button>
-        </div>
-        {/* Resolving is recording a decision, which is the composer above: it is
-            the only control here that reaches an agent, so there is no second
-            button claiming the same word. What is left are the two ways to stop
-            reading a finding without deciding anything. */}
+      {finding.state === "open" && !card?.resolution && <div className="finding-foot">
+        {/* The second exit: this is not worth a decision. The reason is the
+            feedback, so one gesture closes the item and trains the engine. */}
         <div className="finding-actions">
-          <button disabled={disabled || statePending || finding.state === "acknowledged"} className="pill" onClick={() => submitState("acknowledged")}>Acknowledge</button>
-          <button disabled={disabled || statePending || finding.state === "dismissed"} className="pill" onClick={() => submitState("dismissed")}>Dismiss</button>
+          {dismissOpen
+            ? <>
+                <span className="dismiss-lead">Dismiss because it is</span>
+                <button disabled={disabled || statePending} className="pill" onClick={() => dismiss("not_related")}>Not related</button>
+                <button disabled={disabled || statePending} className="pill" onClick={() => dismiss("already_coordinated")}>Already coordinated</button>
+                <button disabled={statePending} className="text-button" onClick={() => setDismissOpen(false)}>Cancel</button>
+              </>
+            : <button disabled={disabled || statePending} className="pill" onClick={() => setDismissOpen(true)}>Dismiss</button>}
         </div>
-      </div>
+      </div>}
       {stateError && <p className="form-error" role="alert">That change could not be saved.</p>}
     </div>
   </article>;
@@ -1620,7 +1864,7 @@ function plainWords(value: string): string {
 }
 
 function InspectorEmpty() {
-  return <div className="inspector-empty"><Bot size={20} /><h2>Select a session</h2><p>Choose one of your sessions or a collision to inspect its live coordination detail.</p></div>;
+  return <div className="inspector-empty"><Bot size={20} /><h2>Nothing selected</h2><p>Choose a session or a finding to inspect it here.</p></div>;
 }
 
 /**

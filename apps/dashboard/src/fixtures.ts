@@ -240,6 +240,43 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         ],
         firstSeen: "12 min ago",
         lastSeen: "Now",
+        firstSeenAt: "2026-08-25T09:53:00Z",
+        lastSeenAt: "2026-08-25T10:05:00Z",
+        delivery: "next_turn",
+      },
+      {
+        // A drifted contract with the exact divergence attached, so the
+        // inspector's structured diff block renders in the design harness.
+        // Judged to the dashboard, so it lands in "Elsewhere" rather than the
+        // lead block even though it touches the viewer's own session.
+        id: "fnd_atlas_refresh",
+        kind: "stale_assumption",
+        severity: "medium",
+        confidence: "high",
+        state: "open",
+        title: "Refresh changed after Khalid's session read it",
+        reason: "backend/refresh.go: Refresh changed after this session read it (was Refresh(userID string); now Refresh(sessionID string, policy Policy)).",
+        workstreamIds: ["wrk_agent_fixture_codex"],
+        evidence: [
+          {
+            kind: "contract", label: "backend/refresh.go: Refresh no longer matches what this session read.", source: "hook", subject: "Refresh",
+            contract: {
+              path: "backend/refresh.go",
+              changedSymbols: [
+                { name: "Refresh", oldSignature: "Refresh(userID string) (Session, error)", newSignature: "Refresh(sessionID string, policy Policy) (Session, error)" },
+                { name: "RefreshPolicy", oldSignature: "", newSignature: "type RefreshPolicy struct { MaxAge time.Duration }" },
+              ],
+              changedByWorkstreamId: "wrk_agent_fixture_cursor",
+              readAt: "2026-08-25T10:01:00Z",
+              changedAt: "2026-08-25T10:04:00Z",
+            },
+          },
+        ],
+        firstSeen: "1 min ago",
+        lastSeen: "Now",
+        firstSeenAt: "2026-08-25T10:04:00Z",
+        lastSeenAt: "2026-08-25T10:05:00Z",
+        delivery: "dashboard",
       },
       {
         id: "fnd_atlas_dependency",
@@ -256,6 +293,9 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         ],
         firstSeen: "44 min ago",
         lastSeen: "8 min ago",
+        firstSeenAt: "2026-08-25T09:21:00Z",
+        lastSeenAt: "2026-08-25T09:57:00Z",
+        delivery: "dashboard",
       },
     ],
     activity: [

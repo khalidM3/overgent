@@ -103,9 +103,10 @@ export class LiveProjectSource extends FixtureProjectSource {
   }
 
 
-  override async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<void> {
-    await request(`/projects/${encodeURIComponent(projectId)}/sync-cards`, { method: "POST", body: JSON.stringify({ ...(findingId ? { findingId } : {}), title, summary }) });
+  override async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<{ id: string; revision: number }> {
+    const card = await request<{ id: string; revision: number }>(`/projects/${encodeURIComponent(projectId)}/sync-cards`, { method: "POST", body: JSON.stringify({ ...(findingId ? { findingId } : {}), title, summary }) });
     this.replace(await loadSnapshot(projectId));
+    return { id: card.id, revision: card.revision };
   }
 
   override async commentSyncCard(projectId: string, cardId: string, body: string): Promise<void> {

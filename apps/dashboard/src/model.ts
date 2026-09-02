@@ -87,6 +87,8 @@ export interface Workstream {
   presence: Presence;
   fidelity: Fidelity;
   updatedLabel: string;
+  /** ISO ground truth behind updatedLabel, where the service sends it. */
+  updatedAt?: string;
   pathCount: number;
   paths: string[];
   scopeSnapshot: ScopeSnapshot;
@@ -132,10 +134,23 @@ export interface Workstream {
   };
 }
 
+/** One changed declaration inside a drifted contract: the exact divergence. */
+export interface ContractSymbolChange { name: string; oldSignature?: string; newSignature?: string }
+/** The structured object behind a contract-drift finding (ADR-048). */
+export interface ContractEvidence {
+  path?: string;
+  changedSymbols?: ContractSymbolChange[];
+  changedByWorkstreamId?: string;
+  readAt?: string;
+  changedAt?: string;
+}
 export interface FindingEvidence {
   kind: "path" | "contract" | "dependency" | "intent";
   label: string;
   source: "git" | "mcp" | "manual" | "hook" | "semantic_candidate";
+  /** The one thing this evidence is about, when the finding names one. */
+  subject?: string;
+  contract?: ContractEvidence;
 }
 
 export interface Finding {
@@ -147,7 +162,8 @@ export interface Finding {
     | "shared_dependency"
     | "assumption_conflict"
     | "downstream_impact"
-    | "stale_assumption";
+    | "stale_assumption"
+    | "dependency_ready";
   severity: Severity;
   confidence: "deterministic" | "high" | "medium" | "low";
   state: FindingState;
@@ -157,6 +173,15 @@ export interface Finding {
   evidence: FindingEvidence[];
   firstSeen: string;
   lastSeen: string;
+  /** ISO ground truth behind the prose labels, where the service sends it. */
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  /**
+   * Where the judgment layer routed this finding (ADR-045/046): next_turn is
+   * interrupt-worthy, dashboard is visible without being pushed. Absent on
+   * records that predate a judged verdict; severity is then the fallback.
+   */
+  delivery?: "next_turn" | "dashboard";
 }
 
 export interface ActivityItem {
@@ -176,8 +201,12 @@ export interface Device {
   lastSeen: string;
 }
 export interface SyncComment { id: string; memberName: string; body: string; createdAt: string }
+/** Delivery of one decision into one session's turn, from decisionDeliveries. */
+export interface ResolutionDelivery { workstreamId: string; deliveredAt: string; acknowledgedAt?: string }
 export interface Resolution {
   id: string; syncCardId?: string; summary: string; affectedMemberIds: string[]; affectedWorkstreamIds: string[]; revision: number; createdAt: string;
+  /** Per-session delivery state; a session absent here is still queued. */
+  deliveries?: ResolutionDelivery[];
 }
 export interface SyncCard {
   id: string; findingId?: string; title: string; summary: string; state: "open" | "resolved"; revision: number; comments: SyncComment[]; resolution?: Resolution; updatedAt: string;
