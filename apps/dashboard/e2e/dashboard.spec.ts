@@ -1,11 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test("Project Workroom shows people, Codex, Claude, and session drill-down", async ({ page }) => {
-  await page.goto("/?state=ready");
+  await page.goto("/?fixtures=1&state=ready");
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Your sessions" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Nearby" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Codex session for Khalid" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeVisible();
   await expect(page.getByLabel("Details inspector")).toContainText("Codex");
@@ -22,7 +21,7 @@ test("Project Workroom shows people, Codex, Claude, and session drill-down", asy
 });
 
 test("activity updates and Project switching remain isolated", async ({ page }) => {
-  await page.goto("/?state=ready");
+  await page.goto("/?fixtures=1&state=ready");
   await page.getByRole("button", { name: "Simulate activity" }).click();
   await expect(page.getByText("rev 185")).toBeVisible();
   await page.getByRole("button", { name: "History" }).click();
@@ -36,19 +35,19 @@ test("activity updates and Project switching remain isolated", async ({ page }) 
 });
 
 test("collision lifecycle and settings are accessible", async ({ page }) => {
-  await page.goto("/?state=ready");
+  await page.goto("/?fixtures=1&state=ready");
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByText("Your sharing is paused in this Project", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByText("Your sharing is paused in this Project", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Collision detected Khalid and Mina" }).click();
-  const detail = page.getByLabel("Selected collision detail");
+  const detail = page.getByLabel("Selected finding detail");
   await expect(detail).toContainText("Codex");
   await expect(detail).toContainText("Claude Code");
-  await page.getByRole("button", { name: "Useful" }).click();
-  await expect(page.getByText("Feedback recorded")).toBeVisible();
-  await page.getByRole("button", { name: "Acknowledge", exact: true }).click();
-  await expect(detail).toContainText("acknowledged");
+  // Three exits, not five: Acknowledge and the standalone feedback row are
+  // gone; dismissing carries the reason, and the reason is the feedback.
+  await expect(page.getByRole("button", { name: "Acknowledge", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Useful" })).toHaveCount(0);
 
   // Branch is read straight off the sessions the finding names: divergent
   // branches are the case nothing outside this Project reports.
@@ -59,8 +58,10 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Mark resolved" })).toHaveCount(0);
   await expect(detail).toContainText("Goes to Khalid's Codex session and Mina's Claude Code session.");
   await detail.getByLabel(/^Decision for /).fill("Khalid owns the rotation boundary.");
-  await detail.getByRole("button", { name: "Record decision" }).click();
-  await expect(detail).toContainText("Delivered to 2 sessions");
+  await detail.getByRole("button", { name: "Send to both sessions" }).click();
+  // The loop closes where the decision was made: each affected session with
+  // its own delivery state.
+  await expect(detail).toContainText("queued for its next turn");
   await expect(detail).toContainText("resolved");
 
   await page.getByRole("button", { name: "Open Project settings" }).click();
@@ -76,7 +77,7 @@ test("collision lifecycle and settings are accessible", async ({ page }) => {
 });
 
 test("command palette switches Projects and theme changes", async ({ page }) => {
-  await page.goto("/?state=ready");
+  await page.goto("/?fixtures=1&state=ready");
   await page.getByRole("button", { name: "Search Projects and commands" }).click();
   const command = page.getByRole("dialog", { name: "Search Projects and commands" });
   await expect(command).toBeVisible();
@@ -90,23 +91,24 @@ test("command palette switches Projects and theme changes", async ({ page }) => 
 });
 
 test("explicit shell states neither leak nor overstate data", async ({ page }) => {
-  await page.goto("/?state=loading");
-  await expect(page.getByRole("status")).toContainText("Loading Project coordination");
-  await page.goto("/?state=unauthorized");
+  await page.goto("/?fixtures=1&state=loading");
+  // The fixture banner is also role=status, so target the state card itself.
+  await expect(page.getByRole("status").filter({ hasText: "Connecting" })).toContainText("Loading Project coordination");
+  await page.goto("/?fixtures=1&state=unauthorized");
   await expect(page.getByRole("alert")).toContainText("not authorized");
   await expect(page.getByText("stickguy/atlas")).toHaveCount(0);
-  await page.goto("/?state=offline");
+  await page.goto("/?fixtures=1&state=offline");
   await expect(page.getByText(/Showing revision 184/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
-  await page.goto("/?state=version_mismatch");
+  await page.goto("/?fixtures=1&state=version_mismatch");
   await expect(page.getByRole("alert")).toContainText("Upgrade Stickguy");
   await expect(page.getByText("stickguy/atlas")).toHaveCount(0);
-  await page.goto("/?state=empty");
+  await page.goto("/?fixtures=1&state=empty");
   await expect(page.getByRole("heading", { name: /No Projects are available/ })).toBeVisible();
 });
 
 test("activation discloses metadata without exposing a ticket input", async ({ page }) => {
-  await page.goto("/?state=activation");
+  await page.goto("/?fixtures=1&state=activation");
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await expect(page.getByText(/Never source, diffs, prompts, transcripts/)).toBeVisible();
   await page.getByRole("button", { name: "Check for a session" }).click();

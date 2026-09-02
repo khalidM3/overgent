@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession, snapshotForProject } from "../src/fixtures";
-import { App, DesktopPreviewBanner, groupByArea, groupByBranch, sessionArea } from "../src/main";
+import { App, DesktopPreviewBanner, groupByArea, sessionArea } from "../src/main";
 import type { NativeOnboarding } from "../src/native";
 import type { Workstream } from "../src/model";
 
@@ -23,13 +23,17 @@ describe("Project Workroom behavior", () => {
     expect(screen.queryByText("stickguy/atlas")).toBeNull();
   });
 
-  it("separates your own sessions from nearby teammates, with drill-down details", async () => {
+  it("groups every session by area, with drill-down details", async () => {
     const user = userEvent.setup();
     renderReady();
     // The workroom answers "what is reaching me" before "what is everyone doing".
     expect(screen.getByRole("heading", { name: "Needs you" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Your sessions" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Nearby" })).toBeTruthy();
+    // One Sessions block across everyone: splitting yours from teammates' made
+    // "who else is in my lane" a job of reading two lists and matching their
+    // area headings. Your rows stay rich; a teammate's row stays intent-first.
+    expect(screen.getByRole("heading", { name: "Sessions" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Your sessions" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Nearby" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
 
@@ -210,15 +214,17 @@ describe("Project Workroom behavior", () => {
     expect(screen.getByText("rev 185")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
-    const detail = screen.getByLabelText("Selected collision detail");
+    const detail = screen.getByLabelText("Selected finding detail");
     expect(detail.textContent).toContain("Advisory only");
-    await user.click(screen.getByRole("button", { name: "Acknowledge" }));
-    expect(detail.textContent).toContain("acknowledged");
-    // Resolving is recording a decision, so there is no second control that
-    // claims the word without routing anything. What is left beside
-    // Acknowledge is the way to stop reading without deciding.
+    // Three exits and no more: the decision composer, settled-elsewhere (a
+    // chip on it), and dismiss. Acknowledge said "read but unhandled", which
+    // is the ambiguity the product exists to remove.
+    expect(screen.queryByRole("button", { name: "Acknowledge" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Mark resolved" })).toBeNull();
+    // Dismissing names its reason, and the reason is the feedback that trains
+    // the engine - one gesture, no separate feedback row.
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    await user.click(screen.getByRole("button", { name: "Not related" }));
     expect(detail.textContent).toContain("dismissed");
   });
 
@@ -226,7 +232,7 @@ describe("Project Workroom behavior", () => {
     const user = userEvent.setup();
     renderReady();
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
-    const detail = screen.getByLabelText("Selected collision detail");
+    const detail = screen.getByLabelText("Selected finding detail");
 
     // Divergent branches are the case nothing else reports, and the inspector
     // says so from data the snapshot already carried.
@@ -235,24 +241,35 @@ describe("Project Workroom behavior", () => {
     expect(detail.textContent).toContain("until those branches meet at merge");
 
     // The consequence is stated before the decision is written, not after it
-    // has already been sent. The Atlas fixture already carries an open card for
-    // this finding, so the decision form is the control on screen.
+    // has already been sent.
     expect(detail.textContent).toContain("Goes to Khalid's Codex session and Mina's Claude Code session.");
 
-    await user.type(screen.getByLabelText(/^Decision for /), "Khalid owns the rotation boundary; Mina reviews after it lands.");
-    await user.click(screen.getByRole("button", { name: "Record decision" }));
+    // A suggested outcome prefills the composer rather than acting on its
+    // own: the member always sees and can edit the exact words that will be
+    // injected before anything is sent.
+    await user.click(screen.getByRole("button", { name: /Settled outside Stickguy/ }));
+    const composer = screen.getByLabelText(/^Decision for /) as HTMLTextAreaElement;
+    expect(composer.value).toContain("Settled outside Stickguy");
+    await user.clear(composer);
+    await user.type(composer, "Khalid owns the rotation boundary; Mina reviews after it lands.");
+    // The send control names the delivery, because delivery is the effect.
+    await user.click(screen.getByRole("button", { name: "Send to both sessions" }));
     expect(detail.textContent).toContain("Khalid owns the rotation boundary");
-    expect(detail.textContent).toContain("Delivered to 2 sessions");
+    // The loop is visible where the decision was made: each affected session
+    // with its own delivery state, queued until its next turn boundary.
+    expect(detail.textContent).toContain("queued for its next turn");
+    expect(detail.textContent).toContain("Considered records that the agent read the decision");
     // Recording the decision is what resolves the finding.
     expect(detail.textContent).toContain("resolved");
   });
 
-  it("records collision feedback and exposes settings and theme controls", async () => {
+  it("exposes settings and theme controls without a standalone feedback row", async () => {
     const user = userEvent.setup();
     renderReady();
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
-    await user.click(screen.getByRole("button", { name: "Useful" }));
-    expect(await screen.findByText("Feedback recorded")).toBeTruthy();
+    // Feedback rides the dismiss reason now; a survey row asking "was this
+    // useful?" beside real controls was input with no downstream effect.
+    expect(screen.queryByRole("button", { name: "Useful" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
     // Settings is a screen, not a modal: it takes over the main and inspector
     // columns and the sidebar stays put.
@@ -558,21 +575,23 @@ describe("agent health and the coordination ledger", () => {
     expect(meta.textContent).toContain("observed silence, not a diagnosis");
   });
 
-  it("records what was raised, where it was delivered, and what was settled", async () => {
+  it("tells each finding's whole story as one case", async () => {
     const user = userEvent.setup();
     render(<App initialState="ready" source={new FixtureProjectSource()} />);
     await user.click(screen.getByRole("button", { name: "History" }));
 
-    expect(screen.getByRole("heading", { name: "Raised" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Settled" })).toBeTruthy();
-    expect(screen.getByText(/Acknowledgement records that the agent read the correction, not that it followed it/)).toBeTruthy();
-    const deliveries = screen.getByRole("heading", { name: "Delivered into a turn" }).parentElement!.nextElementSibling as HTMLElement;
-    expect(within(deliveries).getByText(/Mina is reviewing the same session boundary/)).toBeTruthy();
-    // Two of the three fixture deliveries are acknowledged, so this asserts the
-    // acknowledged state is rendered rather than that exactly one row carries it.
-    expect(within(deliveries).getAllByText("acknowledged").length).toBe(2);
-    expect(within(deliveries).getByText("not yet acknowledged")).toBeTruthy();
-    expect(screen.getByText(/2 of 3 delivered briefs were acknowledged/)).toBeTruthy();
+    // One entry per finding, newest movement first, under day dividers. The
+    // three independently ordered lists stored the lifecycle as a puzzle.
+    expect(screen.getByRole("heading", { name: "History" })).toBeTruthy();
+    expect(screen.getAllByText("Today").length).toBeGreaterThan(0);
+    const collision = screen.getByRole("button", { name: "Open Collision detected" });
+    expect(collision.textContent).toContain("collision detected");
+    expect(collision.textContent).toContain("still open");
+    expect(screen.queryByRole("heading", { name: "Raised" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Delivered into a turn" })).toBeNull();
+    // Filters narrow by how the case ended.
+    await user.click(screen.getByRole("button", { name: /^Dismissed/ }));
+    expect(screen.getByText("Nothing here under this filter.")).toBeTruthy();
   });
 
   it("opens a finding from History without leaving the screen", async () => {
@@ -706,7 +725,7 @@ describe("the workroom summarises, the inspector explains", () => {
     expect(card.textContent).not.toContain("deterministic");
 
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
-    const detail = screen.getByLabelText("Selected collision detail");
+    const detail = screen.getByLabelText("Selected finding detail");
     // Everything the spec requires of a finding is on the surface that is the
     // finding: severity was always only here, and now evidence is too.
     expect(detail.textContent).toContain("deterministic confidence");
@@ -763,41 +782,21 @@ describe("focus, the inbound half of the pair", () => {
   });
 });
 
-describe("branch grouping", () => {
-  it("groups rows by branch only once a list spans more than one", () => {
-    const single = [
-      { agent: { branch: "main" } }, { agent: { branch: "main" } },
-    ] as unknown as Workstream[];
-    expect(groupByBranch(single)).toEqual([{ branch: null, sessions: single }]);
-
-    const mixed = [
-      { id: "a", agent: { branch: "main" } },
-      { id: "b", agent: { branch: "feat/x" } },
-      { id: "c" },
-    ] as unknown as Workstream[];
-    const groups = groupByBranch(mixed);
-    expect(groups.map((group) => group.branch)).toEqual(["main", "feat/x", null]);
-    // A session that reported no branch keeps its own group rather than being
-    // given a branch it never claimed.
-    expect(groups[2]!.sessions.map((session) => session.id)).toEqual(["c"]);
-  });
-});
-
 describe("finding detail navigation", () => {
   it("returns to the collision that sent you into a session", async () => {
     const user = userEvent.setup();
     renderReady();
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
-    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+    expect(screen.getByLabelText("Selected finding detail")).toBeTruthy();
 
     // Drilling into one side of a collision used to be a one-way trip: the
     // session replaced the finding and nothing led back to it.
     await user.click(screen.getByRole("button", { name: /Open Mina's session detail/ }));
-    expect(screen.queryByLabelText("Selected collision detail")).toBeNull();
+    expect(screen.queryByLabelText("Selected finding detail")).toBeNull();
 
     const back = screen.getByRole("button", { name: /Two of Khalid.s sessions are both changing/ });
     await user.click(back);
-    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+    expect(screen.getByLabelText("Selected finding detail")).toBeTruthy();
     // Back is only offered when something actually sent you here.
     expect(screen.queryByRole("button", { name: /Two of Khalid.s sessions are both changing/ })).toBeNull();
   });
@@ -814,7 +813,7 @@ describe("finding detail navigation", () => {
     expect(card.querySelector(".converge-chev")).toBeTruthy();
 
     await user.click(opener);
-    expect(screen.getByLabelText("Selected collision detail")).toBeTruthy();
+    expect(screen.getByLabelText("Selected finding detail")).toBeTruthy();
     expect(opener.getAttribute("aria-current")).toBe("true");
   });
 });

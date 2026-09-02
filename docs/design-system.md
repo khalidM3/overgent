@@ -98,20 +98,25 @@ governed by the two status colours (ADR-055). The bound is that identity colour
 never appears in **text** — never a coloured name, never a tinted row, never a
 badge behind a word — because what protects "one orange sentence is impossible
 to miss" is that `--alert` is the only colour a sentence can be. Member hue is
-derived from the display name so one person is one colour everywhere;
-saturation and lightness are fixed per theme by `--member-sat`, `--member-bg-l`,
-`--member-ink-l` and `--member-line-l`, and only hue varies. The ramp starts
+derived from the display name so one person is one colour everywhere. The chip
+itself is a **solid keycap**: a squircle at a confident saturation with
+near-white initials, no inner border (ADR-064). The earlier pale-tint-plus-
+outline circle was illegible at a glance, which is the one job an identity mark
+has — minimal does not mean colourless, and the fix for a UI reading as
+monochrome is contrast *within* the identity channel, never a new status
+colour. Saturation and lightness stay fixed per theme by `--member-sat`,
+`--member-bg-l` and `--member-ink-l`, and only hue varies. The ramp starts
 past hue 40: `--alert` sits near hue 17 and a chip below that reads as a
 warning. Vendor marks carry their own brand colour (ADR-057): Codex is a blue-violet
 gradient near hue 230, 118 ΔE76 from `--alert`; Claude is its brand terracotta
 `--claude-mark`, 28 ΔE76 from `--alert` and softer in tone. Identity being a
 glyph and status being a sentence is what keeps those two apart.
 
-**A record takes no colour at all.** History lists findings and deliveries
-that have already happened; nothing on it is converging on the reader and
-nothing on it is happening now, which are the only two facts these colours
-carry. State is a word in the monospace line — `open`, `acknowledged` — and the
-colour test applies as usual: removing it loses nothing.
+**A record takes almost no colour.** History lists cases that have already
+happened; state is a word in the monospace arc line, and the colour test
+applies as usual. The one exception: a decided case whose conclusion has not
+yet been considered by every affected agent is still converging on someone, so
+that single step — `2 not yet considered` — takes `--alert` (ADR-064).
 
 **`--live` — this is true right now.** The repository path an agent is inside at
 this second on a session row, an adapter that has been verified by a real session
@@ -334,42 +339,44 @@ The project header carries identity and freshness only: name, repository,
 
 ### The main column, in fixed order
 
-1. **Needs you** — findings touching your sessions, then your own sessions that
-   have stopped (waiting, failed, or quiet). Never reorders below the others,
-   and shows an explicit empty state rather than disappearing. Findings come
-   first inside the block: a collision can invalidate work already done, while a
-   blocked session has only failed to spend more time.
+1. **Needs you** — interrupt-worthy findings touching your sessions, then your
+   own sessions that have stopped (waiting, failed, or quiet). Never reorders
+   below the others, and shows an explicit empty state rather than
+   disappearing. Admission follows the engine's own routing verdict: a finding
+   the judgment layer marked `next_turn` (ADR-045/046) is interrupt-worthy;
+   one it routed to the dashboard is not, even when it touches your work, and
+   renders in Elsewhere instead. The workroom re-deriving admission from
+   ownership alone was the UI second-guessing its own engine (ADR-064).
    Directly beneath the heading sits the fidelity caveat (`.fidelity-note`),
    rendered **only** when semantic processing is degraded or disabled. Healthy
-   processing is the expected state and says nothing. The caveat belongs here,
-   not in the project header, because it changes how the findings below it
-   should be read — it is not a property of the project.
-2. **Your sessions** — full detail, live.
-3. **Nearby** — teammates, one line each. With no teammates this states a fact
-   about the Project rather than naming an absent setup step: a Project of one
-   is a finished Project, and its own sessions collide with each other exactly
-   as two people's do (ADR-054).
-4. **Elsewhere in the Project** — open findings that do not touch your work,
-   rendered `.quiet` (neutral icon, smaller heading, no alert colour). Present so
-   nothing is hidden; styled so it never competes.
-5. **Recent** — the activity ledger.
+   processing is the expected state and says nothing.
+2. **Sessions** — everyone's, in one block, grouped by the area of the product
+   being touched (contract → component → deepest shared directory). Splitting
+   your sessions from teammates' made the grouping unable to do its one job:
+   "who else is in my lane" was answered only by reading two lists and
+   matching their headings (ADR-064). The self/other distinction survives as
+   row richness — your rows carry live **activity** (current file, subagents,
+   elapsed clock), a teammate's row carries **intent** in one line. When an
+   open finding spans two or more sessions of one area, the area heading
+   itself carries the warning glyph and `· colliding`: the group label *is*
+   the collision, shown as structure. Finished sessions fold behind one
+   `details.fold` line. With no teammates the block states a fact rather than
+   naming an absent setup step (ADR-054).
+3. **Elsewhere in the Project** — open findings the lead block did not admit:
+   other people's, and dashboard-verdict findings on yours. Rendered `.quiet`;
+   present so nothing is hidden, styled so it never competes.
 
 **History** is a separate screen, not a block in this column, because it
 answers a different question — what has already been handled, rather than what
-is happening. It lists every finding the Project raised and every brief
-delivered into an agent turn, and it stops at delivery: Stickguy knows a
-correction was routed and whether the agent acknowledged reading it, and does
-not know whether the agent then did the right thing. Wording that implied
-otherwise would fail the honest-fidelity rule this document is subordinate to.
-
-### Your sessions vs. Nearby: different facts for different subjects
-
-For **your own** sessions show **activity** — what the agent is doing right now,
-the file it is touching, its subagents, its elapsed clock.
-
-For **teammates** show **intent** — what they are about to do. That is the fact
-you want when checking on someone before you start work, and it comes from
-`Workstream.outcome`. Their activity is one click away in the inspector.
+is happening. It is a **case log** (ADR-064): one entry per finding carrying
+its whole lifecycle on a single mono arc line — raised → decided or dismissed
+→ sent to N sessions → considered — under day dividers, newest movement
+first, with a one-row filter (All / Open / Settled / Dismissed) and the raw
+event stream folded at the bottom. Decisions that never had a finding are
+cases too. It stops at consideration: Stickguy knows a decision was routed and
+whether the agent acknowledged reading it, and does not know whether the agent
+then did the right thing. Wording that implied otherwise would fail the
+honest-fidelity rule this document is subordinate to.
 
 ## 6. Components
 
@@ -395,17 +402,19 @@ background.
 
 ### Converging block (`.converge`)
 
-No tint and no panel. An alert glyph, the finding sentence in `--alert`, the
-plain-language reason, then **both sides of the collision** as compact
-`.mini` rows — vendor mark, member, session title, what it is doing right now,
-elapsed clock, chevron. Each opens that session in the inspector, so you can
-move between their side and yours.
+No tint and no panel. An alert glyph, the finding sentence in `--alert`, then
+**both sides of the collision** as compact `.mini` rows — member chip, name,
+session title, elapsed clock, chevron. Each opens that session in the
+inspector. The reason line renders **only when it says something the headline
+has not** (`reasonAddsFacts`): on live data both derive from the same
+evidence, and a card repeating itself in two registers was most of its bulk.
+The mono meta line carries severity (only at high or critical) and first-seen.
 
-Evidence is a two-column mono grid with the kind and source spelled out
-(`same file · git`, `same contract · mcp`) rather than bare tags. A `git` source
-is the deterministic one and is the only evidence row that takes `--alert`.
-
-The primary action names **the other people**, never you (`otherNames`).
+The stretched headline is the only opener — a second button opening the same
+panel was two controls for one intent (ADR-064). Evidence, confidence, and the
+decision live in the inspector (ADR-060). A `dependency_ready` finding — the
+one kind that is good news — renders `.quiet` with a neutral check glyph,
+never as an alarm.
 
 The block is a `<section>`, not a button, because it contains buttons; the
 heading carries the click target and the accessible name.
@@ -454,9 +463,40 @@ terms; machine aliases live in Session details. Separate subagent conversation
 output must not be invented; add it inline only when an adapter actually
 exposes it.
 
-A finding and its sync card are **one object at two ages**. The conversation and
-the decision live in the collision inspector under "Work it out"; there is no
-separate resolve tab.
+### The finding inspector, and the three exits (ADR-064)
+
+A finding and its decision are **one object at two ages**; there is no
+separate resolve tab, and the umbrella word is **finding** — "collision" is
+one kind of eight and mislabels the rest. Top to bottom:
+
+- **What is true**: headline, reason, and the branch statement.
+- **Sessions**: a two-party finding renders both sides as **twin panes** —
+  member, goal, now, from the scope snapshot — so comparing them never means
+  opening one, going back, and holding it in your head. Each pane still
+  drills into the full session.
+- **What changed**: contract drift renders its structured divergence — the
+  file, who moved it, read/changed times, and each symbol as `was` / `now`
+  signature lines. `was` takes `--alert` and `now` takes `--live` **in text**,
+  never as filled rows (rule 2). Prose evidence keeps the mono list.
+- **Decision**: one always-present composer. Suggested outcomes are chips
+  phrased per finding kind that *prefill* the text — the member always sees
+  and can edit the exact words before anything is sent — and "Settled outside
+  Stickguy" is one of them, because a conclusion reached in Slack still has to
+  reach the agents. The send control names its targets ("Send to both
+  sessions"); the routing note names them fully. There is no create-card
+  pre-step: the sync card is plumbing, created when the first decision lands.
+- **After sending**: the decision note becomes a per-session delivery
+  tracker — queued for its next turn → delivered → considered — fed by
+  `decisionDeliveries`. Considered records that the agent read it, never that
+  it complied. This is the loop closing where the decision was made.
+- **Dismiss** is the only other exit, and it names its reason inline — not
+  related / already coordinated — which *is* the feedback that trains the
+  engine. Acknowledge and the standalone Useful/Not-related row are gone:
+  "read but unhandled" is the ambiguity the product exists to remove, and a
+  survey row beside real controls was input with no downstream effect.
+
+There are **no comments**. Discussion already has homes; the panel's only
+inputs are ones with an observable effect on the affected agents.
 
 ### Screens, and the one dialog
 
@@ -566,16 +606,16 @@ not "Create sync card".
 
 ## 8. Known follow-ups
 
-1. **Self-host the fonts.** Figtree and Geist Mono as woff2 in
-   `apps/dashboard/public/fonts` with `@font-face`, so the design renders as
-   specified without a CDN request. Until then the system sans is used.
-2. **Send timestamps, not prose.** `Workstream.updatedLabel` and
-   `ActivityItem.at` are strings like `"8 min"`. An ISO timestamp alongside them
-   would let `formatElapsed` count from ground truth instead of a parsed label.
-3. **History is thin.** It lists what was raised, delivered and settled; it has
-   no search, filter, or date range yet, and the three sections are ordered
-   independently rather than interleaved into one true chronology, because
-   findings still arrive with prose timestamps (see 2).
+1. ~~Self-host the fonts.~~ Done: Figtree and Geist Mono ship as latin-subset
+   variable woff2 in `apps/dashboard/public/fonts`, declared at the top of
+   `style.css`. No font host is contacted.
+2. **Finish the timestamp migration.** Workstreams now carry `updatedAt` and
+   findings `firstSeenAt`/`lastSeenAt` as ISO ground truth beside the prose
+   labels; History orders and day-divides by them. Still prose-only:
+   `ActivityItem.at` and the row clocks, which still count from parsed labels.
+3. **History search.** The case log filters by outcome (All / Open / Settled /
+   Dismissed); free-text search and kind/person filters wait until a real
+   Project's log is long enough to need them.
 4. **Narrow viewports.** The shell has `min-width: 1240px` and scrolls
    horizontally below that. A collapsed-inspector breakpoint exists in CSS
    (`.no-inspector`) but is not yet wired to a control.

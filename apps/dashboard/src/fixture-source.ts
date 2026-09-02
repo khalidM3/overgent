@@ -88,9 +88,10 @@ export class FixtureProjectSource {
 
 
 
-  async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<void> {
+  async createSyncCard(projectId: string, findingId: string | undefined, title: string, summary: string): Promise<{ id: string; revision: number }> {
     const card: SyncCard = { id: `syn_fixture_${Date.now()}`, ...(findingId ? { findingId } : {}), title, summary, state: "open", revision: 1, comments: [], updatedAt: new Date().toISOString() };
     this.update(projectId, (current) => ({ ...current, collaboration: { ...current.collaboration, syncCards: [card, ...current.collaboration.syncCards] } }));
+    return { id: card.id, revision: card.revision };
   }
 
   async commentSyncCard(projectId: string, cardId: string, body: string): Promise<void> {

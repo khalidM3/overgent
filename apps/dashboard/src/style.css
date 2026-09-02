@@ -24,6 +24,26 @@
  * See docs/design-system.md before adding anything here.
  */
 
+/* Self-hosted so the designed type renders without a request that would leak
+   member IPs to a font CDN (design-system.md §8.1). Latin subset, variable
+   weight; the system stacks below stay as the fallback for other scripts. */
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("/fonts/figtree-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   color-scheme: light;
 
@@ -44,10 +64,12 @@
 
   --claude-mark: #d97757;
 
-  --member-sat: 40%;
-  --member-bg-l: 90%;
-  --member-ink-l: 30%;
-  --member-line-l: 78%;
+  /* Identity marks are solid keycaps: a saturated fill the eye can actually
+     tell apart, with near-white initials. The old pale-tint-plus-outline chip
+     was illegible at a glance, which is the one job an identity mark has. */
+  --member-sat: 52%;
+  --member-bg-l: 38%;
+  --member-ink-l: 97%;
 
   /* Every row in the main column hangs off one gutter, so the primary text of
      a finding, a session and a teammate all start on the same vertical line.
@@ -82,10 +104,9 @@
     --solid:   #ffffff;
     --onsolid: #0a0a0a;
     --claude-mark: #d98668;
-    --member-sat: 34%;
-    --member-bg-l: 25%;
-    --member-ink-l: 78%;
-    --member-line-l: 34%;
+    --member-sat: 46%;
+    --member-bg-l: 42%;
+    --member-ink-l: 97%;
   }
 }
 
@@ -103,10 +124,9 @@
   --solid:   #ffffff;
   --onsolid: #0a0a0a;
   --claude-mark: #d98668;
-  --member-sat: 34%;
-  --member-bg-l: 25%;
-  --member-ink-l: 78%;
-  --member-line-l: 34%;
+  --member-sat: 46%;
+  --member-bg-l: 42%;
+  --member-ink-l: 97%;
 }
 
 * { box-sizing: border-box; }
@@ -222,12 +242,11 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
    fixed per theme here so no member can render as an alarm. */
 .avatar {
   width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center;
-  border-radius: 50%; font-size: 10px; font-weight: 700; letter-spacing: .01em;
+  border-radius: 8px; font-size: 10px; font-weight: 700; letter-spacing: .01em;
   color: hsl(var(--member-hue, 0) var(--member-sat) var(--member-ink-l));
   background: hsl(var(--member-hue, 0) var(--member-sat) var(--member-bg-l));
-  box-shadow: inset 0 0 0 1px hsl(var(--member-hue, 0) var(--member-sat) var(--member-line-l));
 }
-.avatar.small { width: 21px; height: 21px; font-size: 9px; }
+.avatar.small { width: 21px; height: 21px; font-size: 9px; border-radius: 7px; }
 /* With no hue set the chip falls back to the neutral it always was. */
 .avatar:not([style*="--member-hue"]) { color: var(--ink-2); background: none; box-shadow: inset 0 0 0 1px var(--line); }
 
@@ -274,6 +293,8 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .notice .body { flex: 1; min-width: 0; }
 .notice strong { display: block; color: var(--ink); font-size: 13.5px; font-weight: 650; }
 .notice .notice-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+/* The queued notices behind the visible one: a count, not another row. */
+.notice-more { align-self: flex-start; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
 
 /* Two tiers, not five peers. The lead section is what the member must act on
    and opens the page; ambient sections report state and are separated by space
@@ -337,18 +358,28 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .converge.health .evidence .v { color: var(--ink-2); }
 .converge.health.quiet > .converge-icon { color: var(--ink-3); }
 
-/* ── ledger: what was raised, and where it was delivered ── */
+/* ── history: the case log ── */
 
-.ledger { list-style: none; margin: 6px 0 0; padding: 0; }
-.ledger > li + li { border-top: 1px solid var(--line); }
-.ledger > li > button { display: grid; gap: 3px; width: 100%; padding: 12px 9px; margin: 0 -9px; border-radius: var(--radius); text-align: left; }
-.ledger > li > button:hover { background: var(--hover); }
-/* A record is the one screen with no colour at all. Nothing here is converging
-   on the reader and nothing here is happening now - both facts these two
-   colours exist to carry - so state is a word in the machine line instead. */
-.ledger .lt { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.ledger .lw { font-size: 13px; color: var(--ink-2); }
-.ledger .lf { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 3px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+/* A record stays colourless (rule 2) with one exception: a decided case whose
+   conclusion has not yet reached every affected agent is still converging on
+   someone, and that one step reads at --alert. */
+.case-filter { display: flex; align-items: center; gap: 16px; padding: 2px 0 6px; }
+.case-filter .text-button[aria-pressed="true"] { color: var(--ink); }
+.day-divide { margin: 0; padding: 16px 0 2px; font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--ink-3); }
+.case-log { list-style: none; margin: 4px 0 0; padding: 0; }
+.case-log > li + li > .case { border-top: 1px solid var(--line); }
+.case-log > li + li > .day-divide + .case { border-top: 0; }
+.case { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 13px 9px; margin: 0 -9px; border-radius: var(--radius); text-align: left; }
+.case:not(.still):hover { background: var(--hover); }
+.case[aria-current="true"] .case-title { font-weight: 650; }
+.case .case-title { font-size: 13.5px; font-weight: 600; color: var(--ink); line-height: 1.4; }
+.case .case-people { display: flex; align-items: center; gap: 5px; }
+.case .case-arc { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; margin-top: 1px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.case .case-arc .sep { color: var(--line); }
+.case .case-arc .step.done { color: var(--ink-2); }
+.case .case-arc .step.waiting { color: var(--alert); }
+.case .case-decision { margin-top: 3px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.case .case-decision strong { color: var(--ink); font-weight: 600; margin-right: 5px; }
 
 /* the two colliding sessions, one compact clickable line each */
 .mini {
@@ -429,14 +460,6 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .timeline p { margin: 0; color: var(--ink-2); font-size: 13px; }
 .timeline p strong { color: var(--ink); font-weight: 600; }
 .timeline .src { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
-
-/* ── decisions view ── */
-
-.decision-entry { padding: 16px 0; border-top: 1px solid var(--line); }
-.decision-entry:first-of-type { border-top: 0; }
-.decision-entry h3 { margin: 0 0 6px; font-size: 14.5px; font-weight: 650; letter-spacing: -.012em; }
-.decision-entry p { margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
-.decision-entry .sent { margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 
 /* ─────────────────────────── screens ───────────────────────── */
 
@@ -543,7 +566,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .session-open-state > div { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .session-open-state .text-button { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; }
 
-.inspector-head { display: flex; align-items: center; gap: 7px; margin: 24px 0 9px; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+/* Sentence case at reading weight, exactly like every other heading in the
+   app: grey capitals were the one treatment §4 bans, surviving here only. */
+.inspector-head { display: flex; align-items: center; gap: 7px; margin: 24px 0 9px; color: var(--ink-2); font-size: 12.5px; font-weight: 650; }
 .inspector-head:first-child { margin-top: 4px; }
 .inspector-head-icon { width: 15px; height: 15px; display: grid; place-items: center; }
 .inspector-head-count { margin-left: 1px; font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: 0; }
@@ -587,7 +612,7 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .session-details-popover > header strong { font-size: 13.5px; font-weight: 650; }
 .session-details-popover > header small { color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
 .session-details-scroll { min-height: 0; overflow-y: auto; padding: 0 16px 18px; }
-.session-details-popover .inspector-head { margin-top: 22px; color: var(--ink-2); font-size: 12.5px; font-weight: 650; letter-spacing: 0; text-transform: none; }
+.session-details-popover .inspector-head { margin-top: 22px; }
 .session-details-popover .conversation-disclosure + .inspector-head { margin-top: 18px; }
 
 .phase { padding: 13px 0; border-top: 1px solid var(--line); }
@@ -603,7 +628,7 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .phase li code { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 
 .decision-note { padding: 14px 0 15px; border-top: 1px solid var(--line); }
-.decision-note .lbl { display: flex; align-items: center; gap: 7px; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.decision-note .lbl { display: flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 12px; font-weight: 650; }
 .decision-note p { margin: 9px 0 0; color: var(--ink); font-size: 13.5px; line-height: 1.55; }
 .decision-note code { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
 .decision-note .sent { margin-top: 9px; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
@@ -759,30 +784,59 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .composer-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 12px; padding: 6px 8px 8px 13px; }
 .composer-foot .routing-note { flex: 1 1 100%; line-height: 1.5; }
 .composer-foot .pill { margin-left: auto; }
-.composer.inline { flex-direction: row; align-items: center; padding-right: 6px; border-radius: 999px; }
-.composer.inline input { flex: 1; min-width: 0; padding: 8px 6px 8px 14px; color: var(--ink); background: none; border: 0; outline: none; font: inherit; font-size: 13.5px; }
-.composer .icon-button.send { flex: 0 0 auto; width: 26px; height: 26px; color: var(--onsolid); background: var(--solid); border-radius: 50%; }
-.composer .icon-button.send:disabled { color: var(--ink-3); background: none; }
-
-.decision-invite { display: flex; flex-direction: column; align-items: flex-start; gap: 11px; }
-.decision-invite p { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .routing-note { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
 .routing-note svg { flex: 0 0 auto; }
-.thread-note { margin: 10px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+
+/* Suggested outcomes: each chip prefills the composer with a sentence the
+   member edits before sending, so nothing acts without being read first. */
+.outcomes { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 10px; }
+.outcomes .pill.outcome { font-weight: 500; color: var(--ink-2); text-align: left; white-space: normal; }
+.outcomes .pill.outcome:hover:not(:disabled) { color: var(--ink); }
+
+/* The exact point of divergence: what the reading session believed against
+   what is now true. Colour marks the two facts in text - was is the drift,
+   now is what is currently true - never a filled row (rule 2). */
+.contract-diff { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.contract-diff .cd-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+.contract-diff .cd-file code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+.contract-diff .cd-file .text-button { font-size: 12px; font-weight: 500; }
+.contract-diff .cd-timing { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.contract-diff .cd-symbol { padding: 7px 12px; }
+.contract-diff .cd-symbol + .cd-symbol { border-top: 1px solid var(--line); }
+.contract-diff .cd-line { display: flex; align-items: baseline; gap: 10px; padding: 2px 0; overflow-x: auto; }
+.contract-diff .cd-line code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); white-space: pre; }
+.contract-diff .cd-tag { flex: 0 0 auto; width: 26px; font-family: var(--mono); font-size: 10.5px; }
+.contract-diff .cd-tag.was { color: var(--alert); }
+.contract-diff .cd-tag.now { color: var(--live); }
+.contract-diff .cd-tag.was + code { color: var(--ink-3); }
+
+/* Both sides of a two-party finding, side by side. Hairlines only. */
+.twin { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.twin .twin-side { min-width: 0; padding: 10px 13px 12px; }
+.twin .twin-side + .twin-side { border-left: 1px solid var(--line); }
+.twin .twin-who { display: flex; align-items: center; gap: 8px; width: 100%; padding: 2px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink); text-align: left; }
+.twin .twin-who .chev { margin-left: auto; color: var(--ink-3); opacity: 0; }
+.twin .twin-who:hover .chev { opacity: 1; }
+.twin dl { margin: 0; }
+.twin dt { font-size: 11px; font-weight: 650; color: var(--ink-3); margin-top: 7px; }
+.twin dd { margin: 1px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: break-word; }
+
+/* The decision's afterlife: one row per affected session, live. */
+.deliv { display: flex; flex-direction: column; margin-top: 4px; }
+.deliv .deliv-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.deliv .deliv-row:first-child { border-top: 0; }
+.deliv .deliv-who { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink); }
+.deliv .deliv-who.gone { color: var(--ink-3); font-weight: 400; }
+.deliv .deliv-state { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.deliv .deliv-state.done { color: var(--live); }
+.deliv .deliv-note { margin: 8px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+
+.dismiss-lead { color: var(--ink-3); font-size: 12.5px; }
 
 /* Discussion reads as people talking: a chip, a name, a time, and the words. */
-.comment-thread { list-style: none; margin: 0 0 14px; padding: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 9px; }
-.comment-thread li { display: contents; }
-.comment-thread .avatar { grid-column: 1; margin-top: 11px; }
-.comment-thread .c-who { grid-column: 2; display: flex; align-items: baseline; gap: 8px; margin-top: 11px; font-size: 12.5px; font-weight: 650; }
-.comment-thread .c-who time { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--ink-3); }
-.comment-thread .c-body { grid-column: 2; margin: 3px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
-
 .advisory-note { margin: 12px 0 0; color: var(--ink-3); font-size: 11.5px; }
 .finding-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 26px; padding-top: 15px; border-top: 1px solid var(--line); }
-.finding-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.finding-feedback > span { color: var(--ink-3); font-size: 12.5px; }
-.finding-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.finding-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-left: auto; }
 
 /* Where you came from, when something sent you here. It sits above the header
    rather than inside it so the header still reads as the thing you are on. */
@@ -793,11 +847,6 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 
 /* Branch is how a reader finds their own lane, so it groups rows rather than
    trailing them. A Project on one branch never renders this. */
-.branch-group + .branch-group { margin-top: 14px; }
-.branch-label { display: flex; align-items: center; gap: 7px; padding: 9px 0 5px; color: var(--ink-3); }
-.branch-label code { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
-.branch-label .unknown { font-size: 11.5px; }
-.branch-label > span:last-child { margin-left: auto; font-family: var(--mono); font-size: 11px; }
 
 /* Muting is a state the member chose and has to be able to see they are still
    in, so it takes the same weight as work converging on them. It is the one
@@ -978,3 +1027,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .area-label > span { font-family: var(--mono); font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .area-label .unknown { font-family: var(--sans); font-size: 11.5px; color: var(--ink-3); }
 .area-label .area-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-3); flex: none; }
+/* The group label is the collision when one spans two of its sessions:
+   the glyph takes --alert exactly as it would on a row (rule 2). */
+.area-label .area-warn { color: var(--alert); flex: none; }

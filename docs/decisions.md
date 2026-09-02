@@ -1202,3 +1202,42 @@ maintaining a WASI build step proves worse than expected; it was rejected for
 costing 6.73 MB for the same four grammars and being slower on the largest file
 tested. Accepted 2026-08-29 on the evidence in
 `validation/spikes/multilang-contract`.
+
+## ADR-064: The interface tells the truth about how much the engine already does
+
+The 2026-09-01 workroom refit, from the "Workroom Refit" design pass. One
+finding organised it: almost nothing the pass recommended invented capability.
+The engine already judged, routed, diffed, delivered, and confirmed; the
+interface either discarded those facts at the projection or scattered them
+across screens.
+
+Four facts the projection now carries instead of discarding: `delivery` (the
+judgment layer's routing verdict, which now decides what "Needs you" admits —
+the UI re-deriving admission from ownership alone was second-guessing its own
+engine); `evidence[].contract` (the per-symbol old/new signatures behind a
+stale assumption, now rendered as a was/now divergence block); per-session
+decision delivery state (from `decisionDeliveries`, now a live tracker on the
+decision itself — the loop closes where the decision was made, not only in
+History); and ISO timestamps beside the prose labels.
+
+The resolution model collapsed to three exits: send an outcome-shaped decision
+(chips prefill the composer; "Settled outside Stickguy" is a first-class
+outcome that still routes the conclusion), or dismiss with a reason that is
+the feedback vocabulary. Acknowledge, the standalone feedback row, the
+create-card pre-step, and comments are removed — every surviving input has an
+observable effect on the affected agents. The umbrella word is "finding";
+collision is one kind of eight, and `dependency_ready` (good news) no longer
+renders as a possible collision with an alert glyph.
+
+Structure changes: one area-grouped Sessions block across everyone (the group
+heading carries the collision when a finding spans two of its sessions; the
+self/other split survives as row richness, not as two lists); History is a
+case log — one entry per finding lifecycle on a single arc line, where the
+only colour is a decided case not yet considered by every agent; identity
+chips are solid keycaps; the inspector's grey-capitals headings comply with §4;
+fonts are self-hosted. Branch grouping, dead since area grouping shipped, is
+deleted. The phone Playwright project is deleted with it: the dashboard is a
+desktop surface by design, and the e2e suite — dead since fixtures became
+opt-in, because it navigated without `fixtures=1` — runs green again on the
+laptop project. The owner directed the full proposal's implementation
+2026-09-01; the rendered result awaits his review.
