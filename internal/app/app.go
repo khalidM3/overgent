@@ -131,8 +131,16 @@ func Run(ctx context.Context, root string, sender Sender) error {
 			slog.Warn("workspace root unavailable; skipping observation for it", "workspace", w.ID, "error", statErr)
 			continue
 		}
-		if e = watch.Add(w.Root); e != nil {
-			slog.Warn("watch workspace root failed; skipping observation for it", "workspace", w.ID, "error", e)
+		// Watching without the repository's ignore rules pins a descriptor per
+		// ignored file on macOS, so a workspace whose rules cannot be read is
+		// left unwatched rather than watched whole.
+		ignores, igErr := git.NewIgnores(ctx, git.Runner{}, w.Root)
+		if igErr != nil {
+			slog.Warn("read ignore rules failed; skipping observation for it", "workspace", w.ID, "error", igErr)
+			continue
+		}
+		if e = watch.Add(w.Root, ignores); e != nil {
+			slog.Warn("watch workspace root failed; observation may be partial", "workspace", w.ID, "error", e)
 			continue
 		}
 	}
@@ -1067,7 +1075,11 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 	if s.watch == nil {
 		return config.Workspace{}, errors.New("workspace watcher is unavailable")
 	}
-	if err = s.watch.Add(workspace.Root); err != nil {
+	ignores, err := git.NewIgnores(ctx, git.Runner{}, workspace.Root)
+	if err != nil {
+		return config.Workspace{}, fmt.Errorf("read development workspace ignore rules: %w", err)
+	}
+	if err = s.watch.Add(workspace.Root, ignores); err != nil {
 		return config.Workspace{}, fmt.Errorf("watch development workspace: %w", err)
 	}
 	previous := s.cfg
