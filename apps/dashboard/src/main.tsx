@@ -51,9 +51,10 @@ import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingSt
 
 /** How each connected vendor is named in the interface. */
 const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
-import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding, type NativeSessionOpenResult } from "./native";
+import { desktopHandoffURL, isDesktopShell, isDesktopWebview, nativeOnboarding, type EnrollmentRequest, type NativeOnboarding, type NativeSessionOpenResult } from "./native";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
+import { LandingPage } from "./landing";
 import "./style.css";
 
 const defaultSource = new FixtureProjectSource();
@@ -83,7 +84,7 @@ export function App({
   if (shellState === "activation") return <ActivationView onActivate={() => setShellState("ready")} />;
   if (shellState === "loading") return <LoadingView />;
   if (shellState === "unauthorized" || shellState === "version_mismatch") return <TerminalState state={shellState} />;
-  if (shellState === "empty" || initialSession.projects.length === 0) return <EmptyView />;
+  if (shellState === "empty" || initialSession.projects.length === 0) return <EmptyView navigate={navigate} />;
   return <ProjectWorkroom session={initialSession} source={source} offline={shellState === "offline"} nativeApi={nativeApi} navigate={navigate} />;
 }
 
@@ -159,12 +160,17 @@ function TerminalState({ state }: { state: "unauthorized" | "version_mismatch" }
   return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">{isVersion ? "Version mismatch" : "Access denied"}</p><h1>{stateMessage(state)}</h1><p>{isVersion ? "This app cannot safely interpret the service contract. Update the Overgent executable, then reload." : "No Project metadata was loaded. Ask a Project owner to restore membership or enroll this device again."}</p><button className="pill" onClick={() => window.location.reload()}>{isVersion ? "Check again" : "Retry authorization"}</button></section></main>;
 }
 
-function EmptyView() {
+function EmptyView({ navigate = (url: string) => window.location.assign(url) }: { navigate?: (url: string) => void }) {
   // A Project is worth creating before anyone else is in it: two of your own
   // agent sessions in one repository already collide with each other, and that
   // is the case Overgent was built for. Joining someone else's is the second
   // sentence rather than half the first.
-  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Point Overgent at a repository and it starts coordinating the agent sessions you run in it, on your own. Invite people later, or join an existing Project with an invite code.</p><code>overgent create</code></section></main>;
+  //
+  // The recovery is a control, not a command. This screen used to name
+  // `overgent create` and stop there, which asks a member with nothing on
+  // screen to open a terminal - and inside the desktop window the setup screen
+  // it is describing is one navigation away.
+  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Point Overgent at a repository and it starts coordinating the agent sessions you run in it, on your own. Invite people later, or join an existing Project with an invite code.</p><button className="pill solid" onClick={() => navigate(desktopHandoffURL())}>{isDesktopShell ? "Add a Project on this Mac" : "Open the Overgent app"}</button><p className="microcopy">A Project registers a repository with the Overgent service on the Mac that holds it, so it is created there. In a checkout you can also run <code>overgent create</code>.</p></section></main>;
 }
 
 /**
@@ -391,7 +397,13 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
           <Route size={16} />{!sidebarCollapsed && <span>History</span>}
         </button>
 
-        <div className="side-group"><span className="side-label">Projects</span></div>
+        {/* Adding a Project belongs to the Projects group, so it sits on the
+            group's own line as an icon rather than as a full-width row
+            pretending to be a Project that is not there. */}
+        <div className="side-group">
+          <span className="side-label">Projects</span>
+          <button className="icon-button small side-add" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project" title="Add a Project"><Plus size={14} /></button>
+        </div>
         {projects.map((project) => {
           const projectSnapshot = source.get(project.id);
           const collisionCount = projectSnapshot.findings.filter((finding) => finding.state === "open").length;
@@ -400,7 +412,9 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
             {!sidebarCollapsed && <>{project.name}{collisionCount > 0 && <span className="project-count">{collisionCount}</span>}</>}
           </button>;
         })}
-        <button className="project-item new" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project"><span className="project-monogram"><Plus size={11} /></span>{!sidebarCollapsed && "New project"}</button>
+        {/* Collapsed, the group line is hidden, so the control comes back as a
+            monogram-width row - one control on screen either way. */}
+        {sidebarCollapsed && <button className="project-item new" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project" title="Add a Project"><span className="project-monogram"><Plus size={11} /></span></button>}
       </div>
 
       <button className="profile-button" aria-current={screen === "settings" ? "page" : undefined} onClick={() => showScreen("settings")} aria-label="Open settings, devices, and privacy">
@@ -1940,7 +1954,7 @@ export function JoinLanding({ fragment = window.location.hash.slice(1) }: { frag
 const root = document.getElementById("root");
 if (root) {
   const parameters = new URLSearchParams(window.location.search);
-  const desktopPreview = parameters.get("desktop") === "preview" || window.location.protocol === "wails:";
+  const desktopPreview = parameters.get("desktop") === "preview" || isDesktopWebview;
   const onboarding = parameters.get("desktop") === "onboarding";
   // Fixtures are a design harness, so they are opt-in and always labelled. They
   // used to be what an unrecognised URL fell back to, which meant any plain
@@ -1950,9 +1964,13 @@ if (root) {
   // safe thing to land on when the URL asks for nothing in particular.
   const fixtures = parameters.get("fixtures") === "1" || (desktopPreview && parameters.get("live") !== "1");
   const banner = !onboarding && (fixtures || desktopPreview);
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  // The public marketing page is for the hosted origin only. Anything running
+  // inside the desktop webview, or asking for a harness, belongs in the app.
+  const landing = pathname === "/" && !isDesktopWebview && !desktopPreview && !onboarding && !fixtures;
   if (banner) document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
     {banner && (desktopPreview ? <DesktopPreviewBanner live={!fixtures} /> : <FixtureDataBanner />)}
-    {window.location.pathname.replace(/\/+$/, "") === "/join" ? <JoinLanding /> : onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : <LiveApp />}
+    {pathname === "/join" ? <JoinLanding /> : onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : landing ? <LandingPage /> : <LiveApp />}
   </StrictMode>);
 }

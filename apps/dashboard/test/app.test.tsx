@@ -366,11 +366,12 @@ describe("Project Workroom behavior", () => {
     expect(within(add).getByRole("status").textContent).toContain("Checking this Mac");
 
     rejectState(new Error("The native Overgent bridge is unavailable."));
-    // Hosted origin: hand off to the app, phrased as the task continuing rather
-    // than as reopening the app the member is already looking at.
-    const handoff = await screen.findByRole("button", { name: "Continue in the Overgent app" });
-    expect(handoff).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Overgent/ })).toBeNull();
+    // A browser, which is what this test environment is: the hand-off is a real
+    // app hand-off and says so. Inside the desktop window the same screen says
+    // "continuing on this Mac" instead, because telling somebody to open the app
+    // they are looking at is the dead end this replaced.
+    expect(await screen.findByRole("button", { name: "Open the Overgent app" })).toBeTruthy();
+    expect(screen.getByText(/it cannot reach that service/)).toBeTruthy();
     expect(screen.queryByPlaceholderText("Choose a local Git repository")).toBeNull();
   });
 
@@ -390,7 +391,7 @@ describe("Project Workroom behavior", () => {
     const add = await screen.findByRole("main", { name: "Add a Project" });
     // With the native bridge reachable the form is the screen. Nothing offers to
     // open the app the member is already looking at.
-    expect(within(add).queryByRole("button", { name: /Continue in the Overgent app/ })).toBeNull();
+    expect(within(add).queryByRole("button", { name: /Overgent app/ })).toBeNull();
     await user.click(within(add).getByRole("button", { name: "Choose…" }));
     expect((within(add).getByPlaceholderText("Choose a local Git repository") as HTMLInputElement).value).toBe("/tmp/orbit");
     await user.click(within(add).getByRole("button", { name: "Create Project" }));
