@@ -1,0 +1,29 @@
+name: Promote Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable candidate version, for example v0.1.0-beta.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: production-release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Promote verified signed manifest
+        env:
+          BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
+          OVERGENT_RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
+          RELEASE_VERSION: "${{ inputs.version }}"
+        run: node scripts/publish-release-blobs.mjs promote "$RELEASE_VERSION"

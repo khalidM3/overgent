@@ -1,7 +1,7 @@
 # Public repository boundary
 
-Status: build contract  
-Last updated: 2026-08-23
+Status: source-publication boundary; publication deferred during private beta
+Last updated: 2026-09-02
 
 This repository contains the complete installed client and service, collection behavior, public protocols and adapters, dashboard/backend application code, installers, tests, fixtures, and release workflows.
 
@@ -10,3 +10,9 @@ Private cloud operations belong in a separate access-controlled repository. That
 Public examples use synthetic identifiers and data. Production credentials, private customer data, raw source/diffs, Git objects, transcripts, prompts, environment values, raw command output, and internal incident details are prohibited here. Security reports use the private channel documented in `SECURITY.md`.
 
 The public repository is licensed under Apache-2.0 with the attribution in `NOTICE`. Public launch still requires an operational private security-reporting and conduct-enforcement channel; do not publish a placeholder mailbox that is not monitored.
+
+ADR-067 defers making the source repository public while the company and
+long-term source-publication decision are unsettled. Public beta distribution
+contains only signed release artifacts in Vercel Blob; it does not relax this
+file's separation of source from private cloud operations or permit secrets or
+customer data in the source repository.

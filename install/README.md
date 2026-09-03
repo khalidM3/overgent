@@ -1,7 +1,8 @@
 # Installing the beta
 
 Release automation renders `install.sh` with the release update public key and
-Apple Developer Team ID, then attaches that rendered copy to the GitHub release.
+Apple Developer Team ID, then publishes that rendered copy with the other public
+artifacts at the immutable Vercel Blob path for the release.
 The checked-in source is intentionally non-installable: it has no production
 trust anchors.
 

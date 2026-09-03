@@ -11,6 +11,23 @@
       "maxDuration": 10
     }
   },
+  "redirects": [
+    {
+      "source": "/install.sh",
+      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/install.sh",
+      "permanent": false
+    },
+    {
+      "source": "/uninstall.sh",
+      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/uninstall.sh",
+      "permanent": false
+    },
+    {
+      "source": "/download/macos",
+      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/Overgent_macOS_arm64.zip?download=1",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/current/update-manifest.json",
