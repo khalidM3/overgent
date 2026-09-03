@@ -22,6 +22,12 @@ convex/_generated/
 # Local build artifacts from go build ./validation/...
 /coordination
 
+# Notarized desktop archive staged by the release workflow before it is
+# uploaded. GoReleaser refuses to run against a dirty tree, so leaving this
+# untracked aborted the release after the build and notarization had already
+# succeeded.
+/dist-desktop/
+
 # Staged closed-test distribution (install/dogfood/publish.sh).
 /dist-dogfood/
 /.vercel/
