@@ -1,9 +1,9 @@
-module github.com/overgent/overgent/apps/desktop
+module github.com/khalidM3/overgent/apps/desktop
 
 go 1.26.0
 
 require (
-	github.com/overgent/overgent v0.0.0
+	github.com/khalidM3/overgent v0.0.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.12
 )
 
@@ -32,4 +32,4 @@ require (
 	modernc.org/sqlite v1.46.1 // indirect
 )
 
-replace github.com/overgent/overgent => ../..
+replace github.com/khalidM3/overgent => ../..

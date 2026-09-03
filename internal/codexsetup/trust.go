@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/khalidM3/overgent/internal/codexappserver"
 )
 
 // Trust methods, ordered by how much of the work Codex itself performs.

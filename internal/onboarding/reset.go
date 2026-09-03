@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/hosted"
 )
 
 // ResetOutcome describes what a reset changed on this device.

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/overgent/overgent/internal/codexappserver"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/store"
+	"github.com/khalidM3/overgent/internal/codexappserver"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/store"
 )
 
 // inferredReadPathsPerTurn bounds one turn-boundary refresh. It is larger than

@@ -9,20 +9,20 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/overgent/overgent/internal/activation"
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/app"
-	"github.com/overgent/overgent/internal/claudesetup"
-	"github.com/overgent/overgent/internal/codexsetup"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/credential"
-	"github.com/overgent/overgent/internal/cursorsetup"
-	"github.com/overgent/overgent/internal/daemon"
-	"github.com/overgent/overgent/internal/hosted"
-	coordinationmcp "github.com/overgent/overgent/internal/mcp"
-	"github.com/overgent/overgent/internal/onboarding"
-	servicemanager "github.com/overgent/overgent/internal/service"
-	updateclient "github.com/overgent/overgent/internal/update"
+	"github.com/khalidM3/overgent/internal/activation"
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/app"
+	"github.com/khalidM3/overgent/internal/claudesetup"
+	"github.com/khalidM3/overgent/internal/codexsetup"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/credential"
+	"github.com/khalidM3/overgent/internal/cursorsetup"
+	"github.com/khalidM3/overgent/internal/daemon"
+	"github.com/khalidM3/overgent/internal/hosted"
+	coordinationmcp "github.com/khalidM3/overgent/internal/mcp"
+	"github.com/khalidM3/overgent/internal/onboarding"
+	servicemanager "github.com/khalidM3/overgent/internal/service"
+	updateclient "github.com/khalidM3/overgent/internal/update"
 	"io"
 	"os"
 	"os/exec"
@@ -479,7 +479,7 @@ func run(args []string) error {
 		return writeDiagnostics(ctx, paths)
 	case "update":
 		updateFlags := flag.NewFlagSet("update", flag.ContinueOnError)
-		manifestURL := updateFlags.String("manifest", "https://github.com/overgent/overgent/releases/latest/download/update-manifest.json", "signed update metadata URL")
+		manifestURL := updateFlags.String("manifest", "https://releases.overgent.com/current/update-manifest.json", "signed update metadata URL")
 		if e = updateFlags.Parse(rest[1:]); e != nil {
 			return e
 		}

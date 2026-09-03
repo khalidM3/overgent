@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/overgent/overgent/internal/hookconfig"
+	"github.com/khalidM3/overgent/internal/hookconfig"
 )
 
 type Status struct {

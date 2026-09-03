@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/contract"
+	"github.com/khalidM3/overgent/internal/contract"
 )
 
 func read(t *testing.T, name string) []byte {

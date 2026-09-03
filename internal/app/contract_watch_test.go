@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/daemon"
-	gitobs "github.com/overgent/overgent/internal/git"
-	"github.com/overgent/overgent/internal/store"
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/daemon"
+	gitobs "github.com/khalidM3/overgent/internal/git"
+	"github.com/khalidM3/overgent/internal/store"
 )
 
 type contractWatchFixture struct {
