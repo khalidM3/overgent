@@ -19,12 +19,23 @@ deployment for smoke tests and deploy accepted builds to the default Convex
 production deployment. This avoids a second set of credentials and data before
 there is usage that justifies permanent staging.
 
-The canonical public repository is `github.com/khalidM3/overgent`. Installed
-clients do not depend on that repository path for update discovery: the default
-channel is the signed manifest at
-`https://releases.overgent.com/current/update-manifest.json`, whose assets are
-immutable versioned GitHub release downloads. A later repository transfer can
-therefore preserve the update channel by changing only the release publisher.
+The source repository is private at `github.com/khalidM3/overgent`. Installed
+clients do not depend on repository access or its path: the default channel is
+the signed manifest at `https://releases.overgent.com/current/update-manifest.json`,
+whose public assets live at immutable versioned paths in the `overgent-releases`
+Vercel Blob store. A later repository or company transfer therefore does not
+change the installed update channel.
+
+After the first verified promotion, the public entry points are:
+
+```bash
+curl -fsSL https://releases.overgent.com/install.sh | sh
+```
+
+The desktop download button links to
+`https://releases.overgent.com/download/macos`. Both are stable redirects to
+the artifacts selected by the protected promotion workflow; release files
+remain immutable under their versioned Blob paths.
 
 Protect the `production-release` GitHub environment with required reviewers.
 Generate the update key on a trusted offline Mac and store the private file
@@ -39,6 +50,7 @@ The command prints only the base64 public key. Add these environment variables:
 | Kind | Name | Value |
 |---|---|---|
 | Variable | `OVERGENT_UPDATE_PUBLIC_KEY` | command stdout; base64 raw 32-byte Ed25519 public key |
+| Variable | `OVERGENT_RELEASE_BLOB_ORIGIN` | public Vercel Blob origin, without a trailing slash |
 | Variable | `APPLE_TEAM_ID` | Apple Developer team identifier |
 | Variable | `APPLE_DEVELOPER_NAME` | name in the Developer ID Application certificate |
 | Secret | `OVERGENT_UPDATE_SIGNING_PRIVATE_KEY` | contents of the mode-0600 private key file; base64 raw 64-byte key |
@@ -46,6 +58,7 @@ The command prints only the base64 public key. Add these environment variables:
 | Secret | `MACOS_CERTIFICATE_PASSWORD` | PKCS#12 password |
 | Secret | `APPLE_ID` | notarization Apple ID |
 | Secret | `APPLE_APP_PASSWORD` | app-specific password for notarization |
+| Secret | `BLOB_READ_WRITE_TOKEN` | write credential for the public release Blob store |
 
 Enable GitHub private vulnerability reporting and replace the temporary policy
 in `SECURITY.md` with a monitored private address before inviting people who do
@@ -57,16 +70,17 @@ not already have a private support channel.
    `https://api.overgent.com`; keep private operations outside this repository.
 2. Run every standard check plus `pnpm eval:coordination` on Node 22 or newer.
 3. Tag an immutable candidate such as `v0.1.0-beta.1`. The release workflow
-   produces a draft GitHub release, signed CLI archives, checksums, archive
-   SBOMs, Sigstore bundles, GitHub build provenance, the signed update manifest,
-   rendered installer/uninstaller, and the signed/notarized desktop zip.
+   produces an internal draft GitHub release and publishes signed CLI archives,
+   checksums, archive SBOMs, Sigstore bundles, the signed update manifest,
+   rendered installer/uninstaller, and the signed/notarized desktop zip to the
+   public Blob store's immutable `releases/<version>/` path.
 4. Inspect the workflow's notarization and stapler output. Download the draft
    artifacts on a clean Apple Silicon Mac; never validate from the build tree.
 5. Record the commands and results in `validation/evidence/` before publishing
    the draft.
-6. After the candidate passes the clean-machine and tester gates, publish the
-   GitHub release and promote its already-signed manifest to the `current`
-   release channel. Never point `current` at a draft or an unverified build.
+6. After the candidate passes the clean-machine and tester gates, run the
+   `Promote Release` workflow with the exact version. It copies the already-signed
+   manifest to the `current` release channel. Never promote an unverified build.
 
 The workflow reads signing material only from the protected environment. The
 update private key is written to the ephemeral runner and is never placed in an

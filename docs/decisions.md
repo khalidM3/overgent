@@ -1286,3 +1286,22 @@ points to immutable, versioned GitHub release assets. The release workflow may
 change where those assets are published without changing the client-facing
 channel. The old repository path must not be reused after a transfer because
 doing so would defeat GitHub's redirects. Accepted by the owner 2026-09-02.
+
+## ADR-067: Decouple public beta binaries from source-repository visibility
+
+Supersedes ADR-066 only where it requires the repository itself and its GitHub
+release assets to be public at beta launch. The owner directed that the source
+repository remain private while the company and long-term source-publication
+boundary are decided. This is a launch-state decision, not permission to put
+private cloud operations, production secrets, customer data, or hidden wire
+behavior in this repository.
+
+GitHub Actions remains the trusted builder. A protected release environment
+publishes only signed, notarized release outputs to the public
+`overgent-releases` Vercel Blob store under immutable `releases/<version>/`
+paths. After clean-machine verification, a separate protected workflow copies
+that version's signed manifest to `current/update-manifest.json`. Installed
+clients continue to discover updates only through
+`https://releases.overgent.com/current/update-manifest.json`; they neither need
+GitHub credentials nor depend on the repository owner or future organization.
+Accepted by the owner 2026-09-02.

@@ -3,6 +3,7 @@ const test = require("node:test");
 
 const proxy = require("../api/v1/[...].js");
 const currentManifest = require("../api/releases/current-manifest.js");
+const vercelConfig = require("../vercel.json");
 
 function responseRecorder() {
   return {
@@ -57,4 +58,52 @@ test("release channel is closed until a signed manifest is promoted", async () =
   await currentManifest({}, response);
   assert.equal(response.statusCode, 503);
   assert.equal(JSON.parse(response.body).error.code, "release_channel_unavailable");
+});
+
+test("release channel serves only the fixed public Blob manifest", async () => {
+  process.env.OVERGENT_RELEASE_MANIFEST_URL = "https://store.public.blob.vercel-storage.com/current/update-manifest.json";
+  const originalFetch = global.fetch;
+  let observed;
+  global.fetch = async (url, init) => {
+    observed = { url: String(url), init };
+    return new Response('{"schema_version":1}', { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = responseRecorder();
+    await currentManifest({}, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(observed.url, process.env.OVERGENT_RELEASE_MANIFEST_URL);
+    assert.equal(observed.init.redirect, "error");
+    assert.deepEqual(JSON.parse(response.body), { schema_version: 1 });
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.OVERGENT_RELEASE_MANIFEST_URL;
+  }
+});
+
+test("release channel rejects non-Blob and non-current targets", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error("must not fetch"); };
+  try {
+    for (const target of [
+      "https://github.com/khalidM3/overgent/releases/download/v1/update-manifest.json",
+      "https://store.public.blob.vercel-storage.com/releases/v1/update-manifest.json",
+    ]) {
+      process.env.OVERGENT_RELEASE_MANIFEST_URL = target;
+      const response = responseRecorder();
+      await currentManifest({}, response);
+      assert.equal(response.statusCode, 502);
+      assert.equal(JSON.parse(response.body).error.code, "release_channel_unavailable");
+    }
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.OVERGENT_RELEASE_MANIFEST_URL;
+  }
+});
+
+test("public installer and desktop aliases redirect to promoted Blob artifacts", () => {
+  const redirects = Object.fromEntries(vercelConfig.redirects.map((redirect) => [redirect.source, redirect.destination]));
+  assert.equal(redirects["/install.sh"], "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/install.sh");
+  assert.equal(redirects["/uninstall.sh"], "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/uninstall.sh");
+  assert.match(redirects["/download/macos"], /\/current\/Overgent_macOS_arm64\.zip\?download=1$/);
 });

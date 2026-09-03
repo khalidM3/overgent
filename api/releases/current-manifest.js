@@ -1,4 +1,5 @@
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const PUBLIC_BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
 
 module.exports = async function currentManifest(_request, response) {
   try {
@@ -9,11 +10,19 @@ module.exports = async function currentManifest(_request, response) {
       throw new Error("release channel has not been promoted");
     }
     const target = new URL(configured);
-    if (target.protocol !== "https:" || target.username || target.password || target.host !== "github.com") {
-      throw new Error("release manifest URL must be an HTTPS github.com URL");
+    if (
+      target.protocol !== "https:" ||
+      target.username ||
+      target.password ||
+      !target.hostname.endsWith(PUBLIC_BLOB_HOST_SUFFIX) ||
+      target.pathname !== "/current/update-manifest.json" ||
+      target.search ||
+      target.hash
+    ) {
+      throw new Error("release manifest URL must be the current manifest in a public Vercel Blob store");
     }
 
-    const upstream = await fetch(target, { redirect: "follow" });
+    const upstream = await fetch(target, { redirect: "error" });
     if (!upstream.ok) throw new Error(`release manifest returned HTTP ${upstream.status}`);
     const body = Buffer.from(await upstream.arrayBuffer());
     if (body.length === 0 || body.length > MAX_MANIFEST_BYTES) throw new Error("release manifest size is invalid");

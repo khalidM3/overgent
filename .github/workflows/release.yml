@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   id-token: write
-  attestations: write
 
 jobs:
   release:
@@ -35,6 +34,8 @@ jobs:
           CERTIFICATE_PASSWORD: "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
           APPLE_ID: "${{ secrets.APPLE_ID }}"
           APPLE_APP_PASSWORD: "${{ secrets.APPLE_APP_PASSWORD }}"
+          BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
+          RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
         run: |
           test -n "$UPDATE_PUBLIC_KEY"
           test -n "$UPDATE_PRIVATE_KEY"
@@ -44,6 +45,8 @@ jobs:
           test -n "$CERTIFICATE_PASSWORD"
           test -n "$APPLE_ID"
           test -n "$APPLE_APP_PASSWORD"
+          test -n "$BLOB_READ_WRITE_TOKEN"
+          test -n "$RELEASE_BLOB_ORIGIN"
       - name: Import Apple signing identity
         env:
           CERTIFICATE: "${{ secrets.MACOS_CERTIFICATE_P12 }}"
@@ -90,12 +93,13 @@ jobs:
       - name: Create signed updater metadata
         env:
           UPDATE_PRIVATE_KEY: "${{ secrets.OVERGENT_UPDATE_SIGNING_PRIVATE_KEY }}"
+          RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
         run: |
           printf '%s' "$UPDATE_PRIVATE_KEY" > "$RUNNER_TEMP/update-signing-key"
           OVERGENT_UPDATE_SIGNING_KEY_FILE="$RUNNER_TEMP/update-signing-key" go run ./cmd/release-metadata \
             -dist dist \
             -version "${GITHUB_REF_NAME}" \
-            -base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+            -base-url "${RELEASE_BLOB_ORIGIN}/releases/${GITHUB_REF_NAME}" \
             -output dist/update-manifest.json
       - name: Render release installer
         run: |
@@ -117,14 +121,8 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json dist/update-manifest.json.sigstore.json dist/desktop-checksums.txt.sigstore.json --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-      - uses: actions/attest-build-provenance@v3
-        with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.spdx.json
-            dist/checksums.txt
-            dist/update-manifest.json
-            dist/install.sh
-            dist/desktop-checksums.txt
-            dist-desktop/*.zip
+      - name: Publish public candidate artifacts
+        env:
+          BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
+          OVERGENT_RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
+        run: node scripts/publish-release-blobs.mjs candidate "${GITHUB_REF_NAME}"
