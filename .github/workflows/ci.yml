@@ -12,7 +12,10 @@ jobs:
     strategy:
       matrix:
         go: ["1.26.x", "1.27.x"]
-    runs-on: ubuntu-latest
+    # The shipped local service is intentionally macOS-only today, and its
+    # configuration boundary fails closed on other platforms. Exercise both Go
+    # versions on the supported OS instead of turning those tests into skips.
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
