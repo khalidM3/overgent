@@ -6,7 +6,7 @@ here may be advertised as an install.
 
 The production channel is [`../install.sh`](../install.sh): it verifies Apple
 notarization and the exact expected Team ID, and the binary it installs verifies
-an Ed25519 update manifest on every `stickguy update`. The source copy refuses
+an Ed25519 update manifest on every `overgent update`. The source copy refuses
 to run precisely so a checkout can never become a distribution channel. None of
 that applies here. This installer verifies one pinned SHA-256 and the bundle's
 own ad-hoc signature, which proves the download was not corrupted or altered in
@@ -15,14 +15,14 @@ transit and nothing more. It does not establish who built it.
 ## Publishing
 
 ```sh
-STICKGUY_DOGFOOD_ORIGIN=https://example.vercel.app \
-STICKGUY_DOGFOOD_CONVEX=https://your-deployment.convex.site \
+OVERGENT_DOGFOOD_ORIGIN=https://example.vercel.app \
+OVERGENT_DOGFOOD_CONVEX=https://your-deployment.convex.site \
 ./install/dogfood/publish.sh --deploy
 ```
 
 Needs Node 22 and a signed-in `vercel` CLI. Without `--deploy` it stages
 `dist-dogfood/` and stops. The script stamps the current commit into both
-binaries, so `stickguy version --json` on a member's Mac reports exactly what
+binaries, so `overgent version --json` on a member's Mac reports exactly what
 they installed; it warns if the tree is dirty, because a stamped commit that
 does not match the artifacts is worse than no stamp.
 
@@ -35,7 +35,7 @@ and answers with a 303 to `/dashboard` on whichever host authenticated it, and
 the session cookie it sets is scoped to that host, so the SPA and the API have
 to answer on the same origin.
 
-The app is built with `STICKGUY_PRODUCTION_API_ORIGIN`, which bakes the origin
+The app is built with `OVERGENT_PRODUCTION_API_ORIGIN`, which bakes the origin
 in at link time (see `scripts/build-desktop.mjs`).
 
 ## What members do

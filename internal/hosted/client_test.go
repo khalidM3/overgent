@@ -31,7 +31,7 @@ func TestClientUsesVersionedContractAndBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := client.CreateProject(context.Background(), "Fixture", "Device", "", "stickguy/test")
+	project, err := client.CreateProject(context.Background(), "Fixture", "Device", "", "overgent/test")
 	if err != nil || project.ID != "prj_fixture" {
 		t.Fatalf("project=%#v err=%v", project, err)
 	}
@@ -98,7 +98,7 @@ func TestClientSendsChosenDisplayNameSeparatelyFromDeviceLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CreateProject(context.Background(), "Fixture", "Khalid's MacBook", "Khalid M", "stickguy/test"); err != nil {
+	if _, err := client.CreateProject(context.Background(), "Fixture", "Khalid's MacBook", "Khalid M", "overgent/test"); err != nil {
 		t.Fatal(err)
 	}
 }

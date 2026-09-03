@@ -1,4 +1,4 @@
-# Stickguy evaluation and dogfood playbook
+# Overgent evaluation and dogfood playbook
 
 Status: working evaluation guide  
 Audience: product owner and evaluation contributors  
@@ -6,7 +6,7 @@ Scope: collision coordination, context routing, and usefulness testing
 
 ## 1. Recommendation: automate correctness, test usefulness with people
 
-Stickguy needs both automated and active testing. They answer different
+Overgent needs both automated and active testing. They answer different
 questions.
 
 | Method | Best for | Cannot prove by itself |
@@ -14,12 +14,12 @@ questions.
 | Automated scripted scenarios | Repeatability, regression detection, finding precision/recall, routing, deduplication, latency, privacy, failure fallback | That a real agent understands the warning or that a person finds it worthwhile |
 | Real Codex/Claude sessions | Whether context changes agent behavior, whether wording is actionable, integration fidelity, realistic timing | Stable accuracy estimates without repetition and fixed ground truth |
 | Two-person dogfood | Trust, interruption tolerance, workflow fit, repeat use, perceived time saved | Exact detection-stage attribution or reproducible threshold comparisons |
-| External benchmarks | Outcome comparison on unfamiliar repositories and tasks | Stickguy-specific ground truth for routing, privacy, stale assumptions, or degradation |
+| External benchmarks | Outcome comparison on unfamiliar repositories and tasks | Overgent-specific ground truth for routing, privacy, stale assumptions, or degradation |
 
 The working order is:
 
 1. Run a new scenario manually three to five times with real agents.
-2. Decide its ground truth before examining Stickguy's output.
+2. Decide its ground truth before examining Overgent's output.
 3. Fix unclear prompts or timing barriers.
 4. Automate the scenario once the expected event, recipients, delivery mode,
    required facts, and forbidden behavior are unambiguous.
@@ -62,10 +62,10 @@ routing, interruption, delivery, and outcome separately.
 ### 3.1 Synthetic fixture repository
 
 Create a small, separate Git repository for repeatable tests. Do not use the
-Stickguy repository as the task under test. A useful shape is:
+Overgent repository as the task under test. A useful shape is:
 
 ```text
-stickguy-eval-fixture/
+overgent-eval-fixture/
 ├── backend/
 │   ├── refresh.go
 │   ├── sessions.go
@@ -83,7 +83,7 @@ stickguy-eval-fixture/
 
 The base fixture should compile and pass tests. Tag immutable starting states,
 for example `eval-base-v1`. Create fresh linked worktrees or fresh temporary
-clones for every run. The evaluator creates and removes these; Stickguy never
+clones for every run. The evaluator creates and removes these; Overgent never
 creates, switches, resets, or removes worktrees.
 
 ### 3.2 Real-project transfer set
@@ -100,8 +100,8 @@ prompt, tool permissions, token budget, and time limit fixed.
 
 | Condition | Purpose |
 |---|---|
-| `control` | Stickguy absent or disconnected; measures ordinary parallel-agent behavior |
-| `observe` | Stickguy observes and renders the dashboard, but no context is injected; measures visibility value |
+| `control` | Overgent absent or disconnected; measures ordinary parallel-agent behavior |
+| `observe` | Overgent observes and renders the dashboard, but no context is injected; measures visibility value |
 | `full` | Normal findings, routing, dashboard, and supported next-turn injection |
 
 `observe` is an evaluation mode to add to the harness if it is not available;
@@ -117,7 +117,7 @@ For every run:
 
 1. Allocate a run ID such as `stale-contract-001/full/run-03`.
 2. Materialize clean worktrees from the scenario's pinned base commit.
-3. Start the selected Stickguy condition using an isolated local profile and
+3. Start the selected Overgent condition using an isolated local profile and
    Project.
 4. Start new agent sessions after adapter installation so their configuration
    is current and runtime delivery can be verified.
@@ -128,7 +128,7 @@ For every run:
 7. Stop when both agents finish, the scenario time limit expires, or an
    unrecoverable execution error occurs.
 8. Run the fixture's objective integration tests against the combined result.
-9. Record Stickguy objects and aggregate timing only. Never add raw private
+9. Record Overgent objects and aggregate timing only. Never add raw private
    transcripts, source, diffs, tool results, commands, output, environment
    values, or credentials to public evaluation evidence.
 10. Complete the scorecard before changing a threshold.
@@ -143,7 +143,7 @@ Store automated scenarios as data rather than embedding all expectations in
 runner code. A proposed representation is:
 
 ```yaml
-schemaVersion: stickguy-scenario/v1
+schemaVersion: overgent-scenario/v1
 id: stale-contract-001
 family: stale_assumption
 baseRef: eval-base-v1
@@ -218,7 +218,7 @@ Agent B:
 Oracle: a quiet same-path structural warning is allowed; no stale-contract
 finding and no `coordination_required` next-turn injection.
 
-Outcome question: does Stickguy preserve awareness without distracting either
+Outcome question: does Overgent preserve awareness without distracting either
 agent from compatible work?
 
 ### SG-03 — contract changes after a consumer reads it
@@ -323,7 +323,7 @@ Agent A:
 
 > Implement the frontend session loader, but wait for an exported `SessionAPI`
 > contract before completing the integration. Declare that dependency through
-> the available Stickguy lifecycle interface.
+> the available Overgent lifecycle interface.
 
 Agent B:
 
@@ -408,7 +408,7 @@ disconnect B's adapter after the session starts. Ask both to modify the same
 safe path.
 
 Oracle: deterministic Git/path evidence remains available. B is labeled with
-lower fidelity; Stickguy must not claim read-set, checkpoint, acknowledgement,
+lower fidelity; Overgent must not claim read-set, checkpoint, acknowledgement,
 or next-turn delivery coverage that it did not observe.
 
 ### SG-15 — semantic provider outage
@@ -478,7 +478,7 @@ phrases.
 |---|---|
 | Scenario/run ID | |
 | Corpus/base-ref version | |
-| Stickguy engine/router/threshold versions | |
+| Overgent engine/router/threshold versions | |
 | Agent products, versions, models | |
 | Condition (`control`, `observe`, `full`) | |
 | Repetition/seed/order | |
@@ -597,31 +597,31 @@ dogfood.
 ## 12. CooperBench use
 
 CooperBench is an external outcome benchmark, not the source of truth for
-Stickguy finding accuracy. Use a curated subset only after the internal
+Overgent finding accuracy. Use a curated subset only after the internal
 scenario corpus can explain failures stage by stage.
 
 Compare:
 
-1. cooperative agents without Stickguy and without a separate messaging
+1. cooperative agents without Overgent and without a separate messaging
    channel;
 2. the benchmark's normal cooperative messaging condition;
-3. cooperative agents with Stickguy and no separate messaging channel; and
-4. optionally, Stickguy plus the normal messaging channel.
+3. cooperative agents with Overgent and no separate messaging channel; and
+4. optionally, Overgent plus the normal messaging channel.
 
 Start with 10 task pairs, then expand to 20–50 if the integration is stable.
 Record objective feature/integration tests, conflicts, rework, wall time,
-tokens, and Stickguy findings/routing. Do not run all available tasks merely to
+tokens, and Overgent findings/routing. Do not run all available tasks merely to
 produce a large number before adapter fidelity and condition isolation are
 proven.
 
 CooperBench does not replace SG-03, SG-09, SG-12, SG-15, SG-16, or SG-17: its
-task success oracle does not label Stickguy-specific stale contracts,
+task success oracle does not label Overgent-specific stale contracts,
 dependency readiness, routing recipients, provider degradation, pause, or
 offline recovery.
 
 ## 13. Product decision rule
 
-Stickguy is demonstrating value when all of the following are true:
+Overgent is demonstrating value when all of the following are true:
 
 - material collisions are found before the affected work is finished;
 - next-turn context is rarely irrelevant;
@@ -629,7 +629,7 @@ Stickguy is demonstrating value when all of the following are true:
 - agents measurably adapt to delivered facts;
 - paired runs finish more reliably or with less rework than controls;
 - failure modes retain deterministic evidence and honest fidelity; and
-- real users voluntarily keep Stickguy enabled for a second collaborative
+- real users voluntarily keep Overgent enabled for a second collaborative
   session.
 
 A passing regression suite alone is insufficient. A product that catches many

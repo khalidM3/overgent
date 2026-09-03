@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.stickguy.dev/v1/verification.schema.json",
+  "$id": "https://schemas.overgent.com/v1/verification.schema.json",
   "title": "VerificationSummary",
   "type": "object",
   "additionalProperties": false,

@@ -42,7 +42,7 @@ Mirror the `EmbeddingProvider` boundary exactly:
   Claude Sonnet 5 for adjudication (high volume, cost-sensitive); confirm the
   exact model id via the `claude-api` skill.
 - **Deterministic fallback**: when no key is configured or the provider fails,
-  fall back to the existing `stickguy-concepts/v1` concept engine plus lexical
+  fall back to the existing `overgent-concepts/v1` concept engine plus lexical
   and structural signals. Failure marks semantic processing degraded and never
   removes a deterministic finding.
 

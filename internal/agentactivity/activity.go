@@ -104,7 +104,7 @@ func Parse(vendor string, input []byte) (Event, error) {
 		event.AgentType = agentType
 	}
 	if agentID, _ := raw["agent_id"].(string); agentID != "" {
-		agentSum := sha256.Sum256([]byte("stickguy.subagent.v1\x00" + vendor + "\x00" + sessionID + "\x00" + agentID))
+		agentSum := sha256.Sum256([]byte("overgent.subagent.v1\x00" + vendor + "\x00" + sessionID + "\x00" + agentID))
 		event.SubagentAlias = fmt.Sprintf("sub-%x", agentSum[:3])
 	}
 
@@ -183,7 +183,7 @@ func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias strin
 	if sessionID == "" || len(sessionID) > 512 {
 		return "", "", false
 	}
-	sum := sha256.Sum256([]byte("stickguy.agent-session.v1\x00" + vendor + "\x00" + sessionID))
+	sum := sha256.Sum256([]byte("overgent.agent-session.v1\x00" + vendor + "\x00" + sessionID))
 	return fmt.Sprintf("wrk_agent_%x", sum[:16]), fmt.Sprintf("%s-%x", vendor, sum[:3]), true
 }
 
@@ -202,7 +202,7 @@ func WorkstreamIDFor(vendor, sessionID string) (workstreamID, sessionAlias strin
 // a brief is filtered by the workstream it is requested for, so an identity
 // published one way and requested another would never see its own findings.
 func PublishedWorkstreamID(workstreamID, projectID, workspaceID string) string {
-	sum := sha256.Sum256([]byte("stickguy.agent-session-scope.v1\x00" + projectID + "\x00" + workspaceID + "\x00" + workstreamID))
+	sum := sha256.Sum256([]byte("overgent.agent-session-scope.v1\x00" + projectID + "\x00" + workspaceID + "\x00" + workstreamID))
 	return fmt.Sprintf("wrk_agent_%x", sum[:16])
 }
 
@@ -381,7 +381,7 @@ func ReadTool(tool string) bool {
 }
 
 // Read-set coverage classes, ordered by strength (ADR-052). These name the best
-// evidence Stickguy can obtain for a session, not the evidence it happens to
+// evidence Overgent can obtain for a session, not the evidence it happens to
 // hold: a session with no reads yet still has the coverage its vendor allows.
 const (
 	CoverageNone           = "none"

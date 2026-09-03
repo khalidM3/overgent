@@ -12,13 +12,13 @@ import (
 )
 
 func TestLaunchAgentPlistUsesArgumentArrayAndRecovery(t *testing.T) {
-	m := Manager{Executable: "/Applications/Stickguy.app/Contents/MacOS/stickguy", ConfigRoot: "/Users/test/Library/Application Support/Stickguy", Home: "/Users/test", UID: 501}
+	m := Manager{Executable: "/Applications/Overgent.app/Contents/MacOS/overgent", ConfigRoot: "/Users/test/Library/Application Support/Overgent", Home: "/Users/test", UID: 501}
 	body, err := m.plist()
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, expected := range []string{"<string>--config-root</string>", "<string>/Users/test/Library/Application Support/Stickguy</string>", "<key>KeepAlive</key>", "<true/>", "<key>ThrottleInterval</key>"} {
+	for _, expected := range []string{"<string>--config-root</string>", "<string>/Users/test/Library/Application Support/Overgent</string>", "<key>KeepAlive</key>", "<true/>", "<key>ThrottleInterval</key>"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("plist missing %q:\n%s", expected, text)
 		}
@@ -46,11 +46,11 @@ func TestLaunchAgentRequiresExplicitSafePaths(t *testing.T) {
 
 func TestLabelIsScopedToTheProfile(t *testing.T) {
 	home := "/Users/example"
-	defaultRoot := filepath.Join(home, "Library", "Application Support", "Stickguy")
+	defaultRoot := filepath.Join(home, "Library", "Application Support", "Overgent")
 
 	// The default profile must keep the original label, or upgrading orphans a
 	// LaunchAgent that is already installed and running.
-	base := Manager{Executable: "/usr/local/bin/stickguy", ConfigRoot: defaultRoot, Home: home, UID: 501}
+	base := Manager{Executable: "/usr/local/bin/overgent", ConfigRoot: defaultRoot, Home: home, UID: 501}
 	if got := base.label(); got != defaultLabel {
 		t.Fatalf("default profile label = %q, want %q", got, defaultLabel)
 	}
@@ -107,7 +107,7 @@ func TestFailedInstallLeavesNoPlistBehind(t *testing.T) {
 	m := Manager{
 		// launchctl cannot bootstrap a job for a home that is not this user's,
 		// so Install fails after writing the plist - the case that matters.
-		Executable: "/usr/local/bin/stickguy",
+		Executable: "/usr/local/bin/overgent",
 		ConfigRoot: filepath.Join(home, "profile"),
 		Home:       home,
 		UID:        999999,
@@ -126,7 +126,7 @@ func TestFailedInstallLeavesNoPlistBehind(t *testing.T) {
 
 func TestInstallKeepsAPlistItDidNotCreate(t *testing.T) {
 	home := t.TempDir()
-	m := Manager{Executable: "/usr/local/bin/stickguy", ConfigRoot: filepath.Join(home, "profile"), Home: home, UID: 999999}
+	m := Manager{Executable: "/usr/local/bin/overgent", ConfigRoot: filepath.Join(home, "profile"), Home: home, UID: 999999}
 	if err := os.MkdirAll(filepath.Dir(m.plistPath()), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

@@ -56,7 +56,7 @@ const (
 	stderrCaptured  = 4 << 10
 )
 
-// Hook is one entry from hooks/list. Only the fields Stickguy acts on are
+// Hook is one entry from hooks/list. Only the fields Overgent acts on are
 // decoded; the protocol carries more and may add more.
 type Hook struct {
 	Key         string `json:"key"`
@@ -72,7 +72,7 @@ type Hook struct {
 }
 
 // Trusted reports whether Codex will run this hook as configured. A managed
-// hook is trusted by policy and must never be rewritten by Stickguy.
+// hook is trusted by policy and must never be rewritten by Overgent.
 func (h Hook) Trusted() bool {
 	return h.TrustStatus == TrustTrusted || h.TrustStatus == TrustManaged
 }
@@ -112,11 +112,11 @@ func Home(override string) (string, error) {
 // PATH and bundled inside the desktop application, and only the bundle is
 // present on a machine that installed Codex through ChatGPT.app.
 func Locate() (string, error) {
-	if override := strings.TrimSpace(os.Getenv("STICKGUY_CODEX_EXECUTABLE")); override != "" {
+	if override := strings.TrimSpace(os.Getenv("OVERGENT_CODEX_EXECUTABLE")); override != "" {
 		if executableFile(override) {
 			return filepath.Abs(override)
 		}
-		return "", fmt.Errorf("%w: STICKGUY_CODEX_EXECUTABLE is not executable", ErrCodexNotFound)
+		return "", fmt.Errorf("%w: OVERGENT_CODEX_EXECUTABLE is not executable", ErrCodexNotFound)
 	}
 	if path, err := exec.LookPath("codex"); err == nil {
 		return path, nil
@@ -213,7 +213,7 @@ func Dial(ctx context.Context, options Options) (*Client, error) {
 	if version == "" {
 		version = "0.0.0"
 	}
-	initialize := map[string]any{"clientInfo": map[string]any{"name": "stickguy", "version": version}}
+	initialize := map[string]any{"clientInfo": map[string]any{"name": "overgent", "version": version}}
 	if err = client.call(ctx, "initialize", initialize, nil); err != nil {
 		client.Close()
 		return nil, err
@@ -308,7 +308,7 @@ type TrustEdit struct {
 // Codex's own configuration writer.
 //
 // Every edit is a narrow upsert of a single `hooks.state."<key>".trusted_hash`
-// value. Stickguy never serializes the surrounding document, so a concurrent
+// value. Overgent never serializes the surrounding document, so a concurrent
 // write by the Codex desktop application cannot be clobbered by this call, and
 // expectedVersion turns a lost update into a returned error rather than
 // silent damage.

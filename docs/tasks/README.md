@@ -21,7 +21,7 @@ A–D land; do not start them from these briefs.
 ## Rules for every lane
 
 1. **Worktree isolation.** Each lane works in its own linked worktree and
-   branch (`git worktree add ../stickguy-lane-a -b v2/lane-a-eval-harness`).
+   branch (`git worktree add ../overgent-lane-a -b v2/lane-a-eval-harness`).
    Never commit to `main`.
 2. **Protocol ownership.** Only Lane B may modify `protocol/openapi.yaml`,
    `protocol/schemas/`, or run `pnpm protocol:generate`. Every other lane that

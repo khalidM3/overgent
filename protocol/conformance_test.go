@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	protocoltypes "github.com/overgent/overgent/protocol/generated/go"
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	protocoltypes "github.com/stickguy/stickguy/protocol/generated/go"
 )
 
 func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
@@ -40,7 +40,7 @@ func TestFixtureConformsToSchemaAndGeneratedType(t *testing.T) {
 			t.Fatalf("compile %s: %v", schemaURL, err)
 		}
 	}
-	const schemaURL = "https://schemas.stickguy.dev/v1/event-envelope.schema.json"
+	const schemaURL = "https://schemas.overgent.com/v1/event-envelope.schema.json"
 	schema, err := compiler.Compile(schemaURL)
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestContractEvidenceExtendsTheFindingContract(t *testing.T) {
 	if err := json.Unmarshal(schemaData, &schemaDocument); err != nil {
 		t.Fatal(err)
 	}
-	const schemaURL = "https://schemas.stickguy.dev/v1/finding.schema.json"
+	const schemaURL = "https://schemas.overgent.com/v1/finding.schema.json"
 	if err := compiler.AddResource(schemaURL, schemaDocument); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestManifestFixtureRetainsSimultaneousGitStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	compiler := jsonschema.NewCompiler()
-	const schemaURL = "https://schemas.stickguy.dev/v1/change-manifest.schema.json"
+	const schemaURL = "https://schemas.overgent.com/v1/change-manifest.schema.json"
 	if err := compiler.AddResource(schemaURL, schemaDocument); err != nil {
 		t.Fatal(err)
 	}

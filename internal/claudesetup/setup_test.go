@@ -16,7 +16,7 @@ func TestSetupStatusRemovalMergeAndRefuseDrift(t *testing.T) {
 	if err := os.WriteFile(path, original, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy"}
+	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/overgent"}
 	if got, err := manager.Setup(); err != nil || !got.Configured || got.Approval != "required_by_claude" {
 		t.Fatal(got, err)
 	}
@@ -33,7 +33,7 @@ func TestSetupStatusRemovalMergeAndRefuseDrift(t *testing.T) {
 		t.Fatalf("unrelated JSON not preserved: %#v err=%v", document, err)
 	}
 	servers := document["mcpServers"].(map[string]any)
-	servers["stickguy"].(map[string]any)["command"] = "/drifted"
+	servers["overgent"].(map[string]any)["command"] = "/drifted"
 	drifted, _ := json.Marshal(document)
 	if err := os.WriteFile(path, drifted, 0o644); err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestSetupStatusRemovalMergeAndRefuseDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	servers = document["mcpServers"].(map[string]any)
-	if _, exists := servers["stickguy"]; exists || servers["fixture"] == nil || document["other"] == nil {
+	if _, exists := servers["overgent"]; exists || servers["fixture"] == nil || document["other"] == nil {
 		t.Fatalf("removal damaged unrelated config: %#v", document)
 	}
 	if _, err := manager.Remove(); err != nil {
@@ -63,7 +63,7 @@ func TestSetupStatusRemovalMergeAndRefuseDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	managed, _ := os.ReadFile(path)
-	if strings.Contains(string(managed), manager.ConfigRoot) || !strings.Contains(string(managed), `"command": "stickguy"`) || !strings.Contains(string(managed), `"mcp"`) {
+	if strings.Contains(string(managed), manager.ConfigRoot) || !strings.Contains(string(managed), `"command": "overgent"`) || !strings.Contains(string(managed), `"mcp"`) {
 		t.Fatalf("portable config contains machine state or lacks PATH command: %s", managed)
 	}
 	if _, err := portable.Remove(); err != nil {
@@ -77,7 +77,7 @@ func TestOtherProfileRequiresExplicitRebindAndPreservesJSON(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"other":{"preserved":true}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executable := "/usr/local/bin/stickguy"
+	executable := "/usr/local/bin/overgent"
 	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable}
 	newProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "shared"), Executable: executable}
 	if _, err := oldProfile.Setup(); err != nil {
@@ -125,7 +125,7 @@ func TestOtherProfileRequiresExplicitRebindAndPreservesJSON(t *testing.T) {
 // answer is indistinguishable from a real cross-profile conflict.
 func TestStatusNamesTheProfileItComparedAgainst(t *testing.T) {
 	project := t.TempDir()
-	executable := filepath.Join(t.TempDir(), "stickguy")
+	executable := filepath.Join(t.TempDir(), "overgent")
 	profile := filepath.Join(t.TempDir(), "profile")
 	installed := Manager{ProjectRoot: project, ConfigRoot: profile, Executable: executable}
 	if _, err := installed.Setup(); err != nil {

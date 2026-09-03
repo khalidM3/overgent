@@ -1,6 +1,6 @@
-# Contributing to Stickguy
+# Contributing to Overgent
 
-Stickguy is still establishing its first public implementation. Read
+Overgent is still establishing its first public implementation. Read
 `AGENTS.md` and every document in `docs/README.md` order before changing code.
 
 Use focused changes with tests. Data-flow, protocol, authentication, privacy,

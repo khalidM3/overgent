@@ -3,7 +3,7 @@ package contract_test
 import (
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/contract"
+	"github.com/overgent/overgent/internal/contract"
 )
 
 // Each language added under ADR-063 has to get one thing right above all

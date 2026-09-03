@@ -717,7 +717,7 @@ export const SESSION_STOP_TIMEOUT_MS = 10 * 60_000;
 // Only agent sessions expire. A workspace workstream or a manually reported
 // intent has no vendor and no turn loop, so silence says nothing about whether
 // it is finished, and completing one on the member's behalf would be a claim
-// Stickguy cannot support. Expiry is also never final: an event from a revived
+// Overgent cannot support. Expiry is also never final: an event from a revived
 // session sets its status straight back to active.
 export function sessionHasGoneQuiet(
   session: { status: string; vendor?: string | undefined; updatedAt: number },

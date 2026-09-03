@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
+	"github.com/overgent/overgent/internal/agentactivity"
 )
 
 func managerFor(t *testing.T, project string) Manager {
 	t.Helper()
-	return Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy"}
+	return Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/overgent"}
 }
 
 func loadHooks(t *testing.T, path string) map[string]any {
@@ -52,10 +52,10 @@ func TestSetupWritesEveryInstalledEventWithFailClosedFalse(t *testing.T) {
 			t.Fatalf("%s: unexpected handlers %v", event, hooks[event])
 		}
 		entry := entries[0].(map[string]any)
-		// Stickguy must never block, delay, or fail a Cursor turn (ADR-017), so
+		// Overgent must never block, delay, or fail a Cursor turn (ADR-017), so
 		// this is written explicitly rather than left to a vendor default.
 		if entry["failClosed"] != false {
-			t.Fatalf("%s: failClosed is %v; Stickguy must never block a turn", event, entry["failClosed"])
+			t.Fatalf("%s: failClosed is %v; Overgent must never block a turn", event, entry["failClosed"])
 		}
 		if entry["type"] != "command" {
 			t.Fatalf("%s: handler type is %v", event, entry["type"])
@@ -97,7 +97,7 @@ func TestSetupPreservesUnrelatedKeysHooksAndUndecodableEvents(t *testing.T) {
 	}
 	entries := hooks["sessionStart"].([]any)
 	if len(entries) != 2 {
-		t.Fatalf("the member's own sessionStart hook was not preserved alongside Stickguy's: %v", entries)
+		t.Fatalf("the member's own sessionStart hook was not preserved alongside Overgent's: %v", entries)
 	}
 	if entries[0].(map[string]any)["command"] != "/usr/local/bin/lint" {
 		t.Fatalf("the member's hook was displaced: %v", entries[0])
@@ -121,9 +121,9 @@ func TestSetupPreservesUnrelatedKeysHooksAndUndecodableEvents(t *testing.T) {
 	}
 }
 
-// An event whose handlers Stickguy wrote and then emptied must actually
+// An event whose handlers Overgent wrote and then emptied must actually
 // disappear, rather than being restored from the bytes it was read from.
-func TestRemovalDeletesEventsStickguyFullyOwned(t *testing.T) {
+func TestRemovalDeletesEventsOvergentFullyOwned(t *testing.T) {
 	project := t.TempDir()
 	manager := managerFor(t, project)
 	if _, err := manager.Setup(); err != nil {
@@ -134,7 +134,7 @@ func TestRemovalDeletesEventsStickguyFullyOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hooks := loadHooks(t, path)["hooks"].(map[string]any); len(hooks) != 0 {
-		t.Fatalf("removal left Stickguy hooks behind: %v", hooks)
+		t.Fatalf("removal left Overgent hooks behind: %v", hooks)
 	}
 }
 
@@ -204,7 +204,7 @@ func TestUnknownDriftRefusesEveryOperation(t *testing.T) {
 		"unsupported schema version": `{"version":2,"hooks":{}}`,
 		"managed command drifted":    `{"version":1,"hooks":{"stop":[{"command":"unexpected agent-hook --vendor cursor --event stop","type":"command","timeout":5,"failClosed":false}]}}`,
 		"managed hook on an unknown event": `{"version":1,"hooks":{"beforeShellExecution":[` +
-			`{"command":"'stickguy' agent-hook --vendor cursor --event beforeShellExecution","type":"command","timeout":5,"failClosed":false}]}}`,
+			`{"command":"'overgent' agent-hook --vendor cursor --event beforeShellExecution","type":"command","timeout":5,"failClosed":false}]}}`,
 	} {
 		project := t.TempDir()
 		directory := filepath.Join(project, ".cursor")

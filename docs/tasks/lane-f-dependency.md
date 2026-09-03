@@ -1,7 +1,7 @@
 # Lane F — M5 dependency readiness
 
 Goal: a workstream can say it is blocked on something another workstream has
-not built yet, and Stickguy tells it the moment that thing exists — including
+not built yet, and Overgent tells it the moment that thing exists — including
 the honest intermediate state where the contract exists but is not yet
 verified. This is the throughput half of the product (ADR-048), not a planning
 surface (ADR-037 stands: no plan items, no boards).

@@ -10,13 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stickguy/stickguy/internal/codexappserver"
-	"github.com/stickguy/stickguy/internal/hookconfig"
+	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/overgent/overgent/internal/hookconfig"
 )
 
 const (
-	beginMarker = "# BEGIN STICKGUY MANAGED MCP\n"
-	endMarker   = "# END STICKGUY MANAGED MCP\n"
+	beginMarker = "# BEGIN OVERGENT MANAGED MCP\n"
+	endMarker   = "# END OVERGENT MANAGED MCP\n"
 )
 
 type Status struct {
@@ -72,11 +72,11 @@ func (m Manager) SetupContext(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	if state.Binding == "other_profile" {
-		return state, errors.New("Codex is connected to another Stickguy profile; explicit reconnect is required")
+		return state, errors.New("Codex is connected to another Overgent profile; explicit reconnect is required")
 	}
 	if !state.Configured {
-		if strings.Contains(current, "[mcp_servers.stickguy]") {
-			return Status{}, errors.New("unmanaged Codex stickguy MCP table already exists")
+		if strings.Contains(current, "[mcp_servers.overgent]") {
+			return Status{}, errors.New("unmanaged Codex overgent MCP table already exists")
 		}
 		if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 			return Status{}, fmt.Errorf("create project Codex config directory: %w", err)
@@ -167,7 +167,7 @@ func (m Manager) StatusContext(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
-// Rebind transactionally replaces a structurally recognized Stickguy binding
+// Rebind transactionally replaces a structurally recognized Overgent binding
 // from another profile. Unknown drift remains an error. Both config files are
 // restored if either managed rewrite fails.
 func (m Manager) Rebind() (Status, error) {
@@ -331,7 +331,7 @@ func (m Manager) resolve() (string, string, error) {
 	if err != nil || !info.IsDir() {
 		return "", "", errors.New("project root is not a directory")
 	}
-	command := "stickguy"
+	command := "overgent"
 	args := strconv.Quote("mcp")
 	if !m.Portable {
 		configRoot, resolveErr := filepath.Abs(m.ConfigRoot)
@@ -340,12 +340,12 @@ func (m Manager) resolve() (string, string, error) {
 		}
 		executable, resolveErr := filepath.Abs(m.Executable)
 		if resolveErr != nil || executable == "" {
-			return "", "", errors.New("resolve Stickguy executable")
+			return "", "", errors.New("resolve Overgent executable")
 		}
 		command = executable
 		args = strconv.Quote("--config-root") + ", " + strconv.Quote(configRoot) + ", " + args
 	}
-	block := beginMarker + "[mcp_servers.stickguy]\n" +
+	block := beginMarker + "[mcp_servers.overgent]\n" +
 		"command = " + strconv.Quote(command) + "\n" +
 		"args = [" + args + "]\n" +
 		"cwd = " + strconv.Quote(project) + "\n" +
@@ -382,13 +382,13 @@ type managedBlock struct{ cwd, profile string }
 
 func parseManagedBlock(block string) (managedBlock, bool) {
 	lines := strings.Split(block, "\n")
-	if len(lines) != 10 || lines[0] != strings.TrimSuffix(beginMarker, "\n") || lines[1] != "[mcp_servers.stickguy]" ||
+	if len(lines) != 10 || lines[0] != strings.TrimSuffix(beginMarker, "\n") || lines[1] != "[mcp_servers.overgent]" ||
 		lines[5] != "required = false" || lines[6] != "startup_timeout_sec = 10" || lines[7] != "tool_timeout_sec = 60" ||
 		lines[8] != strings.TrimSuffix(endMarker, "\n") || lines[9] != "" {
 		return managedBlock{}, false
 	}
 	command, ok := unquoteField(lines[2], "command = ")
-	if !ok || command != "stickguy" && !filepath.IsAbs(command) {
+	if !ok || command != "overgent" && !filepath.IsAbs(command) {
 		return managedBlock{}, false
 	}
 	var args []string
@@ -399,7 +399,7 @@ func parseManagedBlock(block string) (managedBlock, bool) {
 	if !ok || !filepath.IsAbs(cwd) {
 		return managedBlock{}, false
 	}
-	if len(args) == 1 && args[0] == "mcp" && command == "stickguy" {
+	if len(args) == 1 && args[0] == "mcp" && command == "overgent" {
 		return managedBlock{cwd: cwd}, true
 	}
 	if len(args) != 3 || args[0] != "--config-root" || !filepath.IsAbs(args[1]) || args[2] != "mcp" || !filepath.IsAbs(command) {
@@ -462,7 +462,7 @@ func readOptional(path string) (string, error) {
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".stickguy-config-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".overgent-config-*")
 	if err != nil {
 		return fmt.Errorf("create temporary Codex config: %w", err)
 	}

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 type scenarioDefinition struct {

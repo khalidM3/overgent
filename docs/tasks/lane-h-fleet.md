@@ -1,6 +1,6 @@
 # Lane H — L8 fleet management, data rights, and hardening
 
-Goal: a real team can run Stickguy without asking an engineer for help —
+Goal: a real team can run Overgent without asking an engineer for help —
 manage who is in a Project and which devices are trusted, get their data out
 or delete it, and trust that the system survives load, restarts, and network
 loss.
@@ -30,7 +30,7 @@ loss.
   removed member stops receiving briefs and stops appearing in coordination.
   Prove it with a test that a revoked device's next call is rejected.
 - **Export and deletion are the member's right, not an admin favor.** A member
-  can export everything Stickguy holds about their own work and can delete it.
+  can export everything Overgent holds about their own work and can delete it.
   A Project owner can delete Project-scoped data. Deletion removes the rows;
   it does not hide them behind a flag.
 - **The owner cannot lock themselves out.** The last owner of a Project cannot
@@ -86,7 +86,7 @@ loss.
   not touch it. Edit `protocol/openapi.yaml` and `protocol/schemas/` only, then
   run `pnpm protocol:generate`; never hand-edit generated code.
 - Lane G is running in parallel on distribution and updates. You will both
-  touch `cmd/stickguy/main.go` and the dashboard; keep changes in their own
+  touch `cmd/overgent/main.go` and the dashboard; keep changes in their own
   commands and components so the merge stays mechanical.
 - The eval suite cannot run concurrently from two checkouts — its Convex
   backend binds fixed ports. Coordinate with the other lane or run it when the

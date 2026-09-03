@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
-	"github.com/stickguy/stickguy/internal/onboarding"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
+	"github.com/overgent/overgent/internal/onboarding"
 )
 
 type memoryCredentials struct {
@@ -85,9 +85,9 @@ func (s *controlledSender) Heartbeat(ctx context.Context, workspaceID, state str
 }
 
 func TestL4TwoDeviceGoToHostedVerticalSlice(t *testing.T) {
-	apiBase := os.Getenv("STICKGUY_L4_SITE_URL")
+	apiBase := os.Getenv("OVERGENT_L4_SITE_URL")
 	if apiBase == "" {
-		t.Skip("set STICKGUY_L4_SITE_URL to an anonymous loopback deployment")
+		t.Skip("set OVERGENT_L4_SITE_URL to an anonymous loopback deployment")
 	}
 	creds := &memoryCredentials{values: map[string]string{}}
 	service := onboarding.Service{
@@ -197,7 +197,7 @@ func assertDashboardSession(t *testing.T, apiBase, ticket, projectID string, dev
 	}
 	var sessionCookie *http.Cookie
 	for _, cookie := range response.Cookies() {
-		if cookie.Name == "stickguy_session" {
+		if cookie.Name == "overgent_session" {
 			sessionCookie = cookie
 		}
 	}
@@ -259,7 +259,7 @@ func mustClient(t *testing.T, base, token string) *hosted.Client {
 
 func tempStateRoot(t *testing.T, suffix string) string {
 	t.Helper()
-	root, err := os.MkdirTemp("/private/tmp", "stickguy-l4-"+suffix+"-")
+	root, err := os.MkdirTemp("/private/tmp", "overgent-l4-"+suffix+"-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func repository(t *testing.T, suffix string) string {
 	git(t, root, "init", "-q")
 	git(t, root, "config", "user.email", "fixture@example.invalid")
 	git(t, root, "config", "user.name", "Fixture")
-	git(t, root, "remote", "add", "origin", "https://example.invalid/stickguy/l4-shared.git")
+	git(t, root, "remote", "add", "origin", "https://example.invalid/overgent/l4-shared.git")
 	write(t, root, "baseline.txt")
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-q", "-m", "baseline "+suffix)

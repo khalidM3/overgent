@@ -325,7 +325,7 @@ func Fingerprint(ctx context.Context, r Runner, root, projectID string) (string,
 	if len(rem) != 1 {
 		return "", errors.New("repository registration requires explicit selection from multiple distinct remotes")
 	}
-	raw := "stickguy.repository-fingerprint.v1\x00" + projectID + "\x00" + rem[0]
+	raw := "overgent.repository-fingerprint.v1\x00" + projectID + "\x00" + rem[0]
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:]), nil
 }

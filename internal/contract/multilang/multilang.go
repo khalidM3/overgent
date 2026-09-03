@@ -14,8 +14,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/stickguy/stickguy/internal/contract/fingerprint"
-	"github.com/stickguy/stickguy/internal/contract/tsw"
+	"github.com/overgent/overgent/internal/contract/fingerprint"
+	"github.com/overgent/overgent/internal/contract/tsw"
 )
 
 // walkDepth bounds the guest-side pre-order walk. Ten levels are needed because
@@ -30,7 +30,7 @@ const walkDepth = 10
 //
 // Lazy per-language loading is the point (ADR-063): compiling every grammar up
 // front costs startup time and resident memory proportional to how many
-// languages Stickguy supports, not to how many the member's repository
+// languages Overgent supports, not to how many the member's repository
 // actually contains. A Go and TypeScript repository never pays for the C#
 // grammar.
 //

@@ -22,7 +22,7 @@ func TestStatusLabelsAreHonest(t *testing.T) {
 		t.Fatalf("disconnected labels: %q %q", disconnected.ServiceLabel(), disconnected.ActivityLabel())
 	}
 	connected := ServiceStatus{Connected: true, WorkspaceCount: 2, PausedWorkspaces: 2, PendingEvents: 3}
-	if connected.PauseLabel() != "Resume sharing · 2 workspaces" || connected.Tooltip() != "Stickguy · sharing paused" {
+	if connected.PauseLabel() != "Resume sharing · 2 workspaces" || connected.Tooltip() != "Overgent · sharing paused" {
 		t.Fatalf("connected labels: %q %q", connected.PauseLabel(), connected.Tooltip())
 	}
 	// This control stops sharing for every Project on the machine, so its label
@@ -41,11 +41,11 @@ func TestFocusIsOnlyAnnouncedWhileSomethingIsMuted(t *testing.T) {
 	// A line that reads "0 sessions" every day is a line nobody reads on the
 	// day it matters, so silence is the whole point of the empty label.
 	quiet := ServiceStatus{Connected: true, WorkspaceCount: 2}
-	if quiet.FocusLabel() != "" || quiet.Tooltip() != "Stickguy · connected" {
+	if quiet.FocusLabel() != "" || quiet.Tooltip() != "Overgent · connected" {
 		t.Fatalf("unmuted: %q %q", quiet.FocusLabel(), quiet.Tooltip())
 	}
 	one := ServiceStatus{Connected: true, WorkspaceCount: 2, FocusedSessions: 1}
-	if one.FocusLabel() != "1 session is muted · let it hear again" || one.Tooltip() != "Stickguy · connected, some sessions muted" {
+	if one.FocusLabel() != "1 session is muted · let it hear again" || one.Tooltip() != "Overgent · connected, some sessions muted" {
 		t.Fatalf("one muted: %q %q", one.FocusLabel(), one.Tooltip())
 	}
 	many := ServiceStatus{Connected: true, WorkspaceCount: 2, FocusedSessions: 3}

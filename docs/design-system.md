@@ -1,4 +1,4 @@
-# Stickguy design system
+# Overgent design system
 
 Status: canonical UI specification for the dashboard and desktop shell
 Owner: Khalid
@@ -12,7 +12,7 @@ reverse-engineer the CSS.
 
 Precedence: security/privacy and honest-fidelity rules in
 [`security-privacy.md`](security-privacy.md) and
-[`stickguy-v1-spec.md`](stickguy-v1-spec.md) outrank anything here. If a design
+[`overgent-v1-spec.md`](overgent-v1-spec.md) outrank anything here. If a design
 rule would hide provenance or overstate confidence, the design rule loses.
 
 ## 1. What the interface is for
@@ -226,7 +226,7 @@ pressed and does not say why names neither an action nor a place.
 
 The stronger version of that failure is a control that is *enabled* and still
 cannot do what it says. The browser-activation screen offered "Activate secure
-session", which that page can never do — only the Stickguy app mints a ticket —
+session", which that page can never do — only the Overgent app mints a ticket —
 and it printed the recovery only after the first press failed, so the one
 instruction that resolves the state was hidden behind the dead end it explains.
 **A recovery is stated before the control, not after it fails**, and the control
@@ -269,7 +269,7 @@ revisions, elapsed clocks, fidelity and capability values, evidence labels.
 **Sans means a person wrote or decided it.** Titles, intents, findings in plain
 language, decisions, body copy, every control.
 
-This mapping is not decoration. `stickguy-v1-spec.md` requires honest fidelity —
+This mapping is not decoration. `overgent-v1-spec.md` requires honest fidelity —
 labelling whether information came from Git, manual input, MCP, or a hook. The
 typeface carries part of that signal, so a reader registers provenance without
 reading a label.
@@ -373,7 +373,7 @@ its whole lifecycle on a single mono arc line — raised → decided or dismisse
 → sent to N sessions → considered — under day dividers, newest movement
 first, with a one-row filter (All / Open / Settled / Dismissed) and the raw
 event stream folded at the bottom. Decisions that never had a finding are
-cases too. It stops at consideration: Stickguy knows a decision was routed and
+cases too. It stops at consideration: Overgent knows a decision was routed and
 whether the agent acknowledged reading it, and does not know whether the agent
 then did the right thing. Wording that implied otherwise would fail the
 honest-fidelity rule this document is subordinate to.
@@ -481,7 +481,7 @@ one kind of eight and mislabels the rest. Top to bottom:
 - **Decision**: one always-present composer. Suggested outcomes are chips
   phrased per finding kind that *prefill* the text — the member always sees
   and can edit the exact words before anything is sent — and "Settled outside
-  Stickguy" is one of them, because a conclusion reached in Slack still has to
+  Overgent" is one of them, because a conclusion reached in Slack still has to
   reach the agents. The send control names its targets ("Send to both
   sessions"); the routing note names them fully. There is no create-card
   pre-step: the sync card is plumbing, created when the first decision lands.
@@ -525,10 +525,10 @@ Anything less makes the back control lie.
   them and be told to open the app they were already looking at — the live
   workroom is served from the hosted origin *inside* that same desktop window.
   When the bridge is genuinely out of reach the control reads **"Continue in the
-  Stickguy app"**, not "Open Stickguy": it continues a task rather than
+  Overgent app"**, not "Open Overgent": it continues a task rather than
   announcing that the app is relaunching itself. The desktop shell's deep-link
   route lands on this same component, so the origin swap reads as one screen
-  carrying on. `stickguy create` stays as the fallback for a machine where the
+  carrying on. `overgent create` stays as the fallback for a machine where the
   scheme is unregistered.
 - **`PeopleScreen`** — members and invites. This is the only implementation;
   Settings links to it rather than carrying a second copy of the same controls.
@@ -578,8 +578,8 @@ Three rules this establishes for any similar state:
 
 The check and the safety gate live in `internal/onboarding`
 (`Service.CredentialState` and `Service.Reset`), shared by the desktop app's
-**Reconnect this Mac** and by `stickguy reset` for headless and support use.
-`stickguy reset --force` skips the gate for an operator who has already
+**Reconnect this Mac** and by `overgent reset` for headless and support use.
+`overgent reset --force` skips the gate for an operator who has already
 established the enrollment is dead; nothing in the UI can reach that flag.
 
 ### Buttons

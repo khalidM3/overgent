@@ -205,7 +205,7 @@ func reportFailed(report evaluationReport) bool {
 }
 
 func printTable(report evaluationReport) {
-	fmt.Println("Stickguy coordination evaluation")
+	fmt.Println("Overgent coordination evaluation")
 	fmt.Println("SCENARIO  STATUS                   ROUTING       TARGET  FALSE-INT  WALL")
 	for _, scenario := range report.Scenarios {
 		fmt.Printf("%-8s  %-23s  %-12s  %5.0f%%  %9d  %4dms\n",

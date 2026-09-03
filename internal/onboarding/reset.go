@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 // ResetOutcome describes what a reset changed on this device.

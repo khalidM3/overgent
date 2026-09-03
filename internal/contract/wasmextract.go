@@ -6,15 +6,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/stickguy/stickguy/internal/contract/multilang"
-	"github.com/stickguy/stickguy/internal/contract/wasmgrammar"
+	"github.com/overgent/overgent/internal/contract/multilang"
+	"github.com/overgent/overgent/internal/contract/wasmgrammar"
 )
 
 // The wasm-backed extractor is a single process-wide instance (ADR-063) that
 // compiles each language's grammar only when a file of that language is first
 // fingerprinted. Constructing it is free, so the cost a member pays is
 // proportional to the languages their repository actually contains rather than
-// to the number Stickguy supports.
+// to the number Overgent supports.
 //
 // Every failure mode here — an unsupported platform, a corrupt module, a wasm
 // trap — resolves to "no fingerprint", never to an error returned to a caller.

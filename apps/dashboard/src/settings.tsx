@@ -184,7 +184,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
         <code>{inviteLink}</code>
         <div className="screen-actions">
           <button className="pill" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
-          <span className="settings-help">Shown once. The code after # never reaches server logs; the same string also works with <code>stickguy join</code>.</span>
+          <span className="settings-help">Shown once. The code after # never reaches server logs; the same string also works with <code>overgent join</code>.</span>
         </div>
       </div>}
     </ScreenSection>

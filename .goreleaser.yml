@@ -1,9 +1,9 @@
 version: 2
-project_name: stickguy
+project_name: overgent
 builds:
-  - id: stickguy
-    main: ./cmd/stickguy
-    binary: stickguy
+  - id: overgent
+    main: ./cmd/overgent
+    binary: overgent
     env: [CGO_ENABLED=0]
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
@@ -17,7 +17,7 @@ builds:
         -X main.version={{ .Tag }}
         -X main.commit={{ .FullCommit }}
         -X main.buildTime={{ .Date }}
-        -X main.updatePublicKey={{ .Env.STICKGUY_UPDATE_PUBLIC_KEY }}
+        -X main.updatePublicKey={{ .Env.OVERGENT_UPDATE_PUBLIC_KEY }}
     hooks:
       post:
         - cmd: ./scripts/sign-darwin-artifact.sh "{{ .Os }}" "{{ .Path }}"

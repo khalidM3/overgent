@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/codexappserver"
-	"github.com/stickguy/stickguy/internal/daemon"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/overgent/overgent/internal/daemon"
 )
 
 const (

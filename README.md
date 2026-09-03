@@ -1,6 +1,6 @@
-# Stickguy
+# Overgent
 
-Stickguy is a persistent coordination harness for anyone building software with more than one coding agent at a time — one developer running parallel sessions, or a team. It acts as air traffic control around the coding harnesses people already use: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time. A Project with a single member is a complete Project; two of your own sessions in one repository collide with each other exactly as two people's do.
+Overgent is a persistent coordination harness for anyone building software with more than one coding agent at a time — one developer running parallel sessions, or a team. It acts as air traffic control around the coding harnesses people already use: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time. A Project with a single member is a complete Project; two of your own sessions in one repository collide with each other exactly as two people's do.
 
 ## Current coverage
 
@@ -19,16 +19,16 @@ The official-SDK MCP lifecycle bridge and bounded Project hook adapters are impl
 Status and cleanup remain available for isolated validation entries:
 
 ```bash
-stickguy setup status --agent codex --project-root /path/to/project
-stickguy setup remove --agent codex --project-root /path/to/project
-stickguy setup status --agent claude --project-root /path/to/project
-stickguy setup remove --agent claude --project-root /path/to/project
+overgent setup status --agent codex --project-root /path/to/project
+overgent setup remove --agent codex --project-root /path/to/project
+overgent setup status --agent claude --project-root /path/to/project
+overgent setup remove --agent claude --project-root /path/to/project
 ```
 
-Stickguy does not bypass either client's trust boundary or claim an unsupported interrupt channel. See [L5 evidence](validation/evidence/l5-mcp.md) and the current adapter limitations in [`docs/development.md`](docs/development.md).
+Overgent does not bypass either client's trust boundary or claim an unsupported interrupt channel. See [L5 evidence](validation/evidence/l5-mcp.md) and the current adapter limitations in [`docs/development.md`](docs/development.md).
 
 Adapter setup is profile-aware: partial current-profile entries are repaired,
-bindings owned by another Stickguy profile get an explicit reconnect preview,
+bindings owned by another Overgent profile get an explicit reconnect preview,
 and the desktop waits for a real provider event before labeling observation as
 verified.
 
@@ -37,7 +37,7 @@ exercise, see [`docs/development.md`](docs/development.md).
 
 For the release boundary and owner prerequisites, see [`docs/beta-release.md`](docs/beta-release.md). For a real two-Mac dogfood Project, configure one cloud Convex development
 deployment and run `pnpm dev:shared` on both Macs with the same HTTPS
-`STICKGUY_SHARED_API_ORIGIN`. This uses an isolated local profile; see the
+`OVERGENT_SHARED_API_ORIGIN`. This uses an isolated local profile; see the
 shared-development section in [`docs/development.md`](docs/development.md).
 
 ## Optional managed semantic retrieval
@@ -66,4 +66,4 @@ pnpm protocol:check
 
 `protocol:generate` is the only supported way to update generated Go and TypeScript protocol types. `protocol:check` regenerates into an isolated temporary directory and fails on byte drift. Generated files are committed.
 
-The public/private data and repository split is explicit in [`docs/public-repository-boundary.md`](docs/public-repository-boundary.md). Stickguy is licensed under Apache-2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Public launch still requires an operational private security-reporting channel; invited beta publication also requires the owner gates in the beta release guide.
+The public/private data and repository split is explicit in [`docs/public-repository-boundary.md`](docs/public-repository-boundary.md). Overgent is licensed under Apache-2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Public launch still requires an operational private security-reporting channel; invited beta publication also requires the owner gates in the beta release guide.

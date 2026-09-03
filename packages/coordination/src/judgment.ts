@@ -73,7 +73,7 @@ export type JudgmentWorkstreamState = Readonly<{
  *
  * `divergent` is the expensive case and the reason branch is read at all.
  * Work on one branch is invisible to work on another until someone merges, so
- * nothing outside Stickguy will report the overlap in the meantime. `shared`
+ * nothing outside Overgent will report the overlap in the meantime. `shared`
  * means Git itself will surface the same overlap shortly, at the next pull,
  * push, or write into a shared worktree. `unknown` covers a missing branch on
  * either side and must behave exactly like no evidence at all.
@@ -264,7 +264,7 @@ export function deterministicJudgment(candidate: JudgmentCandidate): JudgmentVer
  * Where the branch and the declared intent of the work are allowed to move a
  * verdict.
  *
- * Branch is evidence, never a switch. Stickguy exists because work on separate
+ * Branch is evidence, never a switch. Overgent exists because work on separate
  * branches is invisible until merge, so a branch can never be a reason to stay
  * quiet - it can only change how urgent the answer is and how the answer reads.
  * Two rules, both narrow:
@@ -291,7 +291,7 @@ function applyWorkContext(candidate: JudgmentCandidate, verdict: JudgmentVerdict
 
   if (relation === "divergent") {
     const branches = branchNames(candidate.workstreams);
-    notes.push(`This spans ${joinTerms(branches)}, so nothing outside Stickguy reports it until those branches meet at merge.`);
+    notes.push(`This spans ${joinTerms(branches)}, so nothing outside Overgent reports it until those branches meet at merge.`);
     if (collisionLike && severity === "medium") severity = "high";
   } else if (relation === "shared") {
     const [branch] = branchNames(candidate.workstreams);

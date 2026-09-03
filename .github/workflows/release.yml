@@ -27,8 +27,8 @@ jobs:
         run: test -f LICENSE && test -f NOTICE
       - name: Require release trust inputs
         env:
-          UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
-          UPDATE_PRIVATE_KEY: "${{ secrets.STICKGUY_UPDATE_SIGNING_PRIVATE_KEY }}"
+          UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
+          UPDATE_PRIVATE_KEY: "${{ secrets.OVERGENT_UPDATE_SIGNING_PRIVATE_KEY }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
           APPLE_DEVELOPER_NAME: "${{ vars.APPLE_DEVELOPER_NAME }}"
           CERTIFICATE: "${{ secrets.MACOS_CERTIFICATE_P12 }}"
@@ -49,7 +49,7 @@ jobs:
           CERTIFICATE: "${{ secrets.MACOS_CERTIFICATE_P12 }}"
           CERTIFICATE_PASSWORD: "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
         run: |
-          KEYCHAIN="$RUNNER_TEMP/stickguy-release.keychain-db"
+          KEYCHAIN="$RUNNER_TEMP/overgent-release.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
@@ -61,23 +61,23 @@ jobs:
       - uses: anchore/sbom-action/download-syft@v0
       - name: Build, sign, and notarize macOS desktop beta
         env:
-          STICKGUY_VERSION: "${{ github.ref_name }}"
-          STICKGUY_COMMIT: "${{ github.sha }}"
-          STICKGUY_UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
-          STICKGUY_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
-          STICKGUY_BUILD_NUMBER: "${{ github.run_number }}"
+          OVERGENT_VERSION: "${{ github.ref_name }}"
+          OVERGENT_COMMIT: "${{ github.sha }}"
+          OVERGENT_UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
+          OVERGENT_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
+          OVERGENT_BUILD_NUMBER: "${{ github.run_number }}"
           APPLE_ID: "${{ secrets.APPLE_ID }}"
           APPLE_APP_PASSWORD: "${{ secrets.APPLE_APP_PASSWORD }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
         run: |
-          export STICKGUY_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          export OVERGENT_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           pnpm desktop:build
-          ditto -c -k --keepParent apps/desktop/build/bin/Stickguy.app "$RUNNER_TEMP/Stickguy-notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/Stickguy-notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple apps/desktop/build/bin/Stickguy.app
-          xcrun stapler validate apps/desktop/build/bin/Stickguy.app
+          ditto -c -k --keepParent apps/desktop/build/bin/Overgent.app "$RUNNER_TEMP/Overgent-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Overgent-notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple apps/desktop/build/bin/Overgent.app
+          xcrun stapler validate apps/desktop/build/bin/Overgent.app
           mkdir -p dist-desktop
-          ditto -c -k --keepParent apps/desktop/build/bin/Stickguy.app "dist-desktop/Stickguy_${GITHUB_REF_NAME}_macOS_arm64.zip"
+          ditto -c -k --keepParent apps/desktop/build/bin/Overgent.app "dist-desktop/Overgent_${GITHUB_REF_NAME}_macOS_arm64.zip"
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -85,28 +85,28 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          STICKGUY_UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
-          STICKGUY_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
+          OVERGENT_UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
+          OVERGENT_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
       - name: Create signed updater metadata
         env:
-          UPDATE_PRIVATE_KEY: "${{ secrets.STICKGUY_UPDATE_SIGNING_PRIVATE_KEY }}"
+          UPDATE_PRIVATE_KEY: "${{ secrets.OVERGENT_UPDATE_SIGNING_PRIVATE_KEY }}"
         run: |
           printf '%s' "$UPDATE_PRIVATE_KEY" > "$RUNNER_TEMP/update-signing-key"
-          STICKGUY_UPDATE_SIGNING_KEY_FILE="$RUNNER_TEMP/update-signing-key" go run ./cmd/release-metadata \
+          OVERGENT_UPDATE_SIGNING_KEY_FILE="$RUNNER_TEMP/update-signing-key" go run ./cmd/release-metadata \
             -dist dist \
             -version "${GITHUB_REF_NAME}" \
             -base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
             -output dist/update-manifest.json
       - name: Render release installer
         run: |
-          sed -e "s|__STICKGUY_UPDATE_PUBLIC_KEY__|$UPDATE_PUBLIC_KEY|g" -e "s|__STICKGUY_APPLE_TEAM_ID__|$APPLE_TEAM_ID|g" install/install.sh > dist/install.sh
+          sed -e "s|__OVERGENT_UPDATE_PUBLIC_KEY__|$UPDATE_PUBLIC_KEY|g" -e "s|__OVERGENT_APPLE_TEAM_ID__|$APPLE_TEAM_ID|g" install/install.sh > dist/install.sh
           cp install/uninstall.sh dist/uninstall.sh
           chmod 755 dist/install.sh dist/uninstall.sh
           shasum -a 256 dist-desktop/*.zip > dist/desktop-checksums.txt
           gh release upload "$GITHUB_REF_NAME" dist/update-manifest.json dist/install.sh dist/uninstall.sh dist/desktop-checksums.txt dist-desktop/*.zip --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          UPDATE_PUBLIC_KEY: "${{ vars.STICKGUY_UPDATE_PUBLIC_KEY }}"
+          UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
       - uses: sigstore/cosign-installer@v3
       - name: Sign public release metadata with Sigstore

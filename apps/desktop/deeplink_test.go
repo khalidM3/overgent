@@ -29,7 +29,7 @@ func TestDeepLinkTargetRefusesForeignSchemesAndUnknownRoutes(t *testing.T) {
 		"https://evil.example/new-project",
 		"javascript:alert(1)",
 		"file:///etc/passwd",
-		"stickguy-other://new-project",
+		"overgent-other://new-project",
 		scheme + "://unknown-route",
 		scheme + "://new-project" + strings.Repeat("x", 4096),
 	} {

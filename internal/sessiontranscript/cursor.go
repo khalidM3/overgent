@@ -6,7 +6,7 @@ package sessiontranscript
 // Claude Code and Codex both write a line-oriented session record — one JSON
 // object per line — which is what Read parses and what ADR-036 lets a member
 // read back for their own session. Cursor does not publish an equivalent file
-// with a documented, stable, line-oriented shape that Stickguy can point at.
+// with a documented, stable, line-oriented shape that Overgent can point at.
 // Writing a speculative parser here would break the first rule in
 // docs/adapter-development.md — do not share a guessed record format across
 // vendors — and would fail in the worst available way: silently, producing an

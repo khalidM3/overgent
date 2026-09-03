@@ -41,7 +41,7 @@ const (
 )
 
 // Kinds a transcript can yield. "thinking" is reasoning the vendor itself
-// surfaced; Stickguy never reads encrypted reasoning or infers hidden chain of
+// surfaced; Overgent never reads encrypted reasoning or infers hidden chain of
 // thought. "tool" carries a name only and is never shareable content.
 const (
 	KindUser      = "user"
@@ -236,7 +236,7 @@ func forEachLine(reader io.Reader, visit func([]byte)) {
 
 // derivedTitle labels a session that carries no title of its own, using its
 // opening request. It is a label taken verbatim from what the member typed,
-// never a summary Stickguy invented.
+// never a summary Overgent invented.
 func derivedTitle(messages []Message) string {
 	for _, message := range messages {
 		if message.Kind != KindUser || message.Text == "" {

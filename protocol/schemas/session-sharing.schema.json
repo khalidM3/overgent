@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://stickguy.dev/schemas/session-sharing.schema.json",
+  "$id": "https://overgent.com/schemas/session-sharing.schema.json",
   "title": "Session sharing snapshot",
   "type": "object",
   "additionalProperties": false,

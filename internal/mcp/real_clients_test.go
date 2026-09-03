@@ -20,26 +20,26 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/claudesetup"
-	"github.com/stickguy/stickguy/internal/codexsetup"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/claudesetup"
+	"github.com/overgent/overgent/internal/codexsetup"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 func TestRealCodexAndClaudeLifecycle(t *testing.T) {
-	if os.Getenv("STICKGUY_REAL_CLIENT_SMOKE") != "1" {
-		t.Skip("set STICKGUY_REAL_CLIENT_SMOKE=1 for credentialed real-client smoke")
+	if os.Getenv("OVERGENT_REAL_CLIENT_SMOKE") != "1" {
+		t.Skip("set OVERGENT_REAL_CLIENT_SMOKE=1 for credentialed real-client smoke")
 	}
-	stickguy := requiredExecutable(t, "STICKGUY_BINARY")
+	overgent := requiredExecutable(t, "OVERGENT_BINARY")
 	codex := requiredExecutable(t, "CODEX_BINARY")
 	claude := requiredExecutable(t, "CLAUDE_BINARY")
-	only := os.Getenv("STICKGUY_REAL_CLIENT_ONLY")
+	only := os.Getenv("OVERGENT_REAL_CLIENT_ONLY")
 	if only != "" && only != "codex" && only != "claude" {
-		t.Fatalf("STICKGUY_REAL_CLIENT_ONLY must be codex or claude")
+		t.Fatalf("OVERGENT_REAL_CLIENT_ONLY must be codex or claude")
 	}
-	root, err := os.MkdirTemp("/private/tmp", "stickguy-l5-")
+	root, err := os.MkdirTemp("/private/tmp", "overgent-l5-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	runFixture(t, project, "git", "init", "-q")
-	runFixture(t, project, "git", "config", "user.email", "fixture@stickguy.dev")
-	runFixture(t, project, "git", "config", "user.name", "Stickguy Fixture")
+	runFixture(t, project, "git", "config", "user.email", "fixture@overgent.com")
+	runFixture(t, project, "git", "config", "user.name", "Overgent Fixture")
 	if err = os.WriteFile(filepath.Join(project, "README.md"), []byte("synthetic fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +65,10 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 	if err = config.Save(paths, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = (codexsetup.Manager{ProjectRoot: project, ConfigRoot: state, Executable: stickguy}).Setup(); err != nil {
+	if _, err = (codexsetup.Manager{ProjectRoot: project, ConfigRoot: state, Executable: overgent}).Setup(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = (claudesetup.Manager{ProjectRoot: project, ConfigRoot: state, Executable: stickguy}).Setup(); err != nil {
+	if _, err = (claudesetup.Manager{ProjectRoot: project, ConfigRoot: state, Executable: overgent}).Setup(); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,9 +76,9 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- app.Run(ctx, state, sender) }()
 	waitForService(t, paths.Socket)
-	preflightProductionBridge(t, ctx, stickguy, state, project)
+	preflightProductionBridge(t, ctx, overgent, state, project)
 
-	prompt := `Use only the Stickguy MCP tools. Do not inspect or modify files, run commands, or stop after the initial brief. Execute every call below in order even when a prior result is degraded, then return only done.
+	prompt := `Use only the Overgent MCP tools. Do not inspect or modify files, run commands, or stop after the initial brief. Execute every call below in order even when a prior result is degraded, then return only done.
 1. begin_work: workspace_id wsp_fixture, idempotency_key begin_CLIENT_1, title Bounded lifecycle, outcome Prove the complete lifecycle.
 2. update_intent: workspace_id wsp_fixture, idempotency_key update_CLIENT_1, revision 1, title Refined lifecycle, outcome Prove every lifecycle call.
 3. check_coordination: workspace_id wsp_fixture, trigger before_broad_edit, approximate_token_budget 400.
@@ -101,7 +101,7 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 
 	if only != "codex" {
 		claudePrompt := strings.ReplaceAll(prompt, "CLIENT", "claude")
-		claudeOutput := runClientInDir(t, project, claudePrompt, claude, "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config", "--mcp-config", filepath.Join(project, ".mcp.json"), "--permission-mode", "dontAsk", "--allowedTools", "mcp__stickguy__*", "--tools", "", "--max-budget-usd", "1")
+		claudeOutput := runClientInDir(t, project, claudePrompt, claude, "-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config", "--mcp-config", filepath.Join(project, ".mcp.json"), "--permission-mode", "dontAsk", "--allowedTools", "mcp__overgent__*", "--tools", "", "--max-budget-usd", "1")
 		assertLifecycleCalls(t, "claude", claudeOutput)
 		expectedRecords, expectedBriefs = expectedRecords+6, expectedBriefs+4
 		if count := idempotencyCount(t, paths.DB); count < expectedRecords {
@@ -317,13 +317,13 @@ func collectToolCalls(value any, calls map[string]map[string]struct{}) {
 		}
 	case map[string]any:
 		name := ""
-		if server, _ := typed["server"].(string); server == "stickguy" {
+		if server, _ := typed["server"].(string); server == "overgent" {
 			if tool, _ := typed["tool"].(string); tool != "" {
 				name = tool
 			}
 		}
-		if qualified, _ := typed["name"].(string); strings.HasPrefix(qualified, "mcp__stickguy__") {
-			name = strings.TrimPrefix(qualified, "mcp__stickguy__")
+		if qualified, _ := typed["name"].(string); strings.HasPrefix(qualified, "mcp__overgent__") {
+			name = strings.TrimPrefix(qualified, "mcp__overgent__")
 		}
 		if id, _ := typed["id"].(string); name != "" && id != "" {
 			if calls[name] == nil {
@@ -382,11 +382,11 @@ func collectDiagnostics(value any, diagnostics *[]string) {
 		}
 	case map[string]any:
 		tool := ""
-		if server, _ := typed["server"].(string); server == "stickguy" {
+		if server, _ := typed["server"].(string); server == "overgent" {
 			tool, _ = typed["tool"].(string)
 		}
-		if qualified, _ := typed["name"].(string); strings.HasPrefix(qualified, "mcp__stickguy__") {
-			tool = strings.TrimPrefix(qualified, "mcp__stickguy__")
+		if qualified, _ := typed["name"].(string); strings.HasPrefix(qualified, "mcp__overgent__") {
+			tool = strings.TrimPrefix(qualified, "mcp__overgent__")
 		}
 		if tool != "" {
 			status, _ := typed["status"].(string)
@@ -451,7 +451,7 @@ func allowedDiagnosticTokens(message string) string {
 		"message": true, "missing": true, "mcp": true, "null": true, "object": true,
 		"output": true, "permission": true, "property": true, "protocol": true, "received": true,
 		"request": true, "required": true, "result": true, "sandbox": true, "schema": true,
-		"server": true, "service": true, "session": true, "stickguy": true, "structured": true,
+		"server": true, "service": true, "session": true, "overgent": true, "structured": true,
 		"tool": true, "tools": true, "unavailable": true, "unknown": true, "validate": true,
 		"validation": true, "workspace": true,
 	}

@@ -1,8 +1,8 @@
-# Stickguy desktop beta
+# Overgent desktop beta
 
 This Apple Silicon macOS beta packages the shared React dashboard in an embedded Wails
 webview and adds a persistent menu-bar client for local service health,
-pause/resume-all, scan, open, and quit. It never starts a second Stickguy
+pause/resume-all, scan, open, and quit. It never starts a second Overgent
 service and opens no localhost listener.
 
 Production starts with native create/join onboarding, installs the bundled Go
@@ -22,7 +22,7 @@ pnpm desktop:dev
 pnpm dev:install
 ```
 
-`desktop:dev` builds the separately identified `Stickguy Dev.app` once and
+`desktop:dev` builds the separately identified `Overgent Dev.app` once and
 loads the loopback Vite server, so React and CSS hot reload in the native
 window. The development menu can perform a one-time local Project activation
 inside the webview after enrollment. Production builds ignore development URLs.

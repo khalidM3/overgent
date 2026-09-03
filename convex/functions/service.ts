@@ -3,7 +3,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@stickguy/coordination";
+import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@overgent/coordination";
 import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, SESSION_STOP_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry, SupportedVendor } from "../src/domain";
 import { deriveScopeSnapshot } from "../src/scope-snapshot";
@@ -2314,11 +2314,11 @@ async function upsertSemanticIntelligence(
   }
   if (!object) fail("semantic_object_missing");
   const existingEmbedding = await ctx.db.query("semanticEmbeddings").withIndex("by_object", (q) => q.eq("objectId", object!._id)).unique();
-  const fallbackModelVersion = "stickguy-concepts/v1/1024";
+  const fallbackModelVersion = "overgent-concepts/v1/1024";
   const embedding = {
     scopeKey: workstream.scopeKey,
     scopeModelKey: `${workstream.scopeKey.length}:${workstream.scopeKey}${fallbackModelVersion}`,
-    providerName: "stickguy",
+    providerName: "overgent",
     modelVersion: fallbackModelVersion,
     contentRevision: object.revision,
     vector: conceptVector(text),
@@ -2645,7 +2645,7 @@ function dashboardEvidenceKind(kind: string): "path" | "contract" | "dependency"
 
 function dashboardEvidenceSource(source: string): "git" | "mcp" | "manual" | "hook" | "semantic_candidate" {
   if (["git", "mcp", "manual", "hook", "semantic_candidate"].includes(source)) return source as ReturnType<typeof dashboardEvidenceSource>;
-  if (source.startsWith("openai/") || source.startsWith("stickguy-concepts/")) return "semantic_candidate";
+  if (source.startsWith("openai/") || source.startsWith("overgent-concepts/")) return "semantic_candidate";
   return "manual";
 }
 
