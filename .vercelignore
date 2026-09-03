@@ -11,6 +11,7 @@ apps/desktop
 bin
 cmd
 convex
+dist-desktop
 dist-dogfood
 docs
 install
