@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/overgent/overgent/internal/codexsetup"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/store"
+	"github.com/khalidM3/overgent/internal/codexsetup"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/store"
 )
 
 func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {

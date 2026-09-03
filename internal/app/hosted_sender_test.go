@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/overgent/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/hosted"
 )
 
 type fakePublisher struct {

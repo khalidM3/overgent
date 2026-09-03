@@ -1,0 +1,42 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "corepack enable && VITE_OVERGENT_API_PREFIX=/v1 pnpm --dir apps/dashboard build",
+  "outputDirectory": "apps/dashboard/dist",
+  "framework": null,
+  "functions": {
+    "api/v1/[...].js": {
+      "maxDuration": 10
+    },
+    "api/releases/current-manifest.js": {
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/current/update-manifest.json",
+      "destination": "/api/releases/current-manifest"
+    },
+    {
+      "source": "/v1/:path*",
+      "destination": "/api/v1/[...]"
+    },
+    {
+      "source": "/dashboard/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ]
+}

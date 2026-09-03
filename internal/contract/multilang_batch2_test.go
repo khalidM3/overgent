@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/contract"
+	"github.com/khalidM3/overgent/internal/contract"
 )
 
 // The second language batch (ADR-063). As with the first, the property that

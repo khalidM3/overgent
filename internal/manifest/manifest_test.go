@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	git "github.com/overgent/overgent/internal/git"
+	git "github.com/khalidM3/overgent/internal/git"
 )
 
 func TestChunkPreservesThousandEntries(t *testing.T) {

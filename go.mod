@@ -1,4 +1,4 @@
-module github.com/overgent/overgent
+module github.com/khalidM3/overgent
 
 go 1.26.0
 

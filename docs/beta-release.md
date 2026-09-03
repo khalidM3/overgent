@@ -13,6 +13,19 @@ path. Overgent's root Go service does not import Wails or CGO.
 
 ## One-time owner setup
 
+The beta and later stable builds use the same production service. `beta` is a
+version label, not a second hosted environment: keep the cloud development
+deployment for smoke tests and deploy accepted builds to the default Convex
+production deployment. This avoids a second set of credentials and data before
+there is usage that justifies permanent staging.
+
+The canonical public repository is `github.com/khalidM3/overgent`. Installed
+clients do not depend on that repository path for update discovery: the default
+channel is the signed manifest at
+`https://releases.overgent.com/current/update-manifest.json`, whose assets are
+immutable versioned GitHub release downloads. A later repository transfer can
+therefore preserve the update channel by changing only the release publisher.
+
 Protect the `production-release` GitHub environment with required reviewers.
 Generate the update key on a trusted offline Mac and store the private file
 outside the repository:
@@ -51,6 +64,9 @@ not already have a private support channel.
    artifacts on a clean Apple Silicon Mac; never validate from the build tree.
 5. Record the commands and results in `validation/evidence/` before publishing
    the draft.
+6. After the candidate passes the clean-machine and tester gates, publish the
+   GitHub release and promote its already-signed manifest to the `current`
+   release channel. Never point `current` at a draft or an unverified build.
 
 The workflow reads signing material only from the protected environment. The
 update private key is written to the ephemeral runner and is never placed in an

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/khalidM3/overgent/internal/codexappserver"
 )
 
 func TestUntrustedHooksReportNeedsReviewRatherThanActive(t *testing.T) {

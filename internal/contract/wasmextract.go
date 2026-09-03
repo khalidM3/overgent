@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/overgent/overgent/internal/contract/multilang"
-	"github.com/overgent/overgent/internal/contract/wasmgrammar"
+	"github.com/khalidM3/overgent/internal/contract/multilang"
+	"github.com/khalidM3/overgent/internal/contract/wasmgrammar"
 )
 
 // The wasm-backed extractor is a single process-wide instance (ADR-063) that

@@ -1266,3 +1266,23 @@ released migration must recognize those exact legacy shapes long enough to
 adopt or remove them without touching unrelated configuration; it must never
 treat an arbitrary similarly named entry as Overgent-owned. New installations
 write only Overgent identifiers. Accepted by the owner 2026-09-02.
+
+## ADR-066: Reset unreleased installs and make the domain the update anchor
+
+Supersedes only ADR-065's pre-release migration requirement. The owner confirmed
+that Overgent has no public installs and that the single external dogfood install
+can be removed and reinstalled. The first Overgent beta therefore supports a
+clean install only; it does not adopt former Stickguy paths, Keychain items, URL
+handlers, services, or managed agent configuration. This exception does not
+weaken migration requirements after the first published Overgent release.
+
+Launch the public repository at `github.com/khalidM3/overgent` instead of
+choosing an awkward placeholder organization name. A later transfer to an
+owner-approved organization is allowed, but installed clients must not use the
+repository owner as their mutable update-channel identity. Installer and updater
+defaults fetch the Ed25519-signed channel manifest from
+`https://releases.overgent.com/current/update-manifest.json`; that manifest
+points to immutable, versioned GitHub release assets. The release workflow may
+change where those assets are published without changing the client-facing
+channel. The old repository path must not be reused after a transfer because
+doing so would defeat GitHub's redirects. Accepted by the owner 2026-09-02.

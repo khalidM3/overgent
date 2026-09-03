@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/hosted"
 )
 
 type additionalProjectAPI struct {

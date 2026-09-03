@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/overgent/overgent/internal/activation"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/credential"
-	"github.com/overgent/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/activation"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/credential"
+	"github.com/khalidM3/overgent/internal/hosted"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

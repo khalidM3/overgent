@@ -10,11 +10,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/overgent/overgent/internal/app"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/credential"
-	gitadapter "github.com/overgent/overgent/internal/git"
-	"github.com/overgent/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/app"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/credential"
+	gitadapter "github.com/khalidM3/overgent/internal/git"
+	"github.com/khalidM3/overgent/internal/hosted"
 )
 
 type API interface {

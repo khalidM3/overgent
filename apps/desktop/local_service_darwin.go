@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/daemon"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/daemon"
 )
 
 type daemonService struct {

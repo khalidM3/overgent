@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	updateclient "github.com/overgent/overgent/internal/update"
+	updateclient "github.com/khalidM3/overgent/internal/update"
 )
 
 func main() {

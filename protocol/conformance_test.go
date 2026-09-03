@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	protocoltypes "github.com/overgent/overgent/protocol/generated/go"
+	protocoltypes "github.com/khalidM3/overgent/protocol/generated/go"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 

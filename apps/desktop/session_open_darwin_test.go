@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/config"
 )
 
 func sessionOpenFixture(t *testing.T, vendor, vendorSessionID string) (*OnboardingService, string, string) {

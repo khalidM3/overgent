@@ -1,6 +1,6 @@
 package manifest
 
-import git "github.com/overgent/overgent/internal/git"
+import git "github.com/khalidM3/overgent/internal/git"
 
 func Chunk(entries []git.Entry, size int) [][]git.Entry {
 	if size <= 0 {

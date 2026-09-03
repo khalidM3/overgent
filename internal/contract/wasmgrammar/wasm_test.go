@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/overgent/overgent/internal/contract/wasmgrammar"
+	"github.com/khalidM3/overgent/internal/contract/wasmgrammar"
 )
 
 // Each module is a compiled binary in a public repository that runs on every

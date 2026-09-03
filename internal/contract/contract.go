@@ -30,7 +30,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/overgent/overgent/internal/contract/fingerprint"
+	"github.com/khalidM3/overgent/internal/contract/fingerprint"
 )
 
 // The fingerprint value types and their bounds live in the leaf package
