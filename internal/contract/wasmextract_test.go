@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/contract"
-	"github.com/stickguy/stickguy/internal/contract/multilang"
-	"github.com/stickguy/stickguy/internal/contract/wasmgrammar"
+	"github.com/overgent/overgent/internal/contract"
+	"github.com/overgent/overgent/internal/contract/multilang"
+	"github.com/overgent/overgent/internal/contract/wasmgrammar"
 )
 
 // The wasm-backed languages must honor exactly the contract the Go and
@@ -228,7 +228,7 @@ func slicesContains(haystack []string, needle string) bool {
 
 func TestGrammarsLoadLazilyAndOnlyOnce(t *testing.T) {
 	// The whole point of ADR-063's per-language split: a repository pays for
-	// the languages it contains, not for the ones Stickguy supports. This is
+	// the languages it contains, not for the ones Overgent supports. This is
 	// asserted rather than assumed because the cost of getting it wrong is
 	// invisible — everything still works, just slower and fatter.
 	//

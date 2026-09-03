@@ -1,6 +1,6 @@
 # Coding-agent adapter development
 
-Stickguy adapters observe and route coordination around a vendor-owned coding
+Overgent adapters observe and route coordination around a vendor-owned coding
 session. They do not start model loops, edit repositories, execute tools,
 choose models, approve permissions, or absorb the vendor's trust boundary.
 

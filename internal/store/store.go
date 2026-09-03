@@ -513,7 +513,7 @@ func (s *Store) PublishLifecycle(ctx context.Context, publication LifecyclePubli
 	}
 	queuedAt := time.Now().UTC()
 	for i, event := range events {
-		eventSum := sha256.Sum256([]byte(fmt.Sprintf("stickguy.lifecycle-event.v1\x00%s\x00%s\x00%s\x00%d", publication.WorkspaceID, publication.Method, publication.IdempotencyKey, i)))
+		eventSum := sha256.Sum256([]byte(fmt.Sprintf("overgent.lifecycle-event.v1\x00%s\x00%s\x00%s\x00%d", publication.WorkspaceID, publication.Method, publication.IdempotencyKey, i)))
 		eventID := fmt.Sprintf("evt_%x", eventSum[:16])
 		encodedPayload, encodeErr := json.Marshal(event.Payload)
 		if encodeErr != nil {
@@ -645,7 +645,7 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 }
 
 func registrationEventID(projectID, deviceID, workspaceID string) string {
-	sum := sha256.Sum256([]byte("stickguy.workspace-registration.v1\x00" + projectID + "\x00" + deviceID + "\x00" + workspaceID))
+	sum := sha256.Sum256([]byte("overgent.workspace-registration.v1\x00" + projectID + "\x00" + deviceID + "\x00" + workspaceID))
 	return fmt.Sprintf("evt_registration_%x", sum[:16])
 }
 func (s *Store) Workspaces(ctx context.Context) ([]Workspace, error) {
@@ -947,6 +947,7 @@ func (s *Store) Ack(ctx context.Context, id string) error {
 	}
 	return tx.Commit()
 }
+
 // Quarantine removes an event from the publish path without recording a
 // delivery. The row is kept: a quarantined event is evidence of a rejected
 // binding, and deleting it would silently destroy the only record that work

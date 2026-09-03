@@ -1,4 +1,4 @@
-// shim.c — the guest half of the Stickguy contract-extraction spike.
+// shim.c — the guest half of the Overgent contract-extraction spike.
 //
 // A straightforward wazero binding crosses the host/guest boundary once per
 // tree-sitter node accessor, which is thousands of crossings for one source

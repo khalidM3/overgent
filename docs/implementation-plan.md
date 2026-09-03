@@ -1,4 +1,4 @@
-# Stickguy — Continuous Implementation Plan
+# Overgent — Continuous Implementation Plan
 
 Status: canonical execution order  
 Last updated: 2026-08-24
@@ -43,7 +43,7 @@ Complete the gates in `prebuild-validation.md` before production implementation;
 
 Deliver the bounded Codex MCP/hook, Git/worktree, Convex shared-state/vector, Go service/distribution, and intelligence-eval seed spikes defined in `prebuild-validation.md`. Spikes produce fixtures/evidence and ADRs, not production framework code.
 
-Exit: every gate passes, narrows a capability honestly, or selects an existing portable fallback; no unresolved assumption can force replacement of Go, the Stickguy protocol, the manifest model, project isolation, or the coordination-harness lifecycle.
+Exit: every gate passes, narrows a capability honestly, or selects an existing portable fallback; no unresolved assumption can force replacement of Go, the Overgent protocol, the manifest model, project isolation, or the coordination-harness lifecycle.
 
 ## L0 — Contracts and scaffold
 
@@ -92,7 +92,7 @@ in the dashboard and never pretends to interrupt an agent turn.
 
 Before adding shared contracts, run isolated synthetic Codex App Server/SDK and Claude Code hooks/Agent SDK spikes under ADR-027 and `agent-activity-sharing.md`. Map independently started versus adapter-connected session coverage; normalize session/turn/message/plan/tool/subagent/permission/file-path/verification events; and prove exact coordination/activity/conversation profile projection. Test owner/member consent precedence, representative preview, synchronous pause/downgrade, deletion/retention, adapter removal/config drift, unknown-event failure, and Project isolation. Use fixture-only content and retain only redacted capability/evidence metadata.
 
-Exit: each vendor is separately passed, narrowed, or assigned an existing Git/manual/MCP fallback; `.env` variants, protected paths, tokens, transcript/system/reasoning/source/diff/tool-result/raw-command/output candidates provably never reach durable storage or a sender; supported activity is sufficient to explain what an agent is doing without Stickguy owning or controlling its loop. Only then may the integrator define versioned shared schemas/generated code and enable an opt-in adapter.
+Exit: each vendor is separately passed, narrowed, or assigned an existing Git/manual/MCP fallback; `.env` variants, protected paths, tokens, transcript/system/reasoning/source/diff/tool-result/raw-command/output candidates provably never reach durable storage or a sender; supported activity is sufficient to explain what an agent is doing without Overgent owning or controlling its loop. Only then may the integrator define versioned shared schemas/generated code and enable an opt-in adapter.
 
 Current outcome: complete for `activity/v1` under ADR-033, ADR-039, and ADR-042.
 Authenticated Project hooks pass for supported lifecycle/tool/subagent/safe-path
@@ -137,7 +137,7 @@ routing.
 
 Deliver one-command loopback Convex, Vite, Go service, and macOS development
 desktop orchestration; React hot reload in the native shell; an atomically
-installable `Stickguy Dev.app`; development-only in-webview dashboard ticket
+installable `Overgent Dev.app`; development-only in-webview dashboard ticket
 activation; hot registration of a second linked-worktree workstream; and
 explicit development-only Codex/Claude MCP configuration with Git/manual
 fallback fidelity.

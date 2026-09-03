@@ -88,17 +88,17 @@ export function App({
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className="brand" aria-label="Stickguy"><span className="brand-mark" aria-hidden="true">S</span>{!compact && <span>stickguy</span>}</div>;
+  return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true">O</span>{!compact && <span>overgent</span>}</div>;
 }
 
-// A ticket can only be minted by the local Stickguy app, so this page can never
+// A ticket can only be minted by the local Overgent app, so this page can never
 // activate itself. When a check finds the browser still has no session, say so
 // and name the recovery instead of silently re-rendering an identical screen.
 /**
  * Reached when the hosted API answers 401: this browser holds no session.
  *
  * The button used to say "Activate secure session", which this page cannot do.
- * Only the Stickguy app can mint a ticket, so the control is a re-check and
+ * Only the Overgent app can mint a ticket, so the control is a re-check and
  * nothing more, and a reader with no session could press it forever. The
  * recovery was written on the page too — but only *after* the first press
  * failed, so the one instruction that resolves the state was hidden behind the
@@ -108,7 +108,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
  * actually does, and pressing it confirms rather than reveals.
  */
 function ActivationView({ onActivate, stillInactive = false }: { onActivate: () => void; stillInactive?: boolean }) {
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">This browser has no Stickguy session yet.</h1><p>A session can only be minted by the Stickguy app on this Mac, and the one-time ticket is exchanged server-side — it is never stored in this page, its activity, or browser history.</p><div className="disclosure"><strong>To open the workroom</strong><p>Open the Project from the Stickguy app, or run this in your checkout:</p><code>stickguy dashboard --project &lt;project-id&gt;</code></div><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Reopen the Project from Stickguy Dev.app to mint a new one-time ticket, then check again.</p>}<button className="pill solid" onClick={onActivate}>Check for a session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">This browser has no Overgent session yet.</h1><p>A session can only be minted by the Overgent app on this Mac, and the one-time ticket is exchanged server-side — it is never stored in this page, its activity, or browser history.</p><div className="disclosure"><strong>To open the workroom</strong><p>Open the Project from the Overgent app, or run this in your checkout:</p><code>overgent dashboard --project &lt;project-id&gt;</code></div><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Reopen the Project from Overgent Dev.app to mint a new one-time ticket, then check again.</p>}<button className="pill solid" onClick={onActivate}>Check for a session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
 }
 
 export function LiveApp() {
@@ -156,15 +156,15 @@ function LoadingView() {
 
 function TerminalState({ state }: { state: "unauthorized" | "version_mismatch" }) {
   const isVersion = state === "version_mismatch";
-  return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">{isVersion ? "Version mismatch" : "Access denied"}</p><h1>{stateMessage(state)}</h1><p>{isVersion ? "This app cannot safely interpret the service contract. Update the Stickguy executable, then reload." : "No Project metadata was loaded. Ask a Project owner to restore membership or enroll this device again."}</p><button className="pill" onClick={() => window.location.reload()}>{isVersion ? "Check again" : "Retry authorization"}</button></section></main>;
+  return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">{isVersion ? "Version mismatch" : "Access denied"}</p><h1>{stateMessage(state)}</h1><p>{isVersion ? "This app cannot safely interpret the service contract. Update the Overgent executable, then reload." : "No Project metadata was loaded. Ask a Project owner to restore membership or enroll this device again."}</p><button className="pill" onClick={() => window.location.reload()}>{isVersion ? "Check again" : "Retry authorization"}</button></section></main>;
 }
 
 function EmptyView() {
   // A Project is worth creating before anyone else is in it: two of your own
   // agent sessions in one repository already collide with each other, and that
-  // is the case Stickguy was built for. Joining someone else's is the second
+  // is the case Overgent was built for. Joining someone else's is the second
   // sentence rather than half the first.
-  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Point Stickguy at a repository and it starts coordinating the agent sessions you run in it, on your own. Invite people later, or join an existing Project with an invite code.</p><code>stickguy create</code></section></main>;
+  return <main className="centered-shell"><Brand /><section className="state-card"><span className="state-symbol"><GitBranch size={20} /></span><p className="eyebrow">No Projects</p><h1>{stateMessage("empty")}</h1><p>Point Overgent at a repository and it starts coordinating the agent sessions you run in it, on your own. Invite people later, or join an existing Project with an invite code.</p><code>overgent create</code></section></main>;
 }
 
 /**
@@ -442,7 +442,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
               ...(attention ? [<div key="attention" className="notice alerting" role="alert"><AlertTriangle size={15} /><div className="body"><strong>Coordination update</strong>{attention.reason}</div><div className="notice-actions"><button className="pill" onClick={() => { setView("workroom"); setSelection({ kind: "finding", id: attention.id }); setAttention(null); }}>Review</button><button className="text-button" onClick={() => setAttention(null)}>Dismiss</button></div></div>] : []),
               // Pausing only ever stops this device publishing, so the notice
               // says whose sharing stopped. Nobody can pause a teammate.
-              ...(snapshot.workspacePaused ? [<div key="paused" className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Stickguy app or menu bar.</span></div>}</div>] : []),
+              ...(snapshot.workspacePaused ? [<div key="paused" className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Overgent app or menu bar.</span></div>}</div>] : []),
               ...(offline ? [<div key="offline" className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>] : []),
               ...(identity.source === "device" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
             ]} />
@@ -645,7 +645,7 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
           </details>}
           {/* A Project of one is a finished Project (ADR-054): a fact about
               the Project, not a setup step the member has failed to do. */}
-          {nearby.length === 0 && <p className="block-note">You are the only member. Stickguy coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>}
+          {nearby.length === 0 && <p className="block-note">You are the only member. Overgent coordinates your own parallel sessions the same way it coordinates a team; invite someone whenever you want them in here.</p>}
         </>}
 
     {elsewhere.length > 0 && <>
@@ -720,7 +720,7 @@ export function sessionArea(session: Workstream): string | null {
  * sees the shape of the work before the list of sessions.
  *
  * Areas holding more than one session come first: that is where work converges,
- * and it is the reason to group at all. Everything Stickguy could not place
+ * and it is the reason to group at all. Everything Overgent could not place
  * sits last under its own heading rather than being hidden or guessed at.
  */
 export function groupByArea(sessions: readonly Workstream[]): AreaGroup[] {
@@ -923,7 +923,7 @@ function ScopeSnapshotTail({ snapshot }: { snapshot: ScopeSnapshot }) {
 function branchStatement(affected: Workstream[]): string {
   const branches = affected.map((stream) => stream.agent?.branch?.trim()).filter((branch): branch is string => Boolean(branch));
   if (affected.length < 2 || branches.length !== affected.length) {
-    return "Not every session here reported a branch, so Stickguy cannot say whether Git will surface this before merge.";
+    return "Not every session here reported a branch, so Overgent cannot say whether Git will surface this before merge.";
   }
   const distinct = [...new Set(branches)];
   if (distinct.length === 1) {
@@ -1152,7 +1152,7 @@ function CaseArc({ entry, now }: { entry: HistoryCase; now: number }) {
 /**
  * What already happened, as a case log.
  *
- * It stops at consideration. Stickguy knows a decision was routed and whether
+ * It stops at consideration. Overgent knows a decision was routed and whether
  * the agent acknowledged reading it, and does not know whether the agent then
  * did the right thing; wording that implied otherwise would fail the fidelity
  * rules this screen is subordinate to.
@@ -1328,8 +1328,8 @@ function OwningSessionActions({ session, finding, nativeApi }: { session: Workst
   const vendor = session.agent?.vendor;
   if (vendor !== "codex" && vendor !== "claude") return null;
   const prompt = finding
-    ? `Stickguy found: ${finding.title}\n\n${finding.reason}\n\nReview this coordination finding before continuing.`
-    : `Review the current Stickguy coordination context for “${session.agent?.sessionTitle ?? session.title}” before continuing.`;
+    ? `Overgent found: ${finding.title}\n\n${finding.reason}\n\nReview this coordination finding before continuing.`
+    : `Review the current Overgent coordination context for “${session.agent?.sessionTitle ?? session.title}” before continuing.`;
 
   const open = (target: "vendor" | "vscode" = "vendor", confirmed = false) => {
     if (!nativeApi.openOwningSession || !vendor) return;
@@ -1482,7 +1482,7 @@ function SessionDetailsPanel({ session, mine, subagents, path, onClose }: { sess
       <InspectorHeading icon={<Eye size={13} />}>How this session is connected</InspectorHeading>
       <div className="coverage-list">
         <CoverageRow icon={<Eye size={14} />} label="Source" value={fidelityLabel(session.fidelity)} detail={`${fidelityDetail(session)} ${session.pathCount > 0 ? `${session.pathCount.toLocaleString()} safe ${session.pathCount === 1 ? "path is" : "paths are"} ${session.agent?.capabilities.observeSafePaths ? "observed" : "reported"}.` : "No safe paths are reported yet."}`} />
-        {session.agent && <CoverageRow icon={<FileText size={14} />} label="Coordination" value={`${briefDeliveryLabel(session.agent.capabilities.deliverBrief)} · ${session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard"}`} detail="Context is routed at supported turn boundaries; Stickguy never interrupts an agent mid-turn. Muting a session stops delivery into its turns and holds every pending item until the hour is up; it never stops this session being published to the Project." />}
+        {session.agent && <CoverageRow icon={<FileText size={14} />} label="Coordination" value={`${briefDeliveryLabel(session.agent.capabilities.deliverBrief)} · ${session.agent.capabilities.requestAttention === "advisory" ? "advisory" : "dashboard"}`} detail="Context is routed at supported turn boundaries; Overgent never interrupts an agent mid-turn. Muting a session stops delivery into its turns and holds every pending item until the hour is up; it never stops this session being published to the Project." />}
         {session.agent && <CoverageRow icon={<FileCode2 size={14} />} label="Contract drift" value={readCoverageLabel(session.agent.capabilities.observeReadSet)} detail={readCoverageDetail(session.agent.capabilities.observeReadSet)} />}
         {session.agent?.sessionAlias && <CoverageRow icon={<Bot size={14} />} label="Session ID" value={session.agent.sessionAlias} machine detail={`${vendorLabel(session)} session identifier.`} />}
         {subagents.map((agent) => <CoverageRow key={agent.alias} icon={<Network size={14} />} label="Parallel ID" value={agent.alias} machine detail={`${parallelAgentRole(agent.agentType)} · ${parallelAgentStatus(agent.status)}.`} />)}
@@ -1640,7 +1640,7 @@ function sideName(session: Workstream, affected: Workstream[]): string {
  * Suggested outcomes, phrased per finding kind. A chip prefills the composer
  * rather than acting on its own: the summary is what gets injected into the
  * affected agents' turns, so the member always sees and can edit the exact
- * words before anything is sent. "Settled outside Stickguy" is a first-class
+ * words before anything is sent. "Settled outside Overgent" is a first-class
  * outcome, because a conclusion reached in Slack still has to reach the
  * agents that are working from stale assumptions.
  */
@@ -1669,7 +1669,7 @@ function outcomeTemplates(finding: Finding, affected: Workstream[], sessions: Wo
   } else if (finding.kind === "shared_dependency" || finding.kind === "downstream_impact" || finding.kind === "assumption_conflict") {
     if (first && second) templates.push(`${a} lands first — ${b} picks up the new revision before continuing. `);
   }
-  templates.push("Settled outside Stickguy — the conclusion: ");
+  templates.push("Settled outside Overgent — the conclusion: ");
   return templates;
 }
 
@@ -1836,7 +1836,7 @@ function FindingInspector({ finding, sessions, projectId, source, card, disabled
               </div>
             </form>
           </>}
-      <p className="advisory-note">Advisory only. Stickguy delivers the decision and never blocks or controls an agent.</p>
+      <p className="advisory-note">Advisory only. Overgent delivers the decision and never blocks or controls an agent.</p>
       {threadError && <p className="form-error" role="alert">{threadError}</p>}
 
       {finding.state === "open" && !card?.resolution && <div className="finding-foot">
@@ -1868,7 +1868,7 @@ function InspectorEmpty() {
 }
 
 /**
- * Honest fidelity (stickguy-v1-spec section 3) requires saying when findings are
+ * Honest fidelity (overgent-v1-spec section 3) requires saying when findings are
  * structural only. Healthy semantic processing is the expected state, so it says
  * nothing; a caveat appears only when one actually applies.
  */
@@ -1912,7 +1912,7 @@ function activitySourceLabel(fidelity: ProjectSnapshot["activity"][number]["fide
 }
 
 export function DesktopPreviewBanner({ live = false }: { live?: boolean }) {
-  return <div className="desktop-preview-banner" role="status"><strong>Stickguy Dev</strong><span>{live ? "Local live Project data · menu bar controls available" : "Fixture data · open a live Project from the menu bar"}</span></div>;
+  return <div className="desktop-preview-banner" role="status"><strong>Overgent Dev</strong><span>{live ? "Local live Project data · menu bar controls available" : "Fixture data · open a live Project from the menu bar"}</span></div>;
 }
 
 export function FixtureDataBanner() {
@@ -1933,8 +1933,8 @@ export function JoinLanding({ fragment = window.location.hash.slice(1) }: { frag
   if (!valid) {
     return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">Invite link</p><h1>This invite link is incomplete.</h1><p>The part after <code>#</code> is missing or damaged. Ask whoever invited you to copy the link again from People &rarr; Invite a teammate.</p></section></main>;
   }
-  const command = `stickguy join ${window.location.origin}/join#${fragment}`;
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="join-title"><span className="state-symbol"><UserPlus size={20} /></span><p className="eyebrow">Project invite</p><h1 id="join-title">You&rsquo;ve been invited to a Stickguy Project.</h1><p>Stickguy coordinates coding agents working in the same repository. Joining shares session presence and classifier-passing coordination facts &mdash; never source, prompts, or credentials.</p><div className="disclosure"><strong>1. Install Stickguy</strong><p>Already installed? Skip ahead. Otherwise run:</p><code>{`curl -fsSL ${window.location.origin}/install.sh | sh`}</code></div><div className="disclosure"><strong>2. Join from your checkout</strong><p>Run this inside the repository this Project coordinates:</p><code>{command}</code></div><button className="pill solid" onClick={() => { void navigator.clipboard?.writeText(command); }}>Copy the command</button><p className="microcopy">This invite is one-use and expires seven days after it was created. The code after # stays in your browser; this page sends it nowhere.</p></section></main>;
+  const command = `overgent join ${window.location.origin}/join#${fragment}`;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="join-title"><span className="state-symbol"><UserPlus size={20} /></span><p className="eyebrow">Project invite</p><h1 id="join-title">You&rsquo;ve been invited to an Overgent Project.</h1><p>Overgent coordinates coding agents working in the same repository. Joining shares session presence and classifier-passing coordination facts &mdash; never source, prompts, or credentials.</p><div className="disclosure"><strong>1. Install Overgent</strong><p>Already installed? Skip ahead. Otherwise run:</p><code>{`curl -fsSL ${window.location.origin}/install.sh | sh`}</code></div><div className="disclosure"><strong>2. Join from your checkout</strong><p>Run this inside the repository this Project coordinates:</p><code>{command}</code></div><button className="pill solid" onClick={() => { void navigator.clipboard?.writeText(command); }}>Copy the command</button><p className="microcopy">This invite is one-use and expires seven days after it was created. The code after # stays in your browser; this page sends it nowhere.</p></section></main>;
 }
 
 const root = document.getElementById("root");

@@ -1,6 +1,6 @@
-# Stickguy hosted Project service
+# Overgent hosted Project service
 
-This package contains the public Convex backend for the frozen Stickguy `/v1`
+This package contains the public Convex backend for the frozen Overgent `/v1`
 HTTP contract. Convex functions are in `functions/`; domain validation and
 deterministic helpers are in `src/`.
 
@@ -15,9 +15,9 @@ with OpenAI and provider failure preserves the deterministic path.
 ## Verification
 
 ```bash
-pnpm --filter @stickguy/hosted typecheck
-pnpm --filter @stickguy/hosted test
-pnpm --filter @stickguy/hosted build
+pnpm --filter @overgent/hosted typecheck
+pnpm --filter @overgent/hosted test
+pnpm --filter @overgent/hosted build
 ```
 
 The live suite requires an anonymous local Convex development deployment and

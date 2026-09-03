@@ -1,10 +1,10 @@
-# Stickguy agent instructions
+# Overgent agent instructions
 
 ## Mission and required reading
 
 Build a persistent air-traffic-control layer for teams working with coding agents. The product maintains a live shared world model of what every agent session believes and is building (intents, read sets, write sets, contract fingerprints, dependency claims), detects divergence (stale contracts, semantic duplication, collisions, dependency readiness), and routes corrections into affected agent turns before work is wasted. Deterministic evidence is the trigger layer and always works offline; a hosted LLM is the judgment layer (ADR-045). See ADR-044 through ADR-048 for the V2 reboot.
 
-Stickguy is a coordination harness, not a coding-agent harness. Do not absorb model loops, repository editing, shell/test execution, coding-model routing, or coding-agent permission management. Implement the lifecycle and context-router contracts in `docs/coordination-harness.md`.
+Overgent is a coordination harness, not a coding-agent harness. Do not absorb model loops, repository editing, shell/test execution, coding-model routing, or coding-agent permission management. Implement the lifecycle and context-router contracts in `docs/coordination-harness.md`.
 
 Before implementation, read every document in `docs/README.md` order. Do not replace Go, Convex, Project terminology, one-service architecture, or privacy boundaries without an owner-approved superseding ADR.
 
@@ -13,7 +13,7 @@ Before implementation, read every document in `docs/README.md` order. Do not rep
 - User-facing container is `Project`, never `Room`.
 - Local core is Go; React/Convex layers are TypeScript.
 - One per-user service manages multiple projects/workspaces.
-- Go calls hosted backend only through versioned Stickguy HTTP contracts.
+- Go calls hosted backend only through versioned Overgent HTTP contracts.
 - OpenAPI/JSON Schema is external contract source of truth; never hand-edit generated code.
 - The privacy boundary is the wire, not local reads (ADR-044). The local
   service may read source, diffs, and vendor transcripts on the member's

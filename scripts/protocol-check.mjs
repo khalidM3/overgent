@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { generate, root } from "./protocol-lib.mjs";
 
-const scratch = mkdtempSync(join(tmpdir(), "stickguy-protocol-check-"));
+const scratch = mkdtempSync(join(tmpdir(), "overgent-protocol-check-"));
 const outputs = [
   [join(scratch, "types.gen.go"), resolve(root, "protocol/generated/go/types.gen.go")],
   [join(scratch, "schema.d.ts"), resolve(root, "protocol/generated/typescript/schema.d.ts")],

@@ -9,24 +9,25 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/stickguy/stickguy/internal/activation"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/activation"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	"github.com/overgent/overgent/internal/hosted"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const desktopDevelopment = false
 
-func desktopProductName() string       { return "Stickguy" }
-func desktopMenuLabel() string         { return "Stickguy beta" }
-func desktopStartURL() string          { return "/?desktop=onboarding" }
-func desktopURLScheme() string         { return "stickguy" }
+func desktopProductName() string { return "Overgent" }
+func desktopMenuLabel() string   { return "Overgent beta" }
+func desktopStartURL() string    { return "/?desktop=onboarding" }
+func desktopURLScheme() string   { return "overgent" }
+
 // apiBaseURL is the hosted origin a production build talks to. Releases keep the
 // default; a private build for a closed test overrides it with
 // -X main.apiBaseURL=... so the app does not have to be edited to point at a
 // different deployment. Activation rejects anything that is not HTTPS.
-var apiBaseURL = "https://api.stickguy.dev"
+var apiBaseURL = "https://api.overgent.com"
 
 func desktopAPIBaseURL() string        { return apiBaseURL }
 func desktopActivationBaseURL() string { return desktopAPIBaseURL() }
@@ -35,13 +36,13 @@ func desktopCLIBinary() string {
 	if err != nil {
 		return ""
 	}
-	bundled := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "stickguy"))
+	bundled := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "overgent"))
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return bundled
 	}
 	directory := filepath.Join(home, ".local", "bin")
-	installed := filepath.Join(directory, "stickguy")
+	installed := filepath.Join(directory, "overgent")
 	if info, statErr := os.Stat(installed); statErr == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
 		return installed
 	}
@@ -53,7 +54,7 @@ func desktopCLIBinary() string {
 		return bundled
 	}
 	defer input.Close()
-	temporary, err := os.CreateTemp(directory, ".stickguy-desktop-install-*")
+	temporary, err := os.CreateTemp(directory, ".overgent-desktop-install-*")
 	if err != nil {
 		return bundled
 	}

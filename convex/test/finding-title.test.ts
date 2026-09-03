@@ -12,7 +12,7 @@ describe("findingTitle", () => {
     })).toBe("Khalid is building on a version of Refresh that Mina already changed");
   });
 
-  it("never leaks Stickguy's own vocabulary into the sentence", () => {
+  it("never leaks Overgent's own vocabulary into the sentence", () => {
     const vocabulary = /workstream|stale assumption|redundant work|direct collision|downstream impact|assumption conflict|shared dependency|dependency ready|fingerprint|manifest|provenance/i;
     const kinds = [
       "direct_collision", "likely_collision", "redundant_work", "shared_dependency",

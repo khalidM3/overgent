@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/codexsetup"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/store"
+	"github.com/overgent/overgent/internal/codexsetup"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/store"
 )
 
 func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
@@ -53,7 +53,7 @@ func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
 func isolateCodex(t *testing.T) {
 	t.Helper()
 	t.Setenv("CODEX_HOME", t.TempDir())
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
 }
 
 func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
@@ -140,8 +140,8 @@ func TestLinkedWorktreeValidationUsesGitIdentityWithoutMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		runGit(t, root, "init", "-q")
-		runGit(t, root, "config", "user.name", "Stickguy Test")
-		runGit(t, root, "config", "user.email", "stickguy-test@example.invalid")
+		runGit(t, root, "config", "user.name", "Overgent Test")
+		runGit(t, root, "config", "user.email", "overgent-test@example.invalid")
 		if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("synthetic\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

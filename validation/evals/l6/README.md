@@ -20,6 +20,6 @@ text. Expected labels are assertions; a changed classification fails the gate.
 
 The deterministic concept-vector adapter is a privacy-preserving initial
 provider, not a claim of general language understanding. Its semantic and
-lexical signals may create quiet radar findings, but Stickguy has no proactive
+lexical signals may create quiet radar findings, but Overgent has no proactive
 semantic interruption channel at L6. Broader precision measurement must precede
 one.

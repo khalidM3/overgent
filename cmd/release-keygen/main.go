@@ -1,5 +1,5 @@
 // Command release-keygen creates the offline Ed25519 trust anchor used to sign
-// Stickguy update metadata. It refuses to overwrite an existing private key.
+// Overgent update metadata. It refuses to overwrite an existing private key.
 package main
 
 import (

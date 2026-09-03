@@ -15,7 +15,7 @@ function run(command, args) {
 export function generate(goOutput, typeScriptOutput) {
   mkdirSync(dirname(goOutput), { recursive: true });
   mkdirSync(dirname(typeScriptOutput), { recursive: true });
-  const scratch = mkdtempSync(join(tmpdir(), "stickguy-openapi-bundle-"));
+  const scratch = mkdtempSync(join(tmpdir(), "overgent-openapi-bundle-"));
   const bundled = join(scratch, "openapi.yaml");
   try {
     run("pnpm", ["exec", "redocly", "bundle", "protocol/openapi.yaml", "--dereferenced", "--output", bundled]);

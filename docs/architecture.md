@@ -1,4 +1,4 @@
-# Stickguy — Architecture
+# Overgent — Architecture
 
 Status: canonical  
 Last updated: 2026-08-23
@@ -6,11 +6,11 @@ Last updated: 2026-08-23
 ## 1. System context
 
 ```text
-Agent harness ──stdio MCP/hooks──► stickguy executable ──local IPC──► per-user service
+Agent harness ──stdio MCP/hooks──► overgent executable ──local IPC──► per-user service
 Git workspaces ─────────────────────────────────────────┤
                                                         │ HTTPS events
                                                         ▼
-                                                Stickguy HTTP API
+                                                Overgent HTTP API
                                                   (Convex actions)
                                                         │
                                              Convex state/live queries
@@ -18,7 +18,7 @@ Git workspaces ─────────────────────�
                                               React project dashboard
 ```
 
-The hosted service never accesses a repository. Local clients publish bounded manifests and coordination summaries; the hosted service compares them across authorized project members and returns workstream-scoped briefs. The Go client never depends on Convex-specific APIs. Agents interact through MCP or explicit CLI commands. Stickguy coordinates existing agent harnesses; it does not own their coding loop or tools.
+The hosted service never accesses a repository. Local clients publish bounded manifests and coordination summaries; the hosted service compares them across authorized project members and returns workstream-scoped briefs. The Go client never depends on Convex-specific APIs. Agents interact through MCP or explicit CLI commands. Overgent coordinates existing agent harnesses; it does not own their coding loop or tools.
 
 ## 2. Local service
 
@@ -26,7 +26,7 @@ Exactly one service per OS user owns registered projects/workspaces, workspace o
 
 Use an OS lock plus IPC health check; a PID file alone is insufficient. Unix prefers a user-only domain socket; Windows prefers a named pipe. Loopback HTTP binds only `127.0.0.1`, validates Host/Origin, and requires a random bearer token.
 
-`stickguy mcp` is a thin stdio client of this service. MCP exit never stops the service.
+`overgent mcp` is a thin stdio client of this service. MCP exit never stops the service.
 
 ## 3. Workspace observation
 
@@ -39,7 +39,7 @@ Filesystem events are hints; Git is authoritative:
 5. compare with last published path/status set;
 6. emit a revisioned manifest snapshot only when changed; chunk large snapshots and activate them atomically.
 
-Never upload contents. The baseline-to-current manifest preserves locally committed agent changes before push. Ignore `.git`, Stickguy state, caches, and configured ignores. Symlinks must not escape the registered root. Repository identity combines normalized remote identity with explicit project registration; folder-name equality is insufficient. Never fetch/pull peer worktrees as the realtime observation mechanism.
+Never upload contents. The baseline-to-current manifest preserves locally committed agent changes before push. Ignore `.git`, Overgent state, caches, and configured ignores. Symlinks must not escape the registered root. Repository identity combines normalized remote identity with explicit project registration; folder-name equality is insufficient. Never fetch/pull peer worktrees as the realtime observation mechanism.
 
 ## 4. Hosted state
 
@@ -91,7 +91,7 @@ Alpha findings are deterministic: select active workstreams in the same project/
 
 V1 extends candidate retrieval with symbols, packages, schemas/routes, dependencies, lexical similarity, and semantic similarity across synchronized intent/change/plan/decision objects. A versioned evidence-fusion engine classifies findings; optional bounded adjudication handles ambiguous candidates. Similarity never overwrites deterministic evidence, crosses authorization boundaries, or appears as unexplained proof. See `coordination-intelligence.md`.
 
-The initial semantic index is hosted so all members' approved coordination objects are comparable in realtime. Convex vector search is an adapter behind a Stickguy-owned interface. Use one opaque composite `scopeKey` derived from project ID and repository identity as the mandatory vector-index filter, then reauthorize and reload current objects after retrieval; never depend on post-filtering for tenant isolation. Embedding/adjudication failures are queued and do not stop deterministic detection.
+The initial semantic index is hosted so all members' approved coordination objects are comparable in realtime. Convex vector search is an adapter behind an Overgent-owned interface. Use one opaque composite `scopeKey` derived from project ID and repository identity as the mandatory vector-index filter, then reauthorize and reload current objects after retrieval; never depend on post-filtering for tenant isolation. Embedding/adjudication failures are queued and do not stop deterministic detection.
 
 ## 7. Context routing and agent lifecycle
 
@@ -105,7 +105,7 @@ See `coordination-harness.md` for boundaries, routing order, verification metada
 
 ## 8. Decisions
 
-Backend is canonical. Agents read decisions through MCP. Unsupported agents may receive an enabled, generated, untracked `.stickguy/context.md`. Never have clients append automatically to one tracked decisions file; promotion to a repository ADR is separate and reviewed.
+Backend is canonical. Agents read decisions through MCP. Unsupported agents may receive an enabled, generated, untracked `.overgent/context.md`. Never have clients append automatically to one tracked decisions file; promotion to a repository ADR is separate and reviewed.
 
 ## 9. Failure behavior
 

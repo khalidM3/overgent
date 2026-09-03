@@ -164,7 +164,7 @@ func (c Client) Apply(ctx context.Context, manifest Manifest, executable string)
 		return Result{}, errors.New("current executable path must be absolute")
 	}
 	directory := filepath.Dir(executable)
-	archive, err := os.CreateTemp(directory, ".stickguy-update-*.archive")
+	archive, err := os.CreateTemp(directory, ".overgent-update-*.archive")
 	if err != nil {
 		return Result{}, fmt.Errorf("stage update archive: %w", err)
 	}
@@ -247,7 +247,7 @@ func (c Client) download(ctx context.Context, asset Asset, destination io.Writer
 }
 
 func extractExecutable(archivePath, directory, rawURL string) (string, error) {
-	staged, err := os.CreateTemp(directory, ".stickguy-update-*.bin")
+	staged, err := os.CreateTemp(directory, ".overgent-update-*.bin")
 	if err != nil {
 		return "", fmt.Errorf("stage update executable: %w", err)
 	}
@@ -261,7 +261,7 @@ func extractExecutable(archivePath, directory, rawURL string) (string, error) {
 		}
 		defer reader.Close()
 		for _, file := range reader.File {
-			if filepath.Base(file.Name) != "stickguy.exe" || file.FileInfo().IsDir() {
+			if filepath.Base(file.Name) != "overgent.exe" || file.FileInfo().IsDir() {
 				continue
 			}
 			input, err := file.Open()
@@ -300,7 +300,7 @@ func extractExecutable(archivePath, directory, rawURL string) (string, error) {
 				os.Remove(path)
 				return "", fmt.Errorf("read update archive: %w", err)
 			}
-			if filepath.Base(header.Name) != "stickguy" || header.Typeflag != tar.TypeReg {
+			if filepath.Base(header.Name) != "overgent" || header.Typeflag != tar.TypeReg {
 				continue
 			}
 			if header.Size < 1 || header.Size > artifactLimit {
@@ -315,7 +315,7 @@ func extractExecutable(archivePath, directory, rawURL string) (string, error) {
 		}
 	}
 	os.Remove(path)
-	return "", errors.New("update archive does not contain the Stickguy executable")
+	return "", errors.New("update archive does not contain the Overgent executable")
 }
 
 func (c Client) httpClient() *http.Client {

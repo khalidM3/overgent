@@ -61,7 +61,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   };
 
   if (bridge === "probing") {
-    return <Screen title="Add a Project" backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Stickguy service on your Mac.">
+    return <Screen title="Add a Project" backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Overgent service on your Mac.">
       <div className="screen-actions" role="status"><span className="spinner" aria-hidden="true" /><span className="settings-help">Checking this Mac…</span></div>
     </Screen>;
   }
@@ -74,7 +74,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
       sub={request.repositoryRoot}
       backLabel={backLabel}
       onBack={onBack}
-      lede={`${request.projectLabel} is registered with this Mac’s existing Stickguy service. No second background service was started. It coordinates the agent sessions you run in this repository straight away, with no one else in it.`}
+      lede={`${request.projectLabel} is registered with this Mac’s existing Overgent service. No second background service was started. It coordinates the agent sessions you run in this repository straight away, with no one else in it.`}
     >
       {/* An invite is an option, not the next step. A Project with one member
           already does the whole job for the sessions that member is running,
@@ -97,7 +97,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
     title="Add a Project"
     backLabel={backLabel}
     onBack={onBack}
-    lede="Choose a Git repository. Stickguy observes it as a separate Project, using the service already running on this Mac, and coordinates every agent session in it — yours alone, or a team's."
+    lede="Choose a Git repository. Overgent observes it as a separate Project, using the service already running on this Mac, and coordinates every agent session in it — yours alone, or a team's."
   >
     <form onSubmit={(event) => void submit(event)}>
       <div className="screen-form">
@@ -105,7 +105,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
         <label><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button type="button" className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
       </div>
 
-      <ScreenSection title="Connect coding agents" help="Sessions are observed after the agent restarts in this repository. Stickguy marks observation ready only once a real session event arrives.">
+      <ScreenSection title="Connect coding agents" help="Sessions are observed after the agent restarts in this repository. Overgent marks observation ready only once a real session event arrives.">
         <fieldset className="agent-options">
           <label><input type="checkbox" checked={request.enableCodex} onChange={(event) => setRequest({ ...request, enableCodex: event.target.checked })} /><span><strong>Codex</strong><small>Observe new repository-scoped sessions after restart</small></span></label>
           <label><input type="checkbox" checked={request.enableClaude} onChange={(event) => setRequest({ ...request, enableClaude: event.target.checked })} /><span><strong>Claude Code</strong><small>Observe new repository-scoped sessions after restart</small></span></label>
@@ -129,8 +129,8 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
  * service that registers a repository, so the flow continues in the desktop
  * shell through the registered scheme.
  *
- * The control says what happens next rather than "Open Stickguy": a member who
- * is already looking at Stickguy reads that as the app relaunching itself, which
+ * The control says what happens next rather than "Open Overgent": a member who
+ * is already looking at Overgent reads that as the app relaunching itself, which
  * is the one thing this hand-off must not look like. The desktop shell lands on
  * the same screen this component renders, so the origin swap reads as the task
  * continuing. The shell command stays as a fallback for a machine where the
@@ -141,20 +141,20 @@ function ContinueInDesktop({ backLabel, onBack }: { backLabel: string; onBack: (
   const [handedOff, setHandedOff] = useState(false);
   const continueInApp = () => {
     setHandedOff(true);
-    window.location.href = `${import.meta.env.DEV ? "stickguy-dev" : "stickguy"}://new-project`;
+    window.location.href = `${import.meta.env.DEV ? "overgent-dev" : "overgent"}://new-project`;
   };
   return <Screen
     title="Add a Project"
     backLabel={backLabel}
     onBack={onBack}
-    lede="A Project registers a Git repository with the Stickguy service on your Mac, so it is created where that service runs. This window is the shared Project view, and it cannot reach that service."
+    lede="A Project registers a Git repository with the Overgent service on your Mac, so it is created where that service runs. This window is the shared Project view, and it cannot reach that service."
   >
-    <ScreenSection title="Continue on this Mac" help="You land on this same screen in the Stickguy app, with the repository picker and agent options supplied by the local service.">
+    <ScreenSection title="Continue on this Mac" help="You land on this same screen in the Overgent app, with the repository picker and agent options supplied by the local service.">
       <div className="screen-actions">
-        <button className="pill solid" onClick={continueInApp}>Continue in the Stickguy app</button>
+        <button className="pill solid" onClick={continueInApp}>Continue in the Overgent app</button>
         <button className="pill" onClick={onBack}>Cancel</button>
       </div>
-      {handedOff && <p className="handoff-fallback">If the app did not come forward, add the Project from its Projects screen, or run <code>stickguy create</code> in the repository.</p>}
+      {handedOff && <p className="handoff-fallback">If the app did not come forward, add the Project from its Projects screen, or run <code>overgent create</code> in the repository.</p>}
     </ScreenSection>
   </Screen>;
 }

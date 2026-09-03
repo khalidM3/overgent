@@ -1,4 +1,4 @@
-# Stickguy local development
+# Overgent local development
 
 The supported dogfood profile runs the public stack on one Mac. It is not a
 different product implementation: Vite serves the same React dashboard that is
@@ -27,9 +27,9 @@ Node 22 is the supported fix. Then run commands from the repository root:
 | `pnpm dev` | Build the CLI, start local Convex, Vite, the development desktop, and the Go service once an enrolled default profile exists. |
 | `pnpm dev:ui` | Start the dashboard at `127.0.0.1:5173` with React hot reload and a proxy to local Convex. |
 | `pnpm dev:backend` | Start the anonymous loopback Convex deployment without an account prompt and reload hosted functions on change. |
-| `pnpm dev:service` | Build `bin/stickguy` and run the enrolled default-profile Go service in the foreground. |
-| `pnpm desktop:dev` | Start Vite if needed, compile `Stickguy Dev.app` once, and keep the native Dock/menu-bar app attached to Vite hot reload. |
-| `pnpm dev:install` | Atomically install or replace `~/Applications/Stickguy Dev.app`. Run `pnpm dev:ui` while using the installed app. |
+| `pnpm dev:service` | Build `bin/overgent` and run the enrolled default-profile Go service in the foreground. |
+| `pnpm desktop:dev` | Start Vite if needed, compile `Overgent Dev.app` once, and keep the native Dock/menu-bar app attached to Vite hot reload. |
+| `pnpm dev:install` | Atomically install or replace `~/Applications/Overgent Dev.app`. Run `pnpm dev:ui` while using the installed app. |
 | `pnpm dev:agents -- --codex-root A --claude-root B` | Optional advanced setup for two linked worktrees; normal same-checkout session attribution does not require this. |
 
 React/CSS changes hot reload without a native rebuild. Changes to the Wails
@@ -60,7 +60,7 @@ After Convex reports that the local deployment is ready, finish setup in the
 desktop window. The equivalent fallback command is:
 
 ```bash
-./bin/stickguy --api http://127.0.0.1:3211 create \
+./bin/overgent --api http://127.0.0.1:3211 create \
   --label "Local dogfood" \
   --device-label "My Mac" \
   --root /absolute/path/to/repository
@@ -73,7 +73,7 @@ may request approval for the device credential.
 The desktop detects `codex` and `claude` on `PATH` plus standard macOS app,
 user-local, and NVM install locations. Detection is advisory: either adapter can
 still be selected when a GUI-launched app has a narrower process environment.
-Selecting an adapter structurally adds Stickguy's Project-scoped MCP entry and
+Selecting an adapter structurally adds Overgent's Project-scoped MCP entry and
 passive activity hooks while preserving unrelated configuration. Restart agent
 sessions that were already open so they load the new Project configuration.
 Git observation works even when an adapter is missing or declined. Claude Code
@@ -86,12 +86,12 @@ this repository-scoped flow.
 Use the same registered checkout for the normal exercise. Start a new Codex
 session and a new Claude Code session anywhere under that repository. Each
 supported session automatically appears as a separate hashed workstream; no
-Stickguy command, branch, or worktree is required. Ask each agent to edit the
+Overgent command, branch, or worktree is required. Ask each agent to edit the
 same safe relative path. Their edit-tool hooks report only the path, and the
 dashboard should show both sessions plus a deterministic `direct_collision`
 finding after its next two-second refresh.
 
-Linked worktrees remain an optional advanced Git-isolation technique. Stickguy
+Linked worktrees remain an optional advanced Git-isolation technique. Overgent
 never creates, switches, resets, or removes them. One possible user-run setup is:
 
 ```bash
@@ -120,12 +120,12 @@ when that is unavailable the binding reports `hooks: "needs_review"` instead of
 concluding that observation is broken:
 
 ```bash
-./bin/stickguy setup status --agent codex --development --project-root /absolute/path/to/worktree
+./bin/overgent setup status --agent codex --development --project-root /absolute/path/to/worktree
 ```
 
 Pass `--development` (or the `--config-root` you installed with). Without either,
 the check is made against the *portable* binding a released install uses — the
-bare `stickguy` on `PATH` with no profile — so a development binding, which names
+bare `overgent` on `PATH` with no profile — so a development binding, which names
 an explicit executable and config root, is correctly reported as belonging to a
 different profile. The reply says which profile it compared against in
 `checkedProfile`, and which one is actually bound in `previousProfile`; seeing
@@ -134,7 +134,7 @@ wrong with the install.
 
 A `needs_review` result is cleared by opening Codex → Settings → Hooks and
 choosing Trust all, or by running `/hooks` in the Codex CLI. Trust is recorded
-against the hook definition, so changing the Stickguy executable path or config
+against the hook definition, so changing the Overgent executable path or config
 root re-arms the review.
 
 ## More than one Project on one profile
@@ -145,7 +145,7 @@ an additional Project rather than minting a second credential and stranding the
 first one's Projects:
 
 ```bash
-./bin/stickguy create --root /absolute/path/to/second-repository --label "Second Project"
+./bin/overgent create --root /absolute/path/to/second-repository --label "Second Project"
 ```
 
 A repository that is already connected is refused rather than connected twice.
@@ -155,7 +155,7 @@ worktrees of the same repository, for example — register the root instead of
 creating a Project:
 
 ```bash
-./bin/stickguy workspace add --development --root /absolute/path/to/worktree --project prj_...
+./bin/overgent workspace add --development --root /absolute/path/to/worktree --project prj_...
 ```
 
 `workspace list` prints the registered roots with the IDs the other commands
@@ -166,7 +166,7 @@ are no longer required for session presence or path attribution. Manual intent
 remains available with the printed workspace ID:
 
 ```bash
-./bin/stickguy intent --workspace WORKSPACE_ID \
+./bin/overgent intent --workspace WORKSPACE_ID \
   --title "Rotate browser sessions" \
   --outcome "Rotate browser sessions after privilege changes and revoke prior credentials"
 ```
@@ -182,7 +182,7 @@ Rotate browser sessions after privilege changes and revoke prior credentials.
 Issue new web login credentials after a member role changes and invalidate old credentials.
 ```
 
-The vocabulary-bounded `stickguy-concepts/v1` provider should create a justified
+The vocabulary-bounded `overgent-concepts/v1` provider should create a justified
 `redundant_work` radar finding. This is local Convex vector search over approved
 intent summaries, not source, diffs, transcripts, prompts, raw commands/output,
 or environment values.
@@ -202,13 +202,13 @@ or environment values.
 - Existing sessions must restart once after adapter installation. Hook coverage
   is honest: unsupported hosted or specialized tool paths are not inferred.
 - Adapter readiness distinguishes configuration from runtime proof. “Configured
-  · restart required” remains visible until the current Stickguy profile
+  · restart required” remains visible until the current Overgent profile
   receives a real session event from that provider.
-- If the repository contains a valid Stickguy binding for another local
+- If the repository contains a valid Overgent binding for another local
   profile, onboarding shows **Reconnect to this Project** with an old/new
   preview. It never silently detaches the other profile. Partial entries for the
   current profile are repaired automatically; unknown drift still fails closed.
-- Stickguy may read the supported vendor session record locally to show the
+- Overgent may read the supported vendor session record locally to show the
   session owner their own bounded conversation and project classifier-passing
   messages to enrolled Project members while sharing is unpaused. It never uploads the transcript file itself, scans process
   memory, displays hidden reasoning, or collects source/diffs, raw
@@ -245,34 +245,34 @@ pnpm --dir convex exec convex env list --names-only
 Push function changes with `convex dev --once`, then start the shared profile:
 
 ```bash
-STICKGUY_SHARED_API_ORIGIN=https://YOUR-DEPLOYMENT.convex.site pnpm dev:shared
+OVERGENT_SHARED_API_ORIGIN=https://YOUR-DEPLOYMENT.convex.site pnpm dev:shared
 ```
 
 Create the Project in the desktop and send the one-use invite privately. On the
 second Mac, use the same repository checkout and repository remote, run the same
-commit of Stickguy with the same `STICKGUY_SHARED_API_ORIGIN`, choose **Join a
+commit of Overgent with the same `OVERGENT_SHARED_API_ORIGIN`, choose **Join a
 Project**, and enter the invite. Each Mac stores a different device credential
 and publishes independently to the shared Project.
 
 The shared profile defaults to
-`~/Library/Application Support/Stickguy Shared Dev`. Override it only with an
-absolute `STICKGUY_SHARED_CONFIG_ROOT`. It never reads or mutates the ordinary
+`~/Library/Application Support/Overgent Shared Dev`. Override it only with an
+absolute `OVERGENT_SHARED_CONFIG_ROOT`. It never reads or mutates the ordinary
 loopback development profile.
 
-Remove only Stickguy's managed MCP entries without disturbing unrelated agent
+Remove only Overgent's managed MCP entries without disturbing unrelated agent
 configuration:
 
 ```bash
-./bin/stickguy setup remove --development --agent codex --project-root /absolute/path/to/codex-worktree
-./bin/stickguy setup remove --development --agent claude --project-root /absolute/path/to/claude-worktree
+./bin/overgent setup remove --development --agent codex --project-root /absolute/path/to/codex-worktree
+./bin/overgent setup remove --development --agent claude --project-root /absolute/path/to/claude-worktree
 ```
 
 For a repository intentionally moved between local profiles, use the desktop
 reconnect preview or the equivalent explicit CLI recovery:
 
 ```bash
-./bin/stickguy --config-root "/absolute/path/to/current/profile" setup reconnect --development --agent codex --project-root /absolute/path/to/repository
+./bin/overgent --config-root "/absolute/path/to/current/profile" setup reconnect --development --agent codex --project-root /absolute/path/to/repository
 ```
 
 After reconnecting, restart the provider and begin a new task in the enrolled
-repository. Stickguy keeps the adapter pending until that first event arrives.
+repository. Overgent keeps the adapter pending until that first event arrives.

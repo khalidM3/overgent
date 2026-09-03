@@ -13,13 +13,13 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
-const instructions = "Stickguy is advisory only. Before broad/shared edits, call begin_work then check_coordination; read relevant findings and resolutions. Use get_resolutions when a collision affecting this workstream has been resolved. Report bounded checkpoints; finish_work before completion. Never send source, diffs, env values, command lines, raw tool/test output, or secrets. Project membership and the pause switch govern sharing; the secret classifier is mandatory. Fail on workspace ambiguity. Stickguy never edits Git, runs coding tools, controls agents, or authorizes teammate mutations."
+const instructions = "Overgent is advisory only. Before broad/shared edits, call begin_work then check_coordination; read relevant findings and resolutions. Use get_resolutions when a collision affecting this workstream has been resolved. Report bounded checkpoints; finish_work before completion. Never send source, diffs, env values, command lines, raw tool/test output, or secrets. Project membership and the pause switch govern sharing; the secret classifier is mandatory. Fail on workspace ambiguity. Overgent never edits Git, runs coding tools, controls agents, or authorizes teammate mutations."
 
 type commonInput struct {
 	WorkspaceID string `json:"workspace_id,omitempty" jsonschema:"explicit registered workspace ID; omit when cwd resolves uniquely"`
@@ -164,7 +164,7 @@ func Run(ctx context.Context, configRoot string) error {
 }
 
 func newSDK(bridge *server) *sdkmcp.Server {
-	sdk := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "stickguy", Title: "Stickguy coordination harness", Version: "0.1.0"}, &sdkmcp.ServerOptions{Instructions: instructions, Capabilities: &sdkmcp.ServerCapabilities{}})
+	sdk := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "overgent", Title: "Overgent coordination harness", Version: "0.1.0"}, &sdkmcp.ServerOptions{Instructions: instructions, Capabilities: &sdkmcp.ServerCapabilities{}})
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "begin_work", Description: "Begin or resume a workstream, publish bounded intent idempotently, and return relevant coordination context."}, bridge.beginWork)
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "update_intent", Description: "Revision-check and update active bounded intent without sending source, diffs, prompts, or raw output."}, bridge.updateIntent)
 	sdkmcp.AddTool(sdk, &sdkmcp.Tool{Name: "check_coordination", Description: "Read a bounded relevant coordination brief before broad/shared edits or on refresh."}, bridge.checkCoordination)
@@ -249,7 +249,7 @@ func (s *server) call(ctx context.Context, q *daemon.Request) (toolOutput, error
 	}
 	response, err := call(ctx, s.paths.Socket, *q)
 	if err != nil {
-		return toolOutput{}, fmt.Errorf("local Stickguy service unavailable: %w", err)
+		return toolOutput{}, fmt.Errorf("local Overgent service unavailable: %w", err)
 	}
 	if !response.OK {
 		return toolOutput{}, errors.New(response.Error)

@@ -21,7 +21,7 @@ function scopeSnapshot(revision: number, state: ScopeSnapshot["state"], fields: 
 const atlas = {
   id: "prj_atlas",
   name: "Atlas launch",
-  repositoryLabel: "stickguy/atlas",
+  repositoryLabel: "overgent/atlas",
   semanticStatus: "degraded",
   semanticMode: "managed_degraded",
 } as const;
@@ -29,7 +29,7 @@ const atlas = {
 const orchard = {
   id: "prj_orchard",
   name: "Orchard mobile",
-  repositoryLabel: "stickguy/orchard",
+  repositoryLabel: "overgent/orchard",
   semanticStatus: "disabled",
   semanticMode: "offline_fallback",
 } as const;
@@ -145,7 +145,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
         },
       },
       {
-        // A Cursor session, which is the highest-fidelity reader Stickguy has:
+        // A Cursor session, which is the highest-fidelity reader Overgent has:
         // beforeReadFile names each file before it is read, so its read set is
         // observed rather than inferred, and a correction reaches it by push in
         // the same hook response rather than waiting to be pulled over MCP. It
@@ -300,7 +300,7 @@ export const fixtureSnapshots: Record<string, ProjectSnapshot> = {
     ],
     activity: [
       { id: "act_1", at: "Now", actor: "Mina", kind: "checkpoint", summary: "Reported session rotation boundary and verification passed.", fidelity: "mcp" },
-      { id: "act_2", at: "2 min", actor: "Stickguy", kind: "finding", summary: "Updated direct-collision evidence for the session contract.", fidelity: "structural" },
+      { id: "act_2", at: "2 min", actor: "Overgent", kind: "finding", summary: "Updated direct-collision evidence for the session contract.", fidelity: "structural" },
       { id: "act_3", at: "8 min", actor: "Ravi", kind: "manifest", summary: "Activated manifest revision 42 with 1,000 paths.", fidelity: "git" },
       { id: "act_4", at: "31 min", actor: "June", kind: "intent", summary: "Set a manual onboarding-copy intent.", fidelity: "manual" },
     ],

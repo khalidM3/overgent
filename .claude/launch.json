@@ -4,7 +4,7 @@
     {
       "name": "dashboard",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@stickguy/dashboard", "dev"],
+      "runtimeArgs": ["--filter", "@overgent/dashboard", "dev"],
       "port": 5173
     }
   ]

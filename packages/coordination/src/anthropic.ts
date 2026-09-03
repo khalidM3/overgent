@@ -138,13 +138,13 @@ export async function judgeCandidate(
   signal: AbortSignal,
 ): Promise<{ verdict: JudgmentVerdict; provider: string; degraded: boolean }> {
   const fallback = deterministicJudgment(candidate);
-  if (!provider) return { verdict: fallback, provider: "stickguy-concepts/v1", degraded: true };
+  if (!provider) return { verdict: fallback, provider: "overgent-concepts/v1", degraded: true };
   try {
     const verdict = await provider.judge(candidate, signal);
     if (verdict.explanation.length > MAX_EXPLANATION_CHARS) throw new Error("judgment_verdict_invalid");
     return { verdict, provider: provider.name, degraded: false };
   } catch (error) {
     if (signal.aborted) throw error;
-    return { verdict: fallback, provider: "stickguy-concepts/v1", degraded: true };
+    return { verdict: fallback, provider: "overgent-concepts/v1", degraded: true };
   }
 }

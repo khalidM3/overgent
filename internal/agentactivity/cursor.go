@@ -39,16 +39,16 @@ const (
 	// runaway stdin will be walked, not how much is retained.
 	MaxCursorInputBytes = 64 << 20
 
-	// CursorWorkspaceRootEnv is the session-scoped variable Stickguy publishes
+	// CursorWorkspaceRootEnv is the session-scoped variable Overgent publishes
 	// from sessionStart's `env` output. Cursor passes it to every later hook in
 	// the session, which is the only way afterFileEdit and beforeSubmitPrompt —
 	// which carry no workspace root — can be attributed to a repository.
-	CursorWorkspaceRootEnv = "STICKGUY_CURSOR_WORKSPACE_ROOT"
+	CursorWorkspaceRootEnv = "OVERGENT_CURSOR_WORKSPACE_ROOT"
 )
 
 // cursorLifecycle projects one Cursor hook onto the lifecycle contract the
 // coordination harness already speaks. Only the events Cursor is known to emit
-// and Stickguy can interpret appear here; anything else is rejected rather than
+// and Overgent can interpret appear here; anything else is rejected rather than
 // assigned a guessed status, because an invented lifecycle kind is worse than a
 // missing one.
 type cursorLifecycle struct{ kind, status, action, tool string }
@@ -67,7 +67,7 @@ var cursorEvents = map[string]cursorLifecycle{
 // never be installed for an event the parser would reject.
 var CursorEvents = []string{"sessionStart", "beforeSubmitPrompt", "beforeReadFile", "afterFileEdit", "stop", "sessionEnd"}
 
-// SupportedCursorEvent reports whether a declared event name is one Stickguy
+// SupportedCursorEvent reports whether a declared event name is one Overgent
 // installs and can interpret.
 func SupportedCursorEvent(event string) bool {
 	_, ok := cursorEvents[event]
@@ -120,7 +120,7 @@ func ParseCursor(declaredEvent string, input io.Reader, sessionRoot string) (Eve
 			return Event{}, errors.New("invalid cursor hook JSON")
 		}
 		payload = prompted.cursorPayload
-		// Cursor writes no transcript Stickguy can read, so the submitted prompt
+		// Cursor writes no transcript Overgent can read, so the submitted prompt
 		// is the only vendor-visible text that can seed this session's intent.
 		// ADR-042's classifier is the gate: it normalizes, bounds to 160
 		// characters, and rejects credentials, environment values, private keys

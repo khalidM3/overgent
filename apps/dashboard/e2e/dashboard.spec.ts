@@ -96,13 +96,13 @@ test("explicit shell states neither leak nor overstate data", async ({ page }) =
   await expect(page.getByRole("status").filter({ hasText: "Connecting" })).toContainText("Loading Project coordination");
   await page.goto("/?fixtures=1&state=unauthorized");
   await expect(page.getByRole("alert")).toContainText("not authorized");
-  await expect(page.getByText("stickguy/atlas")).toHaveCount(0);
+  await expect(page.getByText("overgent/atlas")).toHaveCount(0);
   await page.goto("/?fixtures=1&state=offline");
   await expect(page.getByText(/Showing revision 184/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause" })).toBeDisabled();
   await page.goto("/?fixtures=1&state=version_mismatch");
-  await expect(page.getByRole("alert")).toContainText("Upgrade Stickguy");
-  await expect(page.getByText("stickguy/atlas")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("Upgrade Overgent");
+  await expect(page.getByText("overgent/atlas")).toHaveCount(0);
   await page.goto("/?fixtures=1&state=empty");
   await expect(page.getByRole("heading", { name: /No Projects are available/ })).toBeVisible();
 });

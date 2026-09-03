@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.stickguy.dev/v1/checkpoint.schema.json",
+  "$id": "https://schemas.overgent.com/v1/checkpoint.schema.json",
   "title": "Checkpoint",
   "type": "object",
   "additionalProperties": false,

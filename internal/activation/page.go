@@ -44,9 +44,9 @@ func cspHash(content string) string {
 
 var activationPage = template.Must(template.New("activation").Parse(`<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="referrer" content="no-referrer">
-<title>Activate Stickguy</title>
+<title>Activate Overgent</title>
 <style>{{.Style}}</style>
-<main><h1>Opening your Stickguy workroom…</h1><p>Sending a short-lived, single-use ticket to your hosted session. It is not placed in the URL or browser storage.</p>
+<main><h1>Opening your Overgent workroom…</h1><p>Sending a short-lived, single-use ticket to your hosted session. It is not placed in the URL or browser storage.</p>
 <form method="post" action="{{.Action}}"><input type="hidden" name="ticket" value="{{.Ticket}}"><button type="submit">Continue</button></form></main>
 <script>{{.Script}}</script></html>`))
 

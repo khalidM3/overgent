@@ -51,7 +51,7 @@ type Inspection struct {
 	ExistingCommand string
 }
 
-// Install structurally adds Stickguy's exact managed hooks while preserving all
+// Install structurally adds Overgent's exact managed hooks while preserving all
 // unrelated settings and hooks. The command is intentionally a fixed string
 // assembled from application-owned absolute paths, never user input.
 func Install(path, command string) error {
@@ -70,7 +70,7 @@ func Install(path, command string) error {
 			for _, candidate := range existing.Hooks {
 				if managed(candidate.Command) {
 					if candidate.Command != command {
-						return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
+						return errors.New("managed Overgent activity hook drifted; refusing to overwrite it")
 					}
 					remove = true
 				}
@@ -94,13 +94,13 @@ func Install(path, command string) error {
 			for handlerIndex, candidate := range groups[groupIndex].Hooks {
 				if managed(candidate.Command) {
 					if candidate.Command != command {
-						return errors.New("managed Stickguy activity hook drifted; refusing to overwrite it")
+						return errors.New("managed Overgent activity hook drifted; refusing to overwrite it")
 					}
 					// The command matched exactly, so this handler is this
-					// profile's own. Its tuning is Stickguy's to set: repair it
+					// profile's own. Its tuning is Overgent's to set: repair it
 					// rather than refusing the file. Refusing here protected
 					// nothing and stranded the member, because a hand-edited
-					// timeout is indistinguishable from an older Stickguy's.
+					// timeout is indistinguishable from an older Overgent's.
 					wanted := expected(event, command).Hooks[0]
 					if candidate != wanted {
 						groups[groupIndex].Hooks[handlerIndex] = wanted
@@ -129,7 +129,7 @@ func Status(path, command string) (bool, error) {
 }
 
 // Inspect distinguishes a complete current binding from a partial install and
-// from a structurally valid Stickguy binding owned by another local profile.
+// from a structurally valid Overgent binding owned by another local profile.
 // Unknown or conflicting managed-looking commands fail closed.
 func Inspect(path, command string) (Inspection, error) {
 	_, hooks, err := read(path)
@@ -138,7 +138,7 @@ func Inspect(path, command string) (Inspection, error) {
 	}
 	vendor := commandVendor(command)
 	if vendor == "" {
-		return Inspection{}, errors.New("invalid expected Stickguy activity hook command")
+		return Inspection{}, errors.New("invalid expected Overgent activity hook command")
 	}
 	existingCommands := map[string]bool{}
 	present := map[string]bool{}
@@ -151,12 +151,12 @@ func Inspect(path, command string) (Inspection, error) {
 			for _, candidate := range existing.Hooks {
 				if managed(candidate.Command) {
 					if !managedForVendor(candidate.Command, vendor) {
-						return Inspection{}, errors.New("managed Stickguy activity hook drifted")
+						return Inspection{}, errors.New("managed Overgent activity hook drifted")
 					}
 					existingCommands[candidate.Command] = true
 					// Only the command decides ownership; the vendor check above
 					// already made that call. A handler of ours whose tuning
-					// differs — an older Stickguy's, or one a member edited — is
+					// differs — an older Overgent's, or one a member edited — is
 					// incomplete, not foreign, so it reports partial and Install
 					// repairs it. Reporting drift here was a dead end: the
 					// desktop row offers reconnect only for another profile.
@@ -171,7 +171,7 @@ func Inspect(path, command string) (Inspection, error) {
 		return Inspection{State: BindingNotConfigured}, nil
 	}
 	if len(existingCommands) != 1 {
-		return Inspection{}, errors.New("conflicting managed Stickguy activity hooks")
+		return Inspection{}, errors.New("conflicting managed Overgent activity hooks")
 	}
 	var existingCommand string
 	for value := range existingCommands {
@@ -186,7 +186,7 @@ func Inspect(path, command string) (Inspection, error) {
 	return Inspection{State: BindingCurrent, ExistingCommand: existingCommand}, nil
 }
 
-// Rebind replaces only structurally recognized Stickguy hooks for this vendor.
+// Rebind replaces only structurally recognized Overgent hooks for this vendor.
 // Unrelated hook groups and handlers are preserved byte-semantically through
 // JSON decoding/re-encoding, and unknown managed-looking commands fail closed.
 func Rebind(path, command string) error {
@@ -196,14 +196,14 @@ func Rebind(path, command string) error {
 	}
 	vendor := commandVendor(command)
 	if vendor == "" {
-		return errors.New("invalid Stickguy activity hook command")
+		return errors.New("invalid Overgent activity hook command")
 	}
 	inspection, err := Inspect(path, command)
 	if err != nil {
 		return err
 	}
 	if inspection.State != BindingCurrent && inspection.State != BindingPartial && inspection.State != BindingOtherProfile && inspection.State != BindingNotConfigured {
-		return errors.New("unsupported Stickguy activity hook binding")
+		return errors.New("unsupported Overgent activity hook binding")
 	}
 	for event, raw := range hooks {
 		groups, decodeErr := groupsFor(raw)
@@ -216,7 +216,7 @@ func Rebind(path, command string) error {
 			for _, candidate := range existing.Hooks {
 				if managed(candidate.Command) {
 					if !managedForVendor(candidate.Command, vendor) {
-						return errors.New("managed Stickguy activity hook drifted; refusing rebind")
+						return errors.New("managed Overgent activity hook drifted; refusing rebind")
 					}
 					continue
 				}
@@ -262,7 +262,7 @@ func Remove(path, command string) error {
 			for _, candidate := range existing.Hooks {
 				if managed(candidate.Command) {
 					if candidate.Command != command {
-						return errors.New("managed Stickguy activity hook drifted; refusing removal")
+						return errors.New("managed Overgent activity hook drifted; refusing removal")
 					}
 					remove = true
 				}
@@ -319,7 +319,7 @@ func PortableCommand(vendor string) (string, error) {
 	if !supportedVendor(vendor) {
 		return "", errors.New("unsupported activity-hook vendor")
 	}
-	return strings.Join([]string{shellQuote("stickguy"), "agent-hook", "--vendor", vendor}, " "), nil
+	return strings.Join([]string{shellQuote("overgent"), "agent-hook", "--vendor", vendor}, " "), nil
 }
 
 func expected(event, command string) group {
@@ -338,7 +338,7 @@ func expected(event, command string) group {
 	}
 	// Codex caps a synchronous SessionEnd at codexSessionEndTimeout and prints
 	// "clamping SessionEnd hook timeout to 3s in <path>" every time it has to,
-	// so asking for 5 bought nothing and put a Stickguy-owned filename in front
+	// so asking for 5 bought nothing and put an Overgent-owned filename in front
 	// of the member on every session they closed. Writing the cap is also what
 	// Codex hashes for hook trust — it normalizes before hashing (ADR-051) — so
 	// a binding already trusted at 5 stays trusted through this change.
@@ -375,7 +375,7 @@ func managedForVendor(command, vendor string) bool {
 		return false
 	}
 	prefix := strings.TrimSuffix(command, " agent-hook --vendor "+vendor)
-	return prefix == "'stickguy'" || strings.HasPrefix(prefix, "'") && strings.Contains(prefix, "' --config-root '")
+	return prefix == "'overgent'" || strings.HasPrefix(prefix, "'") && strings.Contains(prefix, "' --config-root '")
 }
 
 func shellQuote(value string) string {
@@ -436,7 +436,7 @@ func write(path string, document, hooks map[string]json.RawMessage) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create hook settings directory: %w", err)
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".stickguy-hooks-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".overgent-hooks-*")
 	if err != nil {
 		return fmt.Errorf("create temporary hook settings: %w", err)
 	}
@@ -460,22 +460,22 @@ func write(path string, document, hooks map[string]json.RawMessage) error {
 	return nil
 }
 
-// StickguyMCPTools are the coordination tools `stickguy mcp` registers, in the
+// OvergentMCPTools are the coordination tools `overgent mcp` registers, in the
 // permission form Claude Code matches. The MCP server is the source of truth
 // for this list; a test there asserts the two agree, so adding a tool without
 // pre-approving it fails in CI rather than at a member's keyboard.
-var StickguyMCPTools = []string{
-	"mcp__stickguy__acknowledge_context",
-	"mcp__stickguy__begin_work",
-	"mcp__stickguy__check_coordination",
-	"mcp__stickguy__finish_work",
-	"mcp__stickguy__get_resolutions",
-	"mcp__stickguy__report_checkpoint",
-	"mcp__stickguy__report_event",
-	"mcp__stickguy__update_intent",
+var OvergentMCPTools = []string{
+	"mcp__overgent__acknowledge_context",
+	"mcp__overgent__begin_work",
+	"mcp__overgent__check_coordination",
+	"mcp__overgent__finish_work",
+	"mcp__overgent__get_resolutions",
+	"mcp__overgent__report_checkpoint",
+	"mcp__overgent__report_event",
+	"mcp__overgent__update_intent",
 }
 
-// AllowTools pre-approves exactly Stickguy's own coordination tools in the
+// AllowTools pre-approves exactly Overgent's own coordination tools in the
 // settings file this package already manages.
 //
 // A member who has just run `setup claude` is then asked to approve begin_work,

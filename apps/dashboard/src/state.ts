@@ -7,7 +7,7 @@ export const stateMessage = (state: ShellState): string => ({
   empty: "No Projects are available for this member yet.",
   offline: "Offline. Showing the last synchronized revision.",
   unauthorized: "This device is not authorized for the Project.",
-  version_mismatch: "Upgrade Stickguy to continue.",
+  version_mismatch: "Upgrade Overgent to continue.",
 })[state];
 
 export const fidelityLabel = (fidelity: Fidelity): string => ({

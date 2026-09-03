@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	protocoltypes "github.com/overgent/overgent/protocol/generated/go"
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	protocoltypes "github.com/stickguy/stickguy/protocol/generated/go"
 )
 
 func TestMigrationAddsRepositoryFingerprint(t *testing.T) {
@@ -283,7 +283,7 @@ func assertEnvelopeSchema(t *testing.T, events []QueueEvent) {
 			t.Fatal(e)
 		}
 	}
-	const schemaURL = "https://schemas.stickguy.dev/v1/event-envelope.schema.json"
+	const schemaURL = "https://schemas.overgent.com/v1/event-envelope.schema.json"
 	schema, e := compiler.Compile(schemaURL)
 	if e != nil {
 		t.Fatal(e)

@@ -122,7 +122,7 @@ func TestListHooksDeduplicatesAcrossWorkingDirectoriesAndTrustWritesNarrowKeyPat
 	}
 	for _, edit := range parameters.Edits {
 		// Every edit must address exactly one hook's trusted_hash. Anything
-		// broader would let Stickguy replace configuration it does not own.
+		// broader would let Overgent replace configuration it does not own.
 		if !strings.HasPrefix(edit.KeyPath, `hooks.state."`) || !strings.HasSuffix(edit.KeyPath, `".trusted_hash`) {
 			t.Fatalf("edit is not a narrow trust key path: %q", edit.KeyPath)
 		}

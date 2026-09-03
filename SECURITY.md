@@ -1,6 +1,6 @@
 # Security policy
 
-Stickguy is pre-release and has no supported production version yet.
+Overgent is pre-release and has no supported production version yet.
 
 Do not open public issues for suspected vulnerabilities. Until the owner enables
 GitHub private vulnerability reporting and publishes a dedicated security

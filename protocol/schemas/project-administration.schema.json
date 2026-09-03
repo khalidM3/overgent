@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.stickguy.dev/project-administration.schema.json",
+  "$id": "https://schemas.overgent.com/project-administration.schema.json",
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{2,127}$" },
     "timestamp": { "type": "string", "format": "date-time" },

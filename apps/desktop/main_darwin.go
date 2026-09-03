@@ -41,8 +41,8 @@ func main() {
 	})
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             "stickguy-dashboard",
-		Title:            "Stickguy",
+		Name:             "overgent-dashboard",
+		Title:            "Overgent",
 		Width:            1320,
 		Height:           900,
 		MinWidth:         920,
@@ -83,7 +83,7 @@ func main() {
 	serviceItem := menu.Add("Service: checking…").SetEnabled(false)
 	activityItem := menu.Add("Activity: checking…").SetEnabled(false)
 	menu.AddSeparator()
-	menu.Add("Open Stickguy").OnClick(func(*application.Context) {
+	menu.Add("Open Overgent").OnClick(func(*application.Context) {
 		window.Show()
 		window.Focus()
 	})
@@ -101,7 +101,7 @@ func main() {
 	focusItem := menu.Add("").SetHidden(true)
 	scanItem := menu.Add("Scan now").SetEnabled(false)
 	menu.AddSeparator()
-	menu.Add("Quit Stickguy").OnClick(func(*application.Context) { app.Quit() })
+	menu.Add("Quit Overgent").OnClick(func(*application.Context) { app.Quit() })
 	tray.SetMenu(menu)
 	tray.OnClick(func() {
 		window.Show()

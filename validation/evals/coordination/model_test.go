@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/config"
+	"github.com/overgent/overgent/internal/config"
 )
 
 func TestCapabilityConfigRequiresKnownUniqueTags(t *testing.T) {

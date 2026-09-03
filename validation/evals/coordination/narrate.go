@@ -29,7 +29,7 @@ func narrateScenario(scenario scenarioReport) {
 		// Silence is a result, and in scenario E it is the required one, so it
 		// is stated rather than left as an empty section the reader must read
 		// as either success or breakage.
-		fmt.Printf("   Stickguy said nothing.\n")
+		fmt.Printf("   Overgent said nothing.\n")
 		fmt.Printf("   expected routing %s · actual %s\n", scenario.ExpectedRouting, scenario.ActualRouting)
 		return
 	}

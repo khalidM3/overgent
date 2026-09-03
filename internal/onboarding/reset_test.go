@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 type resetAPI struct{ bootstrapErr error }
@@ -49,7 +49,7 @@ func enrolledProfile(t *testing.T) (string, config.Paths) {
 		t.Fatalf("resolve: %v", err)
 	}
 	cfg := config.Config{
-		Version: 1, APIBaseURL: "https://api.stickguy.dev", DeviceID: "dev_local",
+		Version: 1, APIBaseURL: "https://api.overgent.com", DeviceID: "dev_local",
 		Workspaces: []config.Workspace{{ID: "wsp_1", ProjectID: "prj_1", Root: root}},
 	}
 	if err := config.Save(paths, cfg); err != nil {
@@ -84,7 +84,7 @@ func TestResetClearsARejectedEnrollment(t *testing.T) {
 	if after.DeviceID != "" || len(after.Workspaces) != 0 {
 		t.Fatalf("device identity survived the reset: %+v", after)
 	}
-	if after.APIBaseURL != "https://api.stickguy.dev" {
+	if after.APIBaseURL != "https://api.overgent.com" {
 		t.Fatalf("apiBaseURL = %q, want the origin kept for re-enrollment", after.APIBaseURL)
 	}
 }

@@ -36,7 +36,7 @@ func DefaultRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user config directory: %w", err)
 	}
-	return filepath.Join(d, "Stickguy"), nil
+	return filepath.Join(d, "Overgent"), nil
 }
 
 func Resolve(root string) (Paths, error) {

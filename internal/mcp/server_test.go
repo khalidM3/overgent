@@ -11,17 +11,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
+	"github.com/overgent/overgent/internal/agentactivity"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hookconfig"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hookconfig"
 )
 
 func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
-	root, err := os.MkdirTemp("/private/tmp", "stickguy-mcp-")
+	root, err := os.MkdirTemp("/private/tmp", "overgent-mcp-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestOfficialSDKListsAndCallsAllLifecycleTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer serverSession.Close()
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "stickguy-conformance", Version: "1"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "overgent-conformance", Version: "1"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -161,11 +161,11 @@ func TestWaitingOnClaimsAreBoundedAtMCPBoundary(t *testing.T) {
 }
 
 func TestProductionBinaryStdioTransport(t *testing.T) {
-	binary := os.Getenv("STICKGUY_BINARY")
+	binary := os.Getenv("OVERGENT_BINARY")
 	if binary == "" {
-		t.Skip("set STICKGUY_BINARY to exercise the built stdio command")
+		t.Skip("set OVERGENT_BINARY to exercise the built stdio command")
 	}
-	root, err := os.MkdirTemp("/private/tmp", "stickguy-stdio-")
+	root, err := os.MkdirTemp("/private/tmp", "overgent-stdio-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestSessionWorkstreamIsEmptyWithoutAVendorSessionIdentity(t *testing.T) {
 	}
 }
 
-// B13: `setup claude` pre-approves Stickguy's own coordination tools so the
+// B13: `setup claude` pre-approves Overgent's own coordination tools so the
 // harness does not spend four approval prompts before any work happens. That
 // list is written where the settings file is managed, not here, so this asserts
 // the two agree — a tool added without pre-approving it fails in CI rather than
@@ -328,7 +328,7 @@ func TestEveryRegisteredToolIsPreApprovedAndNothingElseIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer serverSession.Close()
-	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "stickguy-approval", Version: "1"}, nil)
+	client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "overgent-approval", Version: "1"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -340,10 +340,10 @@ func TestEveryRegisteredToolIsPreApprovedAndNothingElseIs(t *testing.T) {
 	}
 	registered := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
-		registered = append(registered, "mcp__stickguy__"+tool.Name)
+		registered = append(registered, "mcp__overgent__"+tool.Name)
 	}
 	sort.Strings(registered)
-	approved := append([]string{}, hookconfig.StickguyMCPTools...)
+	approved := append([]string{}, hookconfig.OvergentMCPTools...)
 	sort.Strings(approved)
 	if strings.Join(registered, ",") != strings.Join(approved, ",") {
 		t.Fatalf("registered=%v\napproved=%v", registered, approved)

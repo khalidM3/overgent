@@ -1,6 +1,6 @@
 # External implementation references
 
-These are upstream contracts, not substitutes for Stickguy specifications. Re-check current configuration details when implementing an integration, pin stable versions, and record breaking changes.
+These are upstream contracts, not substitutes for Overgent specifications. Re-check current configuration details when implementing an integration, pin stable versions, and record breaking changes.
 
 - Go releases and support policy: <https://go.dev/doc/devel/release>
 - Official MCP Go SDK: <https://github.com/modelcontextprotocol/go-sdk>

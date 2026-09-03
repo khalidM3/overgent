@@ -1,4 +1,4 @@
-# Stickguy — Pre-build Validation Gates
+# Overgent — Pre-build Validation Gates
 
 Status: required before production implementation  
 Last updated: 2026-08-23
@@ -19,7 +19,7 @@ After bootstrap, Gates A, B, D, and E may run in parallel in isolated spike dire
 
 Use the locally installed Codex build and official current documentation. Prove:
 
-1. A minimal Stickguy Go stdio MCP server can be configured at project scope and discovered by Codex CLI and the desktop app.
+1. A minimal Overgent Go stdio MCP server can be configured at project scope and discovered by Codex CLI and the desktop app.
 2. MCP initialization instructions are read, the first 512 characters contain the critical workflow, and Codex can call fixture versions of `begin_work`, `check_coordination`, `report_checkpoint`, and `finish_work`.
 3. MCP exit does not own/terminate the per-user service; two Codex clients can connect without duplicating observers or workstream events.
 4. Workspace/workstream resolution from `cwd` is correct and ambiguous registrations fail explicitly.

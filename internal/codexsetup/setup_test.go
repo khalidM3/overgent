@@ -32,7 +32,7 @@ func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	trustedForTest(t)
-	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/stickguy", CodexHome: t.TempDir()}
+	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/overgent", CodexHome: t.TempDir()}
 	if status, err := manager.Setup(); err != nil || !status.Configured || status.Hooks != "active" {
 		t.Fatal(status, err)
 	}
@@ -74,7 +74,7 @@ func TestSetupStatusRemovalPreserveUnrelatedConfigAndRefuseDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	managed, _ := os.ReadFile(path)
-	if strings.Contains(string(managed), manager.ConfigRoot) || !strings.Contains(string(managed), "command = \"stickguy\"") || !strings.Contains(string(managed), "args = [\"mcp\"]") {
+	if strings.Contains(string(managed), manager.ConfigRoot) || !strings.Contains(string(managed), "command = \"overgent\"") || !strings.Contains(string(managed), "args = [\"mcp\"]") {
 		t.Fatalf("portable config contains machine state or lacks PATH command: %q", managed)
 	}
 	if _, err := portable.Remove(); err != nil {
@@ -91,7 +91,7 @@ func TestOtherProfileIsExplicitAndRebindPreservesUnrelatedConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte("model = \"fixture\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executable := "/usr/local/bin/stickguy"
+	executable := "/usr/local/bin/overgent"
 	codexHome := t.TempDir()
 	trustedForTest(t)
 	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable, CodexHome: codexHome}

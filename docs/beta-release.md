@@ -1,4 +1,4 @@
-# Stickguy beta release
+# Overgent beta release
 
 ## Supported boundary
 
@@ -9,7 +9,7 @@ archives are portability artifacts only; do not offer them to testers.
 
 Wails remains an exact-pinned desktop dependency and is still prerelease. Its
 desktop API is in public beta, so the hosted dashboard remains the recovery
-path. Stickguy's root Go service does not import Wails or CGO.
+path. Overgent's root Go service does not import Wails or CGO.
 
 ## One-time owner setup
 
@@ -18,17 +18,17 @@ Generate the update key on a trusted offline Mac and store the private file
 outside the repository:
 
 ```bash
-go run ./cmd/release-keygen -private-file /absolute/secure/path/stickguy-update-private.txt
+go run ./cmd/release-keygen -private-file /absolute/secure/path/overgent-update-private.txt
 ```
 
 The command prints only the base64 public key. Add these environment variables:
 
 | Kind | Name | Value |
 |---|---|---|
-| Variable | `STICKGUY_UPDATE_PUBLIC_KEY` | command stdout; base64 raw 32-byte Ed25519 public key |
+| Variable | `OVERGENT_UPDATE_PUBLIC_KEY` | command stdout; base64 raw 32-byte Ed25519 public key |
 | Variable | `APPLE_TEAM_ID` | Apple Developer team identifier |
 | Variable | `APPLE_DEVELOPER_NAME` | name in the Developer ID Application certificate |
-| Secret | `STICKGUY_UPDATE_SIGNING_PRIVATE_KEY` | contents of the mode-0600 private key file; base64 raw 64-byte key |
+| Secret | `OVERGENT_UPDATE_SIGNING_PRIVATE_KEY` | contents of the mode-0600 private key file; base64 raw 64-byte key |
 | Secret | `MACOS_CERTIFICATE_P12` | Developer ID Application certificate exported as base64 PKCS#12 |
 | Secret | `MACOS_CERTIFICATE_PASSWORD` | PKCS#12 password |
 | Secret | `APPLE_ID` | notarization Apple ID |
@@ -41,7 +41,7 @@ not already have a private support channel.
 ## Candidate publication
 
 1. Deploy the reviewed Convex schema/functions and dashboard for
-   `https://api.stickguy.dev`; keep private operations outside this repository.
+   `https://api.overgent.com`; keep private operations outside this repository.
 2. Run every standard check plus `pnpm eval:coordination` on Node 22 or newer.
 3. Tag an immutable candidate such as `v0.1.0-beta.1`. The release workflow
    produces a draft GitHub release, signed CLI archives, checksums, archive
@@ -69,10 +69,10 @@ still the clean-machine validation path.
 
 ```bash
 sh install.sh
-stickguy service status
-stickguy diagnostics
-stickguy update
-stickguy update rollback
+overgent service status
+overgent diagnostics
+overgent update
+overgent update rollback
 sh uninstall.sh
 sh uninstall.sh --purge-local-state
 ```
@@ -81,7 +81,7 @@ Verify service recovery after logout/login and after terminating the service;
 the LaunchAgent uses `RunAtLoad` and `KeepAlive`. An update must pass Ed25519
 metadata verification, exact size and SHA-256 verification, start as a process,
 and return a valid artifact identity. If an installed service does not return
-healthy after restart, Stickguy restores the `.previous` executable and starts
+healthy after restart, Overgent restores the `.previous` executable and starts
 the prior service. `update rollback` performs the same process and health gate.
 
 Uninstall calls `setup remove-all`, which removes only recognized managed Codex

@@ -1,4 +1,4 @@
-# Stickguy — Technology and Repository Plan
+# Overgent — Technology and Repository Plan
 
 Status: canonical  
 Last updated: 2026-08-24
@@ -24,8 +24,8 @@ Go 1.27 is current but newly released. Use Go 1.26 as module baseline and test 1
 ## 2. Repository shape
 
 ```text
-stickguy/
-├── cmd/stickguy/               # one executable; CLI/service/MCP modes
+overgent/
+├── cmd/overgent/               # one executable; CLI/service/MCP modes
 ├── internal/
 │   ├── app/                    # composition/lifecycle
 │   ├── auth/                   # enrollment/credentials
@@ -37,7 +37,7 @@ stickguy/
 │   ├── mcp/                    # MCP adapter only
 │   ├── platform/               # keychain, OS paths/services/browser
 │   ├── store/                  # SQLite state/queue
-│   ├── sync/                   # Stickguy HTTP client
+│   ├── sync/                   # Overgent HTTP client
 │   └── watcher/                # change aggregation
 ├── protocol/
 │   ├── openapi.yaml
@@ -91,22 +91,22 @@ Rules: execute Git with `exec.CommandContext` argument arrays; prefer standard l
 ## 4. Executable modes
 
 ```text
-stickguy create
-stickguy join <code>
-stickguy projects
-stickguy status
-stickguy pause|resume [--project|--workspace]
-stickguy service run|start|stop|status
-stickguy mcp
-stickguy doctor
-stickguy update
+overgent create
+overgent join <code>
+overgent projects
+overgent status
+overgent pause|resume [--project|--workspace]
+overgent service run|start|stop|status
+overgent mcp
+overgent doctor
+overgent update
 ```
 
-`stickguy mcp` is a thin stdio bridge to the running service. It never creates another watcher, queue, or hosted connection.
+`overgent mcp` is a thin stdio bridge to the running service. It never creates another watcher, queue, or hosted connection.
 
 ## 5. Backend/dashboard boundary
 
-Convex stores coordination state, a separate vector table/index, and live dashboard projections. Go never imports a Convex SDK; it calls versioned Stickguy HTTP endpoints implemented by Convex HTTP actions. Semantic indexing is behind a Stickguy domain interface even though the first adapter uses Convex vector search. Domain/evidence-fusion rules live in testable TypeScript modules behind thin Convex wrappers. Device enrollment and browser tickets use Stickguy's own hashed-token flow; Convex Auth is not part of alpha.
+Convex stores coordination state, a separate vector table/index, and live dashboard projections. Go never imports a Convex SDK; it calls versioned Overgent HTTP endpoints implemented by Convex HTTP actions. Semantic indexing is behind an Overgent domain interface even though the first adapter uses Convex vector search. Domain/evidence-fusion rules live in testable TypeScript modules behind thin Convex wrappers. Device enrollment and browser tickets use Overgent's own hashed-token flow; Convex Auth is not part of alpha.
 
 Frontend: React/TypeScript/Vite; minimal accessible components; no global state library until necessary; Playwright for critical flows. The hosted and embedded desktop views reuse the same build; the preview window is fixture-backed while its menu bar talks only to the local service.
 

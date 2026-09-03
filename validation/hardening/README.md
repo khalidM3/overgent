@@ -6,7 +6,7 @@ packages under the race detector.
 
 With the anonymous loopback Convex backend already running, `pnpm
 hardening:live` repeats the real HTTP-action suite five times. Override the
-bounded iteration count with `STICKGUY_HARDENING_ITERATIONS=20` for a longer
+bounded iteration count with `OVERGENT_HARDENING_ITERATIONS=20` for a longer
 soak. The live suite covers:
 
 - load: interleaved concurrent heartbeats from two device credentials, large

@@ -1,4 +1,4 @@
-# Stickguy — Security and Privacy Requirements
+# Overgent — Security and Privacy Requirements
 
 Status: mandatory  
 Last updated: 2026-08-23
@@ -37,7 +37,7 @@ Protect against token theft/replay, unauthorized project access, hostile website
   ADR-042 classifier and hosted semantic policy both accept it. The UI discloses
   that an approved title may reach the configured embedding provider; a rejected
   title never blocks safe lifecycle/path observation.
-- Agent profile reconnect recognizes only Stickguy's exact managed MCP/hook
+- Agent profile reconnect recognizes only Overgent's exact managed MCP/hook
   shapes, previews the previous and target local profiles, and requires explicit
   confirmation before detaching another profile. Both files are snapshotted for
   rollback, unrelated provider configuration is preserved, and unknown or

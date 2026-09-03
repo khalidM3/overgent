@@ -486,7 +486,7 @@ describe("quiet session expiry", () => {
     expect(sessionHasGoneQuiet(session({ updatedAt: now - 9 * 60_000 }), now)).toBe(false);
   });
 
-  // Completing these on the member's behalf would be a claim Stickguy cannot
+  // Completing these on the member's behalf would be a claim Overgent cannot
   // support: they have no turn loop, so silence says nothing about them.
   it("never completes a workstream that is not an agent session", () => {
     expect(sessionHasGoneQuiet(session({ vendor: undefined, updatedAt: 0 }), now)).toBe(false);

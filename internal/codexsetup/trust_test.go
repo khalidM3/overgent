@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/codexappserver"
+	"github.com/overgent/overgent/internal/codexappserver"
 )
 
 func TestUntrustedHooksReportNeedsReviewRatherThanActive(t *testing.T) {
@@ -20,7 +20,7 @@ func TestUntrustedHooksReportNeedsReviewRatherThanActive(t *testing.T) {
 			Pending: []string{"sessionStart"}, Guidance: ReviewGuidance}
 	}
 	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"),
-		Executable: "/usr/local/bin/stickguy", CodexHome: codexHome}
+		Executable: "/usr/local/bin/overgent", CodexHome: codexHome}
 
 	status, err := manager.Setup()
 	if err != nil {
@@ -50,8 +50,8 @@ func TestRemoveKeepsSharedHooksUntilRemoveHooks(t *testing.T) {
 	trustedForTest(t)
 	codexHome := t.TempDir()
 	configRoot := filepath.Join(t.TempDir(), "state")
-	first := Manager{ProjectRoot: t.TempDir(), ConfigRoot: configRoot, Executable: "/usr/local/bin/stickguy", CodexHome: codexHome}
-	second := Manager{ProjectRoot: t.TempDir(), ConfigRoot: configRoot, Executable: "/usr/local/bin/stickguy", CodexHome: codexHome}
+	first := Manager{ProjectRoot: t.TempDir(), ConfigRoot: configRoot, Executable: "/usr/local/bin/overgent", CodexHome: codexHome}
+	second := Manager{ProjectRoot: t.TempDir(), ConfigRoot: configRoot, Executable: "/usr/local/bin/overgent", CodexHome: codexHome}
 	if _, err := first.Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +135,11 @@ func TestAppendTrustTablesIsAppendOnlyAndSkipsExistingKeys(t *testing.T) {
 }
 
 func TestSelectManagedHooksIgnoresForeignAndManagedEntries(t *testing.T) {
-	const ours = "'/bin/stickguy' --config-root '/state' agent-hook --vendor codex"
+	const ours = "'/bin/overgent' --config-root '/state' agent-hook --vendor codex"
 	hooks := []codexappserver.Hook{
 		{Key: "a", HandlerType: "command", Command: ours, SourcePath: "/codex/hooks.json"},
-		// Another Stickguy profile: same shape, different config root.
-		{Key: "b", HandlerType: "command", Command: "'/bin/stickguy' --config-root '/other' agent-hook --vendor codex", SourcePath: "/codex/hooks.json"},
+		// Another Overgent profile: same shape, different config root.
+		{Key: "b", HandlerType: "command", Command: "'/bin/overgent' --config-root '/other' agent-hook --vendor codex", SourcePath: "/codex/hooks.json"},
 		// A managed hook is trusted by policy and is never ours to rewrite.
 		{Key: "c", HandlerType: "command", Command: ours, SourcePath: "/codex/hooks.json", IsManaged: true},
 		// Someone else's unrelated hook.
@@ -149,7 +149,7 @@ func TestSelectManagedHooksIgnoresForeignAndManagedEntries(t *testing.T) {
 	}
 	selected := selectManagedHooks(hooks, "/codex/hooks.json", ours)
 	if len(selected) != 1 || selected[0].Key != "a" {
-		t.Fatalf("selection touched hooks Stickguy does not own: %#v", selected)
+		t.Fatalf("selection touched hooks Overgent does not own: %#v", selected)
 	}
 }
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.stickguy.dev/v1/scope-snapshot.schema.json",
+  "$id": "https://schemas.overgent.com/v1/scope-snapshot.schema.json",
   "title": "ScopeSnapshot",
   "description": "A revisioned, deterministic answer to what one workstream is doing, and what it set out to do before that. Text is rendered only from the listed canonical facts. A managed model may improve wording from those facts, but may never ingest an agent transcript or change provenance, evidence quality, state, or meaning.",
   "type": "object",

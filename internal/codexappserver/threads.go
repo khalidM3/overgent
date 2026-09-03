@@ -7,7 +7,7 @@ import (
 	"regexp"
 )
 
-// Thread is the identity and recency metadata Stickguy needs from
+// Thread is the identity and recency metadata Overgent needs from
 // `thread/list`. Conversation previews, paths to rollout files, and other
 // content-bearing fields are intentionally not decoded.
 type Thread struct {
@@ -77,14 +77,14 @@ func (c *Client) ListThreads(ctx context.Context, cwd string, limit int) ([]Thre
 // This reads a task without resuming or taking ownership of it: `thread/read`
 // is documented as reading a stored task by id, and a separate app-server
 // process observing a task the desktop application is still running reports it
-// as `notLoaded`. Stickguy never issues `thread/start`, `thread/resume`,
+// as `notLoaded`. Overgent never issues `thread/start`, `thread/resume`,
 // `turn/start`, or any approval, so it observes the member's session without
 // participating in it (ADR-051, ADR-052).
 //
 // The decoded shape deliberately has no field for `command` or
 // `aggregatedOutput`. Those cross the wire from Codex and are dropped during
 // decoding rather than held and discarded later, so a raw command string or
-// captured output never reaches a Stickguy structure at all.
+// captured output never reaches an Overgent structure at all.
 func (c *Client) ThreadReads(ctx context.Context, id string) (cwd string, reads []ThreadRead, err error) {
 	if !threadID.MatchString(id) {
 		return "", nil, errors.New("codex thread id is invalid")

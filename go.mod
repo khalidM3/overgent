@@ -1,4 +1,4 @@
-module github.com/stickguy/stickguy
+module github.com/overgent/overgent
 
 go 1.26.0
 

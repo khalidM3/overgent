@@ -8,6 +8,6 @@ import (
 )
 
 func main() {
-	_, _ = fmt.Fprintln(os.Stderr, "Stickguy desktop preview is currently validated only on macOS")
+	_, _ = fmt.Fprintln(os.Stderr, "Overgent desktop preview is currently validated only on macOS")
 	os.Exit(1)
 }

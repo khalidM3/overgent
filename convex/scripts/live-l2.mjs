@@ -559,7 +559,7 @@ assert(shared.messages.some((message) => message.text.includes("```ts")), "quote
 let badSequence = 35;
 for (const [label, text] of [
   ["env assignment", "Update this in .env.local: DATABASE_URL=postgres://user:pw@host/db"],
-  ["environment value", "Set this first:\nSTICKGUY_TOKEN=abcdef0123456789"],
+  ["environment value", "Set this first:\nOVERGENT_TOKEN=abcdef0123456789"],
   ["credential", "Use api_key: sk-abcdef0123456789abcdef for the call."],
   ["tool result", "tool_result: the command returned 3 rows"],
   ["command output", "stdout: total 12"],

@@ -1,10 +1,10 @@
-# Stickguy — Product Specification
+# Overgent — Product Specification
 
 Status: canonical build specification  
 Owner: Khalid  
 Last updated: 2026-08-23
 
-Stickguy is a persistent coordination harness for people building software with coding agents. It gives a project team a live, shared picture of current intent, changed areas, plans, decisions, and likely collisions, then routes compact relevant context to each workstream without taking control of agents or modifying teammates' work.
+Overgent is a persistent coordination harness for people building software with coding agents. It gives a project team a live, shared picture of current intent, changed areas, plans, decisions, and likely collisions, then routes compact relevant context to each workstream without taking control of agents or modifying teammates' work.
 
 ## 1. Product vocabulary
 
@@ -14,7 +14,7 @@ Use these names in code, copy, schemas, and documentation.
 |---|---|
 | Project | Persistent coordination space for a product or repository; the primary user-facing container. |
 | Member | A person with access to a project. |
-| Device | One authenticated Stickguy installation belonging to a member. |
+| Device | One authenticated Overgent installation belonging to a member. |
 | Workspace | One local repository checkout registered to a project on a device. |
 | Session | A bounded period of human or agent activity in a workspace. |
 | Workstream | The objective a member is currently pursuing. |
@@ -32,7 +32,7 @@ Do not call a project a "room" in user-facing surfaces. A realtime room/channel 
 
 Coding agents increase implementation throughput faster than teams can coordinate. Each person and agent develops a separate plan, changes code quickly, and silently accumulates assumptions. Git usually reveals conflicts after work is complete; chat and manual status updates do not match agent speed.
 
-The initial user is a team of 2–5 people working in one Git repository during a hackathon, startup sprint, side project, or other high-velocity session. Members may use Codex, Claude Code, Cursor, another MCP-capable agent, or no agent. One member may participate in multiple projects and register multiple workspaces without running multiple Stickguy services.
+The initial user is a team of 2–5 people working in one Git repository during a hackathon, startup sprint, side project, or other high-velocity session. Members may use Codex, Claude Code, Cursor, another MCP-capable agent, or no agent. One member may participate in multiple projects and register multiple workspaces without running multiple Overgent services.
 
 ## 3. Product principles
 
@@ -43,16 +43,16 @@ The initial user is a team of 2–5 people working in one Git repository during 
 5. **Inform, never take control.** Never drive agents, merge code, or mutate a teammate's worktree.
 6. **Honest fidelity.** Label whether information came from Git, manual input, MCP, hooks, or an adapter.
 7. **Precision over notification volume.** Quiet evidence is better than a noisy alert.
-8. **Portable boundaries.** The local client speaks a Stickguy-owned protocol, not a database-vendor protocol.
+8. **Portable boundaries.** The local client speaks an Overgent-owned protocol, not a database-vendor protocol.
 
 ## 4. Core journeys
 
 ### Create and join
 
-1. Install the single Stickguy executable.
-2. `stickguy create` creates a project, enrolls the creator device, registers the current Git workspace, and opens the dashboard.
-3. Stickguy produces an expiring invite code/link.
-4. A teammate runs `stickguy join <code>` inside their checkout.
+1. Install the single Overgent executable.
+2. `overgent create` creates a project, enrolls the creator device, registers the current Git workspace, and opens the dashboard.
+3. Overgent produces an expiring invite code/link.
+4. A teammate runs `overgent join <code>` inside their checkout.
 5. Their device is enrolled, workspace registered, service running, and both members appear in the live project view.
 
 Median target: under 60 seconds from command to mutual visibility.
@@ -63,9 +63,9 @@ Median target: under 60 seconds from command to mutual visibility.
 2. The local service observes changed paths from Git/filesystem.
 3. Dashboard updates intent, touched paths, fidelity, and presence.
 4. The agent calls `check_coordination` before broad/shared edits.
-5. Stickguy returns only changes relevant to that workspace/workstream within a bounded brief.
+5. Overgent returns only changes relevant to that workspace/workstream within a bounded brief.
 6. The agent reports meaningful checkpoints/verification and the brief on which it relied.
-7. Stickguy refreshes context if a relevant assumption became stale; completion records unresolved items.
+7. Overgent refreshes context if a relevant assumption became stale; completion records unresolved items.
 
 ### Resolve overlap
 

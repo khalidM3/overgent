@@ -90,7 +90,7 @@ export function lastReportedAt(session: Workstream): number | null {
 /**
  * The health of one session, or null when there is nothing to say.
  *
- * Silence is only reported for a session Stickguy can actually watch. A vendor
+ * Silence is only reported for a session Overgent can actually watch. A vendor
  * that does not report tool activity produces an empty event stream whether the
  * agent is working hard or has been wedged for an hour, and calling that second
  * case a stall would be inventing evidence. Absence of observation is not
@@ -120,7 +120,7 @@ export function sessionHealth(session: Workstream, now: number): HealthSignal | 
   const silentSeconds = Math.floor((now - last) / 1_000);
   if (silentSeconds < STALL_SECONDS) return null;
 
-  // The claim is the measurement, not a diagnosis. Stickguy knows the session
+  // The claim is the measurement, not a diagnosis. Overgent knows the session
   // has gone quiet; it does not know whether the agent is stuck, thinking, or
   // running something slow, and saying otherwise would overstate the evidence.
   return {

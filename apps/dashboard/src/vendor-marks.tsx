@@ -2,7 +2,7 @@ import type { AgentVendor } from "./model";
 
 /**
  * Vendor artwork, rendered so a provider identity never competes with
- * Stickguy's alert colour (ADR-057).
+ * Overgent's alert colour (ADR-057).
  *
  * Claude: Anthropic media resources, Claude Spark (one-colour path).
  * Codex: the signed Codex desktop app icon, downsampled to 64px for UI use.

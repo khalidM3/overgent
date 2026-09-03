@@ -20,8 +20,8 @@ func desktopDeepLinkTarget(raw string) (string, bool) {
 	if err != nil || !strings.EqualFold(parsed.Scheme, desktopURLScheme()) {
 		return "", false
 	}
-	// A scheme URL puts the first path segment in Host ("stickguy://new-project")
-	// or in Path ("stickguy:///new-project"), depending on how it was written.
+	// A scheme URL puts the first path segment in Host ("overgent://new-project")
+	// or in Path ("overgent:///new-project"), depending on how it was written.
 	route := parsed.Host
 	if route == "" {
 		route = strings.TrimPrefix(parsed.Path, "/")

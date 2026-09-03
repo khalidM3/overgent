@@ -1,13 +1,13 @@
 # OpenAI embeddings for semantic coordination
 
-Stickguy can enrich approved coordination objects with OpenAI
+Overgent can enrich approved coordination objects with OpenAI
 `text-embedding-3-large` embeddings. This is optional: Git/path evidence and
 the deterministic offline concept provider remain available when the provider
 is not configured or is unavailable.
 
 ## What is sent
 
-Only a bounded intent or checkpoint summary that already passed Stickguy's
+Only a bounded intent or checkpoint summary that already passed Overgent's
 semantic policy is sent to the embeddings endpoint. Source, diffs, Git objects,
 prompts, transcripts, tool input/output, raw command output, environment values,
 and credentials are rejected before storage and before this provider runs.
@@ -15,7 +15,7 @@ and credentials are rejected before storage and before this provider runs.
 ## Configure a hosted deployment
 
 Set `OPENAI_API_KEY` as a Convex deployment environment secret. Do not put it in
-the repository, a `.env` file committed to Git, local Stickguy configuration,
+the repository, a `.env` file committed to Git, local Overgent configuration,
 or Codex/Claude configuration. The client never receives the key.
 
 The hosted action requests a 1024-dimension vector and records the provider and
@@ -32,7 +32,7 @@ presented as proof.
 ## Failure behavior
 
 If no key is configured, OpenAI rejects a request, or the 10-second bounded
-request times out, Stickguy records degraded semantic fidelity. It continues to
+request times out, Overgent records degraded semantic fidelity. It continues to
 publish manifests, structural findings, deterministic concept findings, and
 briefs. A provider failure never blocks a workstream, Git observation, or agent
 session.

@@ -10,11 +10,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	gitadapter "github.com/stickguy/stickguy/internal/git"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	gitadapter "github.com/overgent/overgent/internal/git"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 type API interface {
@@ -86,7 +86,7 @@ func (s Service) Create(ctx context.Context, options Options) (Result, error) {
 	}
 	appVersion := options.AppVersion
 	if appVersion == "" {
-		appVersion = "stickguy/dev"
+		appVersion = "overgent/dev"
 	}
 	project, err := client.CreateProject(ctx, options.ProjectLabel, options.DeviceLabel, options.DisplayName, appVersion)
 	if err != nil {
@@ -123,7 +123,7 @@ func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID
 	}
 	appVersion := options.AppVersion
 	if appVersion == "" {
-		appVersion = "stickguy/dev"
+		appVersion = "overgent/dev"
 	}
 	project, err := client.CreateProject(ctx, options.ProjectLabel, options.DeviceLabel, options.DisplayName, appVersion)
 	if err != nil {
@@ -168,14 +168,14 @@ func ParseInviteCode(raw string) (string, error) {
 				return "", errors.New("invite link must be a /join URL carrying the code after #")
 			}
 			candidate = parsed.Fragment
-		case strings.EqualFold(parsed.Scheme, "stickguy"):
-			// A scheme URL puts the first segment in Host ("stickguy://join/…").
+		case strings.EqualFold(parsed.Scheme, "overgent"):
+			// A scheme URL puts the first segment in Host ("overgent://join/…").
 			if !strings.EqualFold(parsed.Host, "join") {
-				return "", errors.New("invite deep link must use stickguy://join/")
+				return "", errors.New("invite deep link must use overgent://join/")
 			}
 			candidate = strings.Trim(parsed.Path, "/")
 		default:
-			return "", errors.New("invite link must be https or stickguy scheme")
+			return "", errors.New("invite link must be https or overgent scheme")
 		}
 	}
 	if !inviteCodePattern.MatchString(candidate) {
@@ -202,7 +202,7 @@ func (s Service) Join(ctx context.Context, options Options, joinCode string) (Re
 	}
 	appVersion := options.AppVersion
 	if appVersion == "" {
-		appVersion = "stickguy/dev"
+		appVersion = "overgent/dev"
 	}
 	enrollment, err := publicClient.Enroll(ctx, inviteID, inviteSecret, options.DeviceLabel, options.DisplayName, appVersion)
 	if err != nil {

@@ -1,5 +1,5 @@
 {
-  "name": "@stickguy/hosted",
+  "name": "@overgent/hosted",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "test:live": "node scripts/live-l2.mjs"
   },
   "dependencies": {
-    "@stickguy/coordination": "workspace:*",
+    "@overgent/coordination": "workspace:*",
     "convex": "1.45.0"
   },
   "devDependencies": {

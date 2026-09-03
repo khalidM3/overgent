@@ -1,11 +1,11 @@
-# Stickguy — Coordination Intelligence
+# Overgent — Coordination Intelligence
 
 Status: canonical V1 design  
 Last updated: 2026-08-26
 
 ## 1. Product promise
 
-Coordination intelligence is a V1 capability, not a later semantic-search add-on. Stickguy must warn a team while work is in progress when active workstreams are likely to:
+Coordination intelligence is a V1 capability, not a later semantic-search add-on. Overgent must warn a team while work is in progress when active workstreams are likely to:
 
 - edit the same path, symbol, contract, schema, route, dependency, or shared subsystem;
 - implement substantially the same capability in different places;
@@ -13,7 +13,7 @@ Coordination intelligence is a V1 capability, not a later semantic-search add-on
 - invalidate or depend on another active change; or
 - create a large change whose blast radius intersects other work.
 
-Stickguy is an early-warning and decision-delivery system. It cannot guarantee conflict-free merges, understand every unreported intention, or safely merge work automatically.
+Overgent is an early-warning and decision-delivery system. It cannot guarantee conflict-free merges, understand every unreported intention, or safely merge work automatically.
 
 ## 2. Cross-device model
 
@@ -226,7 +226,7 @@ the next pull, push, or shared write. A shared branch is not evidence of safety;
 it is evidence that something else is also watching.
 
 Branch is never a gate. Detecting collisions only within a branch would make
-Stickguy silent in exactly the case it exists for, and would make the silence
+Overgent silent in exactly the case it exists for, and would make the silence
 reachable with `git checkout -b`.
 
 **Declared exploratory work.** A workstream whose own title or summary calls the

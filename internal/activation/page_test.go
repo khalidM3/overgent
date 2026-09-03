@@ -10,7 +10,7 @@ import (
 
 func TestActivationPagePostsTicketOutsideURLAndEscapesValues(t *testing.T) {
 	var page bytes.Buffer
-	if err := writePage(&page, "https://api.stickguy.dev/v1/dashboard-activations", `synthetic-ticket-<unsafe>-value`); err != nil {
+	if err := writePage(&page, "https://api.overgent.com/v1/dashboard-activations", `synthetic-ticket-<unsafe>-value`); err != nil {
 		t.Fatal(err)
 	}
 	html := page.String()
@@ -34,7 +34,7 @@ func TestActivationSupportsLoopbackDashboardProxyPrefix(t *testing.T) {
 
 func TestActivationPageSubmitsItselfAndKeepsAButtonForNoScript(t *testing.T) {
 	var page bytes.Buffer
-	if err := writePage(&page, "https://api.stickguy.dev/v1/dashboard-activations", "synthetic-ticket-value-000"); err != nil {
+	if err := writePage(&page, "https://api.overgent.com/v1/dashboard-activations", "synthetic-ticket-value-000"); err != nil {
 		t.Fatal(err)
 	}
 	html := page.String()

@@ -103,7 +103,7 @@ const nativeRuntimeReady = window.location.protocol === "wails:" || window.locat
 async function call<T>(method: string, ...args: unknown[]): Promise<T> {
   await nativeRuntimeReady;
   const bridge = importedCall ?? globalThis.wails?.Call;
-  if (!bridge?.ByName) return Promise.reject(new Error("The native Stickguy bridge is unavailable. Open this flow in the Stickguy desktop app."));
+  if (!bridge?.ByName) return Promise.reject(new Error("The native Overgent bridge is unavailable. Open this flow in the Overgent desktop app."));
   return bridge.ByName<T>(`main.OnboardingService.${method}`, ...args);
 }
 

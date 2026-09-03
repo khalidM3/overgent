@@ -9,20 +9,20 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/stickguy/stickguy/internal/activation"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/claudesetup"
-	"github.com/stickguy/stickguy/internal/codexsetup"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	"github.com/stickguy/stickguy/internal/cursorsetup"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
-	coordinationmcp "github.com/stickguy/stickguy/internal/mcp"
-	"github.com/stickguy/stickguy/internal/onboarding"
-	servicemanager "github.com/stickguy/stickguy/internal/service"
-	updateclient "github.com/stickguy/stickguy/internal/update"
+	"github.com/overgent/overgent/internal/activation"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/claudesetup"
+	"github.com/overgent/overgent/internal/codexsetup"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	"github.com/overgent/overgent/internal/cursorsetup"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
+	coordinationmcp "github.com/overgent/overgent/internal/mcp"
+	"github.com/overgent/overgent/internal/onboarding"
+	servicemanager "github.com/overgent/overgent/internal/service"
+	updateclient "github.com/overgent/overgent/internal/update"
 	"io"
 	"os"
 	"os/exec"
@@ -65,15 +65,15 @@ func run(args []string) error {
 		identity, _ := executableIdentity()
 		return json.NewEncoder(os.Stdout).Encode(versionInfo{version, commit, buildTime, 1, 1, identity})
 	}
-	fs := flag.NewFlagSet("stickguy", flag.ContinueOnError)
+	fs := flag.NewFlagSet("overgent", flag.ContinueOnError)
 	root := fs.String("config-root", "", "isolated per-user state root")
-	apiBase := fs.String("api", "https://api.stickguy.dev", "Stickguy API origin")
+	apiBase := fs.String("api", "https://api.overgent.com", "Overgent API origin")
 	if e := fs.Parse(args); e != nil {
 		return e
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: stickguy [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
+		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -118,10 +118,10 @@ func run(args []string) error {
 				return fmt.Errorf("read existing device credential: %w", tokenErr)
 			}
 			service := onboarding.New(existing.apiBaseURL)
-			result, createErr = service.CreateAdditional(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: existing.apiBaseURL, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version}, existing.deviceID, token)
+			result, createErr = service.CreateAdditional(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: existing.apiBaseURL, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}, existing.deviceID, token)
 		} else {
 			service := onboarding.New(*apiBase)
-			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version})
+			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version})
 		}
 		if createErr != nil {
 			return createErr
@@ -144,7 +144,7 @@ func run(args []string) error {
 			return errors.New("join requires one invite link or code")
 		}
 		service := onboarding.New(*apiBase)
-		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "stickguy/" + version}, joinFlags.Arg(0))
+		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}, joinFlags.Arg(0))
 		if joinErr != nil {
 			return joinErr
 		}
@@ -376,7 +376,7 @@ func run(args []string) error {
 				return loadErr
 			}
 			if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
-				return errors.New("development profile is not enrolled; run stickguy create first")
+				return errors.New("development profile is not enrolled; run overgent create first")
 			}
 			projectIDs := map[string]bool{}
 			for _, existing := range cfg.Workspaces {
@@ -479,7 +479,7 @@ func run(args []string) error {
 		return writeDiagnostics(ctx, paths)
 	case "update":
 		updateFlags := flag.NewFlagSet("update", flag.ContinueOnError)
-		manifestURL := updateFlags.String("manifest", "https://github.com/stickguy/stickguy/releases/latest/download/update-manifest.json", "signed update metadata URL")
+		manifestURL := updateFlags.String("manifest", "https://github.com/overgent/overgent/releases/latest/download/update-manifest.json", "signed update metadata URL")
 		if e = updateFlags.Parse(rest[1:]); e != nil {
 			return e
 		}
@@ -616,14 +616,14 @@ func runAgentHook(ctx context.Context, socket, vendor string, stdin io.Reader, s
 //     `hookSpecificOutput`.
 //
 // Like every other hook path it fails open: every error returns nil, so Cursor's
-// turn proceeds unchanged whatever Stickguy could not do (ADR-017).
+// turn proceeds unchanged whatever Overgent could not do (ADR-017).
 func runCursorHook(ctx context.Context, socket, event string, stdin io.Reader, stdout io.Writer, call daemonCaller) error {
 	hookContext, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if !agentactivity.SupportedCursorEvent(event) {
 		return nil
 	}
-	// The workspace root Stickguy published from this session's sessionStart.
+	// The workspace root Overgent published from this session's sessionStart.
 	// afterFileEdit and beforeSubmitPrompt report no root of their own, so
 	// without this they cannot be attributed to a repository at all.
 	parsed, err := agentactivity.ParseCursor(event, stdin, os.Getenv(agentactivity.CursorWorkspaceRootEnv))

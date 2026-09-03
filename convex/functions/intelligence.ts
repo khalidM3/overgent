@@ -3,11 +3,11 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { ANTHROPIC_JUDGMENT_MODEL, AnthropicJudgmentProvider, OpenAIEmbeddingProvider, conceptVector, deterministicJudgment, judgeCandidate, needsManagedAdjudication, type JudgmentCandidate } from "@stickguy/coordination";
+import { ANTHROPIC_JUDGMENT_MODEL, AnthropicJudgmentProvider, OpenAIEmbeddingProvider, conceptVector, deterministicJudgment, judgeCandidate, needsManagedAdjudication, type JudgmentCandidate } from "@overgent/coordination";
 
 const OPENAI_EMBEDDING_DIMENSIONS = 1024;
 const OPENAI_EMBEDDING_MODEL_VERSION = "text-embedding-3-large/1024";
-const FALLBACK_EMBEDDING_MODEL_VERSION = "stickguy-concepts/v1/1024";
+const FALLBACK_EMBEDDING_MODEL_VERSION = "overgent-concepts/v1/1024";
 const FOREIGN_EMBEDDING_MIGRATION_BATCH = 100;
 const ANTHROPIC_JUDGMENT_PROVIDER = `anthropic/${ANTHROPIC_JUDGMENT_MODEL}`;
 
@@ -101,7 +101,7 @@ export const configureFallbackEmbeddingModel = internalMutation({
     const scope = await ctx.db.query("repositoryScopes").withIndex("by_scope", (q) => q.eq("scopeKey", args.scopeKey)).unique();
     if (!scope || scope.semanticModelVersion === FALLBACK_EMBEDDING_MODEL_VERSION) return false;
     await ctx.db.patch(scope._id, {
-      semanticProviderName: "stickguy",
+      semanticProviderName: "overgent",
       semanticModelVersion: FALLBACK_EMBEDDING_MODEL_VERSION,
       updatedAt: args.now,
     });
@@ -142,7 +142,7 @@ export const convergeForeignEmbeddings = internalMutation({
         // the object's own text - this also heals the pre-existing 32-dim
         // population left by an un-migrated CONCEPT_DIMENSIONS change.
         await ctx.db.patch(embedding._id, {
-          scopeKey: object.scopeKey, scopeModelKey: composite, providerName: "stickguy",
+          scopeKey: object.scopeKey, scopeModelKey: composite, providerName: "overgent",
           modelVersion: args.modelVersion, contentRevision: object.revision, vector: conceptVector(object.text),
         });
         converged++;

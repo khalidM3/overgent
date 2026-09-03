@@ -1,4 +1,4 @@
-# Stickguy — Architecture Decision Log
+# Overgent — Architecture Decision Log
 
 ## ADR-001: Project is the persistent container
 
@@ -14,7 +14,7 @@ One service owns state/watchers; CLI and MCP are clients. This avoids duplicate 
 
 ## ADR-004: Convex hosts coordination state
 
-Use Convex for realtime state, transactions, HTTP actions, and schedules. Go speaks only the Stickguy `/v1` contract; IDs remain vendor-neutral. Accepted 2026-08-23.
+Use Convex for realtime state, transactions, HTTP actions, and schedules. Go speaks only the Overgent `/v1` contract; IDs remain vendor-neutral. Accepted 2026-08-23.
 
 ## ADR-005: Hosted dashboard first, Wails later
 
@@ -34,7 +34,7 @@ Deliver via API/MCP and optional untracked context, not a shared tracked append 
 
 ## ADR-009: Apache-2.0 open-source application with managed cloud
 
-Publish the installed Go client, adapters, protocols, installers, release workflows, dashboard, and core backend authorization/retention/coordination code under the unmodified Apache License 2.0. Keep production operations, billing, private admin/abuse systems, runbooks, and private eval data in a separate private repository. Use `Copyright 2026 Stickguy contributors` as the initial `NOTICE` attribution; a later legal entity or rights assignment requires an explicit notice review rather than a template substitution. Accepted by the owner 2026-08-23.
+Publish the installed Go client, adapters, protocols, installers, release workflows, dashboard, and core backend authorization/retention/coordination code under the unmodified Apache License 2.0. Keep production operations, billing, private admin/abuse systems, runbooks, and private eval data in a separate private repository. Use `Copyright 2026 Overgent contributors` as the initial `NOTICE` attribution; a later legal entity or rights assignment requires an explicit notice review rather than a template substitution. Accepted by the owner 2026-08-23.
 
 ## ADR-010: Coordination intelligence is a V1 capability
 
@@ -48,9 +48,9 @@ Each client reports its own baseline-to-current manifest and coordination summar
 
 Managed V1 uses provider-neutral embedding/adjudication interfaces and a `SemanticIndex` adapter backed initially by Convex vector search. Only approved coordination summaries reach providers; source and diffs remain prohibited. TurboVec is a future local/self-hosted adapter only when measured need justifies its packaging cost. Accepted 2026-08-23.
 
-## ADR-013: Stickguy is a coordination harness, not a coding harness
+## ADR-013: Overgent is a coordination harness, not a coding harness
 
-Existing products retain their model loops, coding tools, execution permissions, test execution, context compression, and model routing. Stickguy owns cross-agent observation, shared project memory, relevance routing, advisory coordination, and delivery acknowledgement. Accepted 2026-08-23.
+Existing products retain their model loops, coding tools, execution permissions, test execution, context compression, and model routing. Overgent owns cross-agent observation, shared project memory, relevance routing, advisory coordination, and delivery acknowledgement. Accepted 2026-08-23.
 
 ## ADR-014: Context is routed as versioned workstream briefs
 
@@ -94,13 +94,13 @@ Enrollment may return an initial one-time dashboard ticket, but the Project crea
 
 ## ADR-024: Device-initiated activation POSTs tickets into same-origin browser sessions
 
-The `stickguy dashboard --project` command mints a Project-scoped ticket from the Keychain-backed device credential, opens an unpredictable loopback-only handoff page, and renders the ticket only as an escaped hidden form value. The browser submits it by top-level POST to `/v1/dashboard-activations`; the hosted boundary consumes it once, sets a Secure/HttpOnly/SameSite=Strict session cookie, and redirects without putting the ticket in a URL, page input, process argument, browser storage, or retained evidence. Browser session and Project snapshot reads reauthorize the hashed session and its single Project on every request. Production serves the dashboard from the same origin; the loopback redirect is validation-only. Accepted 2026-08-23 during L4 vertical-slice integration.
+The `overgent dashboard --project` command mints a Project-scoped ticket from the Keychain-backed device credential, opens an unpredictable loopback-only handoff page, and renders the ticket only as an escaped hidden form value. The browser submits it by top-level POST to `/v1/dashboard-activations`; the hosted boundary consumes it once, sets a Secure/HttpOnly/SameSite=Strict session cookie, and redirects without putting the ticket in a URL, page input, process argument, browser storage, or retained evidence. Browser session and Project snapshot reads reauthorize the hashed session and its single Project on every request. Production serves the dashboard from the same origin; the loopback redirect is validation-only. Accepted 2026-08-23 during L4 vertical-slice integration.
 
 ## ADR-025: Use one official-SDK stdio lifecycle bridge with trust-preserving project adapters
 
-Expose the seven Stickguy lifecycle tools from the Go executable through the pinned official Model Context Protocol Go SDK `v1.7.0`. Codex and Claude Code launch the same local stdio bridge; neither adapter gains a coding loop, file tools, shell execution, Git mutation, or agent-permission authority. The bridge resolves an explicit registered workspace or one unique canonical current-directory match and fails closed on zero or multiple matches. Lifecycle mutations are durable, revision-checked, and idempotent before hosted delivery; unavailable hosted context returns an explicit degraded result without losing the local report.
+Expose the seven Overgent lifecycle tools from the Go executable through the pinned official Model Context Protocol Go SDK `v1.7.0`. Codex and Claude Code launch the same local stdio bridge; neither adapter gains a coding loop, file tools, shell execution, Git mutation, or agent-permission authority. The bridge resolves an explicit registered workspace or one unique canonical current-directory match and fails closed on zero or multiple matches. Lifecycle mutations are durable, revision-checked, and idempotent before hosted delivery; unavailable hosted context returns an explicit degraded result without losing the local report.
 
-Codex setup owns one exact marked table in trusted project `.codex/config.toml`, following the [official Codex MCP configuration](https://developers.openai.com/codex/mcp). Claude setup structurally merges one `stickguy` stdio entry in project `.mcp.json`, following the [official Claude Code MCP scope contract](https://code.claude.com/docs/en/mcp), and surfaces Claude's required one-time project approval. Default-root setup writes the portable PATH command `stickguy mcp`; an explicitly isolated config root writes the requested absolute executable/state paths. Both refuse drift and preserve unrelated configuration on removal. No adapter writes credentials into agent configuration. Hooks remain disabled and `available_but_unverified` under ADR-016; MCP plus Git/manual fidelity remains the selected fallback. Accepted 2026-08-23; credentialed external-model smoke remains a separate explicit-consent verification step.
+Codex setup owns one exact marked table in trusted project `.codex/config.toml`, following the [official Codex MCP configuration](https://developers.openai.com/codex/mcp). Claude setup structurally merges one `overgent` stdio entry in project `.mcp.json`, following the [official Claude Code MCP scope contract](https://code.claude.com/docs/en/mcp), and surfaces Claude's required one-time project approval. Default-root setup writes the portable PATH command `overgent mcp`; an explicitly isolated config root writes the requested absolute executable/state paths. Both refuse drift and preserve unrelated configuration on removal. No adapter writes credentials into agent configuration. Hooks remain disabled and `available_but_unverified` under ADR-016; MCP plus Git/manual fidelity remains the selected fallback. Accepted 2026-08-23; credentialed external-model smoke remains a separate explicit-consent verification step.
 
 ## ADR-026: Withhold coding-agent setup after the L5 real-client gate narrows
 
@@ -112,11 +112,11 @@ Claude Code `2.1.197` parses the project-scoped stdio configuration, but its ins
 
 Add optional `activity` and `conversation` sharing profiles above the default privacy-minimized `coordination` profile. Installation and Project enrollment do not enable them. A Project owner must make a profile available and each member must independently opt in for their workspace/session; the narrower setting wins. Activity may disclose lifecycle, visible plan/progress, tool category/status, safe paths, permission-needed state, and bounded verification outcomes. Conversation sharing may disclose bounded user-authored prompts and visible assistant messages as individually classified events, but never ingests or uploads transcript files.
 
-Source/diffs, Git objects, file/tool-result content, raw commands/output, environment values, `.env` variants, credentials/tokens, protected credential paths, vendor/organization/developer/system prompts, and hidden reasoning remain prohibited under every profile. Candidate vendor events may exist transiently in local memory only until policy projection; prohibited fields are discarded before durable storage or enqueue. Pause/downgrade is synchronous, consent is versioned and revocable, exact shared data is inspectable/deletable, and Project authorization/retention applies. Stickguy remains an observer around vendor-owned sessions and does not start/steer model loops or execute/approve tools. Production contracts wait for the isolated L5A gate in `agent-activity-sharing.md`; until it passes or narrows, current adapters remain withheld under ADR-026. Accepted by the owner 2026-08-23; supersedes ADR-006, ADR-016, and ADR-026 only to authorize this bounded validation and a later reviewed opt-in observation contract.
+Source/diffs, Git objects, file/tool-result content, raw commands/output, environment values, `.env` variants, credentials/tokens, protected credential paths, vendor/organization/developer/system prompts, and hidden reasoning remain prohibited under every profile. Candidate vendor events may exist transiently in local memory only until policy projection; prohibited fields are discarded before durable storage or enqueue. Pause/downgrade is synchronous, consent is versioned and revocable, exact shared data is inspectable/deletable, and Project authorization/retention applies. Overgent remains an observer around vendor-owned sessions and does not start/steer model loops or execute/approve tools. Production contracts wait for the isolated L5A gate in `agent-activity-sharing.md`; until it passes or narrows, current adapters remain withheld under ADR-026. Accepted by the owner 2026-08-23; supersedes ADR-006, ADR-016, and ADR-026 only to authorize this bounded validation and a later reviewed opt-in observation contract.
 
 ## ADR-028: Accept Claude activity hooks and narrow Codex App Server observation
 
-An authenticated Claude Code `2.1.197` synthetic run proves project-configured command hooks for session, visible prompt submission, tool pre/post, subagent, stop, and session-end lifecycle while Read, Bash, and Agent execute. Session persistence was disabled, hook inputs were discarded, and isolated structural configuration tests preserve unrelated settings/permissions and refuse drift. Accept this supported hook surface for a future opt-in `activity` adapter; permission-denial and partial-message fidelity remain unavailable until separately proved. The adapter observes project-configured Claude sessions and does not require Stickguy to own the model loop.
+An authenticated Claude Code `2.1.197` synthetic run proves project-configured command hooks for session, visible prompt submission, tool pre/post, subagent, stop, and session-end lifecycle while Read, Bash, and Agent execute. Session persistence was disabled, hook inputs were discarded, and isolated structural configuration tests preserve unrelated settings/permissions and refuse drift. Accept this supported hook surface for a future opt-in `activity` adapter; permission-denial and partial-message fidelity remain unavailable until separately proved. The adapter observes project-configured Claude sessions and does not require Overgent to own the model loop.
 
 Codex CLI `0.148.0-alpha.15` App Server proves bounded enumeration of existing tasks by exact working directory and structured turn/item reads without transcript-file parsing. It does not prove subscription to another already-running App Server process. Narrow Codex to bounded refresh/read where supported and retain MCP/Git/manual as the realtime fallback. Unknown vendor events fail closed.
 
@@ -130,7 +130,7 @@ The required tray API is available in Wails `v3.0.0-beta.12`, not stable Wails v
 
 ## ADR-030: Start semantic coordination with a deterministic concept provider and quiet radar delivery
 
-Use the public `EmbeddingProvider` boundary with `stickguy-concepts/v1`, a deterministic 32-dimensional normalized concept-vector adapter, and the existing Convex vector index behind the portable `SemanticIndex` contract. This avoids adding a third-party model credential or sending approved summaries to another provider while the public corpus is small. Exact structural and lexical signals remain independently operational; vector similarity is only candidate evidence. Semantic/lexical fusion may create explained findings in the radar and briefs, but L6 adds no proactive semantic interruption channel.
+Use the public `EmbeddingProvider` boundary with `overgent-concepts/v1`, a deterministic 32-dimensional normalized concept-vector adapter, and the existing Convex vector index behind the portable `SemanticIndex` contract. This avoids adding a third-party model credential or sending approved summaries to another provider while the public corpus is small. Exact structural and lexical signals remain independently operational; vector similarity is only candidate evidence. Semantic/lexical fusion may create explained findings in the radar and briefs, but L6 adds no proactive semantic interruption channel.
 
 The adapter is deliberately narrow: it recognizes the versioned public coordination vocabulary and does not claim general language understanding. Provider/index failure retries once, persists visible degraded fidelity, and falls back to current structural routing. A later managed or self-hosted provider must pass the expanded public and private precision/cost/privacy gates behind the same interfaces; it does not require a protocol replacement. Accepted 2026-08-24 after the L6 public corpus passed its labeled positive, negative, isolation, routing, budget, stale-state, adversarial-input, and outage cases.
 
@@ -138,7 +138,7 @@ The adapter is deliberately narrow: it recognizes the versioned public coordinat
 
 Add a development profile that composes the existing public components without
 weakening their production boundaries. Vite supplies React hot reload to a
-separately identified `Stickguy Dev.app`; local Convex remains loopback-only;
+separately identified `Overgent Dev.app`; local Convex remains loopback-only;
 one default-profile Go service may hot-register distinct linked-worktree roots;
 and the development desktop exchanges a one-time dashboard ticket inside its
 own webview. The ticket remains server-side until form POST and never enters a
@@ -156,7 +156,7 @@ service. Accepted by the owner 2026-08-24 before L7.
 
 ## ADR-032: Make the repository the native onboarding anchor
 
-The normal development workflow begins in `Stickguy Dev.app`, not with a
+The normal development workflow begins in `Overgent Dev.app`, not with a
 per-chat command. The user chooses one canonical Git repository and creates or
 joins a Project. Git observation starts from that registered root regardless of
 which editor or coding agent changes it. Detected Codex and Claude Code adapters
@@ -168,7 +168,7 @@ One working tree cannot honestly attribute a filesystem change to a particular
 process. For local Codex-versus-Claude attribution, the desktop accepts existing
 distinct linked worktrees, validates their shared Git common directory, hot
 registers separate workstreams through the one-service boundary, and configures
-only the selected agent in each root. Stickguy does not create, switch, remove,
+only the selected agent in each root. Overgent does not create, switch, remove,
 or otherwise mutate worktrees. Claude Code CLI is supported; generic Claude
 Desktop sessions do not currently expose a repository-bound lifecycle surface.
 
@@ -184,7 +184,7 @@ updating remain L8 gates. Accepted by the owner 2026-08-24 before L7.
 The owner-demonstrated product requirement is seamless session awareness: after
 a member selects a repository and explicitly connects Codex or Claude Code, new
 supported sessions opened anywhere under that repository appear automatically.
-They do not need to call a Stickguy tool, create a branch, or use a distinct
+They do not need to call an Overgent tool, create a branch, or use a distinct
 worktree. A linked worktree remains an optional Git-isolation technique, not an
 attribution prerequisite.
 
@@ -194,11 +194,11 @@ permission, subagent, stop, and session-end events. Install exact managed hook
 groups alongside the existing Project MCP entry, preserve unrelated settings,
 refuse drift, run observation asynchronously where the vendor permits, and
 never return a decision that controls agent execution. Map each vendor session
-to a stable hashed Stickguy workstream scoped by the registered repository;
+to a stable hashed Overgent workstream scoped by the registered repository;
 vendor session and transcript identifiers remain local and are never sent.
 
 The initial `activity/v1` projection shares lifecycle/status, a bounded
-Stickguy-generated action label, allowlisted tool name, hashed subagent alias
+Overgent-generated action label, allowlisted tool name, hashed subagent alias
 and type, and safe repository-relative affected paths. It rejects protected or
 escaping paths as whole events and discards tool input/output, prompt text,
 source/diffs, raw commands/output, transcript paths, system/developer prompts,
@@ -222,7 +222,7 @@ owner 2026-08-24 after current official surface review and loopback live proof.
 
 Add `session-share/v1` as a per-session, member-controlled disclosure layer on
 top of ADR-033 activity. It is disabled by default and never follows merely from
-installing Stickguy, joining a Project, connecting an adapter, or enabling safe
+installing Overgent, joining a Project, connecting an adapter, or enabling safe
 activity. Before enabling, the member sees a side-effect-free local preview and
 chooses `self` or authorized `Project` audience, exact message kinds, and an
 expiry. The consent record is versioned; an adapter or schema expansion requires
@@ -236,7 +236,7 @@ storage. Any `.env` reference or content, environment value, credential, token,
 cookie, private key, protected credential path, source/diff-like content, raw
 tool input/result, command/output, transcript path/file, binary data, scanner
 failure, unknown kind, or oversize content rejects the whole candidate. Redaction
-does not turn prohibited data into allowed data. Stickguy may display only what
+does not turn prohibited data into allowed data. Overgent may display only what
 the vendor-supported event exposes; it does not scrape transcript stores,
 inspect process memory, infer hidden chain of thought, or claim unavailable
 reasoning fidelity.
@@ -270,7 +270,7 @@ security, where they identify hardware for revocation and audit. Renaming a
 member bumps the Project scopes so briefs and rendered coordination items
 re-read the name rather than keeping a stale device-derived label.
 
-Live agent sessions also carry the real checked-out branch. Stickguy reads it
+Live agent sessions also carry the real checked-out branch. Overgent reads it
 from the registered worktree with `git symbolic-ref --short HEAD` rather than
 trusting an adapter-reported value; a detached HEAD or a slow read reports no
 branch instead of failing, and the name is validated as a plain branch name at
@@ -286,10 +286,10 @@ bounded purpose. Hook payloads do not carry assistant text, reasoning, or system
 instructions; only `UserPromptSubmit` carries content. Session detail was
 therefore structurally empty, and no amount of hook work could fix it.
 
-Stickguy may now read the vendor transcript file named by the supported hook's
+Overgent may now read the vendor transcript file named by the supported hook's
 own `transcript_path` for a session running in a registered repository on this
 device. The file is read locally, bounded from the tail, and never copied into a
-second durable store; Stickguy records only the path, the session title, and the
+second durable store; Overgent records only the path, the session title, and the
 branch. Because the content stays on the machine that produced it, the session
 owner always sees their own session in full without enabling any sharing. This
 is the point of the change: a member must be able to see exactly what they would
@@ -308,15 +308,15 @@ credential paths, raw tool results, command output, and attachments. Raw
 
 `thinking` parts are vendor-recorded reasoning that the vendor itself persisted.
 They are treated as content, not as hidden chain of thought inferred by
-Stickguy, and they are shared only under the same explicit consent. Where a
-vendor records no reasoning, Stickguy shows none and claims none. Accepted by
+Overgent, and they are shared only under the same explicit consent. Where a
+vendor records no reasoning, Overgent shows none and claims none. Accepted by
 the owner 2026-08-25 after confirming that hook-only session detail cannot
 show a usable session.
 
 ## ADR-037: Narrow the product to collision coordination
 
 Remove shared plan items and advisory path claims. Planning is a human process
-that teams already run elsewhere, and a plan surface inside Stickguy competed
+that teams already run elsewhere, and a plan surface inside Overgent competed
 with the actual value: seeing what every agent session is doing and catching
 collisions before they land. Their tables, contracts, MCP tools, and dashboard
 surfaces are deleted rather than hidden, so no partially maintained surface
@@ -362,7 +362,7 @@ stream is raw model I/O that also carries injected context and tool framing, so
 it contributes only tool names and the operating-instruction turns; reading it
 as conversation would present machine-injected text as something a person wrote.
 The `reasoning` payload's `encrypted_content` is vendor-held hidden reasoning
-and is never read, which keeps the ADR-036 promise that Stickguy shows only what
+and is never read, which keeps the ADR-036 promise that Overgent shows only what
 a vendor surfaced. Codex records no title, so a session is labelled by its
 opening request, skipping the machine-written preamble of a resumed or compacted
 session; where no usable label exists the vendor and alias are shown instead.
@@ -377,7 +377,7 @@ by the owner 2026-08-25.
 ## ADR-040: Managed OpenAI embeddings with deterministic fallback
 
 Keep the public `EmbeddingProvider` contract and retain
-`stickguy-concepts/v1` as an offline, deterministic fallback. The managed
+`overgent-concepts/v1` as an offline, deterministic fallback. The managed
 provider is OpenAI `text-embedding-3-large`, requested at 1024 dimensions and
 called only from a hosted asynchronous action after semantic text has passed
 the existing bounded policy. The API key is a hosted deployment secret; it is
@@ -435,12 +435,12 @@ Codex and Claude Code adapter readiness has two independent dimensions:
 configuration ownership and observed runtime delivery. A managed MCP/hook entry
 is classified as `current`, `partial`, `other_profile`, `not_configured`, or
 `drifted`. A partial current-profile installation may be repaired
-automatically. A structurally recognized binding to another Stickguy profile
+automatically. A structurally recognized binding to another Overgent profile
 must be shown explicitly and requires a member-confirmed **Reconnect to this
 Project** action. Unknown or conflicting managed-looking configuration remains
 fail-closed and is never overwritten automatically.
 
-Reconnect snapshots both provider files, replaces only Stickguy's recognized
+Reconnect snapshots both provider files, replaces only Overgent's recognized
 MCP entry and activity hooks, preserves unrelated settings and hooks, and
 restores both snapshots if either managed update fails. The preview identifies
 the old and new local profiles before mutation. The CLI exposes the same
@@ -482,7 +482,7 @@ compares workstream trajectories for duplication and architectural conflict,
 adjudicates whether a candidate finding is worth an interruption, and renders
 briefs in language a receiving agent can act on. LLM outage degrades to
 deterministic findings and dashboard delivery, never to silence about
-deterministic evidence. `stickguy-concepts/v1` is demoted to a test fixture.
+deterministic evidence. `overgent-concepts/v1` is demoted to a test fixture.
 Proactive interruption requires passing the M1 eval-harness precision gate.
 Accepted by the owner 2026-08-25.
 
@@ -502,7 +502,7 @@ fallback. Accepted by the owner 2026-08-25.
 ## ADR-047: Project membership is the sharing consent
 
 Supersedes the per-session consent machinery of ADR-034 and its preview/
-versioning ceremony. Installing Stickguy in a Project and connecting an adapter
+versioning ceremony. Installing Overgent in a Project and connecting an adapter
 is the consent to share activity and session context with that Project; a
 single synchronous pause switch (existing) stops sharing. The secret classifier
 (credentials, tokens, environment assignments, private keys, raw tool output —
@@ -553,7 +553,7 @@ delivery remain the honest fallback. Accepted 2026-08-26.
 
 ## ADR-050: Qualify an Apple Silicon macOS beta, not a cross-platform release
 
-L8 qualifies the signed and notarized Stickguy CLI, per-user LaunchAgent, and
+L8 qualifies the signed and notarized Overgent CLI, per-user LaunchAgent, and
 desktop app for invited beta testers on Apple Silicon macOS 12 or newer.
 Install, update, health validation, automatic rollback, adapter cleanup, and
 recoverable local-state removal use the standalone Go executable. Linux,
@@ -562,7 +562,7 @@ ADR-019 and must not be advertised as supported installs.
 
 Wails v3 is still a prerelease and its public beta train remains in progress.
 Keep the exact `v3.0.0-beta.12` dependency isolated in the desktop module. The
-desktop is qualified only as a labeled Stickguy beta on the tested macOS
+desktop is qualified only as a labeled Overgent beta on the tested macOS
 boundary; the hosted browser remains the fallback. This does not claim Wails
 GA stability or qualify another OS. Release publication remains owner-gated on
 Apple signing/notarization credentials, the offline update-signing key, a
@@ -578,7 +578,7 @@ the user's `config.toml`. An untrusted hook is discovered, parsed, listed, and
 then skipped in silence. Writing `hooks.json` therefore proved nothing: a
 member could register a Project, run a full Codex session inside it, and see no
 activity at all, while `setup status` reported `hooks: "active"` because
-`hookconfig.Inspect` only re-read the file Stickguy had just written. This was
+`hookconfig.Inspect` only re-read the file Overgent had just written. This was
 observed end to end: a real Codex Desktop session in a registered repository
 produced zero rows in `agent_observations`, and a synthetic hook invocation of
 the same executable produced one immediately.
@@ -599,7 +599,7 @@ deliberate teardown, called once after the last binding is gone.
 starts a private `codex app-server` stdio child, calls `hooks/list` to obtain
 each hook's `key`, `currentHash`, and `trustStatus`, and persists the missing
 trust through `config/batchWrite` as narrow `hooks.state` upserts guarded by the
-user config layer's `expectedVersion`. Stickguy never computes the hash and
+user config layer's `expectedVersion`. Overgent never computes the hash and
 never serializes `config.toml`. Reproducing the hash locally was attempted and
 rejected: it is derived from a normalized identity, not the bytes on disk —
 Codex clamps a SessionEnd timeout before hashing — so a local implementation
@@ -616,7 +616,7 @@ binding is connected but observing nothing. A report that resolved zero hooks is
 not satisfied, because that is the silent failure itself.
 
 Degradation is layered and never fails setup: app-server list and write; then
-list for hashes with an append-only `hooks.state` write by Stickguy when
+list for hashes with an append-only `hooks.state` write by Overgent when
 `config/batchWrite` is unavailable; then `needs_review` plus the review
 instruction. The append fallback only ever adds table headers that do not yet
 exist, because a duplicate table would make the member's whole Codex config
@@ -629,7 +629,7 @@ user and project hook on the machine, breaking unrelated tools invisibly,
 requires root, and squats on the enterprise policy path an employer may later
 deploy to. **Shipping as a Codex plugin**, which does not avoid review —
 installing a plugin does not trust its hooks. **`--dangerously-bypass-hook-trust`**,
-which is per-invocation and Stickguy does not launch the member's sessions.
+which is per-invocation and Overgent does not launch the member's sessions.
 **The `notify` config key**, which is a single global slot, fires only on turn
 completion, and carries no tool-level detail. **Attaching to the running
 app-server** to observe sessions directly, which is closed today because Codex
@@ -640,14 +640,14 @@ make this worth revisiting under a later ADR if that changes.
 Writing trust on the member's behalf converts a security review Codex would
 otherwise show into an install-time consent. This is a deliberate product
 decision by the owner, disclosed in the privacy policy, and bounded in code:
-Stickguy only ever upserts trust for hooks whose command is byte-identical to
+Overgent only ever upserts trust for hooks whose command is byte-identical to
 the one it installed. Accepted by the owner 2026-08-27.
 
 ## ADR-052: Read sets carry provenance; Codex read evidence is vendor-inferred
 
 ADR-048 made a session's read set the trigger for `stale_assumption`. That read
 set is fed by hook events whose tool is a file inspection, and the inspection
-tools Stickguy recognizes are `read`, `glob`, and `grep` — Claude's names. Codex
+tools Overgent recognizes are `read`, `glob`, and `grep` — Claude's names. Codex
 inspects source through the shell, and a shell observation carries a command,
 not a list of files. A Codex session therefore contributes no read-set entries
 and can never receive a `stale_assumption` finding. Nothing reports this: the
@@ -928,9 +928,9 @@ before enrollment and again on the workroom's own activation screen. What the
 button actually produced was a stall, in both places the page renders. Inside
 the desktop app the webview navigated to an unstyled page of raw user-agent
 defaults — a heading, a sentence, a button — with nothing to say it belonged to
-Stickguy or that pressing it was the last step. From the CLI it opened in
-whichever browser the member uses, so `stickguy dashboard --project` produced a
-new tab among however many were already open, titled only "Activate Stickguy",
+Overgent or that pressing it was the last step. From the CLI it opened in
+whichever browser the member uses, so `overgent dashboard --project` produced a
+new tab among however many were already open, titled only "Activate Overgent",
 while the app appeared to have done nothing; the way out was to find that tab
 and press a button whose purpose was not evident from the app being looked at.
 
@@ -998,9 +998,9 @@ answer to it is wrong.
 between workstreams on the same branch, so a feature branch would be an escape
 hatch. That inverts the product. Work on one branch is invisible to work on
 another until someone merges, which is exactly the expensive, silent case
-`stickguy-v1-spec.md` §2 exists for and the one no other tool reports; work on a
+`overgent-v1-spec.md` §2 exists for and the one no other tool reports; work on a
 shared branch is the case Git itself surfaces within the hour. Gating on branch
-would make Stickguy quiet precisely where it is the only thing watching, and the
+would make Overgent quiet precisely where it is the only thing watching, and the
 gate would be opened by the most common command in software.
 
 So branch becomes an input to judgment instead. Two narrow rules, both in
@@ -1159,7 +1159,7 @@ for one 64 KB file. The runtime is therefore requested as
 fall back silently: outside compiler-supported platforms the service reports no
 fingerprint for wasm-backed languages and says so through `contract.WasmStatus`,
 never degrading quietly to a one-second-per-file extractor. `Fingerprintable`
-still answers the static question of which languages Stickguy fingerprints, so a
+still answers the static question of which languages Overgent fingerprints, so a
 platform gap is never disguised as a language gap. This narrows ADR-019's
 language limit and adds a platform condition to it; it does not reverse
 ADR-019's CGO-free rule, ADR-044's wire privacy boundary, or ADR-048's
@@ -1221,7 +1221,7 @@ decision itself — the loop closes where the decision was made, not only in
 History); and ISO timestamps beside the prose labels.
 
 The resolution model collapsed to three exits: send an outcome-shaped decision
-(chips prefill the composer; "Settled outside Stickguy" is a first-class
+(chips prefill the composer; "Settled outside Overgent" is a first-class
 outcome that still routes the conclusion), or dismiss with a reason that is
 the feedback vocabulary. Acknowledge, the standalone feedback row, the
 create-card pre-step, and comments are removed — every surviving input has an
@@ -1241,3 +1241,28 @@ desktop surface by design, and the e2e suite — dead since fixtures became
 opt-in, because it navigated without `fixtures=1` — runs green again on the
 laptop project. The owner directed the full proposal's implementation
 2026-09-01; the rendered result awaits his review.
+
+## ADR-065: Rename the product and public brand to Overgent
+
+The owner has renamed the product from Stickguy to **Overgent** and acquired
+`overgent.com`. Overgent is now the only current product name in application
+copy, command examples, desktop bundle metadata, managed adapter labels, public
+contracts, package names, release artifacts, and documentation. The primary
+public origins are `overgent.com`, `api.overgent.com`, and
+`schemas.overgent.com`; deployment still requires the ordinary release and DNS
+gates before those origins are advertised as live.
+
+The rename does not alter the product model or reopen prior architecture:
+`Project` remains the user-facing container, the local core remains Go, the
+hosted boundary remains the versioned Overgent HTTP contract, and every privacy,
+authorization, advisory-control, and one-service rule continues unchanged.
+Protocol structure and schema versions do not change merely because the brand
+changed, but public identifiers and newly generated artifacts use the Overgent
+name.
+
+Existing pre-release installations may still contain the former name in local
+paths, keychain records, URL handlers, or managed agent configuration. The
+released migration must recognize those exact legacy shapes long enough to
+adopt or remove them without touching unrelated configuration; it must never
+treat an arbitrary similarly named entry as Overgent-owned. New installations
+write only Overgent identifiers. Accepted by the owner 2026-09-02.

@@ -1,5 +1,5 @@
 {
-  "name": "@stickguy/dashboard",
+  "name": "@overgent/dashboard",
   "private": true,
   "type": "module",
   "scripts": {

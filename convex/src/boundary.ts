@@ -1,4 +1,4 @@
-import type { CandidateRouter, EmbeddingProvider, SemanticIndex } from "@stickguy/coordination";
+import type { CandidateRouter, EmbeddingProvider, SemanticIndex } from "@overgent/coordination";
 
 export type HostedDependencies = Readonly<{
   embeddingProvider?: EmbeddingProvider;

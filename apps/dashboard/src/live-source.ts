@@ -2,7 +2,7 @@ import { FixtureProjectSource } from "./fixture-source";
 import { nativeOnboarding } from "./native";
 import type { CollaborationSnapshot, DashboardSession, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionFocus, SessionMessagesSnapshot } from "./model";
 
-const prefix = import.meta.env.VITE_STICKGUY_API_PREFIX ?? "/api/v1";
+const prefix = import.meta.env.VITE_OVERGENT_API_PREFIX ?? "/api/v1";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${prefix}${path}`, { ...init, credentials: "include", headers: { "content-type": "application/json", ...init?.headers } });

@@ -11,28 +11,28 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stickguy/stickguy/internal/activation"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/activation"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	"github.com/overgent/overgent/internal/hosted"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const desktopDevelopment = true
 
-func desktopProductName() string { return "Stickguy Dev" }
-func desktopMenuLabel() string   { return "Stickguy development" }
+func desktopProductName() string { return "Overgent Dev" }
+func desktopMenuLabel() string   { return "Overgent development" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
-func desktopURLScheme() string   { return "stickguy-dev" }
+func desktopURLScheme() string   { return "overgent-dev" }
 func desktopAPIBaseURL() string {
-	return developmentOrigin("STICKGUY_API_ORIGIN", "http://127.0.0.1:3211")
+	return developmentOrigin("OVERGENT_API_ORIGIN", "http://127.0.0.1:3211")
 }
 func desktopActivationBaseURL() string {
-	return developmentOrigin("STICKGUY_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
+	return developmentOrigin("OVERGENT_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
 }
-func desktopCLIBinary() string { return os.Getenv("STICKGUY_CLI_BINARY") }
+func desktopCLIBinary() string { return os.Getenv("OVERGENT_CLI_BINARY") }
 func desktopConfigRoot() string {
-	value := strings.TrimSpace(os.Getenv("STICKGUY_CONFIG_ROOT"))
+	value := strings.TrimSpace(os.Getenv("OVERGENT_CONFIG_ROOT"))
 	if value != "" && filepath.IsAbs(value) {
 		return filepath.Clean(value)
 	}
