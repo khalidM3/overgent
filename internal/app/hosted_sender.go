@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 type batchPublisher interface {
@@ -31,7 +31,7 @@ func NewHostedSender(ctx context.Context, root string) (Sender, error) {
 		return nil, err
 	}
 	if cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return nil, errors.New("service is not enrolled; run stickguy create or join")
+		return nil, errors.New("service is not enrolled; run overgent create or join")
 	}
 	token, err := credential.Get(ctx, cfg.DeviceID)
 	if err != nil {

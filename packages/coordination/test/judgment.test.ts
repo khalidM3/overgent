@@ -236,12 +236,12 @@ describe("managed adjudication boundary", () => {
       judge: async () => parseJudgmentVerdict(JSON.parse('{"relationship":"maybe"}')),
     };
     await expect(judgeCandidate(malformed, candidate(), new AbortController().signal))
-      .resolves.toEqual({ verdict: offline, provider: "stickguy-concepts/v1", degraded: true });
+      .resolves.toEqual({ verdict: offline, provider: "overgent-concepts/v1", degraded: true });
     const outage: JudgmentProvider = { name: "anthropic/test", judge: async () => { throw new Error("provider unavailable"); } };
     await expect(judgeCandidate(outage, candidate(), new AbortController().signal))
-      .resolves.toEqual({ verdict: offline, provider: "stickguy-concepts/v1", degraded: true });
+      .resolves.toEqual({ verdict: offline, provider: "overgent-concepts/v1", degraded: true });
     await expect(judgeCandidate(undefined, candidate(), new AbortController().signal))
-      .resolves.toEqual({ verdict: offline, provider: "stickguy-concepts/v1", degraded: true });
+      .resolves.toEqual({ verdict: offline, provider: "overgent-concepts/v1", degraded: true });
   });
 
   it("treats a truncated or refused model turn as a failure rather than a verdict", async () => {

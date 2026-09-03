@@ -24,12 +24,12 @@ func TestSignedUpdateAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	archivePath := filepath.Join(directory, "stickguy.tar.gz")
+	archivePath := filepath.Join(directory, "overgent.tar.gz")
 	archive, _ := os.Create(archivePath)
 	compressed := gzip.NewWriter(archive)
 	tarWriter := tar.NewWriter(compressed)
 	next := []byte("next executable")
-	if err = tarWriter.WriteHeader(&tar.Header{Name: "stickguy", Mode: 0o755, Size: int64(len(next)), Typeflag: tar.TypeReg}); err != nil {
+	if err = tarWriter.WriteHeader(&tar.Header{Name: "overgent", Mode: 0o755, Size: int64(len(next)), Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = tarWriter.Write(next)
@@ -38,10 +38,10 @@ func TestSignedUpdateAndRollback(t *testing.T) {
 	_ = archive.Close()
 	archiveBytes, _ := os.ReadFile(archivePath)
 	sum := sha256.Sum256(archiveBytes)
-	manifest := Manifest{SchemaVersion: 1, Version: "v1.2.3", PublishedAt: time.Now().UTC().Format(time.RFC3339), Assets: map[string]Asset{"darwin_arm64": {URL: "https://releases.example/stickguy.tar.gz", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(archiveBytes))}}}
+	manifest := Manifest{SchemaVersion: 1, Version: "v1.2.3", PublishedAt: time.Now().UTC().Format(time.RFC3339), Assets: map[string]Asset{"darwin_arm64": {URL: "https://releases.example/overgent.tar.gz", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(archiveBytes))}}}
 	payload, _ := SigningPayload(manifest)
 	manifest.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
-	executable := filepath.Join(directory, "stickguy")
+	executable := filepath.Join(directory, "overgent")
 	if err = os.WriteFile(executable, []byte("old executable"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +70,13 @@ func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 
 func TestManifestTamperingAndInsecureURLFail(t *testing.T) {
 	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
-	manifest := Manifest{SchemaVersion: 1, Version: "v1.0.0", PublishedAt: time.Now().UTC().Format(time.RFC3339), Assets: map[string]Asset{"darwin_arm64": {URL: "https://example.com/stickguy.tar.gz", SHA256: string(make([]byte, 64)), Size: 10}}}
+	manifest := Manifest{SchemaVersion: 1, Version: "v1.0.0", PublishedAt: time.Now().UTC().Format(time.RFC3339), Assets: map[string]Asset{"darwin_arm64": {URL: "https://example.com/overgent.tar.gz", SHA256: string(make([]byte, 64)), Size: 10}}}
 	payload, _ := SigningPayload(manifest)
 	manifest.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
 	if err := Verify(manifest, publicKey); err == nil {
 		t.Fatal("invalid checksum accepted")
 	}
-	manifest.Assets["darwin_arm64"] = Asset{URL: "http://example.com/stickguy.tar.gz", SHA256: hex.EncodeToString(make([]byte, 32)), Size: 10}
+	manifest.Assets["darwin_arm64"] = Asset{URL: "http://example.com/overgent.tar.gz", SHA256: hex.EncodeToString(make([]byte, 32)), Size: 10}
 	payload, _ = SigningPayload(manifest)
 	manifest.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
 	if err := Verify(manifest, publicKey); err == nil {

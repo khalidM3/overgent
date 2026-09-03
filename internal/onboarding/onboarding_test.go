@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/hosted"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/hosted"
 )
 
 type additionalProjectAPI struct {
@@ -57,7 +57,7 @@ func TestCreateAdditionalReusesDeviceAndRegistersWorkspace(t *testing.T) {
 		},
 	}
 	result, err := service.CreateAdditional(context.Background(), Options{
-		ConfigRoot: t.TempDir(), RepositoryRoot: root, APIBaseURL: "https://api.stickguy.dev",
+		ConfigRoot: t.TempDir(), RepositoryRoot: root, APIBaseURL: "https://api.overgent.com",
 		ProjectLabel: "Second", DeviceLabel: "This Mac",
 	}, api.deviceID, "existing-token")
 	if err != nil {
@@ -92,7 +92,7 @@ func makeOnboardingRepository(t *testing.T) string {
 	}
 	runGit("add", "README.md")
 	runGit("commit", "-m", "fixture")
-	runGit("remote", "add", "origin", "https://example.test/stickguy/fixture.git")
+	runGit("remote", "add", "origin", "https://example.test/overgent/fixture.git")
 	return root
 }
 
@@ -102,10 +102,10 @@ func makeOnboardingRepository(t *testing.T) string {
 // should never have to dissect a URL to extract a code by hand.
 func TestParseInviteCodeAcceptsEveryLinkForm(t *testing.T) {
 	cases := map[string]string{
-		"inv_49b778cd.sec_ret-42":                                  "inv_49b778cd.sec_ret-42",
-		"https://dash.example.com/join#inv_49b778cd.sec_ret-42":    "inv_49b778cd.sec_ret-42",
-		"https://dash.example.com/join/#inv_49b778cd.sec_ret-42":   "inv_49b778cd.sec_ret-42",
-		"stickguy://join/inv_49b778cd.sec_ret-42":                  "inv_49b778cd.sec_ret-42",
+		"inv_49b778cd.sec_ret-42":                                "inv_49b778cd.sec_ret-42",
+		"https://dash.example.com/join#inv_49b778cd.sec_ret-42":  "inv_49b778cd.sec_ret-42",
+		"https://dash.example.com/join/#inv_49b778cd.sec_ret-42": "inv_49b778cd.sec_ret-42",
+		"overgent://join/inv_49b778cd.sec_ret-42":                "inv_49b778cd.sec_ret-42",
 	}
 	for input, want := range cases {
 		code, err := ParseInviteCode(input)
@@ -118,7 +118,7 @@ func TestParseInviteCodeAcceptsEveryLinkForm(t *testing.T) {
 		"no-dot-here",
 		"https://dash.example.com/join",
 		"https://dash.example.com/join#not a code",
-		"stickguy://settings/inv_x.secret",
+		"overgent://settings/inv_x.secret",
 		"javascript:alert(1)#inv_x.secret",
 	} {
 		if _, err := ParseInviteCode(invalid); err == nil {

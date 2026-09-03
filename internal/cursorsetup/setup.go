@@ -1,4 +1,4 @@
-// Package cursorsetup installs, inspects, moves, and removes Stickguy's managed
+// Package cursorsetup installs, inspects, moves, and removes Overgent's managed
 // hooks in a Cursor project.
 //
 // It does not reuse internal/hookconfig. Cursor's configuration is a different
@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/hookconfig"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/hookconfig"
 )
 
 // hookTimeoutSeconds bounds one managed Cursor hook.
@@ -31,7 +31,7 @@ import (
 // UNVERIFIED UNIT: Cursor's `timeout` field is written here in seconds, matching
 // every other hook system this repository configures. It has not been confirmed
 // against a running Cursor client. If Cursor reads milliseconds, these hooks
-// expire immediately and Stickguy observes nothing — it never blocks or delays a
+// expire immediately and Overgent observes nothing — it never blocks or delays a
 // turn, because failClosed is false, so the failure mode is silent absence of
 // observation. Status reporting therefore never claims a working binding from
 // file presence alone; a Cursor adapter stays pending until a real accepted
@@ -45,7 +45,7 @@ const injectionTimeoutSeconds = 2
 // maxConfigBytes bounds the configuration document this package will parse.
 const maxConfigBytes = 1 << 20
 
-// schemaVersion is the `version` Stickguy writes and the only one it will edit.
+// schemaVersion is the `version` Overgent writes and the only one it will edit.
 // An unrecognized version is drift: the handler shape may have changed, and
 // rewriting it blind could disable a member's own hooks.
 const schemaVersion = 1
@@ -56,7 +56,7 @@ type handler struct {
 	Timeout int    `json:"timeout"`
 	Matcher string `json:"matcher,omitempty"`
 	// FailClosed is always false and is written explicitly rather than omitted.
-	// Stickguy must never block, delay, or fail a Cursor turn (ADR-017); relying
+	// Overgent must never block, delay, or fail a Cursor turn (ADR-017); relying
 	// on Cursor's default would make that guarantee depend on a default this
 	// repository does not control.
 	FailClosed bool `json:"failClosed"`
@@ -66,7 +66,7 @@ type document struct {
 	Version int
 	Hooks   map[string][]handler
 	// rest holds every top-level key other than `version` and `hooks`, verbatim,
-	// so an unknown Cursor setting survives a Stickguy install byte for byte.
+	// so an unknown Cursor setting survives an Overgent install byte for byte.
 	rest map[string]json.RawMessage
 	// rawHooks holds the original bytes of every event, and modeled records
 	// which of those this package successfully decoded. An event that is not
@@ -93,7 +93,7 @@ type Manager struct {
 	Portable                            bool
 }
 
-// Setup writes Stickguy's managed hooks, preserving every other key in the
+// Setup writes Overgent's managed hooks, preserving every other key in the
 // document and every hook the member configured themselves.
 func (m Manager) Setup() (Status, error) {
 	path, base, err := m.resolve()
@@ -110,7 +110,7 @@ func (m Manager) Setup() (Status, error) {
 	}
 	if inspection.state == bindingOtherProfile {
 		return Status{Binding: string(bindingOtherProfile), CheckedProfile: m.checkedProfile(), ConfigPath: path},
-			errors.New("Cursor is connected to another Stickguy profile; explicit reconnect is required")
+			errors.New("Cursor is connected to another Overgent profile; explicit reconnect is required")
 	}
 	install(doc, base)
 	if err = write(path, doc); err != nil {
@@ -181,8 +181,8 @@ func (m Manager) Rebind() (Status, error) {
 	}, nil
 }
 
-// Remove withdraws only Stickguy's own hooks. Unrelated keys, unrelated hooks,
-// and any event Stickguy does not manage are left exactly as they were.
+// Remove withdraws only Overgent's own hooks. Unrelated keys, unrelated hooks,
+// and any event Overgent does not manage are left exactly as they were.
 func (m Manager) Remove() (Status, error) {
 	path, base, err := m.resolve()
 	if err != nil {
@@ -203,7 +203,7 @@ func (m Manager) Remove() (Status, error) {
 	return Status{Configured: false, ConfigPath: path, Approval: approval, Binding: string(bindingNotConfigured), CheckedProfile: m.checkedProfile()}, nil
 }
 
-// approval states what Stickguy actually knows about Cursor's consent step.
+// approval states what Overgent actually knows about Cursor's consent step.
 // docs/adapter-development.md requires establishing whether the vendor gates
 // hook execution, and this has not been established against a real client, so
 // the value says "unverified" instead of claiming Cursor runs what was written.
@@ -257,7 +257,7 @@ func (m Manager) checkedProfile() string {
 	return m.ConfigRoot
 }
 
-// expected is the exact handler Stickguy installs for one event.
+// expected is the exact handler Overgent installs for one event.
 func expected(event, base string) handler {
 	timeout := hookTimeoutSeconds
 	// sessionStart carries the workspace root back through `env` and
@@ -274,7 +274,7 @@ func expected(event, base string) handler {
 	return handler{Command: base + " --event " + event, Type: "command", Timeout: timeout, Matcher: matcher, FailClosed: false}
 }
 
-// managed reports whether a command is one of Stickguy's, by structure rather
+// managed reports whether a command is one of Overgent's, by structure rather
 // than by equality, so another profile's binding is recognized instead of being
 // mistaken for a stranger's hook and silently duplicated.
 func managed(command string) bool {
@@ -291,7 +291,7 @@ func managedProfile(command, event string) (string, bool) {
 		return "", false
 	}
 	prefix := strings.TrimSuffix(command, suffix)
-	if prefix == "'stickguy'" {
+	if prefix == "'overgent'" {
 		return "portable", true
 	}
 	// The non-portable form is '<executable>' --config-root '<root>'.
@@ -313,8 +313,8 @@ func inspect(doc *document, base string) (inspection, error) {
 	}
 	profiles := map[string]bool{}
 	present := map[string]bool{}
-	// A managed command under an event Stickguy does not install is drift: it
-	// means an older or newer Stickguy wrote this file, and removing hooks by
+	// A managed command under an event Overgent does not install is drift: it
+	// means an older or newer Overgent wrote this file, and removing hooks by
 	// event list alone would strand it.
 	for event, handlers := range doc.Hooks {
 		known := agentactivity.SupportedCursorEvent(event)
@@ -323,11 +323,11 @@ func inspect(doc *document, base string) (inspection, error) {
 				continue
 			}
 			if !known {
-				return inspection{}, errors.New("managed Stickguy Cursor hook is configured for an unknown event; refusing to overwrite it")
+				return inspection{}, errors.New("managed Overgent Cursor hook is configured for an unknown event; refusing to overwrite it")
 			}
 			profile, ok := managedProfile(candidate.Command, event)
 			if !ok {
-				return inspection{}, errors.New("managed Stickguy Cursor hook drifted; refusing to overwrite it")
+				return inspection{}, errors.New("managed Overgent Cursor hook drifted; refusing to overwrite it")
 			}
 			profiles[profile] = true
 			if candidate == expected(event, base) {
@@ -338,7 +338,7 @@ func inspect(doc *document, base string) (inspection, error) {
 				// same-command handler whose other fields drifted is a refusal.
 				continue
 			} else {
-				return inspection{}, errors.New("managed Stickguy Cursor hook drifted; refusing to overwrite it")
+				return inspection{}, errors.New("managed Overgent Cursor hook drifted; refusing to overwrite it")
 			}
 		}
 	}
@@ -346,7 +346,7 @@ func inspect(doc *document, base string) (inspection, error) {
 		return inspection{state: bindingNotConfigured}, nil
 	}
 	if len(profiles) > 1 {
-		return inspection{}, errors.New("conflicting managed Stickguy Cursor hooks")
+		return inspection{}, errors.New("conflicting managed Overgent Cursor hooks")
 	}
 	var profile string
 	for value := range profiles {
@@ -372,7 +372,7 @@ func install(doc *document, base string) {
 	doc.Version = schemaVersion
 }
 
-// removeManaged drops every Stickguy hook regardless of which profile wrote it,
+// removeManaged drops every Overgent hook regardless of which profile wrote it,
 // leaving unrelated handlers and empty-but-member-owned events untouched. An
 // event left with no handlers is deleted, because an empty array is not
 // configuration the member wrote.
@@ -428,7 +428,7 @@ func read(path string) (*document, error) {
 		for event, rawHandlers := range doc.rawHooks {
 			var handlers []handler
 			if err = json.Unmarshal(rawHandlers, &handlers); err != nil {
-				// An event whose handlers Stickguy cannot model is left exactly
+				// An event whose handlers Overgent cannot model is left exactly
 				// as written and is never a place a managed hook can hide.
 				continue
 			}
@@ -476,7 +476,7 @@ func write(path string, doc *document) error {
 	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create Cursor configuration directory: %w", err)
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".stickguy-cursor-hooks-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".overgent-cursor-hooks-*")
 	if err != nil {
 		return fmt.Errorf("create temporary Cursor hooks configuration: %w", err)
 	}

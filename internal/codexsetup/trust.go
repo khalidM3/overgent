@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/codexappserver"
+	"github.com/overgent/overgent/internal/codexappserver"
 )
 
 // Trust methods, ordered by how much of the work Codex itself performs.
@@ -19,7 +19,7 @@ const (
 	// Codex writes it.
 	TrustMethodAppServer = "app_server"
 	// TrustMethodAppendedConfig is the degraded path used when Codex can report
-	// hook hashes but refuses or no longer offers config/batchWrite. Stickguy
+	// hook hashes but refuses or no longer offers config/batchWrite. Overgent
 	// appends the trust tables itself, and only ones that do not yet exist.
 	TrustMethodAppendedConfig = "appended_config"
 	// TrustMethodManual is the honest floor: hooks are installed but Codex will
@@ -31,7 +31,7 @@ const (
 // surfaces the same review in the desktop application and in the CLI.
 const ReviewGuidance = "Open Codex → Settings → Hooks and choose Trust all, or run /hooks in the Codex CLI."
 
-// TrustReport describes whether Codex will actually run Stickguy's hooks.
+// TrustReport describes whether Codex will actually run Overgent's hooks.
 //
 // A binding whose files are on disk is not a binding that runs: Codex skips an
 // untrusted hook silently. Setup and status both carry this so the desktop app
@@ -57,7 +57,7 @@ var inspectTrust = func(m Manager, ctx context.Context, hookPath, hookCommand st
 	return m.ensureHookTrust(ctx, hookPath, hookCommand, repair)
 }
 
-// ensureHookTrust reports whether Codex trusts Stickguy's hooks and, when
+// ensureHookTrust reports whether Codex trusts Overgent's hooks and, when
 // repair is set, records the trust Codex is missing.
 //
 // It never returns an error. Trust repair is an accelerator on top of an
@@ -109,7 +109,7 @@ func (m Manager) ensureHookTrust(ctx context.Context, hookPath, hookCommand stri
 	ours := selectManagedHooks(hooks, hookPath, hookCommand)
 	report.Total = len(ours)
 	if len(ours) == 0 {
-		report.Detail = "Codex did not resolve any Stickguy hooks for this project."
+		report.Detail = "Codex did not resolve any Overgent hooks for this project."
 		return report
 	}
 
@@ -172,8 +172,8 @@ func (m Manager) ensureHookTrust(ctx context.Context, hookPath, hookCommand stri
 
 // selectManagedHooks narrows a hooks/list result to the handlers this profile
 // installed. Matching on the exact command string is what keeps trust repair
-// from ever touching a hook Stickguy does not own — including another profile's
-// Stickguy hook, whose command carries a different config root.
+// from ever touching a hook Overgent does not own — including another profile's
+// Overgent hook, whose command carries a different config root.
 func selectManagedHooks(hooks []codexappserver.Hook, hookPath, hookCommand string) []codexappserver.Hook {
 	var ours []codexappserver.Hook
 	for _, hook := range hooks {
@@ -216,7 +216,7 @@ func samePath(left, right string) bool {
 // of file always opens a new table, so no existing line is reinterpreted, and
 // an entry whose key already appears is skipped rather than duplicated —
 // a duplicate table would make the whole config unparseable and take Codex
-// down with it. Stickguy never rewrites a byte it did not add.
+// down with it. Overgent never rewrites a byte it did not add.
 func appendTrustTables(configPath string, edits []codexappserver.TrustEdit) error {
 	current, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {

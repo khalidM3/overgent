@@ -15,8 +15,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/config"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/config"
 )
 
 const (

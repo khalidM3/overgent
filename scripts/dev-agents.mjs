@@ -27,13 +27,13 @@ if (gitCommonDirectory(codexRoot) !== gitCommonDirectory(claudeRoot)) {
   throw new Error("Codex and Claude roots must be linked worktrees of the same Git repository");
 }
 
-const binary = path.join(root, "bin", "stickguy");
+const binary = path.join(root, "bin", "overgent");
 mkdirSync(path.dirname(binary), { recursive: true });
-const build = spawnSync("go", ["build", "-o", binary, "./cmd/stickguy"], { cwd: root, stdio: "inherit" });
+const build = spawnSync("go", ["build", "-o", binary, "./cmd/overgent"], { cwd: root, stdio: "inherit" });
 if (build.status !== 0) process.exit(build.status ?? 1);
 function run(arguments_, options = {}) {
   const result = spawnSync(binary, arguments_, { cwd: root, encoding: "utf8", ...options });
-  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `stickguy ${arguments_.join(" ")} failed`).trim());
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `overgent ${arguments_.join(" ")} failed`).trim());
   return result.stdout.trim();
 }
 function workspaces() { return JSON.parse(run(["workspace", "list"])); }

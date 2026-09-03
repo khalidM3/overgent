@@ -43,11 +43,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	temporaryRoot, err := os.MkdirTemp("/tmp", "stickguy-coordination-eval-")
+	temporaryRoot, err := os.MkdirTemp("/tmp", "overgent-coordination-eval-")
 	if err != nil {
 		return fmt.Errorf("create evaluation temp root: %w", err)
 	}
-	if os.Getenv("STICKGUY_EVAL_KEEP") == "" {
+	if os.Getenv("OVERGENT_EVAL_KEEP") == "" {
 		defer os.RemoveAll(temporaryRoot)
 	} else {
 		fmt.Fprintf(os.Stderr, "keeping evaluation state in %s\n", temporaryRoot)
@@ -55,8 +55,8 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	binary := filepath.Join(temporaryRoot, "stickguy")
-	if err := buildStickguy(ctx, repositoryRoot, binary); err != nil {
+	binary := filepath.Join(temporaryRoot, "overgent")
+	if err := buildOvergent(ctx, repositoryRoot, binary); err != nil {
 		return err
 	}
 	backend, siteURL, err := startBackend(ctx, repositoryRoot, temporaryRoot)
@@ -121,18 +121,18 @@ func findRepositoryRoot() (string, error) {
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {
-			return "", errors.New("run the coordination evaluation inside the Stickguy repository")
+			return "", errors.New("run the coordination evaluation inside the Overgent repository")
 		}
 		directory = parent
 	}
 }
 
-func buildStickguy(ctx context.Context, repositoryRoot, output string) error {
-	command := exec.CommandContext(ctx, "go", "build", "-o", output, "./cmd/stickguy")
+func buildOvergent(ctx context.Context, repositoryRoot, output string) error {
+	command := exec.CommandContext(ctx, "go", "build", "-o", output, "./cmd/overgent")
 	command.Dir = repositoryRoot
 	contents, err := command.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("build Stickguy evaluation binary: %w: %s", err, string(contents))
+		return fmt.Errorf("build Overgent evaluation binary: %w: %s", err, string(contents))
 	}
 	return nil
 }

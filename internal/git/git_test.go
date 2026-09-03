@@ -112,8 +112,8 @@ func TestFingerprintRemoteSemanticsAndLinkedWorktree(t *testing.T) {
 	}
 	r1 := repo(t)
 	r2 := repo(t)
-	gitcmd(t, r1, "remote", "add", "origin", "https://github.com/Stickguy/Fixture.git")
-	gitcmd(t, r2, "remote", "add", "origin", "git@github.com:Stickguy/Fixture.git")
+	gitcmd(t, r1, "remote", "add", "origin", "https://github.com/Overgent/Fixture.git")
+	gitcmd(t, r2, "remote", "add", "origin", "git@github.com:Overgent/Fixture.git")
 	f1, e := Fingerprint(ctx, Runner{}, r1, "prj_fixture")
 	if e != nil {
 		t.Fatal(e)

@@ -1,4 +1,4 @@
-# Stickguy — Protocol Contracts
+# Overgent — Protocol Contracts
 
 Status: build contract  
 Last updated: 2026-08-26
@@ -121,7 +121,7 @@ MCP resolves workspace from client working directory or explicit trusted config,
 Tools never mutate Git/worktrees or control the external agent loop. `CoordinationBrief` prioritizes directly relevant unresolved decisions/findings, then evidence/dependency changes and workstreams. It includes `briefId`, `contextRevision`, trigger, budget/size/truncation, stable item IDs/revisions/relevance reasons, and cursor. Findings carry kind, confidence band, severity, provenance, and lifecycle state; raw vector scores are not the user contract. Raw test output/commands are forbidden; verification is bounded structured metadata.
 
 `VerificationSummary.observedAt` is optional when the reporting harness did not
-provide a timestamp. Stickguy does not substitute receipt time or the current
+provide a timestamp. Overgent does not substitute receipt time or the current
 clock, because that would make an idempotent retry byte-different and would
 present an invented observation time as evidence.
 
@@ -136,7 +136,7 @@ Workspace capability example:
 Stable error body:
 
 ```json
-{"error":{"code":"schema_version_unsupported","message":"Upgrade Stickguy to continue.","requestId":"req_...","retryable":false,"details":{}}}
+{"error":{"code":"schema_version_unsupported","message":"Upgrade Overgent to continue.","requestId":"req_...","retryable":false,"details":{}}}
 ```
 
 Codes are stable; messages may change. Never automatically retry authentication, authorization, validation, or incompatible-version errors.

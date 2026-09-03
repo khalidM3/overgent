@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/contract"
-	git "github.com/stickguy/stickguy/internal/git"
-	"github.com/stickguy/stickguy/internal/store"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/contract"
+	git "github.com/overgent/overgent/internal/git"
+	"github.com/overgent/overgent/internal/store"
 )
 
 // contractEntriesPerEvent and readSetEntriesPerEvent match the bounds the wire

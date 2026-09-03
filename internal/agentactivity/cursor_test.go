@@ -163,7 +163,7 @@ func TestCursorFailsClosedOnUnknownMalformedAndMismatchedInput(t *testing.T) {
 	if _, err := ParseCursor("beforeShellExecution", cursorInput(t, map[string]any{
 		"conversation_id": "conv-42", "workspace_roots": []string{root},
 	}), ""); err == nil {
-		t.Fatal("an event Stickguy does not install must not be assigned a guessed lifecycle")
+		t.Fatal("an event Overgent does not install must not be assigned a guessed lifecycle")
 	}
 	if _, err := ParseCursor("stop", strings.NewReader("{not json"), root); err == nil {
 		t.Fatal("malformed JSON must fail closed")

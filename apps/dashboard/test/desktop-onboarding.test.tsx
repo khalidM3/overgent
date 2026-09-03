@@ -5,8 +5,8 @@ import { DesktopOnboarding } from "../src/desktop-onboarding";
 import type { NativeOnboarding, OnboardingState } from "../src/native";
 
 const adapters = [
-  { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
-  { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Stickguy Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
+  { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
+  { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
 ];
 const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only." };
 const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
@@ -58,7 +58,7 @@ describe("desktop onboarding", () => {
     // Connecting installs a background service and writes agent configuration.
     // Saying so before the button is the difference between consent and a
     // surprise.
-    expect(screen.getByText(/starts Stickguy’s background service on this Mac/)).toBeTruthy();
+    expect(screen.getByText(/starts Overgent’s background service on this Mac/)).toBeTruthy();
   });
 
   it("creates a Project, opts both detected agents in, and exposes the one-use invite", async () => {
@@ -126,7 +126,7 @@ describe("desktop onboarding", () => {
   });
 
   it("previews and explicitly confirms a safe profile reconnect", async () => {
-    const otherProfile: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, configured: false, binding: "other_profile", previousProfile: "Stickguy", runtimeVerified: false, restartRequired: false, reconnectAllowed: true, detail: "Connected to a different Stickguy profile." } : adapter) };
+    const otherProfile: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, configured: false, binding: "other_profile", previousProfile: "Overgent", runtimeVerified: false, restartRequired: false, reconnectAllowed: true, detail: "Connected to a different Overgent profile." } : adapter) };
     const api: NativeOnboarding = {
       state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(),
       reconnectAdapter: vi.fn(async () => ({ ...otherProfile.adapters[0], configured: true, binding: "current" as const, reconnectAllowed: false, restartRequired: true })),
@@ -137,8 +137,8 @@ describe("desktop onboarding", () => {
     await user.click(await screen.findByRole("button", { name: "Reconnect to this Project" }));
     const dialog = screen.getByRole("dialog", { name: "Reconnect Codex" });
     expect(dialog).toBeTruthy();
-    expect(screen.getByText("Stickguy")).toBeTruthy();
-    expect(screen.getByText("Stickguy Shared Dev")).toBeTruthy();
+    expect(screen.getByText("Overgent")).toBeTruthy();
+    expect(screen.getByText("Overgent Shared Dev")).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Reconnect to this Project" }));
     expect(api.reconnectAdapter).toHaveBeenCalledWith("/tmp/atlas", "codex");
   });

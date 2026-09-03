@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// legacyHandler is the shape Stickguy wrote before injection boundaries were
+// legacyHandler is the shape Overgent wrote before injection boundaries were
 // bounded and before the Codex SessionEnd ceiling was honoured. It lives here
 // now because it is only interesting as an input to repair.
 func legacyHandler(event, command string) handler {
@@ -23,7 +23,7 @@ func TestInstallStatusRemovePreservesUnrelatedSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"permissions":{"allow":["Read"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"other-hook"}]}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	command, err := Command("/Applications/Stick Guy/bin/stickguy", "/tmp/state root", "claude")
+	command, err := Command("/Applications/Stick Guy/bin/overgent", "/tmp/state root", "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,11 +48,11 @@ func TestInstallStatusRemovePreservesUnrelatedSettings(t *testing.T) {
 
 func TestDriftFailsClosed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hooks.json")
-	command, _ := Command("/a/stickguy", "/state", "codex")
+	command, _ := Command("/a/overgent", "/state", "codex")
 	if err := Install(path, command); err != nil {
 		t.Fatal(err)
 	}
-	other, _ := Command("/b/stickguy", "/state", "codex")
+	other, _ := Command("/b/overgent", "/state", "codex")
 	if err := Install(path, other); err == nil {
 		t.Fatal("expected drift error")
 	}
@@ -60,8 +60,8 @@ func TestDriftFailsClosed(t *testing.T) {
 
 func TestInspectAndRebindOtherProfilePreservesUnrelatedHooks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
-	oldCommand, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/old profile", "codex")
-	newCommand, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/shared profile", "codex")
+	oldCommand, _ := Command("/Applications/Overgent Dev.app/bin/overgent", "/tmp/old profile", "codex")
+	newCommand, _ := Command("/Applications/Overgent Dev.app/bin/overgent", "/tmp/shared profile", "codex")
 	if err := Install(path, oldCommand); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestInspectAndRebindOtherProfilePreservesUnrelatedHooks(t *testing.T) {
 
 func TestInstallAutomaticallyRepairsPartialCurrentBinding(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
-	command, _ := Command("/Applications/Stickguy Dev.app/bin/stickguy", "/tmp/shared profile", "codex")
+	command, _ := Command("/Applications/Overgent Dev.app/bin/overgent", "/tmp/shared profile", "codex")
 	if err := Install(path, command); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestInstallAutomaticallyRepairsPartialCurrentBinding(t *testing.T) {
 
 func TestInjectionBoundariesAreSynchronousAndBounded(t *testing.T) {
 	for _, vendor := range []string{"claude", "codex"} {
-		command, _ := Command("/a/stickguy", "/state", vendor)
+		command, _ := Command("/a/overgent", "/state", vendor)
 		for _, event := range []string{"SessionStart", "UserPromptSubmit"} {
 			configured := expected(event, command).Hooks[0]
 			if configured.Async || configured.Timeout != 2 {
@@ -135,7 +135,7 @@ func TestInjectionBoundariesAreSynchronousAndBounded(t *testing.T) {
 
 func TestInstallMigratesLegacyInjectionHandlers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
-	command, _ := Command("/a/stickguy", "/state", "codex")
+	command, _ := Command("/a/overgent", "/state", "codex")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -157,14 +157,14 @@ func TestInstallMigratesLegacyInjectionHandlers(t *testing.T) {
 	}
 }
 
-// The grant must be narrow: exactly Stickguy's tools, nothing a member wrote
+// The grant must be narrow: exactly Overgent's tools, nothing a member wrote
 // disturbed, and a teardown that withdraws precisely what it granted.
 func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.local.json")
 	if err := os.WriteFile(path, []byte(`{"permissions":{"allow":["Bash(git status)"],"deny":["Bash(rm:*)"]},"model":"opus"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := AllowTools(path, StickguyMCPTools); err != nil {
+	if err := AllowTools(path, OvergentMCPTools); err != nil {
 		t.Fatal(err)
 	}
 	document := map[string]any{}
@@ -177,15 +177,15 @@ func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
 	}
 	permissions := document["permissions"].(map[string]any)
 	allow := permissions["allow"].([]any)
-	if len(allow) != 1+len(StickguyMCPTools) {
+	if len(allow) != 1+len(OvergentMCPTools) {
 		t.Fatalf("allow=%v", allow)
 	}
 	if allow[0] != "Bash(git status)" {
 		t.Fatalf("a member's own permission was disturbed: %v", allow)
 	}
 	for _, entry := range allow {
-		if text := entry.(string); text != "Bash(git status)" && !strings.HasPrefix(text, "mcp__stickguy__") {
-			t.Fatalf("granted something outside Stickguy's own tools: %q", text)
+		if text := entry.(string); text != "Bash(git status)" && !strings.HasPrefix(text, "mcp__overgent__") {
+			t.Fatalf("granted something outside Overgent's own tools: %q", text)
 		}
 	}
 	if permissions["deny"] == nil || document["model"] != "opus" {
@@ -193,17 +193,17 @@ func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
 	}
 
 	// Granting twice must not duplicate entries.
-	if err = AllowTools(path, StickguyMCPTools); err != nil {
+	if err = AllowTools(path, OvergentMCPTools); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(path)
 	document = map[string]any{}
 	_ = json.Unmarshal(data, &document)
-	if again := document["permissions"].(map[string]any)["allow"].([]any); len(again) != 1+len(StickguyMCPTools) {
+	if again := document["permissions"].(map[string]any)["allow"].([]any); len(again) != 1+len(OvergentMCPTools) {
 		t.Fatalf("re-granting duplicated entries: %v", again)
 	}
 
-	if err = DisallowTools(path, StickguyMCPTools); err != nil {
+	if err = DisallowTools(path, OvergentMCPTools); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(path)
@@ -223,12 +223,12 @@ func TestToolApprovalIsNarrowAndReversible(t *testing.T) {
 // doing it, so the value written has to be the ceiling itself. Claude has no
 // such cap and keeps the ordinary observation budget.
 func TestCodexSessionEndTimeoutMatchesTheCodexCeiling(t *testing.T) {
-	codex, _ := Command("/a/stickguy", "/state", "codex")
+	codex, _ := Command("/a/overgent", "/state", "codex")
 	configured := expected("SessionEnd", codex).Hooks[0]
 	if configured.Async || configured.Timeout != codexSessionEndTimeout {
 		t.Fatalf("codex SessionEnd handler=%#v", configured)
 	}
-	claude, _ := Command("/a/stickguy", "/state", "claude")
+	claude, _ := Command("/a/overgent", "/state", "claude")
 	configured = expected("SessionEnd", claude).Hooks[0]
 	if configured.Async || configured.Timeout != 5 {
 		t.Fatalf("claude SessionEnd handler=%#v", configured)
@@ -240,7 +240,7 @@ func TestCodexSessionEndTimeoutMatchesTheCodexCeiling(t *testing.T) {
 // place rather than refusing the file as drift and leaving the warning running.
 func TestInstallRepairsAnOverLongCodexSessionEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".codex", "hooks.json")
-	command, _ := Command("/a/stickguy", "/state", "codex")
+	command, _ := Command("/a/overgent", "/state", "codex")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -272,14 +272,14 @@ func TestInstallRepairsAnOverLongCodexSessionEnd(t *testing.T) {
 }
 
 // The friend's case from the closed test: he edited the SessionEnd timeout in
-// his own hooks.json to silence Codex's clamp warning, and Stickguy answered
-// "managed Stickguy activity hook drifted" on a row whose only affordance,
+// his own hooks.json to silence Codex's clamp warning, and Overgent answered
+// "managed Overgent activity hook drifted" on a row whose only affordance,
 // reconnect, is offered for another profile and so never appeared. A handler
 // carrying this profile's exact command is ours whatever its tuning says.
 func TestMemberEditedTuningIsRepairedNotRefused(t *testing.T) {
 	for _, edited := range []int{4, 30, 0} {
 		path := filepath.Join(t.TempDir(), "hooks.json")
-		command, _ := Command("/a/stickguy", "/state", "codex")
+		command, _ := Command("/a/overgent", "/state", "codex")
 		if err := Install(path, command); err != nil {
 			t.Fatal(err)
 		}
@@ -305,8 +305,8 @@ func TestMemberEditedTuningIsRepairedNotRefused(t *testing.T) {
 // profile must never be rewritten, however plausible its tuning looks.
 func TestAnotherProfilesHookIsStillRefused(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hooks.json")
-	mine, _ := Command("/a/stickguy", "/state", "codex")
-	theirs, _ := Command("/a/stickguy", "/other state", "codex")
+	mine, _ := Command("/a/overgent", "/state", "codex")
+	theirs, _ := Command("/a/overgent", "/other state", "codex")
 	if err := Install(path, theirs); err != nil {
 		t.Fatal(err)
 	}

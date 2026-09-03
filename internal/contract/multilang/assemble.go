@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/stickguy/stickguy/internal/contract/fingerprint"
+	"github.com/overgent/overgent/internal/contract/fingerprint"
 )
 
 // declaration is one raw find from a language rule, before normalization.

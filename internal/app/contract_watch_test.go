@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	gitobs "github.com/stickguy/stickguy/internal/git"
-	"github.com/stickguy/stickguy/internal/store"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	gitobs "github.com/overgent/overgent/internal/git"
+	"github.com/overgent/overgent/internal/store"
 )
 
 type contractWatchFixture struct {
@@ -294,7 +294,7 @@ func TestBeginWorkAnticipatedPathsJoinTheReadSetAfterTheIntent(t *testing.T) {
 
 // A read set mixes sources of different strength. An entry that came from an
 // agent's own begin_work declaration must not present itself with the
-// authority of one Stickguy actually watched happen (ADR-052).
+// authority of one Overgent actually watched happen (ADR-052).
 func TestReadSetEntriesCarryTheirProvenance(t *testing.T) {
 	ctx := context.Background()
 	fixture := newContractWatchFixture(t)
@@ -332,13 +332,13 @@ func TestReadSetEntriesCarryTheirProvenance(t *testing.T) {
 	}
 }
 
-// An activity event states what Stickguy can see of the session's reads, so an
+// An activity event states what Overgent can see of the session's reads, so an
 // empty Codex read set is never mistaken for a session that read nothing.
 func TestAgentActivityStatesTheSessionReadCoverage(t *testing.T) {
 	ctx := context.Background()
 	// Coverage must describe this device, so the test pins what the device can
 	// reach rather than inheriting whatever Codex the developer has installed.
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
 	fixture := newContractWatchFixture(t)
 	for vendor, want := range map[string]string{"claude": "observed", "codex": "none"} {
 		alias := vendor + "-a1b2c3"
@@ -370,7 +370,7 @@ func TestCodexReportsInferredCoverageOnlyWhenACodexIsReachable(t *testing.T) {
 	if err := os.WriteFile(reachable, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", reachable)
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", reachable)
 	fixture := newContractWatchFixture(t)
 	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", "session-codex")
 	if !ok {
@@ -424,7 +424,7 @@ for line in sys.stdin:
 	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", executable)
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", executable)
 
 	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", thread)
 	if !ok {
@@ -473,7 +473,7 @@ func TestCodexCoverageDegradesOnceTheReadRefreshHasFailed(t *testing.T) {
 	if err := os.WriteFile(unusable, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", unusable)
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", unusable)
 	fixture := newContractWatchFixture(t)
 	vendorSessionID := "01a04ac6-684c-7650-a8b4-311eb918f98a"
 	workstream, _, ok := agentactivity.WorkstreamIDFor("codex", vendorSessionID)

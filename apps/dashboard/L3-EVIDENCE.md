@@ -24,8 +24,8 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm protocol:check
-PLAYWRIGHT_BROWSERS_PATH=/private/tmp/stickguy-l3-playwright \
-  pnpm --filter @stickguy/dashboard test:e2e
+PLAYWRIGHT_BROWSERS_PATH=/private/tmp/overgent-l3-playwright \
+  pnpm --filter @overgent/dashboard test:e2e
 ```
 
 Observed before commit:

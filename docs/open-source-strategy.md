@@ -1,4 +1,4 @@
-# Stickguy — Open-Source and Trust Strategy
+# Overgent — Open-Source and Trust Strategy
 
 Status: proposed for owner approval before public launch  
 Last updated: 2026-08-23
@@ -48,7 +48,7 @@ Reasons:
 - permissive for individual and company adoption;
 - explicit patent grant;
 - familiar to infrastructure and developer-tool contributors;
-- permits commercial hosted Stickguy without a dual-license program;
+- permits commercial hosted Overgent without a dual-license program;
 - avoids discouraging adapter and platform contributions.
 
 Tradeoff: another company may host a fork without publishing modifications. If preventing competing hosted forks becomes more important than adoption, evaluate AGPL-3.0 for the hosted server in a separate legal/market decision. Mixing licenses at launch adds contribution and dependency complexity and is not recommended.
@@ -61,11 +61,11 @@ License selection is a business/legal decision. Obtain counsel before accepting 
 
 Use two repositories rather than public/private folders in one repository. A private folder in a public Git history is easy to leak.
 
-### Public: `stickguy/stickguy`
+### Public: `overgent/overgent`
 
 ```text
-stickguy/
-├── cmd/stickguy/                 # Go executable entry point
+overgent/
+├── cmd/overgent/                 # Go executable entry point
 ├── internal/                     # all installed local-core code
 │   ├── app/
 │   ├── auth/
@@ -123,7 +123,7 @@ stickguy/
 └── README.md
 ```
 
-### Private: `stickguy/cloud-ops`
+### Private: `overgent/cloud-ops`
 
 ```text
 cloud-ops/
@@ -163,7 +163,7 @@ For every tagged release:
 3. CI builds every supported binary from the tag on hosted isolated runners.
 4. Release publishes SHA-256 checksums, SBOM, build provenance, and signatures.
 5. Installer downloads a versioned artifact and verifies checksum/signature before placement.
-6. `stickguy version --json` reports version, commit, build time, protocol range, and artifact identity.
+6. `overgent version --json` reports version, commit, build time, protocol range, and artifact identity.
 7. Update client verifies signed metadata and artifact before replacement and supports safe rollback.
 8. Release page links source tag, workflow run, provenance, SBOM, checksums, and verification instructions.
 

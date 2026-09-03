@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	updateclient "github.com/stickguy/stickguy/internal/update"
+	updateclient "github.com/overgent/overgent/internal/update"
 )
 
 func main() {
@@ -38,9 +38,9 @@ func run() error {
 	if *baseURL == "" || *version == "" {
 		return errors.New("base-url and version are required")
 	}
-	keyPath := os.Getenv("STICKGUY_UPDATE_SIGNING_KEY_FILE")
+	keyPath := os.Getenv("OVERGENT_UPDATE_SIGNING_KEY_FILE")
 	if keyPath == "" {
-		return errors.New("STICKGUY_UPDATE_SIGNING_KEY_FILE is required")
+		return errors.New("OVERGENT_UPDATE_SIGNING_KEY_FILE is required")
 	}
 	encodedKey, err := os.ReadFile(keyPath)
 	if err != nil {
@@ -102,7 +102,7 @@ func run() error {
 
 func platformKey(name string) (string, bool) {
 	lower := strings.ToLower(name)
-	if !strings.HasPrefix(lower, "stickguy_") || !(strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".zip")) {
+	if !strings.HasPrefix(lower, "overgent_") || !(strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".zip")) {
 		return "", false
 	}
 	for _, goos := range []string{"darwin", "linux", "windows"} {

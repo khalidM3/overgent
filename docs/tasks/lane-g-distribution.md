@@ -1,6 +1,6 @@
 # Lane G — L8 distribution, updates, and service lifecycle
 
-Goal: Stickguy becomes something a person installs, updates, and trusts,
+Goal: Overgent becomes something a person installs, updates, and trusts,
 rather than something built from source. Finish and harden the partial work
 already committed, then close the gaps around it.
 
@@ -20,8 +20,8 @@ finish it. It includes:
 - `install/install.sh`, `install/uninstall.sh`
 - `scripts/sign-darwin-artifact.sh`, and changes to `.goreleaser.yml`,
   `.github/workflows/release.yml`, `scripts/build-desktop.mjs`
-- new `stickguy update`, `service`, and `diagnostics` commands in
-  `cmd/stickguy/main.go`
+- new `overgent update`, `service`, and `diagnostics` commands in
+  `cmd/overgent/main.go`
 
 **Two known defects in it, both yours to resolve:**
 
@@ -79,7 +79,7 @@ finish it. It includes:
    clean machine, including OS service registration and recovery after a crash
    or reboot.
 3. The ADR and test resolution for the ADR-026 question above.
-4. Privacy-safe diagnostics: `stickguy diagnostics` must never emit source,
+4. Privacy-safe diagnostics: `overgent diagnostics` must never emit source,
    diffs, prompts, transcripts, credentials, tokens, environment values, or
    command output. Test that boundary explicitly, the way the secret classifier
    is tested.

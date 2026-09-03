@@ -9,7 +9,7 @@ context out. No more waiting for the agent to call `check_coordination`.
 - ADR-046 in `docs/decisions.md`
 - `internal/hookconfig/` — how Claude Code and Codex hook groups are
   installed and what command they invoke
-- The hook handler entrypoint in `cmd/stickguy` / `internal/app` — how hook
+- The hook handler entrypoint in `cmd/overgent` / `internal/app` — how hook
   stdin JSON is parsed today and what is written to stdout
 - `internal/agentactivity/` — session→workstream resolution from hook events
 - The brief renderer and delivery/acknowledgement state from L6
@@ -40,7 +40,7 @@ context out. No more waiting for the agent to call `check_coordination`.
 - **Fetch-through, not a cache.** (Amended 2026-08-26 after inspection
   showed no local brief cache exists.) Add one new method to the existing
   current-user IPC socket surface, following its existing naming/dispatch
-  conventions (see `cmd/stickguy/main.go` hook handling and the IPC methods
+  conventions (see `cmd/overgent/main.go` hook handling and the IPC methods
   in `internal/app`): given the hook payload's session/workspace identity,
   the service resolves the workstream (reusing the existing agent-activity
   resolution) and fetches the current brief from the hosted API using the

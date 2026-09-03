@@ -67,15 +67,15 @@ func workspaceCount(count int) string {
 
 func (status ServiceStatus) Tooltip() string {
 	if !status.Connected {
-		return "Stickguy · service disconnected"
+		return "Overgent · service disconnected"
 	}
 	if status.WorkspaceCount > 0 && status.PausedWorkspaces == status.WorkspaceCount {
-		return "Stickguy · sharing paused"
+		return "Overgent · sharing paused"
 	}
 	if status.FocusedSessions > 0 {
-		return "Stickguy · connected, some sessions muted"
+		return "Overgent · connected, some sessions muted"
 	}
-	return "Stickguy · connected"
+	return "Overgent · connected"
 }
 
 type localService interface {

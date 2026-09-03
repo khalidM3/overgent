@@ -69,7 +69,7 @@ importers:
 
   convex:
     dependencies:
-      '@stickguy/coordination':
+      '@overgent/coordination':
         specifier: workspace:*
         version: link:../packages/coordination
       convex:

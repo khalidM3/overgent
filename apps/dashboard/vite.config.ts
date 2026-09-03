@@ -4,8 +4,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: process.env.STICKGUY_DASHBOARD_API_ORIGIN ? {
-      "/api": { target: process.env.STICKGUY_DASHBOARD_API_ORIGIN, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, "") },
+    proxy: process.env.OVERGENT_DASHBOARD_API_ORIGIN ? {
+      "/api": { target: process.env.OVERGENT_DASHBOARD_API_ORIGIN, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, "") },
     } : undefined,
   },
   test: {

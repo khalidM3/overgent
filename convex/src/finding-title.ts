@@ -2,7 +2,7 @@
  * The one sentence a finding leads with.
  *
  * The dashboard used to title findings with the finding kind itself, so a card
- * read "stale assumption" and the member had to understand Stickguy's own
+ * read "stale assumption" and the member had to understand Overgent's own
  * vocabulary before they could understand their repository. A title should say
  * what happened to whom; the kind, the evidence, and the confidence band are
  * the drill-down.

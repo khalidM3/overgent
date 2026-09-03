@@ -1,17 +1,17 @@
-# Stickguy — Agent Activity Sharing
+# Overgent — Agent Activity Sharing
 
 Status: ADR-047 membership sharing model
 Last updated: 2026-08-26
 
 ## Purpose and boundary
 
-Stickguy observes supported Codex and Claude Code lifecycle/event surfaces so
+Overgent observes supported Codex and Claude Code lifecycle/event surfaces so
 authorized Project members can understand active workstreams and detect
-collisions. Installing Stickguy in a Project and connecting an adapter enables
+collisions. Installing Overgent in a Project and connecting an adapter enables
 Project sharing. There is no separate profile, session, audience, expiry, or
 message-kind ceremony.
 
-Stickguy remains a coordination harness. It does not own the model loop, start
+Overgent remains a coordination harness. It does not own the model loop, start
 or steer coding work, execute tools, approve permissions, or mutate a
 repository. Project visibility means authorized members of that Project, never
 a public feed.
@@ -44,7 +44,7 @@ current-action label, allowlisted tool name/category/status, permission-needed
 state, and safe repository-relative paths. It excludes tool inputs/results,
 raw commands/output, and file content.
 
-For session detail, Stickguy locally reads the supported vendor record named or
+For session detail, Overgent locally reads the supported vendor record named or
 identified by the adapter. The read is bounded and the record is never copied
 as a raw transcript. The owner always sees their own local session. Parsed
 `user`, `assistant`, `thinking`, and surfaced `system` messages that pass the

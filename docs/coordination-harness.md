@@ -1,13 +1,13 @@
-# Stickguy — Coordination Harness
+# Overgent — Coordination Harness
 
 Status: canonical V1 design  
 Last updated: 2026-08-23
 
 ## 1. Boundary
 
-Stickguy is a coordination harness around existing coding-agent harnesses. Codex, Claude Code, Cursor, and similar products continue to own their model loop, repository/file tools, command execution, context compression, coding permissions, test execution, and coding-model selection.
+Overgent is a coordination harness around existing coding-agent harnesses. Codex, Claude Code, Cursor, and similar products continue to own their model loop, repository/file tools, command execution, context compression, coding permissions, test execution, and coding-model selection.
 
-Stickguy owns the shared loop those independent harnesses do not naturally have:
+Overgent owns the shared loop those independent harnesses do not naturally have:
 
 ```text
 observe team work
@@ -23,7 +23,7 @@ surface/resolve coordination situations
 record acknowledgement, decision, and outcome
 ```
 
-Stickguy never impersonates an agent, executes its coding tools, or claims to have paused it. An integration supplies context through explicit tools or a documented, reviewed lifecycle hook. The dashboard/native notification can notify a person immediately; stdio MCP alone cannot force an already-running agent to take another model turn. Some harnesses, including supported Codex versions, can inject context or apply control at lifecycle/tool hooks, but Stickguy uses only capabilities accepted by an adapter-specific privacy/control ADR.
+Overgent never impersonates an agent, executes its coding tools, or claims to have paused it. An integration supplies context through explicit tools or a documented, reviewed lifecycle hook. The dashboard/native notification can notify a person immediately; stdio MCP alone cannot force an already-running agent to take another model turn. Some harnesses, including supported Codex versions, can inject context or apply control at lifecycle/tool hooks, but Overgent uses only capabilities accepted by an adapter-specific privacy/control ADR.
 
 ## 2. Harness components
 
@@ -46,7 +46,7 @@ The preferred V1 integration is a short checkpoint protocol:
 1. **Begin:** `begin_work` creates/resumes a workstream, records intended outcome/scope, establishes the Git baseline, and returns an initial coordination brief.
 2. **Preflight:** `check_coordination(trigger="before_broad_edit")` returns relevant new findings, decisions, claims, and dependency changes before broad/shared edits.
 3. **Checkpoint:** `report_checkpoint` records behavioral progress, discoveries, affected contracts/dependencies, structured verification state, related manifest revision, and the brief on which the agent relied.
-4. **Refresh:** Stickguy returns a new brief when the checkpoint reveals relevant changes or the relied-on context is stale.
+4. **Refresh:** Overgent returns a new brief when the checkpoint reveals relevant changes or the relied-on context is stale.
 5. **Finish:** `finish_work` records outcome/verification, closes or hands off the workstream, releases claims, and returns unresolved coordination items.
 
 Calls are idempotent and workstream-scoped. Integrations should invoke them at natural harness boundaries, not after every tool call. Recommended triggers are start/resume, material plan change, before broad/shared edits, after a meaningful implementation/test checkpoint, when blocked, and before completion.
@@ -92,7 +92,7 @@ Brief assembly is revision-safe even though semantic retrieval may run outside a
 
 Every brief has a monotonic project/repository context revision. Delivery records which item revisions the workstream received; acknowledgement records which it claims to have considered.
 
-`report_checkpoint` carries an optional `basedOnBriefId`. Stickguy compares that brief with current relevant state. It creates or updates a `stale_assumption` finding when a material decision, contract, dependency, or high-severity finding changed after the relied-on brief and is relevant to the checkpoint.
+`report_checkpoint` carries an optional `basedOnBriefId`. Overgent compares that brief with current relevant state. It creates or updates a `stale_assumption` finding when a material decision, contract, dependency, or high-severity finding changed after the relied-on brief and is relevant to the checkpoint.
 
 This is not triggered merely because unrelated project activity occurred. A newer global revision without a relevance edge does not make an agent stale.
 
@@ -100,7 +100,7 @@ A context acknowledgement proves delivery/consideration only. It does not prove 
 
 ## 6. Verification summaries
 
-Stickguy does not run tests for an external agent. An agent harness may report bounded verification metadata:
+Overgent does not run tests for an external agent. An agent harness may report bounded verification metadata:
 
 - state: `not_run`, `running`, `passed`, `failed`, or `unknown`;
 - check kind/label, affected component, and observed time;
@@ -118,9 +118,9 @@ V1 coordination outcomes are:
 - `review_recommended` — included in the next relevant brief;
 - `coordination_required` — prominently delivered to affected people/agents and requires acknowledge/resolve workflow.
 
-They are advisory. Stickguy does not block file writes, revoke an agent's tools, stop a coding loop, or create repository locks in V1. A harness-specific adapter may technically support pre-tool or stop policies, but production use requires a separate permission/privacy/UX ADR and must fail open or closed exactly as disclosed.
+They are advisory. Overgent does not block file writes, revoke an agent's tools, stop a coding loop, or create repository locks in V1. A harness-specific adapter may technically support pre-tool or stop policies, but production use requires a separate permission/privacy/UX ADR and must fail open or closed exactly as disclosed.
 
-Stickguy permissions govern project data, findings, decisions, integrations, and notification policy. The underlying coding harness continues to govern shell/file/network permissions.
+Overgent permissions govern project data, findings, decisions, integrations, and notification policy. The underlying coding harness continues to govern shell/file/network permissions.
 
 ## 8. Memory and compression
 

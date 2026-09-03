@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/stickguy/stickguy/internal/hookconfig"
+	"github.com/overgent/overgent/internal/hookconfig"
 )
 
 type Status struct {
@@ -43,16 +43,16 @@ func (m Manager) Setup() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if current, exists := servers["stickguy"]; exists {
+	if current, exists := servers["overgent"]; exists {
 		binding, _, bindingErr := classifyServer(current, expected)
 		if bindingErr != nil {
 			return Status{}, bindingErr
 		}
 		if binding == "other_profile" {
-			return Status{Binding: binding, CheckedProfile: m.checkedProfile()}, errors.New("Claude Code is connected to another Stickguy profile; explicit reconnect is required")
+			return Status{Binding: binding, CheckedProfile: m.checkedProfile()}, errors.New("Claude Code is connected to another Overgent profile; explicit reconnect is required")
 		}
 	} else {
-		servers["stickguy"] = expected
+		servers["overgent"] = expected
 		if err := writeJSON(path, document); err != nil {
 			return Status{}, err
 		}
@@ -64,10 +64,10 @@ func (m Manager) Setup() (Status, error) {
 	if err := hookconfig.Install(hookPath, hookCommand); err != nil {
 		return Status{}, fmt.Errorf("install Claude activity hooks: %w", err)
 	}
-	// Pre-approve only Stickguy's own coordination tools, so the harness does
+	// Pre-approve only Overgent's own coordination tools, so the harness does
 	// not spend four approval prompts before the member does any work.
-	if err := hookconfig.AllowTools(hookPath, hookconfig.StickguyMCPTools); err != nil {
-		return Status{}, fmt.Errorf("pre-approve Stickguy coordination tools: %w", err)
+	if err := hookconfig.AllowTools(hookPath, hookconfig.OvergentMCPTools); err != nil {
+		return Status{}, fmt.Errorf("pre-approve Overgent coordination tools: %w", err)
 	}
 	result := status(path, true)
 	result.CheckedProfile = m.checkedProfile()
@@ -84,7 +84,7 @@ func (m Manager) Status() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	current, exists := servers["stickguy"]
+	current, exists := servers["overgent"]
 	binding, previous := "not_configured", ""
 	if exists {
 		binding, previous, err = classifyServer(current, expected)
@@ -120,7 +120,7 @@ func (m Manager) Status() (Status, error) {
 	return result, nil
 }
 
-// Rebind transactionally moves only Stickguy's recognized MCP entry and hooks
+// Rebind transactionally moves only Overgent's recognized MCP entry and hooks
 // from another profile to this one. Unrelated Claude configuration is retained.
 func (m Manager) Rebind() (Status, error) {
 	path, expected, document, err := m.resolve()
@@ -131,7 +131,7 @@ func (m Manager) Rebind() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	if current, exists := servers["stickguy"]; exists {
+	if current, exists := servers["overgent"]; exists {
 		if _, _, err = classifyServer(current, expected); err != nil {
 			return Status{}, err
 		}
@@ -148,7 +148,7 @@ func (m Manager) Rebind() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	servers["stickguy"] = expected
+	servers["overgent"] = expected
 	if err = writeJSON(path, document); err != nil {
 		return Status{}, err
 	}
@@ -177,14 +177,14 @@ func (m Manager) Remove() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	current, exists := servers["stickguy"]
+	current, exists := servers["overgent"]
 	if !exists {
 		// Continue so a hooks-only partial install can still be removed safely.
 	} else {
 		if !reflect.DeepEqual(current, expected) {
-			return Status{}, errors.New("Claude stickguy MCP entry drifted; refusing to remove it")
+			return Status{}, errors.New("Claude overgent MCP entry drifted; refusing to remove it")
 		}
-		delete(servers, "stickguy")
+		delete(servers, "overgent")
 		if err := writeJSON(path, document); err != nil {
 			return Status{}, err
 		}
@@ -202,8 +202,8 @@ func (m Manager) Remove() (Status, error) {
 	}
 	// Withdraw exactly what Setup granted. A teardown that leaves permissions
 	// behind for a server that is gone is a permission the member never revisits.
-	if err = hookconfig.DisallowTools(hookPath, hookconfig.StickguyMCPTools); err != nil {
-		return Status{}, fmt.Errorf("withdraw Stickguy coordination tool approval: %w", err)
+	if err = hookconfig.DisallowTools(hookPath, hookconfig.OvergentMCPTools); err != nil {
+		return Status{}, fmt.Errorf("withdraw Overgent coordination tool approval: %w", err)
 	}
 	result := status(path, false)
 	result.CheckedProfile = m.checkedProfile()
@@ -253,7 +253,7 @@ func (m Manager) resolve() (string, map[string]any, map[string]any, error) {
 	} else if !os.IsNotExist(readErr) {
 		return "", nil, nil, fmt.Errorf("read project Claude MCP config: %w", readErr)
 	}
-	command := "stickguy"
+	command := "overgent"
 	args := []any{"mcp"}
 	if !m.Portable {
 		configRoot, resolveErr := filepath.Abs(m.ConfigRoot)
@@ -262,7 +262,7 @@ func (m Manager) resolve() (string, map[string]any, map[string]any, error) {
 		}
 		executable, resolveErr := filepath.Abs(m.Executable)
 		if resolveErr != nil || executable == "" {
-			return "", nil, nil, errors.New("resolve Stickguy executable")
+			return "", nil, nil, errors.New("resolve Overgent executable")
 		}
 		command, args = executable, []any{"--config-root", configRoot, "mcp"}
 	}
@@ -290,7 +290,7 @@ func writeJSON(path string, document map[string]any) error {
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".stickguy-mcp-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".overgent-mcp-*")
 	if err != nil {
 		return fmt.Errorf("create temporary Claude MCP config: %w", err)
 	}
@@ -341,29 +341,29 @@ func classifyServer(current, expected any) (string, string, error) {
 	}
 	entry, ok := current.(map[string]any)
 	if !ok || len(entry) != 3 || entry["type"] != "stdio" {
-		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+		return "", "", errors.New("Claude overgent MCP entry drifted; refusing to overwrite it")
 	}
 	command, ok := entry["command"].(string)
-	if !ok || command != "stickguy" && !filepath.IsAbs(command) {
-		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+	if !ok || command != "overgent" && !filepath.IsAbs(command) {
+		return "", "", errors.New("Claude overgent MCP entry drifted; refusing to overwrite it")
 	}
 	rawArgs, ok := entry["args"].([]any)
 	if !ok {
-		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+		return "", "", errors.New("Claude overgent MCP entry drifted; refusing to overwrite it")
 	}
 	args := make([]string, len(rawArgs))
 	for index, value := range rawArgs {
 		text, valid := value.(string)
 		if !valid {
-			return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+			return "", "", errors.New("Claude overgent MCP entry drifted; refusing to overwrite it")
 		}
 		args[index] = text
 	}
-	if len(args) == 1 && args[0] == "mcp" && command == "stickguy" {
+	if len(args) == 1 && args[0] == "mcp" && command == "overgent" {
 		return "other_profile", "", nil
 	}
 	if len(args) != 3 || args[0] != "--config-root" || !filepath.IsAbs(args[1]) || args[2] != "mcp" || !filepath.IsAbs(command) {
-		return "", "", errors.New("Claude stickguy MCP entry drifted; refusing to overwrite it")
+		return "", "", errors.New("Claude overgent MCP entry drifted; refusing to overwrite it")
 	}
 	return "other_profile", filepath.Clean(args[1]), nil
 }

@@ -229,7 +229,7 @@ http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: ht
     status: 204,
     headers: {
       "cache-control": "no-store",
-      "set-cookie": `stickguy_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
+      "set-cookie": `overgent_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
       "x-content-type-options": "nosniff",
     },
   });
@@ -249,7 +249,7 @@ http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAct
   return new Response(null, { status: 303, headers: {
     "cache-control": "no-store",
     "location": loopback ? "http://127.0.0.1:5173/?live=1" : "/dashboard?live=1",
-    "set-cookie": `stickguy_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
+    "set-cookie": `overgent_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
     "x-content-type-options": "nosniff",
   } });
 })) });
@@ -321,7 +321,7 @@ http.route({ pathPrefix: "/v1/projects/", method: "GET", handler: httpAction(asy
     const auth = collaborationAuth(request);
     await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.export", 3);
     const exported = await ctx.runQuery(internal.service.exportProject, { ...auth, projectPublicId: expectId(exportMatch[1]), now: Date.now() });
-    return new Response(JSON.stringify(exported, null, 2), { status: 200, headers: { ...JSON_HEADERS, "content-disposition": `attachment; filename="stickguy-project-${expectId(exportMatch[1])}.json"` } });
+    return new Response(JSON.stringify(exported, null, 2), { status: 200, headers: { ...JSON_HEADERS, "content-disposition": `attachment; filename="overgent-project-${expectId(exportMatch[1])}.json"` } });
   }
   const collaborationMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/collaboration$/);
   if (collaborationMatch) {
@@ -513,7 +513,7 @@ function browserSession(request: Request): string {
   const cookie = request.headers.get("cookie") ?? "";
   for (const part of cookie.split(";")) {
     const [name, value] = part.trim().split("=", 2);
-    if (name === "stickguy_session" && value && /^[a-f0-9]{64}$/.test(value)) return value;
+    if (name === "overgent_session" && value && /^[a-f0-9]{64}$/.test(value)) return value;
   }
   throw new HttpFailure("unauthorized", 401);
 }
@@ -627,7 +627,7 @@ function errorMessage(code: string): string {
     forbidden: "This operation is not authorized for the requested Project.",
     not_found: "The requested resource was not found.",
     rate_limited: "Too many requests; retry later.",
-    schema_version_unsupported: "Upgrade Stickguy to continue.",
+    schema_version_unsupported: "Upgrade Overgent to continue.",
     request_too_large: "The request exceeds the supported size.",
     email_identity_rejected: "Choose a display name; an email address cannot be your Project identity.",
     internal_error: "The service could not complete the request.",

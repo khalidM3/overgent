@@ -5,8 +5,8 @@ import path from "node:path";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 mkdirSync(path.join(root, "bin"), { recursive: true });
-const cli = path.join(root, "bin", "stickguy");
-const cliBuild = spawnSync("go", ["build", "-o", cli, "./cmd/stickguy"], { cwd: root, stdio: "inherit" });
+const cli = path.join(root, "bin", "overgent");
+const cliBuild = spawnSync("go", ["build", "-o", cli, "./cmd/overgent"], { cwd: root, stdio: "inherit" });
 if (cliBuild.status !== 0) process.exit(cliBuild.status ?? 1);
 const devURL = process.env.FRONTEND_DEVSERVER_URL ?? "http://127.0.0.1:5173";
 const healthURL = new URL(devURL);
@@ -36,8 +36,8 @@ if (build.status !== 0) {
   process.exit(build.status ?? 1);
 }
 
-const executable = path.join(root, "apps", "desktop", "build", "bin", "Stickguy Dev.app", "Contents", "MacOS", "stickguy-desktop-dev");
-const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, FRONTEND_DEVSERVER_URL: devURL, STICKGUY_API_ORIGIN: "http://127.0.0.1:3211", STICKGUY_DASHBOARD_ORIGIN: `${healthURL.origin}/api`, STICKGUY_CLI_BINARY: cli }, stdio: "inherit" });
+const executable = path.join(root, "apps", "desktop", "build", "bin", "Overgent Dev.app", "Contents", "MacOS", "overgent-desktop-dev");
+const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, FRONTEND_DEVSERVER_URL: devURL, OVERGENT_API_ORIGIN: "http://127.0.0.1:3211", OVERGENT_DASHBOARD_ORIGIN: `${healthURL.origin}/api`, OVERGENT_CLI_BINARY: cli }, stdio: "inherit" });
 const stop = () => {
   desktop.kill("SIGTERM");
   ui?.kill("SIGTERM");

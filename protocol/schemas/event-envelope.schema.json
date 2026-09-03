@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.stickguy.dev/v1/event-envelope.schema.json",
+  "$id": "https://schemas.overgent.com/v1/event-envelope.schema.json",
   "title": "EventEnvelope",
   "type": "object",
   "additionalProperties": false,

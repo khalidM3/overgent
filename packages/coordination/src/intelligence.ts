@@ -259,7 +259,7 @@ export function cosine(left: readonly number[], right: readonly number[]): numbe
 }
 
 export class DeterministicConceptEmbeddingProvider implements EmbeddingProvider {
-  readonly name = "stickguy-concepts/v1";
+  readonly name = "overgent-concepts/v1";
   async embed(inputs: readonly SemanticInput[], signal: AbortSignal): Promise<readonly EmbeddedObject[]> {
     if (signal.aborted) throw signal.reason;
     return inputs.map((input) => ({ ...input, text: validateSemanticText(input.text), model: this.name, dimensions: CONCEPT_DIMENSIONS, vector: conceptVector(input.text) }));
@@ -343,7 +343,7 @@ export function evaluatePair(left: WorkstreamRecord, right: WorkstreamRecord): I
   const semantic = providerCompatible
     ? cosine(left.semanticVector!, right.semanticVector!)
     : cosine(conceptVector(left.summary), conceptVector(right.summary));
-  const semanticSource = providerCompatible ? left.semanticProvider! : "stickguy-concepts/v1";
+  const semanticSource = providerCompatible ? left.semanticProvider! : "overgent-concepts/v1";
   const lexical = lexicalScore(left.summary, right.summary);
   const summaries = `${left.summary} ${right.summary}`.toLowerCase();
   const documentary = /\b(document|documentation|readme)\b/.test(summaries);

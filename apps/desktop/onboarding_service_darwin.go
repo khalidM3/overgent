@@ -16,18 +16,18 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/stickguy/stickguy/internal/activation"
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/claudesetup"
-	"github.com/stickguy/stickguy/internal/codexsetup"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/credential"
-	"github.com/stickguy/stickguy/internal/cursorsetup"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
-	"github.com/stickguy/stickguy/internal/onboarding"
-	servicemanager "github.com/stickguy/stickguy/internal/service"
-	"github.com/stickguy/stickguy/internal/store"
+	"github.com/overgent/overgent/internal/activation"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/claudesetup"
+	"github.com/overgent/overgent/internal/codexsetup"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/credential"
+	"github.com/overgent/overgent/internal/cursorsetup"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
+	"github.com/overgent/overgent/internal/onboarding"
+	servicemanager "github.com/overgent/overgent/internal/service"
+	"github.com/overgent/overgent/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -144,7 +144,7 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 	selected, err := application.Get().Dialog.OpenFile().
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
-		SetTitle("Choose the Git repository Stickguy should coordinate").
+		SetTitle("Choose the Git repository Overgent should coordinate").
 		PromptForSingleSelection()
 	if err != nil || selected == "" {
 		return selected, err
@@ -155,7 +155,7 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 func (service *OnboardingService) State() (OnboardingState, error) {
 	state := OnboardingState{Available: true, Development: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
 	if service.configRoot == "" {
-		return state, errors.New("local Stickguy configuration is unavailable")
+		return state, errors.New("local Overgent configuration is unavailable")
 	}
 	paths, err := config.Resolve(service.configRoot)
 	if err != nil {
@@ -192,7 +192,7 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 // ResetEnrollment forgets this Mac's device identity so the member can enroll
 // again from the app, without a terminal. The safety gate - refusing unless the
 // hosted API actually rejected the credential - lives in internal/onboarding
-// and is shared with "stickguy reset".
+// and is shared with "overgent reset".
 func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
 	paths, err := config.Resolve(service.configRoot)
 	if err != nil {
@@ -269,7 +269,7 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 	result, err := flow.CreateAdditional(ctx, onboarding.Options{
 		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
 		ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel,
-		DisplayName: request.DisplayName, AppVersion: "stickguy/desktop-beta",
+		DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta",
 	}, cfg.DeviceID, token)
 	if err != nil {
 		return EnrollmentResult{}, err
@@ -302,7 +302,7 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "stickguy/desktop-beta"}
+	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta"}
 	flow := onboarding.New(service.apiBaseURL)
 	var result onboarding.Result
 	if create {
@@ -696,9 +696,9 @@ func applyAdapterBinding(state *AdapterState, configured bool, binding, previous
 	}
 	switch binding {
 	case "other_profile":
-		state.Detail = "Connected to a different Stickguy profile. Reconnect explicitly to move only Stickguy-managed configuration to this Project."
+		state.Detail = "Connected to a different Overgent profile. Reconnect explicitly to move only Overgent-managed configuration to this Project."
 	case "partial":
-		state.Detail = "Stickguy found an incomplete connection and can repair the managed entries automatically."
+		state.Detail = "Overgent found an incomplete connection and can repair the managed entries automatically."
 	case "not_configured":
 		state.Detail = "Not connected to this Project yet."
 	}
@@ -787,11 +787,11 @@ func (service *OnboardingService) resolveCLI() (string, error) {
 				return absolute, nil
 			}
 		}
-		return "", errors.New("Stickguy development CLI is missing; restart pnpm dev so it can be rebuilt")
+		return "", errors.New("Overgent development CLI is missing; restart pnpm dev so it can be rebuilt")
 	}
-	value, err := exec.LookPath("stickguy")
+	value, err := exec.LookPath("overgent")
 	if err != nil {
-		return "", errors.New("Stickguy CLI is not installed; agent setup is unavailable")
+		return "", errors.New("Overgent CLI is not installed; agent setup is unavailable")
 	}
 	return filepath.Abs(value)
 }

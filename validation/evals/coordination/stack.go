@@ -20,12 +20,12 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/app"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	"github.com/stickguy/stickguy/internal/hosted"
-	"github.com/stickguy/stickguy/internal/onboarding"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/app"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	"github.com/overgent/overgent/internal/hosted"
+	"github.com/overgent/overgent/internal/onboarding"
 )
 
 type backendProcess struct {
@@ -166,7 +166,7 @@ func backendReady(ctx context.Context, siteURL string) bool {
 		return false
 	}
 	response.Body.Close()
-	// The listener can answer 404 before Convex has loaded the Stickguy
+	// The listener can answer 404 before Convex has loaded the Overgent
 	// functions. The real bootstrap route deterministically answers 401 without
 	// a device credential, which proves the HTTP actions are ready.
 	return response.StatusCode == http.StatusUnauthorized
@@ -196,8 +196,8 @@ func materializeFixture(ctx context.Context, fixtureRoot, destination, repositor
 	commands := [][]string{
 		{"init", "-q", "-b", "main"},
 		{"config", "user.email", "coordination-eval@example.invalid"},
-		{"config", "user.name", "Stickguy Coordination Eval"},
-		{"remote", "add", "origin", "https://example.invalid/stickguy/coordination-eval-" + strings.ToLower(repositoryKey) + ".git"},
+		{"config", "user.name", "Overgent Coordination Eval"},
+		{"remote", "add", "origin", "https://example.invalid/overgent/coordination-eval-" + strings.ToLower(repositoryKey) + ".git"},
 		{"add", "."},
 		{"commit", "-q", "-m", "coordination fixture baseline"},
 	}

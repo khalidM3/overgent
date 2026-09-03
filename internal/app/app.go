@@ -19,15 +19,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/codexappserver"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	git "github.com/stickguy/stickguy/internal/git"
-	"github.com/stickguy/stickguy/internal/hosted"
-	"github.com/stickguy/stickguy/internal/sessiontranscript"
-	"github.com/stickguy/stickguy/internal/store"
-	"github.com/stickguy/stickguy/internal/watcher"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	git "github.com/overgent/overgent/internal/git"
+	"github.com/overgent/overgent/internal/hosted"
+	"github.com/overgent/overgent/internal/sessiontranscript"
+	"github.com/overgent/overgent/internal/store"
+	"github.com/overgent/overgent/internal/watcher"
 )
 
 type Sender interface {
@@ -878,7 +878,7 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	if event.SubagentAlias != "" {
 		payload["subagentAlias"] = event.SubagentAlias
 	}
-	// State what Stickguy can actually see of this session's reads, so an empty
+	// State what Overgent can actually see of this session's reads, so an empty
 	// read set is never mistaken for a session that read nothing (ADR-052).
 	payload["readCoverage"] = agentactivity.ReadCoverage(event.Vendor, s.codexInferredReadsUsable(event.WorkstreamID))
 	// Only mutation paths become session work evidence. An inspection tool's
@@ -914,7 +914,7 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 			transcriptPath = sessiontranscript.LocateCodexRollout(home, q.AgentVendorSessionID)
 		}
 	}
-	// A vendor that writes no transcript Stickguy can read may still have named
+	// A vendor that writes no transcript Overgent can read may still have named
 	// this session. Cursor's adapter derives that name from the submitted prompt
 	// and runs it through ClassifyCoordinationTitle before it arrives here, so
 	// this value is already classifier output (ADR-042). A transcript title,
@@ -1202,7 +1202,7 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 		if err := validateVerification(q.Verification); err != nil {
 			return daemon.Response{Error: err.Error()}
 		}
-		checkpointSum := sha256.Sum256([]byte("stickguy.finish-checkpoint.v1\x00" + q.WorkspaceID + "\x00" + q.IdempotencyKey))
+		checkpointSum := sha256.Sum256([]byte("overgent.finish-checkpoint.v1\x00" + q.WorkspaceID + "\x00" + q.IdempotencyKey))
 		checkpoint := map[string]any{"checkpointId": fmt.Sprintf("chk_finish_%x", checkpointSum[:12]), "workstreamId": workstreamID, "summary": q.Summary}
 		if q.ManifestRevision > 0 {
 			checkpoint["relatedManifestRevision"] = q.ManifestRevision

@@ -7,14 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/codexappserver"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
-	gitobs "github.com/stickguy/stickguy/internal/git"
-	"github.com/stickguy/stickguy/internal/hosted"
-	"github.com/stickguy/stickguy/internal/sessiontranscript"
-	"github.com/stickguy/stickguy/internal/store"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/codexappserver"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
+	gitobs "github.com/overgent/overgent/internal/git"
+	"github.com/overgent/overgent/internal/hosted"
+	"github.com/overgent/overgent/internal/sessiontranscript"
+	"github.com/overgent/overgent/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -398,7 +398,7 @@ func TestCommittedThousandPathManifestIsAtomicAndRestartSafe(t *testing.T) {
 	state := t.TempDir()
 	repo := makeRepo(t)
 	ctx := context.Background()
-	if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: repo}); e != nil {
+	if e := Register(ctx, state, "https://api.overgent.com", "dev_fixture", config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: repo}); e != nil {
 		t.Fatal(e)
 	}
 	for i := range 1000 {
@@ -500,7 +500,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	ctx := context.Background()
 	for i, r := range []string{r1, r2} {
 		id := string(rune('a' + i))
-		if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: r}); e != nil {
+		if e := Register(ctx, state, "https://api.overgent.com", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: r}); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -522,7 +522,7 @@ func TestTwoRepositoriesLockPauseRestart(t *testing.T) {
 	if e := Run(context.Background(), state, nil); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("second instance: %v", e)
 	}
-	if e := Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
+	if e := Register(ctx, state, "https://api.overgent.com", "dev_fixture", config.Workspace{ID: "wsp_c", ProjectID: "prj_fixture", WorkstreamID: "wrk_c", MemberID: "mem_fixture", SessionID: "ses_c", Root: makeRepo(t)}); e == nil || !strings.Contains(e.Error(), "already running") {
 		t.Fatalf("concurrent registration: %v", e)
 	}
 	r3 := makeRepo(t)
@@ -645,12 +645,12 @@ func TestRegisterRejectsExternalIdentifiersAndRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := valid
 			mutate(&w)
-			if e := Register(context.Background(), state, "https://api.stickguy.dev", "dev_valid", w); e == nil {
+			if e := Register(context.Background(), state, "https://api.overgent.com", "dev_valid", w); e == nil {
 				t.Fatal("invalid registration accepted")
 			}
 		})
 	}
-	if e := Register(context.Background(), state, "https://api.stickguy.dev", "BAD", valid); e == nil {
+	if e := Register(context.Background(), state, "https://api.overgent.com", "BAD", valid); e == nil {
 		t.Fatal("invalid device ID accepted")
 	}
 }
@@ -799,7 +799,7 @@ func TestRunSkipsWorkspacesWhoseRootHasDisappeared(t *testing.T) {
 	live := makeRepo(t)
 	ctx := context.Background()
 	for id, root := range map[string]string{"a": removed, "b": live} {
-		if err = Register(ctx, state, "https://api.stickguy.dev", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: root}); err != nil {
+		if err = Register(ctx, state, "https://api.overgent.com", "dev_fixture", config.Workspace{ID: "wsp_" + id, ProjectID: "prj_fixture", WorkstreamID: "wrk_" + id, MemberID: "mem_fixture", SessionID: "ses_" + id, Root: root}); err != nil {
 			t.Fatal(err)
 		}
 	}

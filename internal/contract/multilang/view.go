@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stickguy/stickguy/internal/contract/tsw"
+	"github.com/overgent/overgent/internal/contract/tsw"
 )
 
 // view navigates the flat pre-order dump the guest produced. The dump carries

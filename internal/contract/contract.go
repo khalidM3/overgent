@@ -30,7 +30,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/stickguy/stickguy/internal/contract/fingerprint"
+	"github.com/overgent/overgent/internal/contract/fingerprint"
 )
 
 // The fingerprint value types and their bounds live in the leaf package
@@ -61,7 +61,7 @@ type File = fingerprint.File
 // Fingerprintable reports whether a repository-relative path has a contract
 // fingerprint at all. Extraction and comparison are limited to these languages.
 //
-// It answers the static question "is this a language Stickguy fingerprints",
+// It answers the static question "is this a language Overgent fingerprints",
 // not "will extraction succeed here and now". A wasm-backed language stays
 // fingerprintable on a platform without wazero's compiler; Extract returns no
 // fingerprint there and WasmStatus explains why. Reporting the language as

@@ -12,7 +12,7 @@
 // The runtime is duplicated into each module, which costs about 37KB
 // compressed apiece. That is the whole price of the split, and it buys a
 // startup and memory profile that no longer depends on how many languages
-// Stickguy supports.
+// Overgent supports.
 //
 // Exact input commits for every module are pinned in PROVENANCE.md, and their
 // hashes and sizes are asserted by a test.

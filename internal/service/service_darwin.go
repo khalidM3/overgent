@@ -1,6 +1,6 @@
 //go:build darwin
 
-// Package service manages the current user's Stickguy LaunchAgent.
+// Package service manages the current user's Overgent LaunchAgent.
 package service
 
 import (
@@ -26,9 +26,9 @@ const (
 	bootstrapBackoff  = 250 * time.Millisecond
 )
 
-// defaultLabel is the LaunchAgent label for the default profile. It must not
-// change: an existing install already owns a job under this name.
-const defaultLabel = "dev.stickguy.service"
+// defaultLabel is the Overgent LaunchAgent label for the default profile. It is
+// stable from ADR-065 onward: an installed release owns a job under this name.
+const defaultLabel = "com.overgent.service"
 
 // Manager installs and controls the one per-user production service.
 type Manager struct {
@@ -45,9 +45,9 @@ type Status struct {
 }
 
 // label scopes the LaunchAgent to the profile it manages. Without this a
-// development build using an isolated STICKGUY_CONFIG_ROOT and a production
-// install both claim "dev.stickguy.service": they overwrite each other's plist
-// and only one can ever be bootstrapped. The default profile keeps the original
+// development build using an isolated OVERGENT_CONFIG_ROOT and a production
+// install both claim "com.overgent.service": they overwrite each other's plist
+// and only one can ever be bootstrapped. The default profile keeps the unscoped
 // label so upgrading does not orphan a job that is already installed.
 func (m Manager) label() string {
 	if m.ConfigRoot == "" || sameProfile(m.ConfigRoot, m.defaultConfigRoot()) {
@@ -60,7 +60,7 @@ func (m Manager) label() string {
 // defaultConfigRoot mirrors config.DefaultRoot for this Manager's home, kept
 // local so the service package stays free of a configuration dependency.
 func (m Manager) defaultConfigRoot() string {
-	return filepath.Join(m.Home, "Library", "Application Support", "Stickguy")
+	return filepath.Join(m.Home, "Library", "Application Support", "Overgent")
 }
 
 func sameProfile(left, right string) bool {

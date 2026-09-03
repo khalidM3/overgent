@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/stickguy/stickguy/internal/agentactivity"
-	"github.com/stickguy/stickguy/internal/config"
-	"github.com/stickguy/stickguy/internal/daemon"
+	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/overgent/overgent/internal/config"
+	"github.com/overgent/overgent/internal/daemon"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -175,7 +175,7 @@ func isolateCodex(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
-	t.Setenv("STICKGUY_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
+	t.Setenv("OVERGENT_CODEX_EXECUTABLE", filepath.Join(t.TempDir(), "absent-codex"))
 	return home
 }
 
@@ -194,7 +194,7 @@ func TestDevelopmentAgentSetupIsExplicitAndUsesBuiltExecutable(t *testing.T) {
 			path = filepath.Join(project, ".codex", "config.toml")
 		}
 		contents, err := os.ReadFile(path)
-		if err != nil || !strings.Contains(string(contents), state) || !strings.Contains(string(contents), "stickguy") {
+		if err != nil || !strings.Contains(string(contents), state) || !strings.Contains(string(contents), "overgent") {
 			t.Fatalf("%s development config path=%s err=%v contents=%q", agent, path, err, contents)
 		}
 	}
@@ -215,7 +215,7 @@ func TestProductionAgentSetupUsesCurrentProfile(t *testing.T) {
 			path = filepath.Join(project, ".codex", "config.toml")
 		}
 		contents, err := os.ReadFile(path)
-		if err != nil || !strings.Contains(string(contents), "stickguy") || !strings.Contains(string(contents), state) {
+		if err != nil || !strings.Contains(string(contents), "overgent") || !strings.Contains(string(contents), state) {
 			t.Fatalf("%s production config path=%s err=%v contents=%q", agent, path, err, contents)
 		}
 	}
@@ -268,7 +268,7 @@ func TestRemoveAllAgentBindingsUsesManagedRemoval(t *testing.T) {
 	}
 	for _, path := range []string{filepath.Join(project, ".codex", "config.toml"), filepath.Join(project, ".mcp.json"), filepath.Join(codexHome, "hooks.json"), filepath.Join(project, ".claude", "settings.local.json")} {
 		contents, readErr := os.ReadFile(path)
-		if readErr == nil && strings.Contains(string(contents), "stickguy") {
+		if readErr == nil && strings.Contains(string(contents), "overgent") {
 			t.Fatalf("managed binding remained in %s: %s", path, contents)
 		}
 	}
@@ -346,7 +346,7 @@ func TestCursorHookPublishesTheWorkspaceRootAndPushesContext(t *testing.T) {
 		t.Fatalf("output is not JSON: %q", output.String())
 	}
 	env, ok := decoded["env"].(map[string]any)
-	if !ok || env["STICKGUY_CURSOR_WORKSPACE_ROOT"] != root {
+	if !ok || env["OVERGENT_CURSOR_WORKSPACE_ROOT"] != root {
 		t.Fatalf("sessionStart did not publish the workspace root: %q", output.String())
 	}
 	if decoded["additional_context"] != "Coordination update: Refresh changed." {
@@ -387,7 +387,7 @@ func TestCursorEditHookUsesTheSessionVariableAndEmitsNothing(t *testing.T) {
 	}
 }
 
-// Nothing Stickguy cannot do may reach a Cursor turn (ADR-017), so an
+// Nothing Overgent cannot do may reach a Cursor turn (ADR-017), so an
 // unreachable service, an unknown event, and unreadable input all produce no
 // output and no error.
 func TestCursorHookFailsOpenWithoutOutput(t *testing.T) {

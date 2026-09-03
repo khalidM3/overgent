@@ -20,7 +20,7 @@ describe("Project Workroom behavior", () => {
     render(<App initialState="unauthorized" source={new FixtureProjectSource()} />);
     expect(screen.getByRole("alert").textContent).toContain("not authorized");
     expect(screen.queryByText("Atlas launch")).toBeNull();
-    expect(screen.queryByText("stickguy/atlas")).toBeNull();
+    expect(screen.queryByText("overgent/atlas")).toBeNull();
   });
 
   it("groups every session by area, with drill-down details", async () => {
@@ -43,7 +43,7 @@ describe("Project Workroom behavior", () => {
     expect(within(inspector).getAllByText("feature/session-rotation")).toHaveLength(1);
     expect(within(inspector).queryByRole("tab")).toBeNull();
     expect(await within(inspector).findByText(/Rotate the browser session on every permission change/)).toBeTruthy();
-    // Lifecycle and Stickguy coordination live in the same chronology as chat.
+    // Lifecycle and Overgent coordination live in the same chronology as chat.
     const started = within(inspector).getByText("Session started").closest("li") as HTMLElement;
     const routed = within(inspector).getByText("Coordination routed").closest("li") as HTMLElement;
     const considered = within(inspector).getByText("Agent considered coordination").closest("li") as HTMLElement;
@@ -154,7 +154,7 @@ describe("Project Workroom behavior", () => {
     expect(openOwningSession).not.toHaveBeenCalled();
 
     await user.click(within(inspector).getByRole("button", { name: "Continue exact session" }));
-    expect(openOwningSession).toHaveBeenCalledWith(expect.stringMatching(/^wrk_agent_/), expect.stringContaining("Stickguy found:"), "vendor");
+    expect(openOwningSession).toHaveBeenCalledWith(expect.stringMatching(/^wrk_agent_/), expect.stringContaining("Overgent found:"), "vendor");
     expect(await within(inspector).findByText(/Copy the exact continuation command/)).toBeTruthy();
     expect(within(inspector).getByRole("button", { name: "Copy command" })).toBeTruthy();
   });
@@ -247,9 +247,9 @@ describe("Project Workroom behavior", () => {
     // A suggested outcome prefills the composer rather than acting on its
     // own: the member always sees and can edit the exact words that will be
     // injected before anything is sent.
-    await user.click(screen.getByRole("button", { name: /Settled outside Stickguy/ }));
+    await user.click(screen.getByRole("button", { name: /Settled outside Overgent/ }));
     const composer = screen.getByLabelText(/^Decision for /) as HTMLTextAreaElement;
-    expect(composer.value).toContain("Settled outside Stickguy");
+    expect(composer.value).toContain("Settled outside Overgent");
     await user.clear(composer);
     await user.type(composer, "Khalid owns the rotation boundary; Mina reviews after it lands.");
     // The send control names the delivery, because delivery is the effect.
@@ -365,12 +365,12 @@ describe("Project Workroom behavior", () => {
     expect(within(add).queryByPlaceholderText("Choose a local Git repository")).toBeNull();
     expect(within(add).getByRole("status").textContent).toContain("Checking this Mac");
 
-    rejectState(new Error("The native Stickguy bridge is unavailable."));
+    rejectState(new Error("The native Overgent bridge is unavailable."));
     // Hosted origin: hand off to the app, phrased as the task continuing rather
     // than as reopening the app the member is already looking at.
-    const handoff = await screen.findByRole("button", { name: "Continue in the Stickguy app" });
+    const handoff = await screen.findByRole("button", { name: "Continue in the Overgent app" });
     expect(handoff).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Stickguy/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open Overgent/ })).toBeNull();
     expect(screen.queryByPlaceholderText("Choose a local Git repository")).toBeNull();
   });
 
@@ -390,7 +390,7 @@ describe("Project Workroom behavior", () => {
     const add = await screen.findByRole("main", { name: "Add a Project" });
     // With the native bridge reachable the form is the screen. Nothing offers to
     // open the app the member is already looking at.
-    expect(within(add).queryByRole("button", { name: /Continue in the Stickguy app/ })).toBeNull();
+    expect(within(add).queryByRole("button", { name: /Continue in the Overgent app/ })).toBeNull();
     await user.click(within(add).getByRole("button", { name: "Choose…" }));
     expect((within(add).getByPlaceholderText("Choose a local Git repository") as HTMLInputElement).value).toBe("/tmp/orbit");
     await user.click(within(add).getByRole("button", { name: "Create Project" }));
@@ -495,7 +495,7 @@ describe("session content", () => {
 });
 
 describe("browser activation recovery", () => {
-  it("tells a browser with no session that only the Stickguy app can issue a ticket", async () => {
+  it("tells a browser with no session that only the Overgent app can issue a ticket", async () => {
     const user = userEvent.setup();
     const unauthorized = Object.assign(new Error("dashboard API 401"), { status: 401 });
     const loadSession = vi.fn().mockRejectedValue(unauthorized);
@@ -509,8 +509,8 @@ describe("browser activation recovery", () => {
     render(<LiveApp />);
     // The recovery is on the page before the control, not behind a press that
     // cannot succeed: this page can never mint a ticket itself.
-    expect(await screen.findByText(/Open the Project from the Stickguy app/)).toBeTruthy();
-    expect(screen.getByText(/stickguy dashboard --project/)).toBeTruthy();
+    expect(await screen.findByText(/Open the Project from the Overgent app/)).toBeTruthy();
+    expect(screen.getByText(/overgent dashboard --project/)).toBeTruthy();
     const first = await screen.findByRole("button", { name: "Check for a session" });
     expect(screen.queryByRole("alert")).toBeNull();
 
@@ -518,7 +518,7 @@ describe("browser activation recovery", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("still has no active session");
-    expect(alert.textContent).toContain("Stickguy Dev.app");
+    expect(alert.textContent).toContain("Overgent Dev.app");
     // The control keeps its name: pressing it confirmed the state rather than
     // revealing an instruction that should have been visible all along.
     expect(await screen.findByRole("button", { name: "Check for a session" })).toBeTruthy();
@@ -669,7 +669,7 @@ describe("reading a session", () => {
     const { container } = render(<App initialState="ready" source={unreachable} />);
     expect(screen.queryByRole("button", { name: "Menu bar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    expect(container.querySelector(".main-bar")!.textContent).not.toContain("stickguy pause");
+    expect(container.querySelector(".main-bar")!.textContent).not.toContain("overgent pause");
   });
 
   it("names the recovery only where a paused member needs it", async () => {
@@ -680,7 +680,7 @@ describe("reading a session", () => {
     render(<App initialState="ready" source={unreachable} />);
     // The instruction appears at the one moment it is actionable, beside the
     // state it resolves, rather than permanently in the header.
-    expect(await screen.findByText(/Resume it from the Stickguy app or menu bar/)).toBeTruthy();
+    expect(await screen.findByText(/Resume it from the Overgent app or menu bar/)).toBeTruthy();
   });
 
   it("pauses the Project being read rather than every Project on the machine", async () => {
@@ -863,8 +863,8 @@ describe("invite join landing", () => {
   it("turns a valid fragment into the join command without transmitting it", async () => {
     const { JoinLanding } = await import("../src/main");
     render(<JoinLanding fragment="inv_49b778cd.sec_ret-42" />);
-    expect(screen.getByRole("heading", { name: /invited to a Stickguy Project/i })).toBeTruthy();
-    const command = screen.getByText(/^stickguy join /);
+    expect(screen.getByRole("heading", { name: /invited to an Overgent Project/i })).toBeTruthy();
+    const command = screen.getByText(/^overgent join /);
     expect(command.textContent).toContain("/join#inv_49b778cd.sec_ret-42");
     expect(screen.getByText(/sends it nowhere/i)).toBeTruthy();
   });
@@ -873,6 +873,6 @@ describe("invite join landing", () => {
     const { JoinLanding } = await import("../src/main");
     render(<JoinLanding fragment="" />);
     expect(screen.getByRole("alert").textContent).toContain("incomplete");
-    expect(screen.queryByText(/^stickguy join /)).toBeNull();
+    expect(screen.queryByText(/^overgent join /)).toBeNull();
   });
 });
