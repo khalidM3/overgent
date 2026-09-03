@@ -5,6 +5,22 @@ import (
 	"strings"
 )
 
+// addProjectURL is the shell's own route for registering a repository. It is
+// reached three ways - the deep link below, the menu bar, and a hosted page in
+// this window navigating to the shell's origin - so it is written once.
+const addProjectURL = "/?desktop=onboarding&add=project"
+
+// desktopUserAgentName is appended to the webview's user agent string.
+//
+// It is the only way a page served from the hosted origin can tell it is being
+// rendered inside this window: the live Project view is hosted, so the native
+// bridge it would otherwise ask is unreachable from it. `isDesktopShell` in
+// apps/dashboard/src/native.ts matches " OvergentDesktop/", so the leading
+// space WebKit inserts and the trailing slash are both part of the contract.
+// It is a hint about what to say, never a capability: nothing is granted to a
+// page because of what its user agent claims.
+const desktopUserAgentName = "OvergentDesktop/1.0"
+
 // desktopDeepLinkTarget maps an incoming scheme URL onto a window route.
 //
 // Only routes this application owns are accepted, and the result is always one
@@ -28,7 +44,7 @@ func desktopDeepLinkTarget(raw string) (string, bool) {
 	}
 	switch strings.ToLower(strings.Trim(route, "/")) {
 	case "new-project":
-		return "/?desktop=onboarding&add=project", true
+		return addProjectURL, true
 	case "", "open":
 		return desktopStartURL(), true
 	default:

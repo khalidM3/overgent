@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    /* Matches the wordmark keycap: a solid ink square with the mark knocked
+       out. Inverts with the browser chrome so it stays legible either way. */
+    :root { --solid: #0e0e0e; --onsolid: #ffffff; }
+    @media (prefers-color-scheme: dark) { :root { --solid: #ffffff; --onsolid: #0a0a0a; } }
+  </style>
+  <rect width="32" height="32" rx="8" fill="var(--solid)" />
+  <circle cx="16" cy="16" r="6.25" fill="none" stroke="var(--onsolid)" stroke-width="3.5" />
+</svg>

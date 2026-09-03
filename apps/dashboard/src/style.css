@@ -200,6 +200,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .side-group { display: flex; align-items: center; padding: 4px 5px 7px 9px; margin-top: 24px; color: var(--ink-2); font-size: 12.5px; font-weight: 650; letter-spacing: -.01em; }
 .side-group .side-add { margin-left: auto; }
+/* The Add a Project screen is a place, so its control says when you are on it,
+   the same way every other item in this column does. */
+.side-add[aria-current="page"] { color: var(--ink); background: var(--hover); }
 .sidebar-collapsed .side-group { display: none; }
 
 .nav-item {
@@ -866,6 +869,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .state-card .disclosure { margin-top: 4px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .state-card .disclosure strong { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 650; }
 .state-card .microcopy { color: var(--ink-3); font-size: 11.5px; }
+/* A command named inside a sentence is part of the sentence. The boxed form
+   above is for a command that stands alone as the next thing to do. */
+.state-card .microcopy code { display: inline; margin: 0; padding: 0; background: none; border: 0; font-size: 11.5px; color: var(--ink-2); }
 .state-card .pill { align-self: flex-start; margin-top: 6px; }
 .state-symbol { color: var(--ink-3); }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--ink-3); border-radius: 50%; }
@@ -934,10 +940,17 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .connection-line.needs-attention strong { color: var(--alert); }
 .connection-line p { margin: 5px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.55; }
 
-.mode-switch { display: flex; gap: 4px; }
-.mode-switch button { padding: 6px 13px; border-radius: 999px; color: var(--ink-3); font-size: 13px; font-weight: 600; }
-.mode-switch button:hover { color: var(--ink); background: var(--hover); }
-.mode-switch button[aria-selected="true"] { color: var(--onsolid); background: var(--solid); }
+/* First run is three steps, and the member is told which one they are on. Three
+   hairline segments and one mono line - the progress is a fact, not a device. */
+.step-track { display: flex; flex-direction: column; gap: 9px; }
+.step-track .eyebrow { margin: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.step-bars { display: flex; gap: 5px; }
+.step-bars > span { flex: 1; height: 2px; border-radius: 2px; background: var(--line); }
+.step-bars > span.on { background: var(--ink); }
+
+/* A stated fact that is neither ready nor converging: what this Mac has, before
+   anything has been asked of it. Sits after the --live rule above so it wins. */
+.connection-line.plain > span[aria-hidden] { color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > span { font-size: 12.5px; font-weight: 650; }

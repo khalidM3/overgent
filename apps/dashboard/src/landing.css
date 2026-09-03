@@ -1,0 +1,191 @@
+/* Landing page. Same system as the app (docs/design-system.md): hairlines and
+   spacing carry the structure, headings are sentence case at reading weight,
+   and colour marks a fact rather than decorating. No filled cards, no shaded
+   section backgrounds, and no accent rails down the side of a row. */
+
+.landing {
+  --gutter: min(1180px, calc(100% - 48px));
+  min-height: 100%;
+  color: var(--ink);
+  background: var(--bg);
+}
+.landing a { color: inherit; text-decoration: none; }
+.landing h1, .landing h2, .landing h3 { letter-spacing: -.03em; }
+
+/* ───────────────────────────── nav ─────────────────────────── */
+
+.landing-nav {
+  width: var(--gutter);
+  height: 72px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+.landing-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; letter-spacing: -.02em; }
+.landing-brand > span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; color: var(--onsolid); background: var(--solid); font-size: 12px; font-weight: 750; }
+.landing-nav nav { display: flex; align-items: center; gap: 28px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.landing-nav nav a:hover { color: var(--ink); }
+.landing-nav-action { display: inline-flex; align-items: center; gap: 6px; color: var(--ink) !important; }
+
+/* ──────────────────────────── hero ─────────────────────────── */
+
+.landing-hero {
+  width: var(--gutter);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, .94fr) minmax(440px, 1.06fr);
+  align-items: center;
+  gap: clamp(48px, 8vw, 108px);
+  padding: 86px 0 92px;
+}
+.landing-kicker { margin: 0 0 22px; color: var(--ink-3); font-family: var(--mono); font-size: 11.5px; }
+.landing-kicker span { margin-right: 10px; color: var(--alert); }
+.landing-hero h1 { max-width: 690px; margin: 0; font-size: clamp(46px, 5.4vw, 72px); line-height: 1; letter-spacing: -.05em; font-weight: 720; }
+.landing-lede { max-width: 600px; margin: 28px 0 0; color: var(--ink-2); font-size: 18px; line-height: 1.55; }
+.landing-actions { display: flex; align-items: center; gap: 22px; margin-top: 34px; }
+.landing-trust { display: flex; align-items: flex-start; gap: 8px; max-width: 520px; margin: 30px 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+.landing-trust svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* ─────────────────────────── buttons ───────────────────────── */
+
+.landing-primary, .landing-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.landing-primary { padding: 10px 17px; border-radius: 999px; color: var(--onsolid) !important; background: var(--solid); }
+.landing-primary:hover { opacity: .84; }
+.landing-secondary { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.landing-secondary:hover { border-bottom-color: var(--ink-3); }
+.landing-primary.compact, .landing-secondary.compact { font-size: 12.5px; }
+.landing-primary.compact { padding: 8px 14px; }
+
+/* ──────────────────── hero coordination specimen ───────────── */
+
+.landing-radar { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.landing-radar-head { display: flex; justify-content: space-between; padding: 12px 0; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; }
+.landing-radar-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 17px 0; border-top: 1px solid var(--line); }
+.landing-agent { width: 28px; height: 28px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px; font-family: var(--mono); font-size: 9px; font-weight: 650; color: var(--ink-2); }
+.landing-radar-row strong { font-size: 13.5px; }
+.landing-radar-row p { margin: 2px 0 0; color: var(--ink-2); font-size: 12.5px; }
+.landing-radar-row code { color: var(--ink-3); font-size: 10.5px; }
+.landing-radar-row.quiet { opacity: .6; }
+/* The finding is the one thing on the page that is not a status line, so it
+   carries the alert colour on its sentence — not on a rail, badge or fill. */
+.landing-radar-finding { padding: 18px 0 19px 40px; border-top: 1px solid var(--line); }
+.landing-radar-finding strong { display: block; color: var(--alert); font-size: 14px; font-weight: 650; }
+.landing-radar-finding p { max-width: 430px; margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+
+/* ────────────────────────── sections ───────────────────────── */
+
+.landing-section {
+  width: var(--gutter);
+  margin: 0 auto;
+  padding: 76px 0;
+  border-top: 1px solid var(--line);
+}
+.landing-section > h2, .landing-download-head h2 { max-width: 720px; margin: 0; font-size: clamp(28px, 3vw, 36px); line-height: 1.12; font-weight: 700; }
+.landing-section-lede { max-width: 660px; margin: 16px 0 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.6; }
+
+.landing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+  margin: 52px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.landing-steps li { min-width: 0; }
+.landing-step-icon { display: inline-grid; width: 34px; height: 34px; place-items: center; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); border-radius: 10px; }
+.landing-steps h3 { margin: 18px 0 0; font-size: 16px; font-weight: 700; }
+.landing-steps p { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+
+.landing-privacy { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); align-items: start; gap: clamp(32px, 6vw, 88px); }
+.landing-privacy h2 { max-width: none; }
+.landing-privacy .landing-section-lede { margin-top: 0; }
+
+/* ────────────────────────── downloads ──────────────────────── */
+
+.landing-download-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.landing-release { margin: 0; display: inline-flex; align-items: center; gap: 7px; color: var(--ink-3); font-size: 13px; }
+.landing-release strong { color: var(--ink-2); font-weight: 650; }
+.landing-release.ready { color: var(--live); }
+.landing-release.ready strong { color: var(--live); }
+
+.landing-platforms { margin: 40px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.landing-platform {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 26px 0;
+  border-bottom: 1px solid var(--line);
+}
+.landing-platform > div:first-child { min-width: 0; }
+.landing-platform h3 { margin: 0; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 17px; font-weight: 700; }
+.landing-platform h3 span { color: var(--ink-3); font-size: 12.5px; font-weight: 500; letter-spacing: 0; }
+.landing-platform p { max-width: 560px; margin: 7px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+.landing-platform-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
+.landing-platform-state { flex: 0 0 auto; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
+
+.landing-install { display: flex; align-items: center; justify-content: space-between; gap: 40px; margin-top: 40px; }
+.landing-install > p { max-width: 520px; margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
+.landing-command-wrap { flex: 0 0 auto; }
+.landing-command { display: flex; align-items: center; gap: 10px; padding: 11px 14px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 10px; }
+.landing-command svg { flex: 0 0 auto; }
+.landing-command code { font-size: 11.5px; white-space: nowrap; }
+.landing-command button { display: inline-flex; color: var(--ink-3); }
+.landing-command button:not(:disabled):hover { color: var(--ink); }
+.landing-command-wrap small { display: block; margin-top: 8px; color: var(--ink-3); font-size: 11.5px; text-align: right; }
+
+/* ─────────────────────────── footer ────────────────────────── */
+
+.landing-footer {
+  width: var(--gutter);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 32px 0 44px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.landing-footer p { margin: 0; }
+.landing-footer > a:last-child { margin-left: auto; color: var(--ink-2); font-weight: 600; }
+.landing-footer > a:last-child:hover { color: var(--ink); }
+
+/* ────────────────────────── responsive ─────────────────────── */
+
+@media (max-width: 980px) {
+  .landing-nav nav > a:not(.landing-nav-action) { display: none; }
+  .landing-hero { grid-template-columns: 1fr; padding: 64px 0 72px; }
+  .landing-radar { max-width: 640px; }
+  .landing-steps { grid-template-columns: 1fr; gap: 34px; }
+  .landing-privacy { grid-template-columns: 1fr; gap: 20px; }
+  .landing-install { align-items: flex-start; flex-direction: column; gap: 20px; }
+  .landing-command-wrap small { text-align: left; }
+}
+
+@media (max-width: 620px) {
+  .landing { --gutter: calc(100% - 32px); }
+  .landing-nav { height: 62px; }
+  .landing-nav-action { font-size: 0; gap: 0; }
+  .landing-hero { gap: 48px; padding: 48px 0 56px; }
+  .landing-hero h1 { font-size: 40px; }
+  .landing-lede { font-size: 16px; }
+  .landing-actions { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .landing-section { padding: 56px 0; }
+  .landing-radar-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .landing-radar-row code { grid-column: 2; }
+  .landing-radar-finding { padding-left: 0; }
+  .landing-platform { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .landing-command { width: 100%; overflow-x: auto; }
+  .landing-footer { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .landing-footer > a:last-child { margin-left: 0; }
+}

@@ -21,6 +21,17 @@ const needsReview: OnboardingState = {
   ],
 };
 
+/**
+ * First run is three steps, so a test that wants the connect step has to walk
+ * there. The walk is the assertion in one test and setup in the rest.
+ */
+async function reachAgentStep(user: ReturnType<typeof userEvent.setup>, mode: "create" | "join" = "create") {
+  await user.click(await screen.findByRole("button", { name: mode === "create" ? "Create your first Project" : "I have an invite code" }));
+  await user.click(screen.getByRole("button", { name: "Choose…" }));
+  if (mode === "join") await user.type(screen.getByLabelText("Invite code"), "inv_test.secret");
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+}
+
 describe("desktop onboarding", () => {
   it("tells the member a Codex binding is inert while its hooks await review", async () => {
     const api = {
@@ -37,7 +48,7 @@ describe("desktop onboarding", () => {
     expect(within(connections).getByText(/Settings . Hooks/)).toBeTruthy();
   });
 
-  it("leads with one heading and keeps the full sharing detail one disclosure away", async () => {
+  it("opens on what Overgent is and what it already found on this Mac", async () => {
     const api = {
       state: vi.fn(async () => initial),
       chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
@@ -45,10 +56,43 @@ describe("desktop onboarding", () => {
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
     render(<DesktopOnboarding api={api} />);
-    await screen.findByRole("heading", { name: /Connect the Project/ });
-    // Three stacked restatements of the same idea pushed the first input below
-    // the fold for no gain, so the eyebrow above the heading is gone.
-    expect(screen.queryByText("One repository, one shared view")).toBeNull();
+    await screen.findByRole("heading", { name: /Welcome to Overgent/ });
+    // Opening on an empty repository picker made the member guess whether the
+    // app had found anything at all. It has, and it says so first.
+    expect(screen.getByText("Found on this Mac: Codex and Claude Code")).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
+    // Nothing on the first step touches the machine, and it says that too.
+    expect(screen.getByText(/Nothing is configured until you confirm on the last step/)).toBeTruthy();
+  });
+
+  it("states plainly when it found no coding agents, without dressing it as a fault", async () => {
+    const api = {
+      state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+    } as unknown as NativeOnboarding;
+    render(<DesktopOnboarding api={api} />);
+    const line = await screen.findByText("No coding agents found on this Mac");
+    expect(line).toBeTruthy();
+    expect(screen.getByText(/install an agent later and its sessions appear/)).toBeTruthy();
+    // Finding nothing is an answer, not work converging on the member: the
+    // alert treatment is reserved and must not leak onto an ordinary fact.
+    expect(line.closest(".connection-line")?.className).not.toContain("needs-attention");
+    // And it must not be a dead end - the Project can still be created.
+    expect(screen.getByRole("button", { name: "Create your first Project" })).toBeTruthy();
+  });
+
+  it("puts the sharing boundary on the step that connects agents, one disclosure from exact", async () => {
+    const user = userEvent.setup();
+    const api = {
+      state: vi.fn(async () => initial),
+      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+    } as unknown as NativeOnboarding;
+    render(<DesktopOnboarding api={api} />);
+    await reachAgentStep(user);
     // The summary line is what a member reads at the moment of highest
     // friction. The full boundary must stay reachable and stay exact.
     expect(screen.getByText(/never your source, diffs, prompts, or credentials/)).toBeTruthy();
@@ -59,6 +103,21 @@ describe("desktop onboarding", () => {
     // Saying so before the button is the difference between consent and a
     // surprise.
     expect(screen.getByText(/starts Overgent’s background service on this Mac/)).toBeTruthy();
+  });
+
+  it("names the field a disabled Continue is waiting on", async () => {
+    const user = userEvent.setup();
+    const api = {
+      state: vi.fn(async () => initial),
+      chooseRepository: vi.fn(async () => ""), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+    } as unknown as NativeOnboarding;
+    render(<DesktopOnboarding api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Create your first Project" }));
+    expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    // A control that cannot be pressed explains itself or it is a dead end.
+    expect(screen.getByText("Choose a repository to continue.")).toBeTruthy();
   });
 
   it("creates a Project, opts both detected agents in, and exposes the one-use invite", async () => {
@@ -72,8 +131,7 @@ describe("desktop onboarding", () => {
       joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
-    await screen.findByRole("heading", { name: /Connect the Project/ });
-    await user.click(screen.getByRole("button", { name: "Choose…" }));
+    await reachAgentStep(user);
     // Detected agents arrive already ticked. Enrolling without connecting one
     // leaves the Project observing Git alone, which reads as a broken install,
     // so the detected default is what the member should have to opt out of.
@@ -88,11 +146,12 @@ describe("desktop onboarding", () => {
   it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
-    const codex = await screen.findByRole("checkbox", { name: /Codex/ });
+    await reachAgentStep(user);
+    const codex = screen.getByRole("checkbox", { name: /Codex/ });
     const claude = screen.getByRole("checkbox", { name: /Claude Code/ });
     expect((codex as HTMLInputElement).disabled).toBe(false);
     expect((claude as HTMLInputElement).disabled).toBe(false);
@@ -163,7 +222,7 @@ describe("first-run identity", () => {
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-    await screen.findByLabelText("Your name");
+    await user.click(await screen.findByRole("button", { name: "Create your first Project" }));
 
     const name = screen.getByLabelText("Your name") as HTMLInputElement;
     expect(name.value).toBe("");
@@ -195,7 +254,7 @@ describe("first-run identity", () => {
     await user.click(within(screen.getByRole("group", { name: "Confirm reconnect" })).getByRole("button", { name: "Reconnect this Mac" }));
     expect(reset).toHaveBeenCalled();
     // Clearing the dead credential returns the member to first-run enrollment.
-    expect(await screen.findByRole("heading", { name: /Connect the Project/ })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Welcome to Overgent/ })).toBeTruthy();
   });
 
   it("explains an unknown credential differently from a revoked one", async () => {

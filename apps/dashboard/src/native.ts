@@ -96,7 +96,65 @@ declare global {
 
 const runtimeModulePath = "/wails/runtime.js";
 let importedCall: WailsCall | undefined;
-const nativeRuntimeReady = window.location.protocol === "wails:" || window.location.hostname === "wails.localhost"
+
+/**
+ * Wails reaches the webview under a custom scheme on macOS and a loopback host
+ * elsewhere, so both spellings mean "this is the desktop app". Everything that
+ * branches on being native has to agree on that: when the bootstrap in main.tsx
+ * only checked the scheme, a webview served from wails.localhost fell through
+ * to the public marketing page instead of the dashboard.
+ */
+export const isDesktopWebview = window.location.protocol === "wails:" || window.location.hostname === "wails.localhost";
+
+/**
+ * Whether this page is being rendered inside the Overgent desktop window, on
+ * any origin.
+ *
+ * `isDesktopWebview` answers a narrower question - is this page served by the
+ * desktop shell's own asset handler - and the live Project view is not: the
+ * desktop window navigates to the hosted origin to open a Project, so from that
+ * point on the app is running in the desktop window with no native bridge. The
+ * shell stamps its own name into the webview's user agent so a hosted page can
+ * still tell where it is, which is the difference between "continue on this
+ * Mac" and telling somebody to open the app they are already looking at.
+ *
+ * This never grants a capability. It only decides what the screen says.
+ */
+export const isDesktopShell = isDesktopWebview || / OvergentDesktop\//.test(navigator.userAgent);
+
+/** The scheme the desktop shell registers, so a browser can hand off to it. */
+export const desktopScheme = import.meta.env.DEV ? "overgent-dev" : "overgent";
+
+/** The desktop shell's own route for adding a Project, on its own origin. */
+const shellAddProjectRoute = "/?desktop=onboarding&add=project";
+
+/**
+ * Where "continue on this Mac" should send this window, from wherever it is.
+ *
+ * Three cases, and the difference matters because two of the three targets do
+ * nothing in the other's situation:
+ *
+ * - Already on the shell's own origin: an ordinary route change.
+ * - A hosted page inside the desktop window: the shell's origin, addressed in
+ *   full. A `overgent://` link is the wrong instrument here - WKWebView has no
+ *   navigation policy delegate in this build, so it never hands a custom scheme
+ *   to the system and the link silently does nothing. That is the bug that made
+ *   the old hand-off screen a dead end: the one place its button was offered
+ *   was the one place it could not work.
+ * - A real browser: the registered scheme, which is exactly what it is for.
+ */
+export function desktopHandoffURL(): string {
+  if (isDesktopWebview) return shellAddProjectRoute;
+  if (isDesktopShell) {
+    // The shell serves its assets from wails://localhost, and in development
+    // proxies the dev server on the same port this page is served from.
+    const port = import.meta.env.DEV && window.location.port ? `:${window.location.port}` : "";
+    return `wails://localhost${port}${shellAddProjectRoute}`;
+  }
+  return `${desktopScheme}://new-project`;
+}
+
+const nativeRuntimeReady = isDesktopWebview
   ? import(/* @vite-ignore */ runtimeModulePath).then((runtime: { Call?: WailsCall }) => { importedCall = runtime.Call; })
   : Promise.resolve();
 

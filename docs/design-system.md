@@ -524,12 +524,45 @@ Anything less makes the back control lie.
   a moment later meant a member could start filling in a form that vanished under
   them and be told to open the app they were already looking at — the live
   workroom is served from the hosted origin *inside* that same desktop window.
-  When the bridge is genuinely out of reach the control reads **"Continue in the
-  Overgent app"**, not "Open Overgent": it continues a task rather than
-  announcing that the app is relaunching itself. The desktop shell's deep-link
-  route lands on this same component, so the origin swap reads as one screen
-  carrying on. `overgent create` stays as the fallback for a machine where the
-  scheme is unregistered.
+
+  When the bridge is out of reach the screen asks **where it is** before it says
+  anything, because the two situations need opposite answers and the wrong one
+  is inert:
+
+  | Where | What it does | Why the other one fails |
+  |---|---|---|
+  | Hosted page in the desktop window | Navigates this window to the shell's own origin, saying "continuing on this Mac" | This WKWebView has no navigation policy delegate, so it never hands `overgent://` to the system: the link does nothing at all |
+  | A real browser | Opens `overgent://new-project` | The shell's origin is not reachable from outside the app |
+
+  `isDesktopShell` answers that question from the webview's user agent, which
+  `apps/desktop` stamps with `desktopUserAgentName`. It decides copy and
+  destination only — **no capability is ever granted because of what a user
+  agent claims**, and the native bridge stays unreachable from every origin but
+  the shell's own.
+
+  Inside the shell the hand-off happens on arrival rather than behind a button:
+  the member already asked for this screen, and an interstitial offering one
+  control is asking the same question twice. Both variants name a fallback that
+  does not depend on the hand-off working — **Add a project…** in the menu bar,
+  which is the one route back to the setup screen from a window showing a live
+  Project — and `overgent create` remains the last resort. A hand-off control
+  that silently does nothing is the exact failure this screen exists to prevent.
+- **`DesktopOnboarding`, first run** — three steps, not one form: **what this is
+  and what is already on this Mac** → **which repository** → **what to connect
+  and what that shares**. A `.step-track` names the step in mono above three
+  hairline segments. The order is the order a member can answer in, and the two
+  things most worth reading — the sharing boundary and the sentence saying a
+  background service is about to start — now sit directly above the button that
+  does it, rather than below four fields and a tablist.
+
+  The first step **states what was detected before asking for anything**.
+  Finding nothing is a real answer and reads as one: neutral ink, a plain glyph,
+  and a sentence saying the Project can still be created and sessions appear
+  when an agent is installed. It is not `--alert`, because nothing needs fixing,
+  and the "found" line is not `--live` either — removing the colour would lose
+  no fact (rule 2), and the ready mark is earned later by a real session event.
+  Detected agents arrive ticked in **both** places a Project is set up; the
+  checkbox group is one shared component (`AgentOptions`) for that reason.
 - **`PeopleScreen`** — members and invites. This is the only implementation;
   Settings links to it rather than carrying a second copy of the same controls.
   Adding a teammate should never require hunting through Settings.
@@ -627,10 +660,13 @@ not "Create sync card".
    why "Open Project" still passes through an activation confirmation. The
    remaining seam is that the hosted workroom cannot reach the local service at
    all, so adding a Project from it is a hand-off to the desktop shell rather
-   than something that happens in place. Closing that would mean either exposing
-   a narrow authenticated loopback endpoint to the hosted origin, or keeping the
-   desktop window on its own origin and embedding the Project view, and neither
-   has been designed yet.
+   than something that happens in place. The hand-off is now reliable and
+   correctly worded in both directions (see `NewProjectScreen` above), but it is
+   still a hand-off: the window leaves the live Project view to add one, and
+   comes back through a fresh activation. Closing that would mean either
+   exposing a narrow authenticated loopback endpoint to the hosted origin, or
+   keeping the desktop window on its own origin and embedding the Project view,
+   and neither has been designed yet.
 6. **Desktop title bar.** `apps/desktop/main_darwin.go` uses
    `MacTitleBarDefault`, which guarantees the macOS traffic lights cannot
    overlap the sidebar brand mark. The frameless alternative

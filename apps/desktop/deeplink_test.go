@@ -57,3 +57,16 @@ func TestDeepLinkTargetNeverCarriesUrlContentIntoTheDestination(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard matches " OvergentDesktop/" in navigator.userAgent to decide
+// whether a hosted page is inside the desktop window. Both halves of that
+// contract are easy to change independently and impossible to notice breaking,
+// because the failure is only wrong copy on one screen.
+func TestDesktopUserAgentNameMatchesDashboardProbe(t *testing.T) {
+	if !strings.HasPrefix(desktopUserAgentName, "OvergentDesktop/") {
+		t.Fatalf("user agent name %q must start with OvergentDesktop/", desktopUserAgentName)
+	}
+	if strings.ContainsAny(desktopUserAgentName, " \t\r\n") {
+		t.Fatalf("user agent name %q must not contain whitespace", desktopUserAgentName)
+	}
+}

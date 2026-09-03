@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { NewProjectScreen } from "./new-project";
-import { nativeOnboarding, type EnrollmentRequest, type NativeOnboarding, type OnboardingState } from "./native";
+// The agent checkboxes are the same control in both places a Project is set
+// up, and they were drifting apart: first run pre-ticked what it detected and
+// the add-Project form did not, so the second Project a member made was the
+// one that observed nothing.
+import { AgentOptions, NewProjectScreen } from "./new-project";
+import { nativeOnboarding, type AdapterState, type EnrollmentRequest, type NativeOnboarding, type OnboardingState } from "./native";
 import type { AgentVendor } from "./model";
+
+/** First run in the order the member can answer: what this is, where, then what to connect. */
+const FIRST_RUN_STEPS = ["welcome", "repository", "agents"] as const;
+type FirstRunStep = (typeof FIRST_RUN_STEPS)[number];
 
 const emptyRequest: EnrollmentRequest = { repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName: "", joinCode: "", enableCodex: false, enableClaude: false, enableCursor: false };
 
@@ -13,6 +21,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const [state, setState] = useState<OnboardingState | null>(null);
   const [request, setRequest] = useState(emptyRequest);
   const [mode, setMode] = useState<"create" | "join">("create");
+  const [step, setStep] = useState<FirstRunStep>("welcome");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -29,23 +38,29 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const refresh = async () => {
     const next = await api.state();
     setState(next);
-    setRequest((current) => {
-      const merged = { ...current, deviceLabel: next.deviceLabel || current.deviceLabel };
-      // This screen has already detected which agents are installed, so leaving
-      // them unticked made the likeliest way through the form connect nothing:
-      // enrollment succeeded, the Project then observed Git alone, and the
-      // product read as inert on first run. Detected agents start on. They stay
-      // visible, the privacy disclosure sits directly below them, and they can
-      // be unticked before connecting. An agent that is not installed is still
-      // never configured on the member's behalf.
-      if (!agentDefaultsApplied.current) {
-        agentDefaultsApplied.current = true;
-        merged.enableCodex = adapterInstalled(next, "Codex");
-        merged.enableClaude = adapterInstalled(next, "Claude Code");
-        merged.enableCursor = adapterInstalled(next, "Cursor");
-      }
-      return merged;
-    });
+    // This screen has already detected which agents are installed, so leaving
+    // them unticked made the likeliest way through the form connect nothing:
+    // enrollment succeeded, the Project then observed Git alone, and the
+    // product read as inert on first run. Detected agents start on. They stay
+    // visible, the privacy disclosure sits directly below them, and they can
+    // be unticked before connecting. An agent that is not installed is still
+    // never configured on the member's behalf.
+    //
+    // The "once" decision is taken here rather than inside the updater below.
+    // React deliberately calls an updater twice in development to catch impure
+    // ones, and this one was: the second call saw the ref already set, skipped
+    // the defaults, and its result is the one React keeps - so in development
+    // the detected agents arrived unticked and the fix above silently did
+    // nothing. A member's later choice still survives, because the flags are
+    // only written on the first refresh.
+    const applyDefaults = !agentDefaultsApplied.current;
+    agentDefaultsApplied.current = true;
+    const defaults = applyDefaults ? {
+      enableCodex: adapterInstalled(next, "Codex"),
+      enableClaude: adapterInstalled(next, "Claude Code"),
+      enableCursor: adapterInstalled(next, "Cursor"),
+    } : {};
+    setRequest((current) => ({ ...current, deviceLabel: next.deviceLabel || current.deviceLabel, ...defaults }));
   };
   useEffect(() => { void refresh().catch((cause: Error) => setError(cause.message)); }, []);
   useEffect(() => {
@@ -167,10 +182,114 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
     return <main className="onboarding-shell"><header><Brand /><span>{state.development ? "Desktop development" : "Desktop beta"}</span></header><section className="onboarding-card connected-card"><p className="eyebrow">Connected on this Mac</p><h1>{state.repositoryLabel}</h1><p className="repo-path">{state.repositoryRoot}</p><div className={needsAttention ? "connection-line needs-attention" : "connection-line"}><span aria-hidden="true">{needsAttention ? "!" : "✓"}</span><div><strong>{needsAttention ? "Repository connected · agent setup needs attention" : "Repository and live agent observation are ready"}</strong><p>{needsAttention ? "Follow the action shown for each adapter. Overgent marks observation ready only after a real session event arrives." : "New Codex, Claude Code, and Cursor sessions opened in this repository appear automatically with lifecycle, tool category, subagent, and safe path activity."}</p></div></div><AdapterList state={state} onReconnect={setReconnectTarget} /><div className="onboarding-actions"><button className="pill solid" disabled={pending} onClick={() => void open()}>{pending ? "Opening…" : "Open live Project"}</button><button className="pill" disabled={pending} onClick={() => setAddProject(true)}>Add a Project</button><button className="pill" disabled={pending || !needsSetup} onClick={() => void api.configureAdapters(state.repositoryRoot, needsAdapterSetup(state, "Codex"), needsAdapterSetup(state, "Claude Code"), needsAdapterSetup(state, "Cursor")).then(refresh).catch((cause: Error) => setError(cause.message))}>Configure agent adapters</button></div>{target && <div className="reconnect-preview" role="dialog" aria-modal="true" aria-label={`Reconnect ${target.name}`}><p className="eyebrow">Confirm profile change</p><h2>Reconnect {target.name} to this Project?</h2><dl><div><dt>Current binding</dt><dd>{target.previousProfile || "Another Overgent profile"}</dd></div><div><dt>New binding</dt><dd>{target.currentProfile || "This Overgent Project"}</dd></div></dl><p>Overgent will replace only its recognized managed MCP entry and activity hooks. Unrelated agent settings are preserved. If either update fails, the previous binding is restored.</p><div className="onboarding-actions"><button className="pill" disabled={pending} onClick={() => setReconnectTarget(null)}>Cancel</button><button className="pill solid" disabled={pending} onClick={() => void reconnect()}>{pending ? "Reconnecting…" : "Reconnect to this Project"}</button></div></div>}{joinCode && <Invite code={joinCode} />}{warnings.map((warning) => <p className="form-warning" key={warning}>{warning}</p>)}{error && <p className="form-error" role="alert">{error}</p>}<p className="milestone-note">{state.limitation}</p></section></main>;
   }
 
-  const codex = state.adapters.find((adapter) => adapter.name === "Codex");
-  const claude = state.adapters.find((adapter) => adapter.name === "Claude Code");
-  const cursor = state.adapters.find((adapter) => adapter.name === "Cursor");
-  return <main className="onboarding-shell"><header><Brand /><span>First-run setup</span></header><section className="onboarding-card"><h1>Connect the Project you’re working on.</h1><p className="onboarding-lede">Choose the Git repository once. New Codex, Claude Code, and Cursor sessions in that repository are detected automatically—no per-chat command or separate branch required.</p><div className="mode-switch" role="tablist" aria-label="Enrollment method"><button role="tab" aria-selected={mode === "create"} onClick={() => setMode("create")}>Create Project</button><button role="tab" aria-selected={mode === "join"} onClick={() => setMode("join")}>Join a Project</button></div><label className="field"><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>{mode === "create" ? <label className="field"><span>Project name</span><input value={request.projectLabel} maxLength={80} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label> : <label className="field"><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="invite.secret" autoComplete="off" /></label>}<label className="field"><span>Your name</span><input aria-label="Your name" value={request.displayName} maxLength={60} onChange={(event) => setRequest({ ...request, displayName: event.target.value })} placeholder="How teammates see you" autoComplete="off" /><small className="field-note">Shown on your live sessions and collision resolutions. Not your email address.</small></label><details className="field-advanced"><summary>Device name &amp; security</summary><label className="field"><span>Device name</span><input aria-label="Device name" value={request.deviceLabel} maxLength={80} onChange={(event) => setRequest({ ...request, deviceLabel: event.target.value })} /><small className="field-note">Identifies this Mac for revocation and audit only. It is never shown as your identity.</small></label></details><fieldset className="agent-options"><legend>Connect coding agents for this Project</legend><label><input type="checkbox" checked={request.enableCodex} onChange={(event) => setRequest({ ...request, enableCodex: event.target.checked })} /><span><strong>Codex</strong><small>{codex?.installed ? "Detected · live title intent, tools, subagents, safe paths" : "Configure anyway · sessions appear when Codex opens this repo"}</small></span></label><label><input type="checkbox" checked={request.enableClaude} onChange={(event) => setRequest({ ...request, enableClaude: event.target.checked })} /><span><strong>Claude Code</strong><small>{claude?.installed ? "Detected · live title intent, tools, subagents, safe paths" : "Configure anyway · sessions appear when Claude opens this repo"}</small></span></label><label><input type="checkbox" checked={request.enableCursor} onChange={(event) => setRequest({ ...request, enableCursor: event.target.checked })} /><span><strong>Cursor</strong><small>{cursor?.installed ? "Detected · live prompt intent, edits, and observed file reads" : "Configure anyway · sessions appear when Cursor opens this repo"}</small></span></label></fieldset><div className="privacy-disclosure"><strong>Project activity sharing</strong><p>Shares session titles, activity, and repository file paths with Project members — never your source, diffs, prompts, or credentials.</p><details className="field-advanced"><summary>Exactly what is and is not shared</summary><p>Shares session presence, the vendor-visible session title as bounded intent, tool category, subagent state, and safe repository-relative paths. Approved titles may be embedded by the Project’s configured semantic provider. Classifier-approved visible session messages may be shared with Project members while unpaused. The raw transcript file, source, diffs, system/developer prompts, command output, .env contents, credentials, and environment values never cross the wire.</p></details></div>{error && <p className="form-error" role="alert">{error}</p>}<p className="field-note">{mode === "create" ? "Creates" : "Joins"} the Project, starts Overgent’s background service on this Mac, and configures the agents ticked above in this repository. Nothing else in your agent settings is changed.</p><button className="pill solid submit-enrollment" disabled={pending || !request.repositoryRoot || (mode === "create" ? !request.projectLabel : !request.joinCode)} onClick={() => void submit()}>{pending ? "Connecting…" : mode === "create" ? "Create and connect" : "Join and connect"}</button></section></main>;
+  // First run, as three steps rather than one long form.
+  //
+  // The order is the order the member can actually answer in: what this is and
+  // what is already on the Mac, then which repository, then what to connect and
+  // what that shares. The single screen this replaces put the privacy
+  // disclosure and the one button that does anything below four fields and a
+  // tablist, so the two things most worth reading were the two most likely to
+  // be scrolled past - and a first run that opens on an empty repository picker
+  // never says what the product is for.
+  const stepIndex = FIRST_RUN_STEPS.indexOf(step);
+  const canContinue = Boolean(request.repositoryRoot) && (mode === "create" ? Boolean(request.projectLabel.trim()) : Boolean(request.joinCode.trim()));
+  return <main className="onboarding-shell">
+    <header><Brand /><span>{state.development ? "Desktop development" : "Desktop beta"}</span></header>
+    <section className="onboarding-card">
+      <div className="step-track">
+        <p className="eyebrow">Step {stepIndex + 1} of {FIRST_RUN_STEPS.length}</p>
+        <div className="step-bars" aria-hidden="true">{FIRST_RUN_STEPS.map((name, position) => <span key={name} className={position <= stepIndex ? "on" : ""} />)}</div>
+      </div>
+
+      {step === "welcome" && <>
+        <h1>Welcome to Overgent.</h1>
+        <p className="onboarding-lede">Point Overgent at one Git repository and it coordinates every coding-agent session you run in it. Two sessions converging on the same contract find out from each other, instead of from a merge conflict — on your own, or with a team.</p>
+        <Detection adapters={state.adapters} />
+        <div className="onboarding-actions">
+          <button className="pill solid" onClick={() => { setMode("create"); setStep("repository"); }}>Create your first Project</button>
+          <button className="pill" onClick={() => { setMode("join"); setStep("repository"); }}>I have an invite code</button>
+        </div>
+        <p className="milestone-note">Nothing is configured until you confirm on the last step, and everything set up here stays on this Mac.</p>
+      </>}
+
+      {step === "repository" && <>
+        <h1>{mode === "create" ? "Choose the repository to coordinate." : "Join the Project you were invited to."}</h1>
+        <p className="onboarding-lede">{mode === "create"
+          ? "One Git repository, chosen once. New Codex, Claude Code, and Cursor sessions started in it are picked up automatically — no per-chat command, no separate branch, no change to how you work."
+          : "Paste the invite code you were sent, and choose your own checkout of the repository this Project coordinates. Your teammate’s machine is not involved in this step."}</p>
+        {mode === "join" && <label className="field"><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="invite.secret" autoComplete="off" /><small className="field-note">One use, and it expires. Ask for a fresh one if this is refused.</small></label>}
+        <label className="field"><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
+        {mode === "create" && <label className="field"><span>Project name</span><input value={request.projectLabel} maxLength={80} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /><small className="field-note">What teammates see in their sidebar. The folder name is filled in for you.</small></label>}
+        <label className="field"><span>Your name</span><input aria-label="Your name" value={request.displayName} maxLength={60} onChange={(event) => setRequest({ ...request, displayName: event.target.value })} placeholder="How teammates see you" autoComplete="off" /><small className="field-note">Shown on your live sessions and collision resolutions. Not your email address.</small></label>
+        <details className="field-advanced"><summary>Device name &amp; security</summary><label className="field"><span>Device name</span><input aria-label="Device name" value={request.deviceLabel} maxLength={80} onChange={(event) => setRequest({ ...request, deviceLabel: event.target.value })} /><small className="field-note">Identifies this Mac for revocation and audit only. It is never shown as your identity.</small></label></details>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="onboarding-actions">
+          <button className="pill solid" disabled={!canContinue} onClick={() => setStep("agents")}>Continue</button>
+          <button className="pill" onClick={() => setStep("welcome")}>Back</button>
+        </div>
+        {/* A control that cannot be pressed says why (rule 8), rather than
+            leaving the member to guess which field it is waiting on. */}
+        {!canContinue && <p className="field-note" role="status">{!request.repositoryRoot
+          ? "Choose a repository to continue."
+          : mode === "create" ? "Give the Project a name to continue." : "Paste your invite code to continue."}</p>}
+        <p className="milestone-note">Overgent reads repository structure and the activity your agents report. Source, diffs, and prompts stay on this Mac.</p>
+      </>}
+
+      {step === "agents" && <>
+        <h1>Connect your coding agents.</h1>
+        <p className="onboarding-lede">Each ticked agent gets Overgent’s managed MCP entry and activity hooks, scoped to this repository. Sessions already open have to restart once before they can be observed.</p>
+        <AgentOptions adapters={state.adapters} request={request} onChange={setRequest} />
+        <div className="privacy-disclosure">
+          <strong>Project activity sharing</strong>
+          <p>Shares session titles, activity, and repository file paths with Project members — never your source, diffs, prompts, or credentials.</p>
+          <details className="field-advanced"><summary>Exactly what is and is not shared</summary><p>Shares session presence, the vendor-visible session title as bounded intent, tool category, subagent state, and safe repository-relative paths. Approved titles may be embedded by the Project’s configured semantic provider. Classifier-approved visible session messages may be shared with Project members while unpaused. The raw transcript file, source, diffs, system/developer prompts, command output, .env contents, credentials, and environment values never cross the wire.</p></details>
+        </div>
+        <p className="field-note">{mode === "create" ? "Creates" : "Joins"} the Project, starts Overgent’s background service on this Mac, and configures the agents ticked above in this repository. Nothing else in your agent settings is changed.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="onboarding-actions">
+          <button className="pill solid submit-enrollment" disabled={pending || !canContinue} onClick={() => void submit()}>{pending ? "Connecting…" : mode === "create" ? "Create and connect" : "Join and connect"}</button>
+          <button className="pill" disabled={pending} onClick={() => setStep("repository")}>Back</button>
+        </div>
+      </>}
+    </section>
+  </main>;
+}
+
+/**
+ * What this Mac already has, said before anything is asked of the member.
+ *
+ * A first run that opens on an empty repository picker makes the member guess
+ * whether the product found anything at all. Finding nothing is a real answer
+ * and is stated as one - it is not a failure, and it is not styled as work
+ * converging on anybody, because nothing here needs fixing before continuing.
+ */
+function Detection({ adapters }: { adapters: AdapterState[] }) {
+  const found = adapters.filter((adapter) => adapter.installed).map((adapter) => adapter.name);
+  const looked = adapters.length > 0 ? adapters.map((adapter) => adapter.name) : ["Codex", "Claude Code", "Cursor"];
+  if (found.length === 0) {
+    return <div className="connection-line plain">
+      <span aria-hidden="true">?</span>
+      <div>
+        <strong>No coding agents found on this Mac</strong>
+        <p>Overgent looked for {listed(looked)}. Set up your Project anyway — install an agent later and its sessions appear as soon as it runs in the repository. Git activity is observed either way.</p>
+      </div>
+    </div>;
+  }
+  // Neutral, not --live: an installed agent is a fact the sentence already
+  // states, and nothing here is happening yet - the ready mark is earned later,
+  // by a real session event, on the connected screen.
+  return <div className="connection-line plain">
+    <span aria-hidden="true">✓</span>
+    <div>
+      <strong>Found on this Mac: {listed(found)}</strong>
+      <p>Sessions you start in the repository you choose next are picked up automatically. Nothing is configured until you confirm.</p>
+    </div>
+  </div>;
+}
+
+function listed(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 /**

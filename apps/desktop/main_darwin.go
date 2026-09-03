@@ -54,6 +54,16 @@ func main() {
 			// places the traffic lights over the Project sidebar and brand mark.
 			TitleBar:    application.MacTitleBarDefault,
 			TabbingMode: application.MacWindowTabbingModeDisallowed,
+			WebviewPreferences: application.MacWebviewPreferences{
+				// This window navigates to the hosted origin to show a live
+				// Project, and a hosted page has no native bridge to ask where
+				// it is running. The name is appended to the webview's user
+				// agent, so that page can still tell it is inside the app and
+				// say "continue on this Mac" instead of offering to open the
+				// app the member is already looking at. It grants nothing: the
+				// bridge stays unreachable from any origin but this one.
+				ApplicationNameForUserAgent: desktopUserAgentName,
+			},
 		},
 	})
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
@@ -93,6 +103,15 @@ func main() {
 				slog.Warn("open local Project", "error", err)
 			}
 		}()
+	})
+	// Once the window is showing a live Project it is on the hosted origin, and
+	// nothing on that page can reach the local service. This item is the one
+	// route back to the screen that can register a repository which does not
+	// depend on the webview handing a custom scheme to the system.
+	menu.Add("Add a project…").OnClick(func(*application.Context) {
+		window.SetURL(addProjectURL)
+		window.Show()
+		window.Focus()
 	})
 	pauseItem := menu.Add("Pause sharing everywhere").SetEnabled(false)
 	// A mute nobody remembers setting is the failure mode of muting, so this
