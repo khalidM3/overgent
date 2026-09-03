@@ -14,7 +14,7 @@
     "dev:agents": "node scripts/dev-agents.mjs",
     "dev:install": "node scripts/install-desktop-dev.mjs",
     "typecheck": "pnpm --recursive typecheck",
-    "test": "pnpm --recursive test",
+    "test": "node --test tests/*.test.cjs && pnpm --recursive test",
     "build": "pnpm --recursive build",
     "eval:coordination": "go run ./validation/evals/coordination",
     "eval:demo": "go run ./validation/evals/coordination -scenario A,C -narrate",

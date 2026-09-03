@@ -19,15 +19,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/codexappserver"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/daemon"
-	git "github.com/overgent/overgent/internal/git"
-	"github.com/overgent/overgent/internal/hosted"
-	"github.com/overgent/overgent/internal/sessiontranscript"
-	"github.com/overgent/overgent/internal/store"
-	"github.com/overgent/overgent/internal/watcher"
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/codexappserver"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/daemon"
+	git "github.com/khalidM3/overgent/internal/git"
+	"github.com/khalidM3/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/sessiontranscript"
+	"github.com/khalidM3/overgent/internal/store"
+	"github.com/khalidM3/overgent/internal/watcher"
 )
 
 type Sender interface {

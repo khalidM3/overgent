@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/contract"
-	"github.com/overgent/overgent/internal/contract/multilang"
-	"github.com/overgent/overgent/internal/contract/wasmgrammar"
+	"github.com/khalidM3/overgent/internal/contract"
+	"github.com/khalidM3/overgent/internal/contract/multilang"
+	"github.com/khalidM3/overgent/internal/contract/wasmgrammar"
 )
 
 // The wasm-backed languages must honor exactly the contract the Go and

@@ -19,13 +19,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/app"
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/daemon"
+	"github.com/khalidM3/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/onboarding"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/app"
-	"github.com/overgent/overgent/internal/config"
-	"github.com/overgent/overgent/internal/daemon"
-	"github.com/overgent/overgent/internal/hosted"
-	"github.com/overgent/overgent/internal/onboarding"
 )
 
 type backendProcess struct {

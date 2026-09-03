@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/overgent/overgent/internal/codexappserver"
-	"github.com/overgent/overgent/internal/hookconfig"
+	"github.com/khalidM3/overgent/internal/codexappserver"
+	"github.com/khalidM3/overgent/internal/hookconfig"
 )
 
 const (

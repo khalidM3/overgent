@@ -14,8 +14,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/overgent/overgent/internal/contract/fingerprint"
-	"github.com/overgent/overgent/internal/contract/tsw"
+	"github.com/khalidM3/overgent/internal/contract/fingerprint"
+	"github.com/khalidM3/overgent/internal/contract/tsw"
 )
 
 // walkDepth bounds the guest-side pre-order walk. Ten levels are needed because

@@ -22,8 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/overgent/overgent/internal/agentactivity"
-	"github.com/overgent/overgent/internal/hookconfig"
+	"github.com/khalidM3/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/hookconfig"
 )
 
 // hookTimeoutSeconds bounds one managed Cursor hook.

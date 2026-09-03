@@ -6,7 +6,7 @@ set -eu
 # silently become a production distribution channel.
 update_public_key='__OVERGENT_UPDATE_PUBLIC_KEY__'
 apple_team_id='__OVERGENT_APPLE_TEAM_ID__'
-manifest_url="${OVERGENT_MANIFEST_URL:-https://github.com/overgent/overgent/releases/latest/download/update-manifest.json}"
+manifest_url="${OVERGENT_MANIFEST_URL:-https://releases.overgent.com/current/update-manifest.json}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "Overgent beta is currently qualified only on macOS. Linux and Windows archives are build artifacts, not supported installs." >&2

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/overgent/overgent/internal/agentactivity"
+	"github.com/khalidM3/overgent/internal/agentactivity"
 )
 
 func managerFor(t *testing.T, project string) Manager {
