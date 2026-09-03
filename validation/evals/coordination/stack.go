@@ -435,9 +435,10 @@ type scenarioEnvironment struct {
 	binary string
 
 	// readerSessionID is workspace A's scripted vendor session. A real session
-	// keeps one identity for its whole life (ADR-033), and its workstream id is
-	// derived from that identity, so observation and injection address the same
-	// session and findings target a stable workstream.
+	// keeps one identity for its whole life (ADR-033). Hooks carry its local
+	// workstream handle, while hosted findings carry the enrollment-scoped
+	// published identity, so the evaluator derives the latter exactly as the
+	// daemon does before comparing finding targets.
 	readerSessionID   string
 	readerWorkstreamA string
 }
@@ -452,7 +453,11 @@ func (environment *scenarioEnvironment) readerWorkstream() string {
 			environment.readerWorkstreamA = "wrk_agent_unparsed"
 			return environment.readerWorkstreamA
 		}
-		environment.readerWorkstreamA = event.WorkstreamID
+		environment.readerWorkstreamA = agentactivity.PublishedWorkstreamID(
+			event.WorkstreamID,
+			environment.workspaceA.ProjectID,
+			environment.workspaceA.ID,
+		)
 	}
 	return environment.readerWorkstreamA
 }
