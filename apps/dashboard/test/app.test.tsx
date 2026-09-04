@@ -354,7 +354,7 @@ describe("Project Workroom behavior", () => {
     let rejectState: (reason: Error) => void = () => undefined;
     const api: NativeOnboarding = {
       state: vi.fn(() => new Promise<never>((_resolve, reject) => { rejectState = reject; })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
       openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -383,7 +383,7 @@ describe("Project Workroom behavior", () => {
       chooseRepository: vi.fn(async () => "/tmp/orbit"),
       createProject: vi.fn(),
       createAdditionalProject: vi.fn(async () => ({ projectId: "prj_orbit", joinCode: "inv_orbit.secret", warnings: [] })),
-      joinProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
+      joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
       openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/orbit"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={navigate} />);

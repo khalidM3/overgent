@@ -580,3 +580,133 @@ func setAllowList(document, permissions map[string]json.RawMessage, allow []stri
 	document["permissions"] = raw
 	return nil
 }
+
+// ParseManagedCommand splits a managed Overgent hook command into the
+// executable it runs and the Overgent profile it is bound to. A portable
+// command names no profile, so it reports an empty config root.
+//
+// It fails closed. Anything that is not exactly the shape Command and
+// PortableCommand write is not ours to interpret, and every caller treats
+// ok=false as "leave this alone".
+func ParseManagedCommand(command string) (executable, configRoot string, ok bool) {
+	if strings.ContainsAny(command, "\r\n\x00") {
+		return "", "", false
+	}
+	index := strings.Index(command, " agent-hook --vendor ")
+	if index < 0 {
+		return "", "", false
+	}
+	prefix := command[:index]
+	if prefix == "'overgent'" {
+		return "overgent", "", true
+	}
+	const marker = "' --config-root '"
+	at := strings.Index(prefix, marker)
+	if at < 0 || !strings.HasPrefix(prefix, "'") || !strings.HasSuffix(prefix, "'") {
+		return "", "", false
+	}
+	executable, executableOK := unquoteShell(prefix[:at+1])
+	configRoot, rootOK := unquoteShell(prefix[at+len(marker)-1:])
+	if !executableOK || !rootOK || !filepath.IsAbs(executable) || !filepath.IsAbs(configRoot) {
+		return "", "", false
+	}
+	return executable, filepath.Clean(configRoot), true
+}
+
+func unquoteShell(value string) (string, bool) {
+	if len(value) < 2 || !strings.HasPrefix(value, "'") || !strings.HasSuffix(value, "'") {
+		return "", false
+	}
+	return strings.ReplaceAll(value[1:len(value)-1], `'\''`, "'"), true
+}
+
+// legacyProfileNames are product names this application used before it was
+// called Overgent. A profile directory with one of these exact names was
+// written by an earlier build of this same product, for this same member.
+//
+// The list is exact names rather than a pattern on purpose (ADR-065): the point
+// is to recognize our own former shapes, and a pattern could match a directory
+// belonging to somebody else's software.
+var legacyProfileNames = map[string]bool{"Stickguy": true}
+
+// Abandoned reports whether a managed binding owned by previousProfile can be
+// adopted onto currentConfigRoot without asking the member first.
+//
+// The question this answers is not "is it ours" - every binding this package
+// recognizes is ours - but "is anything still using it". A binding nothing can
+// still be using is not a decision, it is a leftover, and presenting it as a
+// decision is what stranded members behind a Reconnect button that named the
+// same profile on both sides of the arrow.
+//
+// It is deliberately conservative: an unrecognized previous executable, or a
+// profile that still exists and still holds an enrolled device, is left for an
+// explicit reconnect. False here costs a confirmation; true here silently moves
+// a binding that another live profile depends on.
+func Abandoned(currentConfigRoot, previousProfile, previousExecutable string) bool {
+	current := cleanProfile(currentConfigRoot)
+	previous := cleanProfile(previousProfile)
+	switch {
+	case previous == "":
+		// A portable binding resolves `overgent` on PATH. It names no profile to
+		// take anything from, and on this Mac that PATH entry is this member's.
+		return true
+	case previous == current:
+		// One profile, two executable paths: an app bundle that was rebuilt or
+		// moved, or a CLI that has since been copied to ~/.local/bin. Reporting
+		// this as another profile is how a member ends up being asked to confirm
+		// moving a binding from a profile to itself.
+		return true
+	case !directoryExists(previous):
+		// The profile it points at is gone, so nothing can be running from it.
+		return true
+	case legacyProfileNames[filepath.Base(previous)]:
+		// A superseded product name, written by an earlier build of this same
+		// product for this same member.
+		return true
+	case !profileHasDevice(previous):
+		// The profile exists but was never enrolled, or has already been reset.
+		// No device identity depends on the binding.
+		return true
+	case previousExecutable != "" && previousExecutable != "overgent" && !executableExists(previousExecutable):
+		// Whatever profile it names, the binary it runs is gone, so the binding
+		// can never fire again.
+		return true
+	default:
+		return false
+	}
+}
+
+func cleanProfile(value string) string {
+	if value == "" || value == "portable" {
+		return ""
+	}
+	if absolute, err := filepath.Abs(value); err == nil {
+		return filepath.Clean(absolute)
+	}
+	return filepath.Clean(value)
+}
+
+func directoryExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func executableExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+}
+
+// profileHasDevice reports whether an Overgent profile directory holds an
+// enrolled device. It reads the file directly rather than through
+// internal/config so that this predicate stays free of that package's platform
+// gate and of any dependency the setup packages do not already have.
+func profileHasDevice(root string) bool {
+	data, err := os.ReadFile(filepath.Join(root, "config.json"))
+	if err != nil {
+		return false
+	}
+	var stored struct {
+		DeviceID string `json:"deviceId"`
+	}
+	return json.Unmarshal(data, &stored) == nil && stored.DeviceID != ""
+}

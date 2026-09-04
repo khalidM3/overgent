@@ -84,8 +84,13 @@ type Status struct {
 	Approval        string `json:"approval"`
 	Binding         string `json:"binding"`
 	PreviousProfile string `json:"previousProfile,omitempty"`
-	CheckedProfile  string `json:"checkedProfile"`
-	RestartRequired bool   `json:"restartRequired"`
+	// PreviousExecutable is the Overgent binary an `other_profile` binding runs.
+	// A binding whose executable is gone cannot fire again whatever profile it
+	// names, which is one of the things that makes it a leftover rather than a
+	// decision.
+	PreviousExecutable string `json:"previousExecutable,omitempty"`
+	CheckedProfile     string `json:"checkedProfile"`
+	RestartRequired    bool   `json:"restartRequired"`
 }
 
 type Manager struct {
@@ -109,6 +114,13 @@ func (m Manager) Setup() (Status, error) {
 		return Status{}, err
 	}
 	if inspection.state == bindingOtherProfile {
+		// A binding an earlier Overgent left behind is a leftover, not another
+		// profile's property. Adopt it rather than refusing the setup the member
+		// just asked for; anything a live profile still depends on falls through
+		// to the explicit refusal below.
+		if hookconfig.Abandoned(m.checkedProfile(), inspection.previousProfile, inspection.previousExecutable) {
+			return m.Rebind()
+		}
 		return Status{Binding: string(bindingOtherProfile), CheckedProfile: m.checkedProfile(), ConfigPath: path},
 			errors.New("Cursor is connected to another Overgent profile; explicit reconnect is required")
 	}
@@ -136,13 +148,14 @@ func (m Manager) Status() (Status, error) {
 		return Status{}, err
 	}
 	return Status{
-		Configured:      inspection.state == bindingCurrent,
-		ConfigPath:      path,
-		Approval:        approval,
-		Binding:         string(inspection.state),
-		PreviousProfile: inspection.previousProfile,
-		CheckedProfile:  m.checkedProfile(),
-		RestartRequired: inspection.state != bindingNotConfigured,
+		Configured:         inspection.state == bindingCurrent,
+		ConfigPath:         path,
+		Approval:           approval,
+		Binding:            string(inspection.state),
+		PreviousProfile:    inspection.previousProfile,
+		PreviousExecutable: inspection.previousExecutable,
+		CheckedProfile:     m.checkedProfile(),
+		RestartRequired:    inspection.state != bindingNotConfigured,
 	}, nil
 }
 
@@ -179,6 +192,35 @@ func (m Manager) Rebind() (Status, error) {
 		Configured: true, ConfigPath: path, Approval: approval,
 		Binding: string(bindingCurrent), CheckedProfile: m.checkedProfile(), RestartRequired: true,
 	}, nil
+}
+
+// Repair adopts a binding an earlier Overgent left behind, and does nothing
+// else. It is safe to run unattended on every launch. Unlike Rebind it never
+// creates a binding that is not already there: a project with no Overgent
+// Cursor hooks is one where nobody connected this agent, and repairing our own
+// leftovers must not decide that for them.
+func (m Manager) Repair() (Status, error) {
+	path, base, err := m.resolve()
+	if err != nil {
+		return Status{}, err
+	}
+	doc, err := read(path)
+	if err != nil {
+		return Status{}, err
+	}
+	inspection, err := inspect(doc, base)
+	if err != nil {
+		return Status{}, err
+	}
+	if inspection.state != bindingOtherProfile || !hookconfig.Abandoned(m.checkedProfile(), inspection.previousProfile, inspection.previousExecutable) {
+		return Status{
+			Configured: inspection.state == bindingCurrent, ConfigPath: path, Approval: approval,
+			Binding: string(inspection.state), PreviousProfile: inspection.previousProfile,
+			PreviousExecutable: inspection.previousExecutable, CheckedProfile: m.checkedProfile(),
+			RestartRequired: inspection.state != bindingNotConfigured,
+		}, nil
+	}
+	return m.Rebind()
 }
 
 // Remove withdraws only Overgent's own hooks. Unrelated keys, unrelated hooks,
@@ -219,8 +261,9 @@ const (
 )
 
 type inspection struct {
-	state           bindingState
-	previousProfile string
+	state              bindingState
+	previousProfile    string
+	previousExecutable string
 }
 
 func (m Manager) resolve() (string, string, error) {
@@ -286,25 +329,34 @@ func managed(command string) bool {
 // but does not have the exact shape this package writes returns ok=false, and
 // every caller then refuses to touch the file.
 func managedProfile(command, event string) (string, bool) {
+	profile, _, ok := managedOwner(command, event)
+	return profile, ok
+}
+
+// managedOwner reports both halves of a managed command's identity: the profile
+// it is bound to and the executable it runs. The executable matters on its own
+// - a binding whose binary is gone cannot fire again whatever profile it names.
+func managedOwner(command, event string) (profile, executable string, ok bool) {
 	suffix := " agent-hook --vendor cursor --event " + event
 	if !strings.HasSuffix(command, suffix) || strings.ContainsAny(command, "\r\n\x00") {
-		return "", false
+		return "", "", false
 	}
 	prefix := strings.TrimSuffix(command, suffix)
 	if prefix == "'overgent'" {
-		return "portable", true
+		return "portable", "overgent", true
 	}
 	// The non-portable form is '<executable>' --config-root '<root>'.
 	const marker = "' --config-root '"
 	index := strings.Index(prefix, marker)
 	if !strings.HasPrefix(prefix, "'") || index < 0 || !strings.HasSuffix(prefix, "'") {
-		return "", false
+		return "", "", false
 	}
 	root := prefix[index+len(marker) : len(prefix)-1]
-	if root == "" || !filepath.IsAbs(root) {
-		return "", false
+	binary := prefix[1:index]
+	if root == "" || !filepath.IsAbs(root) || binary == "" || !filepath.IsAbs(binary) {
+		return "", "", false
 	}
-	return root, true
+	return root, binary, true
 }
 
 func inspect(doc *document, base string) (inspection, error) {
@@ -312,6 +364,7 @@ func inspect(doc *document, base string) (inspection, error) {
 		return inspection{}, errors.New("Cursor hooks.json declares an unsupported schema version; refusing to edit it")
 	}
 	profiles := map[string]bool{}
+	executables := map[string]bool{}
 	present := map[string]bool{}
 	// A managed command under an event Overgent does not install is drift: it
 	// means an older or newer Overgent wrote this file, and removing hooks by
@@ -325,11 +378,12 @@ func inspect(doc *document, base string) (inspection, error) {
 			if !known {
 				return inspection{}, errors.New("managed Overgent Cursor hook is configured for an unknown event; refusing to overwrite it")
 			}
-			profile, ok := managedProfile(candidate.Command, event)
+			profile, executable, ok := managedOwner(candidate.Command, event)
 			if !ok {
 				return inspection{}, errors.New("managed Overgent Cursor hook drifted; refusing to overwrite it")
 			}
 			profiles[profile] = true
+			executables[executable] = true
 			if candidate == expected(event, base) {
 				present[event] = true
 			} else if candidate.Command != expected(event, base).Command {
@@ -352,13 +406,19 @@ func inspect(doc *document, base string) (inspection, error) {
 	for value := range profiles {
 		profile = value
 	}
+	executable := ""
+	if len(executables) == 1 {
+		for value := range executables {
+			executable = value
+		}
+	}
 	if want, _ := managedProfile(expected("sessionStart", base).Command, "sessionStart"); profile != want {
-		return inspection{state: bindingOtherProfile, previousProfile: profile}, nil
+		return inspection{state: bindingOtherProfile, previousProfile: profile, previousExecutable: executable}, nil
 	}
 	if len(present) != len(agentactivity.CursorEvents) {
-		return inspection{state: bindingPartial, previousProfile: profile}, nil
+		return inspection{state: bindingPartial, previousProfile: profile, previousExecutable: executable}, nil
 	}
-	return inspection{state: bindingCurrent, previousProfile: profile}, nil
+	return inspection{state: bindingCurrent, previousProfile: profile, previousExecutable: executable}, nil
 }
 
 func install(doc *document, base string) {

@@ -72,6 +72,16 @@ func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The other profile has to look alive, or the launch-time repair adopts it
+	// without asking - which is the point of that pass and is covered by
+	// TestLaunchRepairAdoptsALeftoverProfileWithoutAsking below.
+	oldPaths, err := config.Resolve(oldRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = config.Save(oldPaths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_other"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = (codexsetup.Manager{ProjectRoot: repository, ConfigRoot: oldRoot, Executable: executable}).Setup(); err != nil {
 		t.Fatal(err)
 	}
@@ -188,5 +198,57 @@ func TestAgentDetectionCoversStandardMacAndNVMInstallLocations(t *testing.T) {
 	}
 	if got, ok := agentExecutable("codex"); !ok || got != codex {
 		t.Fatalf("Codex detection=(%q,%v)", got, ok)
+	}
+}
+
+// The failure two beta testers hit on day one: a user-level Codex hook file left
+// bound to a former product name made a fresh install on a fresh repository
+// report Codex as belonging to somebody else, with the only working control a
+// text link inside the adapter row. Opening the app now fixes it, and the
+// adapter row never mentions it.
+func TestLaunchRepairAdoptsALeftoverProfileWithoutAsking(t *testing.T) {
+	isolateCodex(t)
+	repository := t.TempDir()
+	repository, _ = filepath.EvalSymlinks(repository)
+	currentRoot := filepath.Join(t.TempDir(), "Overgent")
+	legacyRoot := filepath.Join(t.TempDir(), "Stickguy")
+	if err := os.MkdirAll(legacyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyPaths, err := config.Resolve(legacyRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = config.Save(legacyPaths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_legacy"}); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = (codexsetup.Manager{ProjectRoot: repository, ConfigRoot: legacyRoot, Executable: executable}).Setup(); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := config.Resolve(currentRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
+	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &OnboardingService{configRoot: currentRoot, apiBaseURL: "https://example.convex.site", cliBinary: executable}
+	state, err := service.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := state.Adapters[0]
+	if codex.Binding != "current" || !codex.Configured {
+		t.Fatalf("opening the app did not adopt the leftover: %#v", codex)
+	}
+	if codex.ReconnectAllowed {
+		t.Fatalf("a leftover was still presented as a decision: %#v", codex)
 	}
 }

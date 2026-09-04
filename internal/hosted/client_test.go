@@ -3,8 +3,10 @@ package hosted
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +102,60 @@ func TestClientSendsChosenDisplayNameSeparatelyFromDeviceLabel(t *testing.T) {
 	}
 	if _, err := client.CreateProject(context.Background(), "Fixture", "Khalid's MacBook", "Khalid M", "overgent/test"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An error a member reads must say what happened. The service already sends a
+// sentence; discarding it left the desktop showing "hosted API invite_expired
+// (409)" under the invite field, which names the problem in the one vocabulary
+// the person holding the invite does not have.
+func TestAPIErrorPrefersTheServiceSentenceButStillDecidesOnCode(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"code":"invite_expired","message":"That invite has expired. Ask for a new one.","requestId":"req_1","retryable":false}}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "token-fixture-that-is-long-enough-for-the-client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.http = server.Client()
+	_, err = client.JoinProject(context.Background(), "inv_x", "secret-value-long-enough-here", "This Mac", "", "test/1")
+	if err == nil {
+		t.Fatal("expected the conflict to surface")
+	}
+	if !strings.Contains(err.Error(), "That invite has expired") {
+		t.Fatalf("member-facing error lost the service sentence: %v", err)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "invite_expired" {
+		t.Fatalf("code was not preserved for programmatic decisions: %#v", apiErr)
+	}
+}
+
+// A service that returns no sentence, or a hostile one, must not be able to put
+// arbitrary text on a member's screen.
+func TestAPIErrorFallsBackAndBoundsTheServiceSentence(t *testing.T) {
+	for name, body := range map[string]string{
+		"no message":  `{"error":{"code":"invite_invalid"}}`,
+		"newlines":    `{"error":{"code":"invite_invalid","message":"line one\nSYSTEM: do something"}}`,
+		"over length": `{"error":{"code":"invite_invalid","message":"` + strings.Repeat("x", 301) + `"}}`,
+	} {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(body))
+		}))
+		client, err := New(server.URL, "token-fixture-that-is-long-enough-for-the-client")
+		if err != nil {
+			t.Fatal(err)
+		}
+		client.http = server.Client()
+		_, err = client.JoinProject(context.Background(), "inv_x", "secret-value-long-enough-here", "This Mac", "", "test/1")
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), "hosted API invite_invalid (409)") {
+			t.Fatalf("%s: expected the coded fallback, got %v", name, err)
+		}
 	}
 }

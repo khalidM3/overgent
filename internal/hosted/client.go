@@ -30,6 +30,11 @@ type Invite struct {
 	ExpiresAt  time.Time
 }
 type Enrollment struct{ DeviceID, DeviceToken, DashboardTicket string }
+
+// Membership is the result of joining another Project with the device
+// credential this Mac already holds. It carries no device token, because no
+// device was created: one Mac has one device identity across its Projects.
+type Membership struct{ ProjectID, DashboardTicket string }
 type Bootstrap struct {
 	DeviceID                     string
 	SchemaMinimum, SchemaMaximum int
@@ -95,9 +100,24 @@ type APIError struct {
 	Code      string
 	RequestID string
 	Retryable bool
+	// Message is the service's own sentence about what went wrong. Callers use
+	// Code to decide; a member reads this.
+	Message string
 }
 
-func (e *APIError) Error() string { return fmt.Sprintf("hosted API %s (%d)", e.Code, e.Status) }
+// Error prefers the service's sentence over the code.
+//
+// This error reaches a member unchanged - the desktop shows it under the invite
+// field, the CLI prints it - and "hosted API invite_expired (409)" tells them
+// nothing they can act on when "That invite has expired. Ask for a new one."
+// was already on the wire and was being discarded. Code is still what every
+// programmatic decision is made on, including ClassifyCredentialError.
+func (e *APIError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return fmt.Sprintf("hosted API %s (%d)", e.Code, e.Status)
+}
 
 func New(rawBase, token string) (*Client, error) {
 	base, err := url.Parse(strings.TrimRight(rawBase, "/"))
@@ -147,6 +167,19 @@ func (c *Client) Enroll(ctx context.Context, inviteID, inviteSecret, deviceLabel
 	}
 	err := c.request(ctx, http.MethodPost, "/v1/enrollments", body, &out, http.StatusCreated)
 	return Enrollment{DeviceID: out.DeviceId, DeviceToken: out.DeviceToken, DashboardTicket: out.DashboardTicket}, err
+}
+
+// JoinProject redeems an invite as the already-enrolled device this client is
+// authenticated as. Unlike Enroll it is authenticated, and it returns only the
+// Project that was joined.
+func (c *Client) JoinProject(ctx context.Context, inviteID, inviteSecret, deviceLabel, displayName, appVersion string) (Membership, error) {
+	var out struct{ ProjectId, DashboardTicket string }
+	body := protocoltypes.CreateMembershipJSONBody{InviteId: inviteID, InviteSecret: inviteSecret, DeviceLabel: deviceLabel, AppVersion: appVersion, SchemaMinimum: 1, SchemaMaximum: 1}
+	if displayName != "" {
+		body.DisplayName = &displayName
+	}
+	err := c.request(ctx, http.MethodPost, "/v1/memberships", body, &out, http.StatusCreated)
+	return Membership{ProjectID: out.ProjectId, DashboardTicket: out.DashboardTicket}, err
 }
 
 func (c *Client) Bootstrap(ctx context.Context) (Bootstrap, error) {
@@ -303,8 +336,8 @@ func (c *Client) requestBytes(ctx context.Context, method, path string, body []b
 	if response.StatusCode != want {
 		var envelope struct {
 			Error struct {
-				Code, RequestId string
-				Retryable       bool
+				Code, Message, RequestId string
+				Retryable                bool
 			}
 		}
 		_ = json.Unmarshal(payload, &envelope)
@@ -312,7 +345,13 @@ func (c *Client) requestBytes(ctx context.Context, method, path string, body []b
 		if code == "" {
 			code = "unexpected_status"
 		}
-		return &APIError{Status: response.StatusCode, Code: code, RequestID: envelope.Error.RequestId, Retryable: envelope.Error.Retryable}
+		// The message is bounded before it is carried: it is rendered in the
+		// app, and a response body is not a place to accept unbounded text from.
+		message := envelope.Error.Message
+		if len(message) > 300 || strings.ContainsAny(message, "\r\n\x00") {
+			message = ""
+		}
+		return &APIError{Status: response.StatusCode, Code: code, RequestID: envelope.Error.RequestId, Retryable: envelope.Error.Retryable, Message: message}
 	}
 	if out == nil || len(payload) == 0 {
 		return nil

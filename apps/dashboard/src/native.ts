@@ -171,6 +171,10 @@ export const nativeOnboarding = {
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
   createAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateAdditionalProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
+  // Accepting an invite on a Mac that is already enrolled. Distinct from
+  // joinProject, which mints a device identity and is only correct on a Mac
+  // that has none.
+  joinAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinAdditionalProject", request),
   configureAdapters: (root: string, codex: boolean, claude: boolean, cursor: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude, cursor),
   reconnectAdapter: (root: string, agent: AgentVendor) => call<AdapterState>("ReconnectAdapter", root, agent),
   connectAgentWorktree: (root: string, agent: AgentVendor) => call<AdapterState>("ConnectAgentWorktree", root, agent),

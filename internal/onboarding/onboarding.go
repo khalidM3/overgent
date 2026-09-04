@@ -21,6 +21,7 @@ type API interface {
 	CreateProject(context.Context, string, string, string, string) (hosted.Project, error)
 	CreateInvite(context.Context, string, int, int) (hosted.Invite, error)
 	Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error)
+	JoinProject(context.Context, string, string, string, string, string) (hosted.Membership, error)
 	Bootstrap(context.Context) (hosted.Bootstrap, error)
 	CreateDashboardTicket(context.Context, string) (hosted.DashboardTicket, error)
 	RevokeDevice(context.Context, string) error
@@ -137,6 +138,87 @@ func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID
 		return Result{}, errors.New("existing device bootstrap did not contain the new Project")
 	}
 	return s.finishExisting(ctx, options, client, project.ID, deviceID)
+}
+
+// JoinAdditional redeems an invite for a device that is already enrolled in the
+// local profile, adding a second Project without a second device identity.
+//
+// It is the join counterpart of CreateAdditional and shares its rule: the
+// existing credential is reused, and a local registration failure must never
+// revoke the shared device and strand the Projects this Mac already has. That
+// is why it does not route through Join, whose rollback revokes the device it
+// just created - here that device is the one holding every other Project.
+func (s Service) JoinAdditional(ctx context.Context, options Options, deviceID, token, joinCode string) (Result, error) {
+	if err := validateOptions(options, false); err != nil {
+		return Result{}, err
+	}
+	if deviceID == "" || token == "" {
+		return Result{}, errors.New("existing device ID and credential are required")
+	}
+	code, err := ParseInviteCode(joinCode)
+	if err != nil {
+		return Result{}, err
+	}
+	if err = preflightRepository(ctx, options.RepositoryRoot); err != nil {
+		return Result{}, err
+	}
+	inviteID, inviteSecret, _ := strings.Cut(code, ".")
+	client, err := s.Client(token)
+	if err != nil {
+		return Result{}, err
+	}
+	appVersion := options.AppVersion
+	if appVersion == "" {
+		appVersion = "overgent/dev"
+	}
+	membership, err := client.JoinProject(ctx, inviteID, inviteSecret, options.DeviceLabel, options.DisplayName, appVersion)
+	if err != nil {
+		return Result{}, fmt.Errorf("join Project: %w", err)
+	}
+	bootstrap, err := client.Bootstrap(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("bootstrap existing device: %w", err)
+	}
+	if bootstrap.DeviceID != deviceID || !containsProject(bootstrap.Projects, membership.ProjectID) {
+		return Result{}, errors.New("existing device bootstrap did not contain the joined Project")
+	}
+	workspace, err := newWorkspace(membership.ProjectID, options.RepositoryRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	if err = s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
+		return Result{}, fmt.Errorf("register joined workspace: %w", err)
+	}
+	// No invite is minted here. A member who just accepted one has not been
+	// given anything to hand on, and offering a code is how the previous screen
+	// implied that inviting somebody was the next step.
+	return Result{
+		ProjectID: membership.ProjectID, DeviceID: deviceID, WorkspaceID: workspace.ID,
+		WorkstreamID: workspace.WorkstreamID, DashboardTicket: membership.DashboardTicket,
+	}, nil
+}
+
+// newWorkspace mints the local identifiers one repository registration needs.
+// The four are always created together; creating them inline three times is how
+// finishExisting and finish drifted apart.
+func newWorkspace(projectID, root string) (config.Workspace, error) {
+	workspaceID, err := opaqueID("wsp_local_")
+	if err != nil {
+		return config.Workspace{}, err
+	}
+	workstreamID, err := opaqueID("wrk_local_")
+	if err != nil {
+		return config.Workspace{}, err
+	}
+	memberID, err := opaqueID("mem_local_")
+	if err != nil {
+		return config.Workspace{}, err
+	}
+	sessionID, err := opaqueID("ses_local_")
+	if err != nil {
+		return config.Workspace{}, err
+	}
+	return config.Workspace{ID: workspaceID, ProjectID: projectID, WorkstreamID: workstreamID, MemberID: memberID, SessionID: sessionID, Root: root}, nil
 }
 
 // An invite must survive until the recipient actually sits down: ten minutes
@@ -281,19 +363,7 @@ func (s Service) finish(ctx context.Context, options Options, client API, projec
 }
 
 func (s Service) finishExisting(ctx context.Context, options Options, client API, projectID, deviceID string) (Result, error) {
-	workspaceID, err := opaqueID("wsp_local_")
-	if err != nil {
-		return Result{}, err
-	}
-	workstreamID, err := opaqueID("wrk_local_")
-	if err != nil {
-		return Result{}, err
-	}
-	memberID, err := opaqueID("mem_local_")
-	if err != nil {
-		return Result{}, err
-	}
-	sessionID, err := opaqueID("ses_local_")
+	workspace, err := newWorkspace(projectID, options.RepositoryRoot)
 	if err != nil {
 		return Result{}, err
 	}
@@ -305,13 +375,12 @@ func (s Service) finishExisting(ctx context.Context, options Options, client API
 	if err != nil {
 		return Result{}, fmt.Errorf("create invite: %w", err)
 	}
-	workspace := config.Workspace{ID: workspaceID, ProjectID: projectID, WorkstreamID: workstreamID, MemberID: memberID, SessionID: sessionID, Root: options.RepositoryRoot}
 	if err := s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
 		return Result{}, fmt.Errorf("register additional workspace: %w", err)
 	}
 	return Result{
-		ProjectID: projectID, DeviceID: deviceID, WorkspaceID: workspaceID,
-		WorkstreamID: workstreamID, JoinCode: invite.ID + "." + invite.Secret,
+		ProjectID: projectID, DeviceID: deviceID, WorkspaceID: workspace.ID,
+		WorkstreamID: workspace.WorkstreamID, JoinCode: invite.ID + "." + invite.Secret,
 		DashboardTicket: ticket.Ticket,
 	}, nil
 }

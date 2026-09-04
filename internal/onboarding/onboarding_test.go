@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ type additionalProjectAPI struct {
 	deviceID string
 	project  hosted.Project
 	revoked  bool
+	joinErr  error
 }
 
 func (api *additionalProjectAPI) CreateProject(context.Context, string, string, string, string) (hosted.Project, error) {
@@ -25,6 +27,9 @@ func (*additionalProjectAPI) CreateInvite(context.Context, string, int, int) (ho
 }
 func (*additionalProjectAPI) Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error) {
 	return hosted.Enrollment{}, nil
+}
+func (api *additionalProjectAPI) JoinProject(context.Context, string, string, string, string, string) (hosted.Membership, error) {
+	return hosted.Membership{ProjectID: api.project.ID, DashboardTicket: "dashboard-ticket-fixture"}, api.joinErr
 }
 func (api *additionalProjectAPI) Bootstrap(context.Context) (hosted.Bootstrap, error) {
 	return hosted.Bootstrap{DeviceID: api.deviceID, Projects: []hosted.Project{api.project}}, nil
@@ -71,6 +76,86 @@ func TestCreateAdditionalReusesDeviceAndRegistersWorkspace(t *testing.T) {
 	}
 	if api.revoked {
 		t.Fatal("shared existing device was revoked")
+	}
+}
+
+// Joining a second Project must reuse this Mac's device rather than mint a new
+// one. Before /v1/memberships existed the only join path enrolled a fresh
+// device, which app.Register then rejected because the profile already held a
+// different device ID - so an invite was burned and nothing was joined.
+func TestJoinAdditionalReusesDeviceAndNeverRevokesIt(t *testing.T) {
+	root := makeOnboardingRepository(t)
+	api := &additionalProjectAPI{deviceID: "dev_existing", project: hosted.Project{ID: "prj_invited", Label: "Invited"}}
+	var registered config.Workspace
+	service := Service{
+		Client: func(token string) (API, error) {
+			if token != "existing-token" {
+				t.Fatalf("token = %q", token)
+			}
+			return api, nil
+		},
+		Register: func(_ context.Context, _, _, deviceID string, workspace config.Workspace) error {
+			registered = workspace
+			if deviceID != api.deviceID {
+				t.Fatalf("device = %q", deviceID)
+			}
+			return nil
+		},
+	}
+	options := Options{ConfigRoot: t.TempDir(), RepositoryRoot: root, APIBaseURL: "https://api.overgent.com", DeviceLabel: "This Mac"}
+	result, err := service.JoinAdditional(context.Background(), options, api.deviceID, "existing-token", "inv_abcdef.secret-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProjectID != api.project.ID || registered.ProjectID != api.project.ID || registered.Root != root {
+		t.Fatalf("result=%+v registered=%+v", result, registered)
+	}
+	if result.DashboardTicket == "" {
+		t.Fatalf("no activation material: %+v", result)
+	}
+	// A member who just accepted an invite has not been given one to pass on.
+	if result.JoinCode != "" {
+		t.Fatalf("joining minted an invite: %+v", result)
+	}
+	if api.revoked {
+		t.Fatal("the device holding every other Project was revoked")
+	}
+}
+
+// The rollback that protects a first enrollment would be catastrophic here, so
+// a failed join must leave the shared device alone and register nothing.
+func TestJoinAdditionalLeavesTheSharedDeviceAloneWhenTheInviteFails(t *testing.T) {
+	root := makeOnboardingRepository(t)
+	api := &additionalProjectAPI{deviceID: "dev_existing", project: hosted.Project{ID: "prj_invited"}, joinErr: errors.New("E:invite_expired")}
+	registered := false
+	service := Service{
+		Client:   func(string) (API, error) { return api, nil },
+		Register: func(context.Context, string, string, string, config.Workspace) error { registered = true; return nil },
+	}
+	options := Options{ConfigRoot: t.TempDir(), RepositoryRoot: root, APIBaseURL: "https://api.overgent.com", DeviceLabel: "This Mac"}
+	if _, err := service.JoinAdditional(context.Background(), options, api.deviceID, "existing-token", "inv_abcdef.secret-value"); err == nil {
+		t.Fatal("an expired invite was accepted")
+	}
+	if api.revoked {
+		t.Fatal("a failed join revoked the device holding every other Project")
+	}
+	if registered {
+		t.Fatal("a failed join registered a workspace")
+	}
+}
+
+// A malformed code is refused before anything reaches the network, so a typo
+// cannot spend one of the invite's rate-limited attempts.
+func TestJoinAdditionalRejectsAMalformedCodeLocally(t *testing.T) {
+	api := &additionalProjectAPI{deviceID: "dev_existing"}
+	called := false
+	service := Service{Client: func(string) (API, error) { called = true; return api, nil }}
+	options := Options{ConfigRoot: t.TempDir(), RepositoryRoot: t.TempDir(), APIBaseURL: "https://api.overgent.com", DeviceLabel: "This Mac"}
+	if _, err := service.JoinAdditional(context.Background(), options, "dev_existing", "existing-token", "not-an-invite"); err == nil {
+		t.Fatal("a malformed code was accepted")
+	}
+	if called {
+		t.Fatal("a malformed code reached the hosted API")
 	}
 }
 

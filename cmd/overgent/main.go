@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/khalidM3/overgent/internal/activation"
+	"github.com/khalidM3/overgent/internal/adapterrepair"
 	"github.com/khalidM3/overgent/internal/agentactivity"
 	"github.com/khalidM3/overgent/internal/app"
 	"github.com/khalidM3/overgent/internal/claudesetup"
@@ -143,8 +144,26 @@ func run(args []string) error {
 		if joinFlags.NArg() != 1 {
 			return errors.New("join requires one invite link or code")
 		}
-		service := onboarding.New(*apiBase)
-		result, joinErr := service.Join(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}, joinFlags.Arg(0))
+		// A Mac that is already enrolled joins as itself. Enrolling again would
+		// mint a second device identity, which the local profile then refuses to
+		// register - spending the invite and joining nothing.
+		existing, configErr := config.Load(paths)
+		if configErr != nil {
+			return configErr
+		}
+		options := onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}
+		var result onboarding.Result
+		var joinErr error
+		if existing.DeviceID != "" {
+			options.APIBaseURL = existing.APIBaseURL
+			token, credentialErr := credential.Get(ctx, existing.DeviceID)
+			if credentialErr != nil {
+				return fmt.Errorf("read existing device credential: %w", credentialErr)
+			}
+			result, joinErr = onboarding.New(existing.APIBaseURL).JoinAdditional(ctx, options, existing.DeviceID, token, joinFlags.Arg(0))
+		} else {
+			result, joinErr = onboarding.New(*apiBase).Join(ctx, options, joinFlags.Arg(0))
+		}
 		if joinErr != nil {
 			return joinErr
 		}
@@ -220,8 +239,37 @@ func run(args []string) error {
 		}
 		return runAgentHook(ctx, paths.Socket, *vendor, os.Stdin, os.Stdout, daemon.Call)
 	case "setup":
-		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "cursor": true, "status": true, "remove": true, "remove-all": true, "reconnect": true}[rest[1]] {
-			return errors.New("setup requires codex, claude, cursor, status, reconnect, remove, or remove-all")
+		if len(rest) < 2 || !map[string]bool{"codex": true, "claude": true, "cursor": true, "status": true, "remove": true, "remove-all": true, "reconnect": true, "repair": true}[rest[1]] {
+			return errors.New("setup requires codex, claude, cursor, status, reconnect, repair, remove, or remove-all")
+		}
+		// repair adopts bindings an earlier Overgent left behind across every
+		// registered repository, which is what the desktop app does on launch.
+		// It exists here for headless recovery and support, and never creates a
+		// binding: an agent that was never connected stays unconnected.
+		if rest[1] == "repair" {
+			if len(rest) != 2 {
+				return errors.New("setup repair accepts no arguments")
+			}
+			executable, executableErr := os.Executable()
+			if executableErr != nil {
+				return executableErr
+			}
+			cfg, configErr := config.Load(paths)
+			if configErr != nil {
+				return configErr
+			}
+			roots := make([]string, 0, len(cfg.Workspaces))
+			for _, workspace := range cfg.Workspaces {
+				roots = append(roots, workspace.Root)
+			}
+			adopted := []adapterrepair.Outcome{}
+			for _, outcome := range adapterrepair.Run(*root, executable, roots) {
+				if outcome.Err != nil {
+					return fmt.Errorf("repair %s in %s: %w", outcome.Vendor, outcome.Root, outcome.Err)
+				}
+				adopted = append(adopted, outcome)
+			}
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"adopted": adopted})
 		}
 		if rest[1] == "remove-all" {
 			if len(rest) != 2 {

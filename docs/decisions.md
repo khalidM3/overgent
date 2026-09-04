@@ -1305,3 +1305,95 @@ clients continue to discover updates only through
 `https://releases.overgent.com/current/update-manifest.json`; they neither need
 GitHub credentials nor depend on the repository owner or future organization.
 Accepted by the owner 2026-09-02.
+
+## ADR-068: Overgent repairs its own leftovers instead of asking a member to
+
+Supersedes ADR-066's clean-install exception. That exception rested on the
+premise that the one external install would be removed before the first
+Overgent build was installed. It was not, and could not reliably have been:
+Codex activity hooks live at the user layer, in `$CODEX_HOME/hooks.json`, and
+therefore outlive uninstalling the product, deleting its profile, and switching
+repositories.
+
+Two beta testers hit the consequence on day one. A brand-new Project on a
+brand-new repository reported Codex as belonging to another Overgent profile,
+refused to configure it, and offered a Reconnect confirmation whose "current"
+and "new" bindings named the same person. Neither Reset nor the reset that runs
+from the credential-recovery screen touched adapter bindings at all, so the one
+control named after the problem could not fix it.
+
+The rule, from now on and not only for this rename: **a managed binding that
+nothing can still be using is adopted automatically, and only a binding a live
+profile still depends on is a member's decision.** `hookconfig.Abandoned` makes
+that call from facts on disk - a portable binding, the same profile under a
+moved executable, a profile directory that is gone, a profile holding no
+enrolled device, a superseded product name, or an executable that no longer
+exists. Anything it cannot place stays a decision and still requires the
+explicit reconnect, because moving a binding another live profile depends on is
+not recoverable by the member it surprises.
+
+Adoption runs in `Setup` for the agents a member ticked, and as a repair pass on
+every launch of the desktop app and from `overgent setup repair`. The repair
+pass never creates a binding: an agent nobody connected here stays unconnected,
+because clearing up after an earlier build is Overgent's job and connecting an
+agent is the member's.
+
+The desktop app also stops trusting an already-installed `~/.local/bin/overgent`
+without looking at it. It compares the installed CLI with the bundled one and
+replaces it when they differ, so an app update can no longer ship a new app
+driving an old CLI - which is the mechanism that would have reintroduced this
+same class of failure at the next rename or wire change.
+
+Recognizing legacy names is exact, not a pattern: only names this product has
+actually used qualify, so no directory belonging to anyone else's software can
+be adopted. Accepted by the owner 2026-09-03.
+
+## ADR-069: One Mac has one device identity across every Project it joins
+
+`/v1/enrollments` mints a device. That is correct exactly once per Mac, because
+the local profile holds a single device ID and `app.Register` refuses a
+workspace registered under any other one. Accepting a second invite therefore
+enrolled a new device, had the registration rejected, and left the member with
+a burned one-use invite and nothing joined. There was no in-app control for it
+at all, so the only route was `overgent join` in a terminal, which failed the
+same way.
+
+`POST /v1/memberships` closes it. It is authenticated as the device that
+already exists, redeems the invite, and inserts one `members` row for
+`(project, device)` plus a dashboard ticket. It mints no device and no invite:
+a member who has just accepted one has not been handed one to pass on. The
+hosted model already supported this - `members` is keyed by project and device,
+and `bootstrap` has always resolved every Project a device belongs to - so this
+is a missing door, not a new room.
+
+It is deliberately a separate handler from `enroll` rather than a branch inside
+it. Every guard protecting a first enrollment is about a caller with no
+identity; here the caller has one, and the questions are different: is this
+credential still good, is the invite still good, and is this device already in
+that Project. The rollback differs for the same reason - `Join` revokes the
+device it created when local registration fails, and here that device is the
+one holding every other Project on the Mac, so `JoinAdditional` never revokes.
+Accepted by the owner 2026-09-03.
+
+## ADR-070: The shared rate bucket is sharded, and its limits are abuse ceilings
+
+The unauthenticated edge bucket cannot be keyed on anything the caller
+controls, because no trustworthy client-IP header exists at the Convex boundary
+and a key derived from forwarding data is a key an abuser picks. It was
+therefore one key per route - and so one document that every request on that
+route wrote to.
+
+That had two consequences. Convex serializes writes to a document, so a hot row
+turns ordinary concurrency into optimistic-concurrency failures, which surface
+as an unexplained 500 rather than as a limit a caller can act on; on the
+activation route that is a member being told Overgent "could not open the live
+Project" with nothing they can do about it. And limits chosen as if they were
+per-caller are absurd as product-wide ones: five Project creations per minute
+across all of Overgent is a number three people setting up together will hit.
+
+The bucket is now sharded across sixteen keys, chosen at random per request.
+The per-route numbers are unchanged and are now per shard, which makes each one
+what a bucket nobody can be identified within should always have been: a
+product-wide abuse ceiling. Callers holding a credential are still bounded
+individually by the authenticated bucket beside it. Accepted by the owner
+2026-09-03.
