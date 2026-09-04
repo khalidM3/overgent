@@ -220,11 +220,13 @@ semantic findings, briefs, and the dashboard. Invite another member by creating
 a fresh one-use code in Project Settings. Credentialed production distribution and the real-team
 second-session exit remain the owner-controlled L8 gates.
 
-## Shared two-Mac dogfood
+## Team mode against a development deployment
 
-The explicit shared-development profile uses a cloud Convex development
-deployment while keeping each dashboard and local service on its own Mac. It
-uses a separate local profile and accepts only an HTTPS remote API origin.
+Testing team mode end to end needs a real remote origin: a cloud Convex
+development deployment, reached from each Mac's own dashboard and local
+service. The origin is entered wherever any other backend origin is entered —
+the desktop's "Advanced: connect to a different server" field, or `--api` on
+the CLI — not through a separate shared profile.
 
 On the first Mac, sign in and create or select a cloud development deployment:
 
@@ -242,19 +244,31 @@ pbpaste | pnpm --dir convex exec convex env set OPENAI_API_KEY
 pnpm --dir convex exec convex env list --names-only
 ```
 
-Push function changes with `convex dev --once`, then start the shared profile:
+Push function changes with `convex dev --once`, then point a development
+build at the deployment. As a development convenience, `pnpm dev:shared`
+still starts the whole stack (dashboard, local service, and desktop) pointed
+at a remote origin in one command, using a separate profile so it never reads
+or mutates the ordinary loopback development profile:
 
 ```bash
 OVERGENT_SHARED_API_ORIGIN=https://YOUR-DEPLOYMENT.convex.site pnpm dev:shared
 ```
 
-Create the Project in the desktop and send the one-use invite privately. On the
-second Mac, use the same repository checkout and repository remote, run the same
-commit of Overgent with the same `OVERGENT_SHARED_API_ORIGIN`, choose **Join a
-Project**, and enter the invite. Each Mac stores a different device credential
-and publishes independently to the shared Project.
+Equivalently, run an ordinary development build and enter the same
+`https://YOUR-DEPLOYMENT.convex.site` origin in the desktop's "Advanced:
+connect to a different server" field, or pass
+`--api https://YOUR-DEPLOYMENT.convex.site` to `overgent create` / `overgent
+join` on the CLI — this is the same path a self-hoster or an Overgent Cloud
+member uses (`self-hosting.md` §5), just against a development deployment
+instead of a production one.
 
-The shared profile defaults to
+Create the Project and send the one-use invite privately. On the second Mac,
+use the same repository checkout and repository remote, run the same commit
+of Overgent pointed at the same origin, choose **Join a Project**, and enter
+the invite. Each Mac stores a different device credential and publishes
+independently to the shared Project.
+
+The shared profile (`pnpm dev:shared`) defaults to
 `~/Library/Application Support/Overgent Shared Dev`. Override it only with an
 absolute `OVERGENT_SHARED_CONFIG_ROOT`. It never reads or mutates the ordinary
 loopback development profile.
