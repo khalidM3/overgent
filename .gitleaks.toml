@@ -1,0 +1,29 @@
+title = "Overgent gitleaks config"
+
+[extend]
+useDefault = true
+
+# Every path below is a synthetic secret-classifier test fixture (fake
+# "sk-...", "sk_live_...", or UUID-shaped strings used to exercise the
+# secret classifier and redaction paths), or documentation describing such a
+# fixture, and never a real credential. Verified 2026-09-04 with a full
+# history scan (gitleaks + trufflehog --only-verified).
+[allowlist]
+description = "Synthetic secret-classifier test fixtures, not real credentials"
+paths = [
+  '''convex/scripts/live-l2\.mjs''',
+  '''docs/migration/02-lane-public-readiness\.md''',
+  '''internal/agentactivity/cursor_test\.go''',
+  '''internal/agentactivity/activity_test\.go''',
+  '''internal/codexappserver/threads_test\.go''',
+  '''internal/sessiontranscript/codex_test\.go''',
+  '''internal/app/app_test\.go''',
+  '''convex/test/domain\.test\.ts''',
+  '''cmd/overgent/main_test\.go''',
+  # Historical path before the ADR-065 stickguy -> overgent rename; the same
+  # fixture is caught above at its current path (cmd/overgent/main_test.go).
+  '''cmd/stickguy/main_test\.go''',
+  # False-positive match on prose ("128-800-token budget, delivery/..."),
+  # not a secret at all.
+  '''docs/decisions\.md''',
+]

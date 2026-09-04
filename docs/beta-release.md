@@ -2,7 +2,7 @@
 
 ## Supported boundary
 
-The invited beta supports Apple Silicon Macs running macOS 12 or newer. The
+The public release supports Apple Silicon Macs running macOS 12 or newer. The
 standalone CLI/local service and the labeled desktop beta are signed,
 notarized, and stapled by the release workflow. Linux, Windows, and Intel macOS
 archives are portability artifacts only; do not offer them to testers.
@@ -19,7 +19,7 @@ deployment for smoke tests and deploy accepted builds to the default Convex
 production deployment. This avoids a second set of credentials and data before
 there is usage that justifies permanent staging.
 
-The source repository is private at `github.com/khalidM3/overgent`. Installed
+The source repository is public at `github.com/khalidM3/overgent`. Installed
 clients do not depend on repository access or its path: the default channel is
 the signed manifest at `https://releases.overgent.com/current/update-manifest.json`,
 whose public assets live at immutable versioned paths in the `overgent-releases`
@@ -60,9 +60,8 @@ The command prints only the base64 public key. Add these environment variables:
 | Secret | `APPLE_APP_PASSWORD` | app-specific password for notarization |
 | Secret | `BLOB_READ_WRITE_TOKEN` | write credential for the public release Blob store |
 
-Enable GitHub private vulnerability reporting and replace the temporary policy
-in `SECURITY.md` with a monitored private address before inviting people who do
-not already have a private support channel.
+Enable GitHub private vulnerability reporting before the repository becomes
+public and reaches people who do not already have a private support channel.
 
 ## Candidate publication
 

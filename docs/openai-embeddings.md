@@ -1,9 +1,12 @@
 # OpenAI embeddings for semantic coordination
 
 Overgent can enrich approved coordination objects with OpenAI
-`text-embedding-3-large` embeddings. This is optional: Git/path evidence and
-the deterministic offline concept provider remain available when the provider
-is not configured or is unavailable.
+`text-embedding-3-large` embeddings. The embedding key is a Project setting
+(ADR-073), configured by a Project owner with the Project's own key; a
+deployment may also enable an operator key as a fallback for Projects with none
+configured, which is an explicit operational choice, not a default. This is
+optional either way: Git/path evidence and the deterministic offline concept
+provider remain available when no provider is configured or it is unavailable.
 
 ## What is sent
 
@@ -12,11 +15,14 @@ semantic policy is sent to the embeddings endpoint. Source, diffs, Git objects,
 prompts, transcripts, tool input/output, raw command output, environment values,
 and credentials are rejected before storage and before this provider runs.
 
-## Configure a hosted deployment
+## Configure a Project
 
-Set `OPENAI_API_KEY` as a Convex deployment environment secret. Do not put it in
+Set the embedding key through the Project's AI settings (`/v1` operation), not
 the repository, a `.env` file committed to Git, local Overgent configuration,
-or Codex/Claude configuration. The client never receives the key.
+or Codex/Claude configuration. The key is encrypted at rest, never returned by
+a read, and never logged; the client never receives it back. A deployment
+operator may instead set `OPENAI_API_KEY` as a Convex deployment environment
+secret to offer a fallback for Projects with no key configured.
 
 The hosted action requests a 1024-dimension vector and records the provider and
 model version alongside the embedding. A semantic object is embedded only after

@@ -3,8 +3,21 @@ updates:
   - package-ecosystem: gomod
     directory: /
     schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /apps/desktop
+    schedule: { interval: weekly }
   - package-ecosystem: npm
     directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /convex
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /apps/dashboard
+    schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directories:
+      - /packages/*
     schedule: { interval: weekly }
   - package-ecosystem: github-actions
     directory: /

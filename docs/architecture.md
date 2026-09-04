@@ -18,7 +18,9 @@ Git workspaces ─────────────────────�
                                               React project dashboard
 ```
 
-The hosted service never accesses a repository. Local clients publish bounded manifests and coordination summaries; the hosted service compares them across authorized project members and returns workstream-scoped briefs. The Go client never depends on Convex-specific APIs. Agents interact through MCP or explicit CLI commands. Overgent coordinates existing agent harnesses; it does not own their coding loop or tools.
+The backend never accesses a repository. Local clients publish bounded manifests and coordination summaries; the backend compares them across authorized project members and returns workstream-scoped briefs. The Go client never depends on Convex-specific APIs. Agents interact through MCP or explicit CLI commands. Overgent coordinates existing agent harnesses; it does not own their coding loop or tools.
+
+The backend origin is a property of the Project (ADR-074): a local Project's origin is the loopback backend bundled with the desktop release, and a team Project's origin is Overgent Cloud or a self-hosted deployment. Both speak the same `/v1` contract against the same Convex functions.
 
 ## 2. Local service
 
@@ -91,7 +93,7 @@ Alpha findings are deterministic: select active workstreams in the same project/
 
 V1 extends candidate retrieval with symbols, packages, schemas/routes, dependencies, lexical similarity, and semantic similarity across synchronized intent/change/plan/decision objects. A versioned evidence-fusion engine classifies findings; optional bounded adjudication handles ambiguous candidates. Similarity never overwrites deterministic evidence, crosses authorization boundaries, or appears as unexplained proof. See `coordination-intelligence.md`.
 
-The initial semantic index is hosted so all members' approved coordination objects are comparable in realtime. Convex vector search is an adapter behind an Overgent-owned interface. Use one opaque composite `scopeKey` derived from project ID and repository identity as the mandatory vector-index filter, then reauthorize and reload current objects after retrieval; never depend on post-filtering for tenant isolation. Embedding/adjudication failures are queued and do not stop deterministic detection.
+The semantic index runs in the Project's backend so all members' approved coordination objects are comparable in realtime. Convex vector search is an adapter behind an Overgent-owned interface. Use one opaque composite `scopeKey` derived from project ID and repository identity as the mandatory vector-index filter, then reauthorize and reload current objects after retrieval; never depend on post-filtering for tenant isolation. Embedding/adjudication failures are queued and do not stop deterministic detection.
 
 ## 7. Context routing and agent lifecycle
 
@@ -122,4 +124,4 @@ Backend is canonical. Agents read decisions through MCP. Unsupported agents may 
 
 ## 10. Replaceability
 
-Go speaks only `/v1` HTTP; OpenAPI/JSON Schema defines it; IDs are vendor-neutral; domain rules are separate from Convex wrappers; data is JSON-exportable; Git objects never depend on hosted storage; production exports are operational routine.
+Go speaks only `/v1` HTTP against whichever backend origin the Project is bound to, local loopback or remote; OpenAPI/JSON Schema defines it; IDs are vendor-neutral; domain rules are separate from Convex wrappers; data is JSON-exportable; Git objects never depend on hosted storage; production exports are operational routine.

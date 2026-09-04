@@ -13,6 +13,14 @@ temporary repositories and config roots in tests. Git subprocesses take argument
 arrays, local servers bind only to loopback/current-user IPC, and generated
 protocol code is changed only through `pnpm protocol:generate`.
 
+For local development without any credentials, see `docs/development.md`. For
+which model or agent workflow to use for a given kind of change, see
+`AGENTS.md`.
+
 Contributions use Developer Certificate of Origin sign-off (`Signed-off-by`) as
 recommended by the reviewed open-source strategy. Contributions intentionally
 submitted for inclusion are accepted under the repository's Apache-2.0 terms.
+
+## Issue and pull request labels
+
+`good first issue`, `adapter`, `platform`, `security`, `protocol`, `privacy`.

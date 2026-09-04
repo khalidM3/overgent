@@ -20,5 +20,4 @@ packages
 protocol
 validation
 coordination
-stickguy
 *.log
