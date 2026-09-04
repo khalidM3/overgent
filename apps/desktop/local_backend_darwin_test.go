@@ -1,0 +1,254 @@
+//go:build darwin
+
+package main
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/localbackend"
+)
+
+func TestStoredAPIBaseURLPrefersTheProfileAndCanonicalizes(t *testing.T) {
+	root := t.TempDir()
+	if got := storedAPIBaseURL(root); got != "" {
+		t.Fatalf("an unenrolled profile reported %q", got)
+	}
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// This is what makes a stock build talk to a self-hosted server: the origin
+	// the Project was created against is the one every later launch uses.
+	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://convex.example.com/", DeviceID: "dev_test"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := storedAPIBaseURL(root); got != "https://convex.example.com" {
+		t.Fatalf("stored origin=%q", got)
+	}
+	if got := storedAPIBaseURL(""); got != "" {
+		t.Fatalf("an empty root reported %q", got)
+	}
+}
+
+func TestIsLoopbackOriginSeparatesLocalFromTeam(t *testing.T) {
+	for _, local := range []string{"http://127.0.0.1:43103", "http://localhost:3211", "http://[::1]:3211"} {
+		if !isLoopbackOrigin(local) {
+			t.Fatalf("%q was not recognized as local", local)
+		}
+	}
+	for _, team := range []string{"https://api.overgent.com", "http://example.com", "", "https://127.0.0.1"} {
+		if isLoopbackOrigin(team) {
+			t.Fatalf("%q was treated as local", team)
+		}
+	}
+}
+
+func TestBundledBackendArtifactsRequireBothFiles(t *testing.T) {
+	// A build with only half the artifacts must report "no bundled backend"
+	// rather than recording a path the service will later fail to start.
+	root := t.TempDir()
+	resources := filepath.Join(root, "Contents", "Resources", "backend")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resources, "convex-local-backend"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := localbackend.Install(t.TempDir(), filepath.Join(resources, "convex-local-backend"), filepath.Join(resources, "backend-push.json")); err == nil {
+		t.Fatal("install accepted a missing deploy payload")
+	}
+}
+
+// The local dashboard origin is the third implementation of one arrangement -
+// Vercel hosted, Vite in development, this in local mode - so the tests are
+// about the two jobs it shares with them: same-origin assets, and a /api/v1
+// forward whose redirect stays on this origin.
+func TestLocalDashboardOriginServesAssetsAndForwardsTheAPI(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/dashboard-activations" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		writer.Header().Set("Set-Cookie", "overgent_session=abc; Path=/; HttpOnly; SameSite=Strict")
+		// What the backend actually answers over loopback: a redirect to the
+		// Vite dev server, which does not exist in an installed app.
+		writer.Header().Set("Location", "http://127.0.0.1:5173/?live=1")
+		writer.WriteHeader(http.StatusSeeOther)
+	}))
+	defer backend.Close()
+
+	assets := fstest.MapFS{"index.html": {Data: []byte("<html>dashboard</html>")}}
+	origin, err := startDashboardOrigin(assets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer origin.Close()
+	if !strings.HasPrefix(origin.Origin(), "http://127.0.0.1:") {
+		t.Fatalf("the dashboard origin is not loopback: %s", origin.Origin())
+	}
+	if err = origin.SetBackend(backend.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := http.Get(origin.Origin() + "/?live=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Body.Close()
+	body, _ := io.ReadAll(page.Body)
+	if !strings.Contains(string(body), "dashboard") {
+		t.Fatalf("the dashboard was not served: %q", body)
+	}
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	activation, err := client.Post(origin.Origin()+"/api/v1/dashboard-activations", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer activation.Body.Close()
+	if activation.StatusCode != http.StatusSeeOther {
+		t.Fatalf("activation status=%d", activation.StatusCode)
+	}
+	// The session cookie has to reach the browser, and the redirect has to stay
+	// on the origin that set it, or the dashboard loads without a session.
+	if !strings.Contains(activation.Header.Get("Set-Cookie"), "overgent_session=") {
+		t.Fatal("the activation cookie was dropped")
+	}
+	if location := activation.Header.Get("Location"); location != "/?live=1" {
+		t.Fatalf("the redirect left this origin: %q", location)
+	}
+}
+
+func TestLocalDashboardOriginRefusesANonLoopbackBackend(t *testing.T) {
+	origin, err := startDashboardOrigin(fstest.MapFS{"index.html": {Data: []byte("x")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer origin.Close()
+	for _, refused := range []string{"https://api.overgent.com", "http://example.com", "http://127.0.0.1:3211/v1", ""} {
+		if err = origin.SetBackend(refused); err == nil {
+			t.Fatalf("accepted %q as a local backend", refused)
+		}
+	}
+	// A proxy with no backend answers honestly rather than hanging.
+	response, err := http.Get(origin.Origin() + "/api/v1/dashboard/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status without a backend=%d", response.StatusCode)
+	}
+}
+
+func TestLocalDashboardLocationKeepsHostedAndLoopbackRedirectsUsable(t *testing.T) {
+	for input, want := range map[string]string{
+		"http://127.0.0.1:5173/?live=1":             "/?live=1",
+		"/dashboard?live=1":                         "/dashboard?live=1",
+		"https://api.overgent.com/dashboard?live=1": "/?live=1",
+		"":            "/?live=1",
+		"::not a url": "/?live=1",
+	} {
+		if got := localDashboardLocation(input); got != want {
+			t.Fatalf("localDashboardLocation(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCreateLocalProjectRefusesWithoutABundledBackend(t *testing.T) {
+	service := &OnboardingService{configRoot: t.TempDir(), localAvailable: false}
+	_, err := service.CreateLocalProject(EnrollmentRequest{RepositoryRoot: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "does not carry a backend") {
+		t.Fatalf("a build with no backend accepted a local Project: %v", err)
+	}
+}
+
+func TestCreateLocalProjectRefusesOnATeamProfile(t *testing.T) {
+	// Until Lane 06 lands, a profile holds one kind of Project. Adding a local
+	// Project to a team profile would give the service two backends and one
+	// APIBaseURL, which is a profile that publishes to the wrong place.
+	root := t.TempDir()
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Version: 1, APIBaseURL: "https://api.overgent.com", DeviceID: "dev_test",
+		Workspaces: []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", Root: t.TempDir()}}}
+	if err = config.Save(paths, cfg); err != nil {
+		t.Fatal(err)
+	}
+	service := &OnboardingService{configRoot: root, localAvailable: true}
+	_, err = service.CreateLocalProject(EnrollmentRequest{RepositoryRoot: cfg.Workspaces[0].Root})
+	if err == nil || !strings.Contains(err.Error(), "Reset to switch") {
+		t.Fatalf("a team profile accepted a local Project: %v", err)
+	}
+}
+
+func TestOnboardingStateNamesTheProfileKind(t *testing.T) {
+	root := t.TempDir()
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := t.TempDir()
+	for origin, want := range map[string]string{
+		"http://127.0.0.1:43103":   "local",
+		"https://api.overgent.com": "team",
+	} {
+		cfg := config.Config{Version: 1, APIBaseURL: origin, DeviceID: "dev_test",
+			Workspaces: []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", Root: repository}}}
+		if err = config.Save(paths, cfg); err != nil {
+			t.Fatal(err)
+		}
+		service := &OnboardingService{configRoot: root, apiBaseURL: origin}
+		state, stateErr := service.State()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		if state.Mode != want {
+			t.Fatalf("origin %q reported mode %q, want %q", origin, state.Mode, want)
+		}
+	}
+}
+
+func TestBackendMenuLineOnlyAppearsForALocalProfile(t *testing.T) {
+	// A team-mode Mac has no backend of its own, so the line is absent rather
+	// than present and saying nothing.
+	if label := (ServiceStatus{Connected: true}).BackendLabel(); label != "" {
+		t.Fatalf("a team profile showed %q", label)
+	}
+	running := ServiceStatus{Connected: true, Backend: BackendHealth{Present: true, Running: true, Port: 43103}}
+	if label := running.BackendLabel(); !strings.Contains(label, "127.0.0.1:43103") {
+		t.Fatalf("running label=%q", label)
+	}
+	stopped := ServiceStatus{Connected: true, Backend: BackendHealth{Present: true}}
+	if label := stopped.BackendLabel(); label != "Backend: stopped" {
+		t.Fatalf("stopped label=%q", label)
+	}
+	// A failed update is said in the member's words, not as a status code.
+	failed := ServiceStatus{Connected: true, Backend: BackendHealth{Present: true, Running: true, LastError: "update needs data migration"}}
+	if label := failed.BackendLabel(); label != "Backend: update needs data migration" {
+		t.Fatalf("failed label=%q", label)
+	}
+}
+
+func TestBackendHealthReadsTheServiceBlock(t *testing.T) {
+	if health := backendHealth(nil); health.Present {
+		t.Fatal("a health response with no backend block reported one")
+	}
+	health := backendHealth(map[string]any{"running": true, "port": float64(43103), "version": "precompiled-x", "idleSince": "2026-09-04T10:00:00Z"})
+	if !health.Present || !health.Running || health.Port != 43103 || health.Version != "precompiled-x" {
+		t.Fatalf("unexpected backend health: %+v", health)
+	}
+	if health.Since.IsZero() {
+		t.Fatal("idleSince was not parsed")
+	}
+}

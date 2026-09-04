@@ -11,7 +11,7 @@ import type { AgentVendor } from "./model";
 const FIRST_RUN_STEPS = ["welcome", "repository", "agents"] as const;
 type FirstRunStep = (typeof FIRST_RUN_STEPS)[number];
 
-const emptyRequest: EnrollmentRequest = { repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName: "", joinCode: "", enableCodex: false, enableClaude: false, enableCursor: false };
+const emptyRequest: EnrollmentRequest = { repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName: "", joinCode: "", serverOrigin: "", enableCodex: false, enableClaude: false, enableCursor: false };
 
 /** The adapter row each vendor owns, so a reconnect targets the right one. */
 const ADAPTER_NAMES: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
@@ -21,6 +21,9 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const [state, setState] = useState<OnboardingState | null>(null);
   const [request, setRequest] = useState(emptyRequest);
   const [mode, setMode] = useState<"create" | "join">("create");
+  // Where this Project's coordination data lives. Until Lane 06 lands a profile
+  // holds one kind, so this is asked once, first, and never asked again.
+  const [placement, setPlacement] = useState<"local" | "team">("local");
   const [step, setStep] = useState<FirstRunStep>("welcome");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -85,7 +88,9 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const submit = async () => {
     setPending(true); setError(""); setWarnings([]);
     try {
-      const result = mode === "create" ? await api.createProject(request) : await api.joinProject(request);
+      const result = placement === "local"
+        ? await api.createLocalProject(request)
+        : mode === "create" ? await api.createProject(request) : await api.joinProject(request);
       setJoinCode(result.joinCode);
       setWarnings(Array.isArray(result.warnings) ? result.warnings : []);
       setJustConnected(true);
@@ -220,6 +225,12 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
               discarded every Project already on it. */}
           <button className="pill" disabled={pending} onClick={() => setAddProject("join")}>Join a Project</button>
         </div>
+        {/* A profile holds local Projects or team Projects, not both, until
+            Lane 06 lands the per-Project binding. Saying which one this Mac is
+            set up for - once, in a line - is what keeps "Add a Project" from
+            reading as an offer to add the other kind. */}
+        {state.mode && <p className="field-note">This Mac is set up for {state.mode} Projects. Reset to switch.</p>}
+        {state.backend?.present && state.backend.lastError && <p className="form-warning">Backend: {state.backend.lastError}</p>}
         <AdapterList state={state} onReconnect={setReconnectTarget} />
         {/* Said once, only when it is true, and only about the adapters it is
             true of. The previous version stated the healthy case as a banner on
@@ -261,7 +272,8 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   // two most likely to be skipped. What is left is the shortest form that still
   // says what is shared before anything is shared.
   const stepIndex = FIRST_RUN_STEPS.indexOf(step);
-  const canContinue = Boolean(request.repositoryRoot) && (mode === "create" ? Boolean(request.projectLabel.trim()) : Boolean(request.joinCode.trim()));
+  const joining = placement === "team" && mode === "join";
+  const canContinue = Boolean(request.repositoryRoot) && (joining ? Boolean(request.joinCode.trim()) : Boolean(request.projectLabel.trim()));
   return <main className="onboarding-shell">
     <header><Brand /><Channel state={state} /></header>
     <section className="onboarding-card">
@@ -277,18 +289,39 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
           <li>Keep running Codex, Claude Code and Cursor exactly as you do now.</li>
           <li>Two sessions heading for the same code hear it from each other, not from a merge conflict.</li>
         </ul>
+        {/* The first question is where the coordination data goes, and it is
+            asked before anything is set up rather than discovered afterwards.
+            "Use on this Mac" is first and is the default because it is the
+            answer that requires nothing of the member and shares nothing. */}
         <div className="onboarding-actions">
-          <button className="pill solid" onClick={() => { setMode("create"); setStep("repository"); }}>Create a Project</button>
-          <button className="pill" onClick={() => { setMode("join"); setStep("repository"); }}>I have an invite code</button>
+          <button className="pill solid" disabled={!state.localAvailable} onClick={() => { setPlacement("local"); setMode("create"); setStep("repository"); }}>Use on this Mac</button>
+          <button className="pill" onClick={() => { setPlacement("team"); setMode("create"); setStep("repository"); }}>Create or join a team Project</button>
         </div>
+        <p className="field-note">Nothing leaves this computer.</p>
+        <p className="field-note">A team Project stores coordination data on Overgent Cloud or on a server you name. <a href="https://github.com/khalidM3/overgent/blob/main/docs/security-privacy.md" target="_blank" rel="noreferrer">What is shared</a>.</p>
+        {!state.localAvailable && <p className="field-note" role="status">This build does not carry a backend to run on this Mac, so a Project needs a server.</p>}
       </>}
 
       {step === "repository" && <>
-        <h1>{mode === "create" ? "Choose a repository." : "Join with your invite."}</h1>
-        {mode === "join" && <label className="field"><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="inv_abc123.secret" autoComplete="off" /></label>}
+        <h1>{joining ? "Join with your invite." : "Choose a repository."}</h1>
+        {placement === "team" && <div className="onboarding-actions">
+          <button className={mode === "create" ? "pill solid" : "pill"} onClick={() => setMode("create")}>Create a Project</button>
+          <button className={mode === "join" ? "pill solid" : "pill"} onClick={() => setMode("join")}>I have an invite code</button>
+        </div>}
+        {joining && <label className="field"><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="inv_abc123.secret" autoComplete="off" /></label>}
         <label className="field"><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
-        {mode === "create" && <label className="field"><span>Project name</span><input value={request.projectLabel} maxLength={80} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>}
+        {!joining && <label className="field"><span>Project name</span><input value={request.projectLabel} maxLength={80} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>}
         <label className="field"><span>Your name</span><input aria-label="Your name" value={request.displayName} maxLength={60} onChange={(event) => setRequest({ ...request, displayName: event.target.value })} placeholder="How teammates see you" autoComplete="off" /></label>
+        {/* Self-hosting and Overgent Cloud are the same client against a
+            different origin, so the field that chooses between them is one
+            text input rather than a mode. It is behind a disclosure because
+            almost nobody needs it, and it is here rather than in a settings
+            screen because the origin is chosen when the Project is created. */}
+        {placement === "team" && <details className="field-advanced">
+          <summary>Advanced: connect to a different server</summary>
+          <label className="field"><span>Server address</span><input aria-label="Server address" value={request.serverOrigin} maxLength={200} onChange={(event) => setRequest({ ...request, serverOrigin: event.target.value })} placeholder={state.apiBaseUrl || "https://api.overgent.com"} autoComplete="off" spellCheck={false} /></label>
+          <p className="field-note">Leave this empty to use {state.apiBaseUrl || "Overgent Cloud"}. Your own deployment is described in docs/self-hosting.md.</p>
+        </details>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="onboarding-actions">
           <button className="pill solid" disabled={!canContinue} onClick={() => setStep("agents")}>Continue</button>
@@ -298,19 +331,21 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
             member to guess which field it is waiting on. */}
         {!canContinue && <p className="field-note" role="status">{!request.repositoryRoot
           ? "Choose a repository to continue."
-          : mode === "create" ? "Give the Project a name to continue." : "Paste your invite code to continue."}</p>}
+          : joining ? "Paste your invite code to continue." : "Give the Project a name to continue."}</p>}
       </>}
 
       {step === "agents" && <>
         <h1>Connect your agents.</h1>
         <AgentOptions adapters={state.adapters} request={request} onChange={setRequest} />
         <div className="privacy-disclosure">
-          <p>Shares session activity and repository file paths with Project members — never your source, diffs, prompts, or credentials.</p>
+          <p>{placement === "local"
+            ? "Session activity and repository file paths stay in a database on this Mac — never your source, diffs, prompts, or credentials, and nothing over the network."
+            : "Shares session activity and repository file paths with Project members — never your source, diffs, prompts, or credentials."}</p>
           <details className="field-advanced"><summary>Exactly what is and is not shared</summary><p>Shares session presence, the vendor-visible session title as bounded intent, tool category, subagent state, and safe repository-relative paths. Approved titles may be embedded by the Project’s configured semantic provider. Classifier-approved visible session messages may be shared with Project members while unpaused. The raw transcript file, source, diffs, system/developer prompts, command output, .env contents, credentials, and environment values never cross the wire.</p></details>
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="onboarding-actions">
-          <button className="pill solid submit-enrollment" disabled={pending || !canContinue} onClick={() => void submit()}>{pending ? "Connecting…" : mode === "create" ? "Create and connect" : "Join and connect"}</button>
+          <button className="pill solid submit-enrollment" disabled={pending || !canContinue} onClick={() => void submit()}>{pending ? "Connecting…" : joining ? "Join and connect" : "Create and connect"}</button>
           <button className="pill" disabled={pending} onClick={() => setStep("repository")}>Back</button>
         </div>
       </>}

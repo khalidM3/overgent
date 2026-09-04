@@ -24,10 +24,22 @@ func desktopProductName() string { return "Overgent Dev" }
 func desktopMenuLabel() string   { return "Overgent development" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
 func desktopURLScheme() string   { return "overgent-dev" }
+
+// desktopAPIBaseURL is the development harness's origin. Unlike production it
+// does not prefer the profile's stored origin: `pnpm dev` chooses the origin
+// per run through this variable, and a stored one silently winning is how a
+// developer ends up debugging the wrong deployment.
 func desktopAPIBaseURL() string {
 	return developmentOrigin("OVERGENT_API_ORIGIN", "http://127.0.0.1:3211")
 }
+
+// desktopActivationBaseURL is Vite in development: one origin serving the
+// dashboard and proxying /api to the backend. A local-mode profile uses the
+// app's own equivalent instead, so the same flow works with no dev server.
 func desktopActivationBaseURL() string {
+	if origin := localDashboardOrigin(); origin != "" {
+		return origin
+	}
 	return developmentOrigin("OVERGENT_DASHBOARD_ORIGIN", "http://127.0.0.1:5173/api")
 }
 func desktopCLIBinary() string { return os.Getenv("OVERGENT_CLI_BINARY") }

@@ -13,6 +13,14 @@ Protect against token theft/replay, unauthorized project access, hostile website
 
 - Credentials in OS keychain, never config files; state/IPC current-user only.
 - Loopback only; validate Host/Origin and require bearer auth.
+- A local-mode Project runs the bundled Convex backend bound to `127.0.0.1`
+  only, with its instance secret and deployment secrets key in the Keychain and
+  its database under the profile root at mode 0600. Diagnostics never include
+  that database, and `backend.json` is reportable only without `instanceName`.
+- The local backend is started without `--convex-http-proxy`. Only Overgent's
+  own functions run on it, and their only outbound requests go to the AI
+  provider origins the Project owner configured, which are themselves validated
+  as HTTPS or loopback HTTP before use.
 - Execute Git without shell; validate refs/patterns and canonicalize roots.
 - Reject symlink escape; structurally redact tokens before logging.
 - Pause stops payload transmission synchronously before success returns.

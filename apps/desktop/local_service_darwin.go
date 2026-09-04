@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/khalidM3/overgent/internal/config"
 	"github.com/khalidM3/overgent/internal/daemon"
@@ -41,7 +42,33 @@ func (service daemonService) Status(ctx context.Context) ServiceStatus {
 		PausedWorkspaces: integer(data["pausedWorkspaces"]),
 		FocusedSessions:  integer(data["focusedSessions"]),
 		PendingEvents:    integer(data["pending"]),
+		Backend:          backendHealth(data["backend"]),
 	}
+}
+
+// backendHealth reads the backend block the service adds to health for a
+// local-mode profile. A team-mode profile has no block and reports Present
+// false, which is what keeps the menu line off that Mac entirely.
+func backendHealth(value any) BackendHealth {
+	encoded, err := json.Marshal(value)
+	if err != nil || value == nil {
+		return BackendHealth{}
+	}
+	var reported struct {
+		Running   bool   `json:"running"`
+		Port      int    `json:"port"`
+		Version   string `json:"version"`
+		LastError string `json:"lastError"`
+		IdleSince string `json:"idleSince"`
+	}
+	if err = json.Unmarshal(encoded, &reported); err != nil {
+		return BackendHealth{}
+	}
+	health := BackendHealth{Present: true, Running: reported.Running, Port: reported.Port, Version: reported.Version, LastError: reported.LastError}
+	if since, parseErr := time.Parse(time.RFC3339, reported.IdleSince); parseErr == nil {
+		health.Since = since
+	}
+	return health
 }
 
 func (service daemonService) PauseAll(ctx context.Context) error {

@@ -16,6 +16,54 @@ type ServiceStatus struct {
 	// is where someone notices a mute they have forgotten they set.
 	FocusedSessions int
 	PendingEvents   int
+	// Backend describes the bundled Convex backend a local-mode profile runs
+	// on. A team-mode profile has none and the line is absent, rather than
+	// present and saying nothing.
+	Backend BackendHealth
+}
+
+// BackendHealth is the menu's view of the local backend.
+type BackendHealth struct {
+	Present   bool
+	Running   bool
+	Port      int
+	Version   string
+	LastError string
+	Since     time.Time
+}
+
+// BackendLabel names the backend in the same vocabulary as service health:
+// uptime through formatElapsed, ports and release in monospace at the call
+// site, and a plain sentence when something is wrong.
+func (status ServiceStatus) BackendLabel() string {
+	if !status.Backend.Present {
+		return ""
+	}
+	if status.Backend.LastError != "" {
+		return "Backend: " + status.Backend.LastError
+	}
+	if !status.Backend.Running {
+		return "Backend: stopped"
+	}
+	if status.Backend.Since.IsZero() {
+		return fmt.Sprintf("Backend: running on 127.0.0.1:%d", status.Backend.Port)
+	}
+	return fmt.Sprintf("Backend: running on 127.0.0.1:%d · %s", status.Backend.Port, formatElapsed(time.Since(status.Backend.Since)))
+}
+
+// formatElapsed renders a duration the way the dashboard does: the largest unit
+// that is still true, never a second figure of precision nobody reads.
+func formatElapsed(elapsed time.Duration) string {
+	switch {
+	case elapsed < time.Minute:
+		return "just now"
+	case elapsed < time.Hour:
+		return fmt.Sprintf("%dm", int(elapsed.Minutes()))
+	case elapsed < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(elapsed.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(elapsed.Hours())/24)
+	}
 }
 
 func (status ServiceStatus) ServiceLabel() string {
