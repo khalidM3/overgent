@@ -45,6 +45,11 @@ Protect against token theft/replay, unauthorized project access, hostile website
   only workspace ID, vendor, and observation time in local SQLite.
 - Opaque public IDs; separate dev/preview/prod data and credentials.
 - Audit security events without secrets; implement retention and deletion jobs.
+- Per-Project AI provider keys (ADR-073) are written only through a dedicated
+  authenticated operation by a Project owner, encrypted at rest with a
+  deployment secret, never returned by any read (only a configured flag and a
+  four-character hint), never logged, and never part of any synced
+  coordination object.
 
 Hosted activity, findings, semantic objects, deliveries, and shared session
 messages default to 30-day retention and are removed by bounded expiry jobs.

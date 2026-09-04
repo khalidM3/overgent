@@ -1,4 +1,7 @@
-# Closed-test distribution
+# Closed-test distribution (legacy)
+
+Unsupported and kept for reference only until the first public release; do not
+use it to distribute builds.
 
 This is an **unsigned** channel for handing a build to a small number of people
 who already trust the person sending the link. It is not the beta, and nothing

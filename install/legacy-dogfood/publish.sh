@@ -4,7 +4,7 @@
 #
 #   OVERGENT_DOGFOOD_ORIGIN=https://example.vercel.app \
 #   OVERGENT_DOGFOOD_CONVEX=https://your-deployment.convex.site \
-#   ./install/dogfood/publish.sh [--deploy]
+#   ./install/legacy-dogfood/publish.sh [--deploy]
 #
 # Without --deploy it stages dist-dogfood/ and stops, so the artifacts can be
 # inspected before anything is served. See README.md in this directory for what
@@ -81,7 +81,7 @@ ditto -c -k --keepParent "$app" "$staging/public/Overgent.zip"
 app_sha="$(shasum -a 256 "$staging/public/Overgent.zip" | awk '{print $1}')"
 cli_sha="$(shasum -a 256 "$staging/public/overgent" | awk '{print $1}')"
 sed -e "s|__ORIGIN__|$origin|g" -e "s|__APP_SHA256__|$app_sha|g" -e "s|__SHA256__|$cli_sha|g" \
-  "$root/install/dogfood/install.template.sh" > "$staging/public/install.sh"
+  "$root/install/legacy-dogfood/install.template.sh" > "$staging/public/install.sh"
 chmod 755 "$staging/public/install.sh"
 
 # A single origin is load-bearing, not a convenience: dashboard activation

@@ -1,7 +1,7 @@
 # Overgent — Open-Source and Trust Strategy
 
-Status: proposed for owner approval before public launch  
-Last updated: 2026-08-23
+Status: adopted by ADR-071  
+Last updated: 2026-09-04
 
 ## 1. Recommendation
 
