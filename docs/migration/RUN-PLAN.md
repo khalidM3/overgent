@@ -105,9 +105,14 @@ conflicts by hand.
 
 Every prompt starts with the same preamble:
 
-> You are executing one brief of the Overgent open-source migration. Create
-> a worktree first: `git worktree add ../overgent-oss-<name> -b oss/<name>`
-> and work only there. Read `docs/migration/README.md` and
+> You are executing one brief of the Overgent open-source migration. The
+> repository is `/Users/khalidmohamud/stickguy` (branch `main`). Create a
+> worktree first, using absolute paths so it does not matter where this
+> session was started:
+> `git -C /Users/khalidmohamud/stickguy worktree add /Users/khalidmohamud/overgent-oss-<name> -b oss/<name> main`
+> then `cd /Users/khalidmohamud/overgent-oss-<name>` and work only there.
+> Confirm with `git remote -v` that origin is `github.com/khalidM3/overgent`
+> and that `docs/migration/` exists before reading anything. Read `docs/migration/README.md` and
 > `docs/migration/RUN-PLAN.md`, then the brief named below, then every file
 > the brief lists under "Read first". Follow the brief exactly; if it
 > conflicts with the code, stop and report the conflict. Do not edit files
