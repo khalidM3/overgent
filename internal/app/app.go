@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ import (
 	"github.com/khalidM3/overgent/internal/daemon"
 	git "github.com/khalidM3/overgent/internal/git"
 	"github.com/khalidM3/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/localbackend"
 	"github.com/khalidM3/overgent/internal/sessiontranscript"
 	"github.com/khalidM3/overgent/internal/store"
 	"github.com/khalidM3/overgent/internal/watcher"
@@ -83,7 +85,17 @@ type Service struct {
 	// hosted roundtrip on each one.
 	midTurnFetchMu sync.Mutex
 	midTurnFetch   map[string]time.Time
+	// backend supervises the loopback Convex backend a local-mode Project runs
+	// on (ADR-072). It is nil for a team-mode profile, which has no backend of
+	// its own, and every use below is guarded on that.
+	backend *localbackend.Manager
 }
+
+// isLocalBackendOrigin reports whether this origin is served by the backend
+// this profile supervises. The rule itself lives in one place, in
+// localbackend, so Lane 06 replacing the profile-level API origin with a
+// per-Project binding changes that body and nothing else.
+func isLocalBackendOrigin(origin string) bool { return localbackend.IsLoopbackOrigin(origin) }
 
 func Run(ctx context.Context, root string, sender Sender) error {
 	paths, e := config.Resolve(root)
@@ -111,6 +123,24 @@ func Run(ctx context.Context, root string, sender Sender) error {
 	}
 	defer sdb.Close()
 	s := &Service{paths: paths, store: sdb, cfg: cfg, sender: sender}
+	// A profile with a bundled backend gets its manager whether or not a
+	// Project has been created yet: `backend status` and the desktop's
+	// first-run "Use on this Mac" both need it before there is any config.
+	if localbackend.Configured(paths.Root) {
+		manager, backendErr := localbackend.New(paths.Root, localbackend.Keychain{}, slog.Default())
+		if backendErr != nil {
+			slog.Warn("local backend unavailable", "error", backendErr)
+		} else {
+			s.backend = manager
+			defer func() {
+				stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+				defer cancel()
+				if stopErr := manager.Stop(stopCtx); stopErr != nil {
+					slog.Warn("stop local backend", "error", stopErr)
+				}
+			}()
+		}
+	}
 	s.boot, _ = sdb.Boot(ctx)
 	for _, w := range cfg.Workspaces {
 		if e = sdb.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, MemberID: w.MemberID, DeviceID: cfg.DeviceID, SessionID: w.SessionID, Root: w.Root, Baseline: w.Baseline, Fingerprint: w.Fingerprint}); e != nil {
@@ -145,6 +175,10 @@ func Run(ctx context.Context, root string, sender Sender) error {
 		}
 	}
 	go watch.Run(ctx)
+	// A local Project publishes to a backend that only exists once this call
+	// returns, so it happens before the first flush and the first heartbeat
+	// rather than being discovered as a failed send.
+	s.ensureBackend(ctx)
 	s.scanAll(ctx)
 	go s.flushLoop(ctx)
 	go s.heartbeatLoop(ctx)
@@ -242,6 +276,12 @@ func (s *Service) flush(ctx context.Context) bool {
 			}
 			if e = s.sender.Send(ctx, workspaceID, batch); e != nil {
 				if !permanentRejection(e) {
+					if backendRefused(e) {
+						// The loopback backend went away under us. Bring it
+						// back and leave the window pending; the next flush
+						// sends it rather than this one retrying inline.
+						s.ensureBackend(ctx)
+					}
 					s.recordPublishError("send_batch", e)
 					return false
 				}
@@ -257,6 +297,9 @@ func (s *Service) flush(ctx context.Context) bool {
 				anyQuarantined = true
 				events = events[n:]
 				continue
+			}
+			if s.backend != nil {
+				s.backend.Touch()
 			}
 			for _, event := range window {
 				if e := s.store.Ack(ctx, event.ID); e != nil {
@@ -415,6 +458,10 @@ func newID(prefix string) string {
 	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 }
 func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response {
+	// Every IPC call is activity for the idle timer the manager keeps.
+	if s.backend != nil {
+		s.backend.Touch()
+	}
 	switch q.Method {
 	case "health", "doctor":
 		w, _ := s.store.Workspaces(ctx)
@@ -429,7 +476,36 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		// the count travels with the health that the menu bar already reads.
 		focused, _ := s.store.ActiveFocus(ctx, time.Now())
 		quarantined, _ := s.store.QuarantinedCount(ctx)
-		return daemon.Response{OK: true, Data: map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "pid": os.Getpid()}}
+		data := map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "pid": os.Getpid()}
+		if s.backend != nil {
+			data["backend"] = s.backend.Status(ctx)
+		}
+		return daemon.Response{OK: true, Data: data}
+	case "backend_status":
+		if s.backend == nil {
+			return daemon.Response{Error: "this profile has no local backend"}
+		}
+		return daemon.Response{OK: true, Data: s.backend.Status(ctx)}
+	case "backend_ensure":
+		// The desktop's "Use on this Mac" reaches the backend through here so
+		// the app never becomes the backend's parent process: the service owns
+		// its lifetime, and the desktop only asks for the endpoint.
+		if s.backend == nil {
+			return daemon.Response{Error: "this profile has no local backend"}
+		}
+		endpoint, e := s.backend.Ensure(ctx)
+		if e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: endpoint}
+	case "backend_stop":
+		if s.backend == nil {
+			return daemon.Response{Error: "this profile has no local backend"}
+		}
+		if e := s.backend.Stop(ctx); e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"running": false}}
 	case "pause", "resume":
 		// Pause is scoped to whatever the caller named. A member reading one
 		// Project means that Project, and asking them to name every workspace
@@ -1470,4 +1546,26 @@ func Register(ctx context.Context, root, apiBaseURL, deviceID string, w config.W
 	}
 	cfg.Workspaces = append(cfg.Workspaces, w)
 	return config.Save(paths, cfg)
+}
+
+// ensureBackend brings this profile's loopback backend up when the Project it
+// publishes to is served by one. A team-mode profile has no manager and this is
+// a no-op; a local profile that cannot start its backend degrades to a recorded
+// publish failure rather than a refused boot, because the rest of the service -
+// observation, collision detection against already-published state, the menu -
+// still works while it is down.
+func (s *Service) ensureBackend(ctx context.Context) {
+	if s.backend == nil || !isLocalBackendOrigin(s.cfg.APIBaseURL) {
+		return
+	}
+	if _, err := s.backend.Ensure(ctx); err != nil {
+		slog.Warn("local backend did not start", "error", err)
+	}
+}
+
+// backendRefused reports whether a publish failed because nothing was listening
+// on the loopback backend. That is the one send failure a restart can fix, and
+// the only one worth re-running Ensure for.
+func backendRefused(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED)
 }

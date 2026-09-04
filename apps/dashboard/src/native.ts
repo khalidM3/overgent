@@ -35,6 +35,20 @@ export interface OnboardingState {
    * reason to erase an enrollment.
    */
   credential?: "ok" | "revoked" | "unknown" | "uncertain";
+  /** This build carries a backend, so "Use on this Mac" is a real choice. */
+  localAvailable?: boolean;
+  /** Which kind of Project this profile holds once enrolled: local or team. */
+  mode?: "" | "local" | "team";
+  /** The bundled backend's state, shown beside service health. */
+  backend?: {
+    present: boolean;
+    running: boolean;
+    port?: number;
+    sitePort?: number;
+    version?: string;
+    lastError?: string;
+    sizeOnDisk?: number;
+  };
 }
 
 export interface EnrollmentRequest {
@@ -44,6 +58,11 @@ export interface EnrollmentRequest {
   /** Member-chosen live-work identity. Empty means the member is asked to choose one later. */
   displayName: string;
   joinCode: string;
+  /**
+   * "Advanced: connect to a different server". Empty means this build's
+   * default. Validated with the same rule as `overgent create --api`.
+   */
+  serverOrigin: string;
   enableCodex: boolean;
   enableClaude: boolean;
   enableCursor: boolean;
@@ -169,6 +188,7 @@ export const nativeOnboarding = {
   state: () => call<OnboardingState>("State"),
   chooseRepository: () => call<string>("ChooseRepository"),
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
+  createLocalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateLocalProject", request),
   createAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateAdditionalProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
   // Accepting an invite on a Mac that is already enrolled. Distinct from
