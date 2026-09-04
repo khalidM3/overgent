@@ -1,2 +1,6 @@
 /build/bin/
 /frontend/embed/app/
+
+# Default `go build ./...` output in this directory: a 24MB binary named after
+# the package directory. Nothing consumes it; the real bundle is /build/bin/.
+/desktop
