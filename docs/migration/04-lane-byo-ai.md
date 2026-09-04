@@ -17,6 +17,24 @@ back to operator keys only when the deployment explicitly enables them, and
 otherwise degrades to deterministic evidence with visible fidelity exactly as
 today. Keys are never returned, logged, or synced.
 
+## Pre-flight (do this before any change)
+
+Lane 01 ran the L2 live suite against a replayed backend and it failed twice
+at `convex/scripts/live-l2.mjs:383`: the generated brief omitted the expected
+`membership-role-schema` finding. It is unknown whether this is a defect in
+the replay or a regression on `main`. You own `convex/`, so first run, on an
+untouched worktree:
+
+```bash
+pnpm dev:backend          # in one terminal (anonymous local Convex)
+cd convex && CI=true pnpm test:live
+```
+
+Report the result in your handoff. If it fails on `main`, fix it in this
+lane before the provider work (the brief renderer is in `service.ts`; the
+test names the expected finding) and note the root cause. If it passes, say
+so and tell Lane 03 the replay path is suspect.
+
 ## Read first
 
 - `convex/functions/intelligence.ts`: `embedSemanticObject` (reads

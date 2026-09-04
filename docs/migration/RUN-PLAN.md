@@ -35,6 +35,12 @@ Session 4 does not depend on the spike; start it with Session 3 to keep the
 day short. Sessions 2 and 5 are cheap and independent; run them first while
 the spike is exploring.
 
+## Status
+
+- 2026-09-04: Block A done. Sessions 1, 2, 5 merged in order. Spike accepted
+  (Option A). Block B may start. Session 5's "second Mac follows the doc"
+  check was not run; it moves to Session 7's launch verification.
+
 ## Merge order and integration check
 
 Merge into `main` in this order: 2 → 5 → 1 → 3 → 4 → 6 → 7. After each merge:

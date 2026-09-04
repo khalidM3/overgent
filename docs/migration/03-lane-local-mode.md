@@ -11,6 +11,51 @@ Also delivers Lane 05 Deliverable 3 (the configurable production API origin
 and the "connect to a different server" field), because it edits the same
 desktop files; read that section of `05-lane-self-host-and-cloud.md` too.
 
+## Spike outcome (binding inputs from Lane 01, accepted 2026-09-04)
+
+Read `validation/spikes/bundled-backend/README.md` in full; these are the
+decisions it fixes for this lane.
+
+- **Option A.** The Go manager replays the release-time `deploy2` request
+  sequence exactly as `validation/spikes/bundled-backend/push.sh replay` does
+  with `curl`. The `deploy2` endpoints are internal to Convex, so the backend
+  release (`scripts/backend-version.json`, currently
+  `precompiled-2026-08-25-7cce8fb`), the npm CLI version (1.45.0), the
+  payload, and the Go replay code are pinned together. `push.sh build`
+  regenerates the payload at release time. Add a `release.yml` step that
+  replays the fresh payload against a fresh backend and fails the release on
+  error, so a broken pin never reaches a member. If the replay needs
+  `Content-Encoding: br`, add `github.com/andybalholm/brotli` (pure Go).
+- **Numbers.** Cold start 120 ms; idle RSS 56 MB; binary 160 MB, 51 MB
+  compressed; push artifact under 1 MB. Idle shutdown is therefore **not**
+  required: keep the backend running while the service runs. Health budget
+  stays 10 s.
+- **Upgrades.** A compatible schema push takes under 1 s and preserves rows.
+  An incompatible push is rejected by the backend with rows preserved, so no
+  pre-push database backup is needed. On rejection keep serving the previous
+  bundle and surface `health.backend.lastError = "update needs data migration"`.
+- **Signing.** The nested binary must be signed with the release identity,
+  hardened runtime, and the `com.apple.security.cs.allow-jit` entitlement
+  before the enclosing app is signed and notarized. No other entitlement was
+  needed. Validate the notarized artifact on a clean Mac.
+- **Outbound fetch policy (decided).** Start the backend without
+  `--convex-http-proxy`. Only Overgent's own functions run on it, and their
+  only outbound requests go to AI provider origins the Project owner
+  configured (Lane 04 validates those as HTTPS or loopback HTTP). Record one
+  sentence to that effect in `docs/security-privacy.md` under "Local".
+- **Environment variables** are set through the admin endpoint the spike
+  documented in its §3; `OVERGENT_SECRETS_KEY` is generated per install.
+- **NOTICE** gets the paragraph drafted in the spike's §6 (FSL-1.1-Apache-2.0,
+  Copyright 2026 Convex, Inc.) and the backend's `LICENSE.md` ships inside
+  `Contents/Resources/backend/`.
+- **Dashboard routing bug you must fix.** `apps/dashboard/src/main.tsx`
+  decides `landing` with `!isDesktopWebview`, which is false when the
+  development desktop loads `http://127.0.0.1:5173`, so opening a Project
+  renders `LandingPage` instead of `LiveApp` (pre-existing since commit
+  `b847761`; production `wails://` is unaffected). Use `isDesktopShell` for
+  that decision and never show the landing page when `?live=1` is present.
+  Add a test under `apps/dashboard/test/`.
+
 ## Goal
 
 A member installs Overgent, opens it, picks a repository, and has a working
