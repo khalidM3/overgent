@@ -97,7 +97,8 @@ conflicts by hand.
   does not pause the other; `git grep "cfg.APIBaseURL\|cfg.DeviceID"` is
   empty outside `internal/config`.
 - **7 Launch**: new `README.md`; `docs/README.md` index final; every check
-  green; landing copy matches the README; announcement paragraph drafted. The owner then
+  green; the signed manifest points at GitHub Release assets and ADR-075 is
+  recorded; landing copy matches the README; announcement paragraph drafted. The owner then
   enables private vulnerability reporting, flips visibility, and tags.
 
 ## Kickoff prompts (paste as the first message of each session)

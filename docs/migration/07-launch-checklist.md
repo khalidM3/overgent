@@ -66,6 +66,30 @@ under about 200 lines; everything deeper links into `docs/`.
   publishes to the blob store; `promote-release.yml` promotes after the
   clean-machine gate in `docs/beta-release.md` (rename that file to
   `docs/release.md` in this phase; contents unchanged apart from the title).
+- GitHub Releases become the download source. `release.yml` already uploads
+  every artifact to the tag's GitHub Release (`gh release upload`) and signs
+  the checksums and manifest with Sigstore; the Vercel Blob copy in
+  `scripts/publish-release-blobs.mjs` exists only because a private
+  repository's release assets are not publicly downloadable (ADR-067). Now:
+  (a) `cmd/release-metadata` takes an asset base URL and the workflow passes
+  `https://github.com/khalidM3/overgent/releases/download/<tag>/` so the
+  signed manifest points at GitHub assets; (b) `promote-release.yml`
+  publishes the draft release (`gh release edit <tag> --draft=false`) and
+  copies only the tiny signed `update-manifest.json` to `current/`; (c) the
+  blob store keeps serving `current/update-manifest.json` behind
+  `releases.overgent.com`, which stays the update anchor (ADR-066: clients
+  discover updates through the domain, not through GitHub); (d)
+  `vercel.json` redirects for `/install.sh`, `/uninstall.sh`, and
+  `/download/macos` point at the GitHub asset of the promoted version, and
+  `tests/` keeps the installer test green. Record this as ADR-075
+  superseding the blob-copy half of ADR-067; the "source visibility" half is
+  already superseded by ADR-071.
+- Apple signing and notarization stay exactly as they are. Gatekeeper does
+  not care about licensing; an unsigned menu-bar app that installs a
+  LaunchAgent and agent hooks would be blocked or quarantined on every
+  member's Mac, and `install.sh` verifying the Apple team id is a trust
+  feature. Secrets remain in the `production-release` environment, which
+  forks cannot use.
 - Homebrew: **deferred past launch.** The install script already verifies
   the Apple team id, size, checksum, and signed manifest, and releases are
   published to the blob store rather than GitHub Releases, so a cask would
