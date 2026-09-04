@@ -1,7 +1,7 @@
 # Public repository boundary
 
-Status: source-publication boundary; publication deferred during private beta
-Last updated: 2026-09-02
+Status: source-publication boundary; adopted for public release by ADR-071
+Last updated: 2026-09-04
 
 This repository contains the complete installed client and service, collection behavior, public protocols and adapters, dashboard/backend application code, installers, tests, fixtures, and release workflows.
 
@@ -11,8 +11,4 @@ Public examples use synthetic identifiers and data. Production credentials, priv
 
 The public repository is licensed under Apache-2.0 with the attribution in `NOTICE`. Public launch still requires an operational private security-reporting and conduct-enforcement channel; do not publish a placeholder mailbox that is not monitored.
 
-ADR-067 defers making the source repository public while the company and
-long-term source-publication decision are unsettled. Public beta distribution
-contains only signed release artifacts in Vercel Blob; it does not relax this
-file's separation of source from private cloud operations or permit secrets or
-customer data in the source repository.
+ADR-071 makes the source repository, including the Convex backend, public under Apache-2.0; that does not relax this file's separation of source from private cloud operations or permit secrets or customer data in the source repository.

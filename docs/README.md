@@ -18,8 +18,9 @@ Read in order:
 14. [`development.md`](development.md) — local desktop, service, backend, and two-agent dogfood workflow.
 15. [`openai-embeddings.md`](openai-embeddings.md) — optional managed semantic-provider setup and failure behavior.
 16. [`beta-release.md`](beta-release.md) — supported beta boundary, release credentials, publication, install, update, rollback, and uninstall.
-17. [`adapter-development.md`](adapter-development.md) — adding and qualifying a coding-agent adapter without widening the harness or wire boundary.
-18. [`design-system.md`](design-system.md) — binding dashboard/desktop UI rules: tokens, type, layout, components, and the checklist before adding UI.
+17. `self-hosting.md` — self-hosting the Convex backend, to be added by Lane 05.
+18. [`adapter-development.md`](adapter-development.md) — adding and qualifying a coding-agent adapter without widening the harness or wire boundary.
+19. [`design-system.md`](design-system.md) — binding dashboard/desktop UI rules: tokens, type, layout, components, and the checklist before adding UI.
 
 Use [`external-references.md`](external-references.md) when implementing third-party contracts; it is informational and lower precedence than Overgent's own contracts.
 

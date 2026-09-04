@@ -222,6 +222,10 @@ second-session exit remain the owner-controlled L8 gates.
 
 ## Shared two-Mac dogfood
 
+ADR-074 (a profile binds each Project to its own backend) will make this
+separate shared profile unnecessary once it lands; do not delete this section
+until then.
+
 The explicit shared-development profile uses a cloud Convex development
 deployment while keeping each dashboard and local service on its own Mac. It
 uses a separate local profile and accepts only an HTTPS remote API origin.
