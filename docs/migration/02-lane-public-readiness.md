@@ -24,7 +24,8 @@ force-push is acceptable (every clone and worktree is re-created afterwards).
   private-key headers, GitHub tokens, Convex prod keys) found one hit and it
   is a synthetic fixture (`"Use api_key: sk-abcdef0123456789abcdef ..."` in a
   classifier test). Re-run with real tools anyway (step 2).
-- The Go module path is `github.com/khalidM3/overgent` in 58 tracked files.
+- The Go module path `github.com/khalidM3/overgent` already matches the
+  public remote (`khalidM3/overgent`); no rename is needed.
 - `Stickguy` (capitalized) appears in `internal/hookconfig/hooks.go`
   (`legacyProfileNames`), `internal/adapterrepair`, and setup tests. That is
   **migration code for installs that predate the ADR-065 rename**. Keep it.
@@ -36,7 +37,11 @@ force-push is acceptable (every clone and worktree is re-created afterwards).
 
 ## Tasks
 
-### 1. Remove the tracked binary and rewrite history
+### 1. Remove the tracked binary and rewrite history (done 2026-09-04)
+
+Done in the planning session: `stickguy` and three historical copies of
+`apps/desktop/desktop` were purged with `git filter-repo` and force-pushed.
+Skip this section.
 
 ```bash
 git ls-files stickguy coordination            # expect: stickguy
@@ -63,7 +68,9 @@ Expected: gitleaks reports the synthetic `sk-abcdef…` fixture; add a
 `.gitleaks.toml` allowlist for that test path with a comment. trufflehog
 verified findings must be zero. Paste the summary lines into the handoff.
 
-### 3. Module path and organization name
+### 3. Module path and organization name (not needed)
+
+The module path already matches the remote. Skip this section.
 
 Replace `github.com/khalidM3/overgent` with `github.com/<org>/overgent` in
 `go.mod`, `apps/desktop/go.mod` (module line and any `replace` directive), and
@@ -138,7 +145,6 @@ repository. Leave them; mention in the handoff that they are local only.
   recorded; the only allowed finding is the synthetic fixture.
 - `go test ./... && go vet ./... && pnpm typecheck && pnpm test && pnpm build
   && pnpm desktop:test` pass after the module rename.
-- `git grep -n khalidM3` returns nothing.
 - `SECURITY.md` no longer says the channel is temporary.
 - CI runs green on a pull request from a fork with no secrets available.
 

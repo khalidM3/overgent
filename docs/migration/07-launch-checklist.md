@@ -18,8 +18,8 @@ under about 200 lines; everything deeper links into `docs/`.
    assumptions, and duplicated work while agents are working, not at merge
    time) and what it does not do (it never edits code, merges, or steers
    agents).
-2. Install: `curl -fsSL https://overgent.com/install.sh | sh` and the
-   Homebrew line once §4 exists. Apple Silicon macOS only (ADR-050) stated
+2. Install: `curl -fsSL https://overgent.com/install.sh | sh`. Homebrew is
+   deferred (see §4). Apple Silicon macOS only (ADR-050) stated
    plainly; "build from source" link for others.
 3. Local by default: "Nothing leaves your Mac" with one sentence on the
    bundled backend and the data location.
@@ -66,11 +66,12 @@ under about 200 lines; everything deeper links into `docs/`.
   publishes to the blob store; `promote-release.yml` promotes after the
   clean-machine gate in `docs/beta-release.md` (rename that file to
   `docs/release.md` in this phase; contents unchanged apart from the title).
-- Homebrew: add a `casks` (desktop app) or `brews` (CLI) section to
-  `.goreleaser.yml` publishing to `<org>/homebrew-tap`; requires a tap
-  repository and a token in the release environment. The install script
-  remains the primary path because it verifies the Apple team id and the
-  manifest signature; the cask must download the same signed zip.
+- Homebrew: **deferred past launch.** The install script already verifies
+  the Apple team id, size, checksum, and signed manifest, and releases are
+  published to the blob store rather than GitHub Releases, so a cask would
+  need a tap repository, a token, and a second download path to keep in
+  sync. Add it after launch if people ask; a cask must download the same
+  signed zip.
 - `overgent version --json` on the released binary reports the public
   commit; paste it into the release notes.
 - Release notes: link the source tag, workflow run, SBOM, checksums, and

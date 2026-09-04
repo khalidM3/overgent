@@ -20,7 +20,7 @@ the rules every session follows.
 | 4 | `04-lane-byo-ai.md` | Sonnet 5 | protocol and Convex work with clear contracts |
 | 5 | `05-lane-self-host-and-cloud.md` Deliverables 1, 2, 4 only | Codex or Haiku 4.5 | documentation |
 | 6 | `06-lane-project-backend-binding.md` | Opus 5 | the one real refactor; optional today |
-| 7 | `07-launch-checklist.md` §1, §2, §4 prep, §5, §6, plus module rename (Lane 02 §3) | Sonnet 5 | writing plus a mechanical rename at the end |
+| 7 | `07-launch-checklist.md` §1, §2, §4 prep, §5, §6 | Sonnet 5 | writing and release preparation |
 
 ## Schedule
 
@@ -65,7 +65,7 @@ conflicts by hand.
 - Session 3 owns `apps/desktop/desktop_production.go` and
   `desktop_development.go` (including Lane 05 Deliverable 3, the "connect to
   a different server" field). Session 5 is documentation only.
-- Nobody but Session 7 touches `README.md` or `go.mod`'s module line.
+- Nobody but Session 7 touches `README.md`.
 
 ## Definition of done per session
 
@@ -96,9 +96,8 @@ conflicts by hand.
   https invite link adds a team Project next to the local one; pausing one
   does not pause the other; `git grep "cfg.APIBaseURL\|cfg.DeviceID"` is
   empty outside `internal/config`.
-- **7 Launch**: new `README.md`; `docs/README.md` index final; module path
-  renamed and every check green; `.goreleaser.yml` has the cask; landing
-  copy matches the README; announcement paragraph drafted. The owner then
+- **7 Launch**: new `README.md`; `docs/README.md` index final; every check
+  green; landing copy matches the README; announcement paragraph drafted. The owner then
   enables private vulnerability reporting, flips visibility, and tags.
 
 ## Kickoff prompts (paste as the first message of each session)
@@ -117,12 +116,12 @@ Every prompt starts with the same preamble:
 Then one line each:
 
 - **Session 1**: `Brief: docs/migration/01-spike-bundled-backend.md. Name: spike. Report measured numbers; "does not work" is a valid result.`
-- **Session 2**: `Brief: docs/migration/02-lane-public-readiness.md, skipping §1 (already done) and §3 (Session 7 does the rename). Also apply the doc sweep at the bottom of docs/migration/00-decisions.md. Name: public.`
+- **Session 2**: `Brief: docs/migration/02-lane-public-readiness.md, skipping §1 and §3 (both already done). Also apply the doc sweep at the bottom of docs/migration/00-decisions.md. Name: public.`
 - **Session 3**: `Brief: docs/migration/03-lane-local-mode.md plus Deliverable 3 of docs/migration/05-lane-self-host-and-cloud.md. The spike result is in validation/spikes/bundled-backend/README.md and is accepted. Name: local.`
 - **Session 4**: `Brief: docs/migration/04-lane-byo-ai.md. Name: ai. You own protocol/, convex/, packages/coordination/, internal/hosted/client.go; do not edit internal/app/app.go.`
 - **Session 5**: `Brief: docs/migration/05-lane-self-host-and-cloud.md, Deliverables 1, 2 and 4 only (documentation). Name: docs.`
 - **Session 6**: `Brief: docs/migration/06-lane-project-backend-binding.md. Lanes 03 and 04 are merged on main. Name: binding.`
-- **Session 7**: `Brief: docs/migration/07-launch-checklist.md §1, §2, §5, §6 and the §4 preparation, plus §3 of docs/migration/02-lane-public-readiness.md (module rename to github.com/<org>/overgent). Name: launch. Everything else is merged on main.`
+- **Session 7**: `Brief: docs/migration/07-launch-checklist.md §1, §2, §5, §6 and the §4 preparation. Name: launch. Everything else is merged on main.`
 
 ## If the day runs short
 
