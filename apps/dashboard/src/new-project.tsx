@@ -10,13 +10,21 @@ import { desktopHandoffURL, isDesktopShell, type AdapterState, type EnrollmentRe
  * shell can reach it. Handing over between the two should read as one screen
  * continuing, not as the app relaunching itself.
  */
-export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack }: {
+export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack, mode = "create" }: {
   api: NativeOnboarding;
   displayName: string;
   navigate: (url: string) => void;
   backLabel: string;
   onBack: () => void;
+  /**
+   * Creating a Project and accepting an invite to one are the same screen with
+   * one field swapped, and both end in the same place. They are separate calls
+   * underneath - joining reuses this Mac's device identity rather than minting
+   * one - but that is not a distinction a member should have to make.
+   */
+  mode?: "create" | "join";
 }) {
+  const joining = mode === "join";
   // Focus lands on the first action, which is choosing a repository, not on
   // the name field below it: focusing the name scrolled the screen's own
   // heading and the picker out of view on open.
@@ -68,7 +76,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
     event.preventDefault();
     setPending(true); setError("");
     try {
-      const result = await api.createAdditionalProject(request);
+      const result = joining ? await api.joinAdditionalProject(request) : await api.createAdditionalProject(request);
       setCreated({ ...result, warnings: Array.isArray(result.warnings) ? result.warnings : [] });
     } catch (cause) { setError((cause as Error).message); }
     finally { setPending(false); }
@@ -81,7 +89,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   };
 
   if (bridge === "probing") {
-    return <Screen title="Add a Project" backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Overgent service on your Mac.">
+    return <Screen title={joining ? "Join a Project" : "Add a Project"} backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Overgent service on your Mac.">
       <div className="screen-actions" role="status"><span className="spinner" aria-hidden="true" /><span className="settings-help">Checking this Mac…</span></div>
     </Screen>;
   }
@@ -90,11 +98,13 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
 
   if (created) {
     return <Screen
-      title="Project created"
+      title={joining ? "Project joined" : "Project created"}
       sub={request.repositoryRoot}
       backLabel={backLabel}
       onBack={onBack}
-      lede={`${request.projectLabel} is registered with this Mac’s existing Overgent service. No second background service was started. It coordinates the agent sessions you run in this repository straight away, with no one else in it.`}
+      lede={joining
+        ? "This repository is registered with the Overgent service already running on this Mac, under the same device identity as your other Projects. No second background service was started."
+        : `${request.projectLabel} is registered with this Mac’s existing Overgent service. No second background service was started. It coordinates the agent sessions you run in this repository straight away.`}
     >
       <ScreenSection title="Open it" help="Opening a Project mints a fresh one-time session for it, so the next step asks you to confirm before the shared view loads.">
         <div className="screen-actions">
@@ -107,22 +117,25 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
       {/* An invite is an option, not the next step. A Project with one member
           already does the whole job for the sessions that member is running,
           and presenting a code as the thing to do next implied otherwise. */}
-      {created.joinCode && <ScreenSection title="Invite someone, when you want to" help="Optional. Nothing here waits on a second member. The code expires in 10 minutes; share it privately.">
+      {created.joinCode && <ScreenSection title="Invite someone, when you want to" help="Optional. Nothing here waits on a second member. The code is one use and expires in seven days; share it privately.">
         <div className="invite-code"><strong>One-use invite code</strong><code>{created.joinCode}</code></div>
       </ScreenSection>}
     </Screen>;
   }
 
   return <Screen
-    title="Add a Project"
+    title={joining ? "Join a Project" : "Add a Project"}
     backLabel={backLabel}
     onBack={onBack}
-    lede="A Project is one Git repository on this Mac. Overgent coordinates every agent session you run in it — yours alone, or a team’s — using the service already running here."
+    lede={joining
+      ? "Paste the invite you were sent, and choose your own checkout of the repository that Project coordinates. Your teammate’s Mac is not involved."
+      : "A Project is one Git repository on this Mac. Overgent coordinates every agent session you run in it — yours alone, or a team’s."}
   >
     <form onSubmit={(event) => void submit(event)}>
       <div className="screen-form">
+        {joining && <label><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="inv_abc123.secret" autoComplete="off" /></label>}
         <label><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button ref={chooseRef} type="button" className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
-        <label><span>Project name</span><input value={request.projectLabel} maxLength={120} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>
+        {!joining && <label><span>Project name</span><input value={request.projectLabel} maxLength={120} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>}
       </div>
 
       <ScreenSection title="Connect coding agents" help="Sessions are observed after the agent restarts in this repository. Overgent marks observation ready only once a real session event arrives.">
@@ -138,7 +151,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
         </div>
         <p className="field-note">Registers the repository with the Overgent service already running on this Mac, and configures the agents ticked above in it. No second background service is started, and nothing else in your agent settings is changed.</p>
         <div className="screen-actions">
-          <button className="pill solid" disabled={pending || !request.projectLabel.trim() || !request.repositoryRoot}>{pending ? "Creating…" : "Create Project"}</button>
+          <button className="pill solid" disabled={pending || !request.repositoryRoot || (joining ? !request.joinCode.trim() : !request.projectLabel.trim())}>{pending ? (joining ? "Joining…" : "Creating…") : (joining ? "Join Project" : "Create Project")}</button>
           <button className="pill" type="button" onClick={onBack}>Cancel</button>
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}

@@ -68,6 +68,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Redeem an invite as a device that is already enrolled, joining another Project without minting a second device identity. One Mac runs one Overgent service with one device credential, so a member who is invited to a second Project has to be able to accept it as themselves. */
+        post: operations["createMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard-tickets/exchange": {
         parameters: {
             query?: never;
@@ -510,6 +527,20 @@ export interface components {
         Enrollment: {
             deviceId: string;
             deviceToken: string;
+            dashboardTicket: string;
+        };
+        MembershipRequest: {
+            inviteId: string;
+            inviteSecret: string;
+            deviceLabel: string;
+            /** @description Member-chosen live-work identity for this Project. Omitted means the device label seeds it and the member is asked to choose one. */
+            displayName?: string;
+            appVersion: string;
+            schemaMinimum: number;
+            schemaMaximum: number;
+        };
+        Membership: {
+            projectId: string;
             dashboardTicket: string;
         };
         TicketExchangeRequest: {
@@ -2434,6 +2465,59 @@ export interface operations {
                     "application/json": {
                         deviceId: string;
                         deviceToken: string;
+                        dashboardTicket: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    createMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    inviteId: string;
+                    inviteSecret: string;
+                    deviceLabel: string;
+                    /** @description Member-chosen live-work identity for this Project. Omitted means the device label seeds it and the member is asked to choose one. */
+                    displayName?: string;
+                    appVersion: string;
+                    schemaMinimum: number;
+                    schemaMaximum: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Joined */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        projectId: string;
                         dashboardTicket: string;
                     };
                 };

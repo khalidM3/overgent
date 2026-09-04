@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/user"
@@ -17,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/khalidM3/overgent/internal/activation"
+	"github.com/khalidM3/overgent/internal/adapterrepair"
 	"github.com/khalidM3/overgent/internal/app"
 	"github.com/khalidM3/overgent/internal/claudesetup"
 	"github.com/khalidM3/overgent/internal/codexsetup"
@@ -97,6 +99,10 @@ type OnboardingService struct {
 	credentialStatus  hosted.CredentialStatus
 	credentialSubject string
 	credentialAt      time.Time
+	// repairOnce keeps the launch-time adoption pass to one run per launch. It
+	// touches files on disk, and State() is polled every two seconds while an
+	// adapter restart is pending.
+	repairOnce sync.Once
 }
 
 // credentialTTL keeps State() cheap. The webview polls it every two seconds
@@ -180,6 +186,12 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 	for _, workspace := range cfg.Workspaces {
 		roots = append(roots, workspace.Root)
 	}
+	// Adopt anything an earlier Overgent left behind before the rows are
+	// computed, so a member is never shown "connected to a different Overgent
+	// profile" for a profile that is their own. This is the whole reason a fresh
+	// install on a fresh repository could report Codex as somebody else's: the
+	// Codex hook file is user-level and outlives every reinstall.
+	service.repairAdapters(roots)
 	state.Adapters = service.adapterStates(roots)
 	// Report credential health with the rest of the state so a locked-out Mac
 	// shows a recovery path on open, instead of only after an action fails.
@@ -187,6 +199,29 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 	defer cancel()
 	state.Credential = string(service.credentialHealth(ctx, cfg.DeviceID, cfg.APIBaseURL))
 	return state, nil
+}
+
+// repairAdapters adopts agent bindings an earlier Overgent left behind, once
+// per launch.
+//
+// It is deliberately silent. A repair that succeeded is not news - the member
+// never knew there was anything to fix - and a repair that could not run is
+// already described by the adapter row it failed to change, in terms of what is
+// actually wrong rather than in terms of this pass.
+func (service *OnboardingService) repairAdapters(roots []string) {
+	service.repairOnce.Do(func() {
+		executable, err := service.resolveCLI()
+		if err != nil {
+			return
+		}
+		for _, outcome := range adapterrepair.Run(service.configRoot, executable, roots) {
+			if outcome.Err != nil {
+				slog.Warn("repair agent binding", "vendor", outcome.Vendor, "error", outcome.Err)
+				continue
+			}
+			slog.Info("adopted an agent binding left by an earlier Overgent", "vendor", outcome.Vendor)
+		}
+	})
 }
 
 // ResetEnrollment forgets this Mac's device identity so the member can enroll
@@ -252,20 +287,7 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 		return EnrollmentResult{}, fmt.Errorf("read existing device credential: %w", err)
 	}
 	flow := onboarding.New(cfg.APIBaseURL)
-	flow.Register = func(registerContext context.Context, configRoot, apiBaseURL, deviceID string, workspace config.Workspace) error {
-		response, callErr := daemon.Call(registerContext, paths.Socket, daemon.Request{
-			Method: "add_project_workspace", WorkspaceID: workspace.ID, ProjectID: workspace.ProjectID,
-			WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID,
-			SessionID: workspace.SessionID, Root: workspace.Root,
-		})
-		if callErr == nil {
-			if !response.OK {
-				return errors.New(response.Error)
-			}
-			return nil
-		}
-		return app.Register(registerContext, configRoot, apiBaseURL, deviceID, workspace)
-	}
+	flow.Register = service.hotRegister(paths)
 	result, err := flow.CreateAdditional(ctx, onboarding.Options{
 		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
 		ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel,
@@ -283,6 +305,82 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 
 func (service *OnboardingService) JoinProject(request EnrollmentRequest) (EnrollmentResult, error) {
 	return service.enroll(request, false)
+}
+
+// JoinAdditionalProject accepts an invite on a Mac that is already enrolled.
+//
+// It is separate from JoinProject for the same reason CreateAdditionalProject is
+// separate from CreateProject: first enrollment mints a device identity and
+// rolls it back on failure, and here that identity is the one holding every
+// Project this Mac already has.
+func (service *OnboardingService) JoinAdditionalProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	root, err := canonicalRepository(request.RepositoryRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
+		return EnrollmentResult{}, errors.New("join a second Project after this Mac has completed enrollment")
+	}
+	for _, workspace := range cfg.Workspaces {
+		if workspace.Root == root {
+			return EnrollmentResult{}, errors.New("this repository is already connected to a Project")
+		}
+	}
+	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
+	request.DisplayName, err = boundedDisplayName(request.DisplayName)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	token, err := credential.Get(ctx, cfg.DeviceID)
+	if err != nil {
+		return EnrollmentResult{}, fmt.Errorf("read existing device credential: %w", err)
+	}
+	flow := onboarding.New(cfg.APIBaseURL)
+	flow.Register = service.hotRegister(paths)
+	result, err := flow.JoinAdditional(ctx, onboarding.Options{
+		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
+		DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName,
+		AppVersion: "overgent/desktop-beta",
+	}, cfg.DeviceID, token, strings.TrimSpace(request.JoinCode))
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
+	if serviceErr := service.ensureService(ctx); serviceErr != nil {
+		warnings = append(warnings, "Background service: "+serviceErr.Error())
+	}
+	return EnrollmentResult{ProjectID: result.ProjectID, Warnings: warnings}, nil
+}
+
+// hotRegister registers a repository with the service already running on this
+// Mac, falling back to writing the profile directly when no service answers.
+// Restarting the service to pick up a new Project would drop every live agent
+// session it is currently observing.
+func (service *OnboardingService) hotRegister(paths config.Paths) func(context.Context, string, string, string, config.Workspace) error {
+	return func(registerContext context.Context, configRoot, apiBaseURL, deviceID string, workspace config.Workspace) error {
+		response, callErr := daemon.Call(registerContext, paths.Socket, daemon.Request{
+			Method: "add_project_workspace", WorkspaceID: workspace.ID, ProjectID: workspace.ProjectID,
+			WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID,
+			SessionID: workspace.SessionID, Root: workspace.Root,
+		})
+		if callErr == nil {
+			if !response.OK {
+				return errors.New(response.Error)
+			}
+			return nil
+		}
+		return app.Register(registerContext, configRoot, apiBaseURL, deviceID, workspace)
+	}
 }
 
 func (service *OnboardingService) enroll(request EnrollmentRequest, create bool) (EnrollmentResult, error) {

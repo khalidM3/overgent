@@ -31,6 +31,16 @@ paths:
       security: []
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EnrollmentRequest' } } } }
       responses: { '201': { description: Enrolled, content: { application/json: { schema: { $ref: '#/components/schemas/Enrollment' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /memberships:
+    post:
+      operationId: createMembership
+      description: >-
+        Redeem an invite as a device that is already enrolled, joining another
+        Project without minting a second device identity. One Mac runs one
+        Overgent service with one device credential, so a member who is invited
+        to a second Project has to be able to accept it as themselves.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MembershipRequest' } } } }
+      responses: { '201': { description: Joined, content: { application/json: { schema: { $ref: '#/components/schemas/Membership' } } } }, default: { $ref: '#/components/responses/Error' } }
   /dashboard-tickets/exchange:
     post:
       operationId: exchangeDashboardTicket
@@ -254,6 +264,27 @@ components:
       additionalProperties: false
       required: [deviceId, deviceToken, dashboardTicket]
       properties: { deviceId: { $ref: '#/components/schemas/Id' }, deviceToken: { type: string, minLength: 32, maxLength: 512 }, dashboardTicket: { type: string, minLength: 22, maxLength: 512 } }
+    MembershipRequest:
+      type: object
+      additionalProperties: false
+      required: [inviteId, inviteSecret, deviceLabel, appVersion, schemaMinimum, schemaMaximum]
+      properties:
+        inviteId: { $ref: '#/components/schemas/Id' }
+        inviteSecret: { type: string, minLength: 22, maxLength: 512 }
+        deviceLabel: { type: string, minLength: 1, maxLength: 120 }
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 60
+          description: Member-chosen live-work identity for this Project. Omitted means the device label seeds it and the member is asked to choose one.
+        appVersion: { type: string, minLength: 1, maxLength: 64 }
+        schemaMinimum: { type: integer, minimum: 1 }
+        schemaMaximum: { type: integer, minimum: 1 }
+    Membership:
+      type: object
+      additionalProperties: false
+      required: [projectId, dashboardTicket]
+      properties: { projectId: { $ref: '#/components/schemas/Id' }, dashboardTicket: { type: string, minLength: 22, maxLength: 512 } }
     TicketExchangeRequest:
       type: object
       additionalProperties: false

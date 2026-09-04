@@ -26,6 +26,11 @@ type Status struct {
 	Hooks           string `json:"hooks"`
 	Binding         string `json:"binding"`
 	PreviousProfile string `json:"previousProfile,omitempty"`
+	// PreviousExecutable is the Overgent binary an `other_profile` binding runs.
+	// A binding whose executable is gone cannot fire again whatever profile it
+	// names, which is one of the things that makes it a leftover rather than a
+	// decision.
+	PreviousExecutable string `json:"previousExecutable,omitempty"`
 	// CheckedProfile names the profile this status was evaluated against, so an
 	// `other_profile` result can be read without guessing what it was compared
 	// with. Without it the honest answer "Codex is bound to a different profile
@@ -59,6 +64,16 @@ func (m Manager) Setup() (Status, error) { return m.SetupContext(context.Backgro
 // SetupContext installs the project MCP binding and the user-level activity
 // hooks, then asks Codex to trust those hooks so they can actually run.
 func (m Manager) SetupContext(ctx context.Context) (Status, error) {
+	// A binding an earlier Overgent left behind is a leftover, not another
+	// profile's property, so adopt it rather than refusing the setup the member
+	// just asked for. hookconfig.Abandoned decides that, and it only says yes
+	// when nothing can still be using the binding. Anything a live profile
+	// depends on still falls through to the explicit refusal below.
+	if adopted, ok, err := m.adopt(ctx, false); err != nil {
+		return Status{}, err
+	} else if ok {
+		return adopted, nil
+	}
 	resolved, expected, err := m.resolve()
 	if err != nil {
 		return Status{}, err
@@ -148,6 +163,16 @@ func (m Manager) StatusContext(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	status.ConfigPath, status.HookPath, status.CheckedProfile = resolved, hookPath, m.checkedProfile()
+	// The MCP block and the hooks are two independent bindings, and only the
+	// hooks are user-level, so a stale Overgent is routinely visible in the hook
+	// file alone. Without this the binding reported `other_profile` while naming
+	// nobody, and every question about whether it was still in use answered
+	// "unknown", which fails closed onto a reconnect nothing needed.
+	if status.PreviousProfile == "" && status.PreviousExecutable == "" && hooks.ExistingCommand != "" && hooks.ExistingCommand != hookCommand {
+		if executable, configRoot, ok := hookconfig.ParseManagedCommand(hooks.ExistingCommand); ok {
+			status.PreviousProfile, status.PreviousExecutable = configRoot, executable
+		}
+	}
 	switch {
 	case status.Binding == "current" && hooks.State == hookconfig.BindingCurrent:
 		status.Configured, status.Hooks, status.RestartRequired = true, "active", true
@@ -167,10 +192,55 @@ func (m Manager) StatusContext(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
+// Repair adopts a binding an earlier Overgent left behind, and does nothing
+// else. It is safe to run unattended on every launch, which is the point:
+// leftovers of our own making should never reach a member as a decision.
+//
+// Unlike Rebind it never creates a binding that is not already there. A layer
+// that is simply not configured stays not configured, because connecting an
+// agent is the member's choice and repairing our own mess is not.
+func (m Manager) Repair() (Status, error) { return m.RepairContext(context.Background()) }
+
+// RepairContext is Repair with a caller-supplied context for the trust probe.
+func (m Manager) RepairContext(ctx context.Context) (Status, error) {
+	if _, ok, err := m.adopt(ctx, true); err != nil {
+		return Status{}, err
+	} else if !ok {
+		return m.StatusContext(ctx)
+	}
+	// Report what the binding actually is now rather than what the rewrite
+	// intended: in adopt-only mode some layers are deliberately left alone, so
+	// the rewrite's own optimistic status would overstate the result.
+	return m.StatusContext(ctx)
+}
+
+// adopt rewrites a binding that hookconfig.Abandoned recognizes as a leftover.
+// It reports ok=false when there is nothing to adopt, and when the binding
+// belongs to a profile that is still in use - that one is a real decision and
+// stays with the member.
+func (m Manager) adopt(ctx context.Context, adoptOnly bool) (Status, bool, error) {
+	status, err := m.StatusContext(ctx)
+	if err != nil {
+		// Reading the status is the caller's problem to report through its own
+		// path, which produces a better error than this one could.
+		return Status{}, false, nil
+	}
+	if status.Binding != "other_profile" || !hookconfig.Abandoned(m.checkedProfile(), status.PreviousProfile, status.PreviousExecutable) {
+		return status, false, nil
+	}
+	adopted, err := m.rebind(adoptOnly)
+	if err != nil {
+		return Status{}, false, err
+	}
+	return adopted, true, nil
+}
+
 // Rebind transactionally replaces a structurally recognized Overgent binding
 // from another profile. Unknown drift remains an error. Both config files are
 // restored if either managed rewrite fails.
-func (m Manager) Rebind() (Status, error) {
+func (m Manager) Rebind() (Status, error) { return m.rebind(false) }
+
+func (m Manager) rebind(adoptOnly bool) (Status, error) {
 	resolved, expected, err := m.resolve()
 	if err != nil {
 		return Status{}, err
@@ -200,7 +270,7 @@ func (m Manager) Rebind() (Status, error) {
 		start := strings.Index(current, beginMarker)
 		end := strings.Index(current, endMarker) + len(endMarker)
 		next = current[:start] + expected + current[end:]
-	} else if state.Binding == "not_configured" {
+	} else if state.Binding == "not_configured" && !adoptOnly {
 		separator := ""
 		if len(next) > 0 && !strings.HasSuffix(next, "\n") {
 			separator = "\n"
@@ -215,15 +285,27 @@ func (m Manager) Rebind() (Status, error) {
 			return Status{}, err
 		}
 	}
-	if err = rebindHooks(hookPath, hookCommand); err != nil {
-		restoreErr := restore(resolved, configSnapshot)
-		if hookRestoreErr := restore(hookPath, hookSnapshot); restoreErr == nil {
-			restoreErr = hookRestoreErr
+	// In adopt-only mode a hook file with nothing of ours in it is left alone:
+	// installing hooks here would connect an agent nobody asked to connect.
+	rebindHook := true
+	if adoptOnly {
+		inspection, inspectErr := hookconfig.Inspect(hookPath, hookCommand)
+		if inspectErr != nil {
+			return Status{}, inspectErr
 		}
-		if restoreErr != nil {
-			return Status{}, fmt.Errorf("rebind Codex hooks: %v; rollback: %w", err, restoreErr)
+		rebindHook = inspection.State != hookconfig.BindingNotConfigured
+	}
+	if rebindHook {
+		if err = rebindHooks(hookPath, hookCommand); err != nil {
+			restoreErr := restore(resolved, configSnapshot)
+			if hookRestoreErr := restore(hookPath, hookSnapshot); restoreErr == nil {
+				restoreErr = hookRestoreErr
+			}
+			if restoreErr != nil {
+				return Status{}, fmt.Errorf("rebind Codex hooks: %v; rollback: %w", err, restoreErr)
+			}
+			return Status{}, fmt.Errorf("rebind Codex hooks: %w", err)
 		}
-		return Status{}, fmt.Errorf("rebind Codex hooks: %w", err)
 	}
 	trust := inspectTrust(m, context.Background(), hookPath, hookCommand, true)
 	return Status{
@@ -373,12 +455,12 @@ func inspect(current, expected string) (Status, error) {
 		if !currentOK || !expectedOK || currentManaged.cwd != expectedManaged.cwd {
 			return Status{}, errors.New("managed Codex MCP block drifted; refusing to overwrite or remove it")
 		}
-		return Status{Binding: "other_profile", PreviousProfile: currentManaged.profile, RestartRequired: true}, nil
+		return Status{Binding: "other_profile", PreviousProfile: currentManaged.profile, PreviousExecutable: currentManaged.executable, RestartRequired: true}, nil
 	}
 	return Status{Configured: true, Binding: "current", RestartRequired: true}, nil
 }
 
-type managedBlock struct{ cwd, profile string }
+type managedBlock struct{ cwd, profile, executable string }
 
 func parseManagedBlock(block string) (managedBlock, bool) {
 	lines := strings.Split(block, "\n")
@@ -400,12 +482,12 @@ func parseManagedBlock(block string) (managedBlock, bool) {
 		return managedBlock{}, false
 	}
 	if len(args) == 1 && args[0] == "mcp" && command == "overgent" {
-		return managedBlock{cwd: cwd}, true
+		return managedBlock{cwd: cwd, executable: command}, true
 	}
 	if len(args) != 3 || args[0] != "--config-root" || !filepath.IsAbs(args[1]) || args[2] != "mcp" || !filepath.IsAbs(command) {
 		return managedBlock{}, false
 	}
-	return managedBlock{cwd: cwd, profile: filepath.Clean(args[1])}, true
+	return managedBlock{cwd: cwd, profile: filepath.Clean(args[1]), executable: command}, true
 }
 
 func unquoteField(line, prefix string) (string, bool) {

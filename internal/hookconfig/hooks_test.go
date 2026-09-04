@@ -351,3 +351,82 @@ func rewriteSessionEndTimeout(t *testing.T, path string, timeout int) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseManagedCommandRoundTripsAndFailsClosed(t *testing.T) {
+	command, err := Command("/usr/local/bin/overgent", "/Users/x/Library/Application Support/Overgent", "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, configRoot, ok := ParseManagedCommand(command)
+	if !ok || executable != "/usr/local/bin/overgent" || configRoot != "/Users/x/Library/Application Support/Overgent" {
+		t.Fatalf("round trip gave %q %q ok=%v", executable, configRoot, ok)
+	}
+	portable, err := PortableCommand("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, configRoot, ok = ParseManagedCommand(portable)
+	if !ok || executable != "overgent" || configRoot != "" {
+		t.Fatalf("portable gave %q %q ok=%v", executable, configRoot, ok)
+	}
+	// A path holding the quote character survives, because a member's home
+	// directory is allowed to contain one and mis-parsing it would silently
+	// point the binding somewhere else.
+	quoted, err := Command("/Users/o'brien/bin/overgent", "/Users/o'brien/Overgent", "cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executable, configRoot, ok = ParseManagedCommand(quoted); !ok || executable != "/Users/o'brien/bin/overgent" || configRoot != "/Users/o'brien/Overgent" {
+		t.Fatalf("quoted path gave %q %q ok=%v", executable, configRoot, ok)
+	}
+	for _, invalid := range []string{"", "echo hello", "'overgent' agent-hook", "'relative' --config-root 'also/relative' agent-hook --vendor codex"} {
+		if _, _, ok = ParseManagedCommand(invalid); ok {
+			t.Fatalf("accepted a command it does not own: %q", invalid)
+		}
+	}
+}
+
+func TestAbandonedRecognizesLeftoversAndProtectsLiveProfiles(t *testing.T) {
+	live := filepath.Join(t.TempDir(), "Overgent")
+	if err := os.MkdirAll(live, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(live, "config.json"), []byte(`{"version":1,"deviceId":"dev_live"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "overgent")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(t.TempDir(), "Current")
+
+	// The one case that must stay a member decision: a profile that exists, is
+	// enrolled, and whose binary is still there.
+	if Abandoned(current, live, binary) {
+		t.Fatal("a live profile's binding was treated as a leftover")
+	}
+
+	legacy := filepath.Join(t.TempDir(), "Stickguy")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "config.json"), []byte(`{"version":1,"deviceId":"dev_legacy"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unenrolled := filepath.Join(t.TempDir(), "Unenrolled")
+	if err := os.MkdirAll(unenrolled, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, check := range map[string]struct{ profile, executable string }{
+		"portable binding names no profile":     {"", "overgent"},
+		"the same profile under a moved binary": {current, "/nowhere/overgent"},
+		"a profile directory that is gone":      {filepath.Join(t.TempDir(), "missing"), binary},
+		"a superseded product name":             {legacy, binary},
+		"a profile that was never enrolled":     {unenrolled, binary},
+		"a binary that no longer exists":        {live, "/nowhere/overgent"},
+	} {
+		if !Abandoned(current, check.profile, check.executable) {
+			t.Fatalf("did not recognize a leftover: %s", name)
+		}
+	}
+}

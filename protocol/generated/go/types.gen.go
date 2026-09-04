@@ -270,6 +270,19 @@ type SetFindingStateJSONBody struct {
 	State interface{} `json:"state"`
 }
 
+// CreateMembershipJSONBody defines parameters for CreateMembership.
+type CreateMembershipJSONBody struct {
+	AppVersion  string `json:"appVersion"`
+	DeviceLabel string `json:"deviceLabel"`
+
+	// DisplayName Member-chosen live-work identity for this Project. Omitted means the device label seeds it and the member is asked to choose one.
+	DisplayName   *string `json:"displayName,omitempty"`
+	InviteId      string  `json:"inviteId"`
+	InviteSecret  string  `json:"inviteSecret"`
+	SchemaMaximum int     `json:"schemaMaximum"`
+	SchemaMinimum int     `json:"schemaMinimum"`
+}
+
 // HeartbeatJSONBody defines parameters for Heartbeat.
 type HeartbeatJSONBody struct {
 	State       HeartbeatJSONBodyState `json:"state"`
@@ -450,6 +463,9 @@ type RecordFindingFeedbackJSONRequestBody RecordFindingFeedbackJSONBody
 
 // SetFindingStateJSONRequestBody defines body for SetFindingState for application/json ContentType.
 type SetFindingStateJSONRequestBody SetFindingStateJSONBody
+
+// CreateMembershipJSONRequestBody defines body for CreateMembership for application/json ContentType.
+type CreateMembershipJSONRequestBody CreateMembershipJSONBody
 
 // HeartbeatJSONRequestBody defines body for Heartbeat for application/json ContentType.
 type HeartbeatJSONRequestBody HeartbeatJSONBody

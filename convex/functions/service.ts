@@ -195,6 +195,58 @@ export const exchangeDashboardTicket = internalMutation({
   },
 });
 
+/**
+ * Join another Project with the device credential this Mac already has.
+ *
+ * Deliberately not `enroll` with a branch. Enrolling mints a device, and every
+ * guard that protects a first enrollment is about a caller with no identity;
+ * here the caller already has one, so the questions are different: is this
+ * credential still good, is the invite still good, and is this device already
+ * in that Project. Sharing a handler would have made the difference invisible.
+ */
+export const joinProjectAsDevice = internalMutation({
+  args: {
+    tokenHash: v.string(), rateKey: v.string(), invitePublicId: v.string(), inviteSecretHash: v.string(),
+    memberPublicId: v.string(), dashboardTicketHash: v.string(), deviceLabel: v.string(),
+    displayName: v.optional(v.string()), schemaMinimum: v.number(), schemaMaximum: v.number(),
+    now: v.number(), ticketExpiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await enforceRate(ctx, args.rateKey, "memberships.create", args.now, 12, 60_000);
+    if (args.schemaMinimum > 1 || args.schemaMaximum < 1) fail("schema_version_unsupported");
+    const device = await requireDevice(ctx, args.tokenHash);
+    const invite = await ctx.db.query("invites").withIndex("by_public_id", (q) => q.eq("publicId", args.invitePublicId)).unique();
+    if (!invite || invite.secretHash !== args.inviteSecretHash) fail("invite_invalid");
+    if (invite.revokedAt !== undefined) fail("invite_revoked");
+    if (invite.expiresAt <= args.now) fail("invite_expired");
+    if (invite.remainingUses < 1) fail("invite_consumed");
+    const project = await ctx.db.get(invite.projectId);
+    if (!project || project.status !== "active") fail("not_found");
+    // Redeeming twice must not burn a use or create a second membership row,
+    // and it must not read as an error the member can do anything about.
+    const existing = (await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", device._id)).collect())
+      .find((member) => member.projectId === invite.projectId && member.removedAt === undefined);
+    if (existing) fail("already_member");
+    const memberId = await ctx.db.insert("members", {
+      publicId: args.memberPublicId,
+      projectId: invite.projectId,
+      deviceId: device._id,
+      ...memberIdentity(args.displayName, args.deviceLabel),
+      role: "member",
+      joinedAt: args.now,
+    });
+    await ctx.db.insert("dashboardTickets", {
+      secretHash: args.dashboardTicketHash,
+      projectId: invite.projectId,
+      memberId,
+      deviceId: device._id,
+      expiresAt: args.ticketExpiresAt,
+    });
+    await ctx.db.patch(invite._id, { remainingUses: invite.remainingUses - 1 });
+    return project.publicId;
+  },
+});
+
 export const dashboardSession = internalQuery({
   args: { sessionHash: v.string(), now: v.number() },
   handler: async (ctx, args) => {

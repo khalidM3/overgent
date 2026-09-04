@@ -168,13 +168,16 @@ http.route({ path: "/v1/enrollments", method: "POST", handler: httpAction(async 
   expectExactKeys(body, ["inviteId", "inviteSecret", "deviceLabel", "appVersion", "schemaMinimum", "schemaMaximum"], ["displayName"]);
   const inviteId = expectId(body.inviteId);
   const inviteSecret = expectString(body.inviteSecret, 22, 512);
-  await consumeEdgeRate(ctx, requestRateKey(request, `enroll:${inviteId}`), "enrollments.create", 12);
+  // Derived once: the key is sharded, so deriving it twice would count one
+  // request against two shards.
+  const rateKey = requestRateKey(request, `enroll:${inviteId}`);
+  await consumeEdgeRate(ctx, rateKey, "enrollments.create", 12);
   const deviceToken = randomHex(32);
   const dashboardTicket = randomHex(24);
   const now = Date.now();
   const deviceId = publicId("dev");
   await ctx.runMutation(internal.service.enroll, {
-    rateKey: requestRateKey(request, `enroll:${inviteId}`),
+    rateKey,
     invitePublicId: inviteId,
     inviteSecretHash: sha256Hex(inviteSecret),
     devicePublicId: deviceId,
@@ -190,6 +193,40 @@ http.route({ path: "/v1/enrollments", method: "POST", handler: httpAction(async 
     ticketExpiresAt: now + 5 * 60_000,
   });
   return json({ deviceId, deviceToken, dashboardTicket }, 201);
+})) });
+
+// Joining another Project as a device that is already enrolled.
+//
+// /v1/enrollments mints a device; this does not. One Mac runs one Overgent
+// service with one device credential, and the local service refuses to register
+// a workspace under a second device identity - so without this route the only
+// way to accept a second invite was to reset the Mac and lose the first Project.
+http.route({ path: "/v1/memberships", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const token = bearer(request);
+  const body = expectObject(await readJson(request));
+  expectExactKeys(body, ["inviteId", "inviteSecret", "deviceLabel", "appVersion", "schemaMinimum", "schemaMaximum"], ["displayName"]);
+  const inviteId = expectId(body.inviteId);
+  const inviteSecret = expectString(body.inviteSecret, 22, 512);
+  // Rated on the credential as well as the invite: a token that can try invites
+  // as fast as it likes is an invite-guessing oracle with a valid session.
+  await consumeAuthenticatedEdge(ctx, request, "memberships.create", token, 12, 60);
+  const dashboardTicket = randomHex(24);
+  const now = Date.now();
+  const projectId = await ctx.runMutation(internal.service.joinProjectAsDevice, {
+    tokenHash: sha256Hex(token),
+    rateKey: requestRateKey(request, `join:${inviteId}`),
+    invitePublicId: inviteId,
+    inviteSecretHash: sha256Hex(inviteSecret),
+    memberPublicId: publicId("mem"),
+    dashboardTicketHash: sha256Hex(dashboardTicket),
+    deviceLabel: expectString(body.deviceLabel, 1, 120),
+    ...(body.displayName === undefined ? {} : { displayName: expectString(body.displayName, 2, 60) }),
+    schemaMinimum: expectInteger(body.schemaMinimum, 1, Number.MAX_SAFE_INTEGER),
+    schemaMaximum: expectInteger(body.schemaMaximum, 1, Number.MAX_SAFE_INTEGER),
+    now,
+    ticketExpiresAt: now + 5 * 60_000,
+  });
+  return json({ projectId, dashboardTicket }, 201);
 })) });
 
 http.route({ path: "/v1/dashboard-tickets", method: "POST", handler: httpAction(async (ctx, request) => withErrors(async () => {
@@ -215,11 +252,12 @@ http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: ht
   const body = expectObject(await readJson(request));
   expectExactKeys(body, ["ticket"]);
   const ticket = expectString(body.ticket, 22, 512);
-  await consumeEdgeRate(ctx, requestRateKey(request, "ticket-exchange"), "dashboard.exchange", 20);
+  const rateKey = requestRateKey(request, "ticket-exchange");
+  await consumeEdgeRate(ctx, rateKey, "dashboard.exchange", 20);
   const session = randomHex(32);
   const now = Date.now();
   await ctx.runMutation(internal.service.exchangeDashboardTicket, {
-    rateKey: requestRateKey(request, "ticket-exchange"),
+    rateKey,
     ticketHash: sha256Hex(ticket),
     sessionHash: sha256Hex(session),
     now,
@@ -237,11 +275,12 @@ http.route({ path: "/v1/dashboard-tickets/exchange", method: "POST", handler: ht
 
 http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAction(async (ctx, request) => withActivationErrors(request, async () => {
   const ticket = await readActivationTicket(request);
-  await consumeEdgeRate(ctx, requestRateKey(request, "dashboard-activation"), "dashboard.activation", 20);
+  const rateKey = requestRateKey(request, "dashboard-activation");
+  await consumeEdgeRate(ctx, rateKey, "dashboard.activation", 20);
   const session = randomHex(32);
   const now = Date.now();
   await ctx.runMutation(internal.service.exchangeDashboardTicket, {
-    rateKey: requestRateKey(request, "dashboard-activation"),
+    rateKey,
     ticketHash: sha256Hex(ticket), sessionHash: sha256Hex(session), now, sessionExpiresAt: now + 8 * 60 * 60_000,
   });
   const requestURL = new URL(request.url);
@@ -544,10 +583,33 @@ function boundedIds(value: unknown, maximum: number): string[] {
 // per-session bucket well below it.
 const SHARED_BRIEF_CEILING = 600;
 
+// Shards for the shared unauthenticated bucket.
+//
+// The bucket cannot be keyed on anything the caller controls: Convex documents
+// no trustworthy client-IP header here, and a key derived from forwarding data
+// is a key an abuser chooses. That left one key per route - and therefore one
+// document that every request on that route writes to.
+//
+// Two things followed. Convex serializes writes to a single document, so a hot
+// row turns ordinary concurrency into optimistic-concurrency failures, which
+// reach the caller as an unexplained 500 rather than as a limit they can act
+// on; on the activation route that is a member being told Overgent "could not
+// open the live Project" for no reason they can see or fix. And a ceiling low
+// enough to be a useful per-caller limit is far too low as a product-wide one:
+// five Project creations a minute is a number three people setting up at the
+// same time will hit.
+//
+// Sharding fixes both without touching a single security constant. Writes
+// spread across shards, and the per-route limits below are now per shard - so
+// each is a product-wide abuse ceiling of limit x SHARED_RATE_SHARDS, which is
+// what a bucket nobody can be identified within should always have been.
+// Callers that do have a credential are still bounded individually by the
+// authenticated bucket alongside this one.
+const SHARED_RATE_SHARDS = 16;
+
 function requestRateKey(_request: Request, scope: string): string {
-  // Convex does not document a trustworthy client-IP header at this boundary.
-  // A shared bucket cannot be bypassed with caller-controlled forwarding data.
-  return sha256Hex(`${scope}\0shared-unauthenticated`);
+  const shard = Math.floor(Math.random() * SHARED_RATE_SHARDS);
+  return sha256Hex(`${scope}\0shared-unauthenticated\0${shard}`);
 }
 
 function authenticatedRateKey(scope: string, token: string): string {
@@ -630,6 +692,11 @@ function errorMessage(code: string): string {
     schema_version_unsupported: "Upgrade Overgent to continue.",
     request_too_large: "The request exceeds the supported size.",
     email_identity_rejected: "Choose a display name; an email address cannot be your Project identity.",
+    already_member: "This Mac has already joined that Project.",
+    invite_invalid: "That invite code was not recognised.",
+    invite_revoked: "That invite was revoked. Ask for a new one.",
+    invite_expired: "That invite has expired. Ask for a new one.",
+    invite_consumed: "That invite has already been used. Ask for a new one.",
     internal_error: "The service could not complete the request.",
   } as Record<string, string>)[code] ?? "The request could not be completed.";
 }

@@ -77,8 +77,12 @@ func TestOtherProfileRequiresExplicitRebindAndPreservesJSON(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"other":{"preserved":true}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executable := "/usr/local/bin/overgent"
-	oldProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "old"), Executable: executable}
+	// The other profile has to look alive for this test to be about anything: a
+	// binary that still exists and a profile holding an enrolled device. A
+	// binding nothing is using any more is adopted without asking, which
+	// TestAbandonedBindingIsAdoptedWithoutAsking covers.
+	executable := liveExecutable(t)
+	oldProfile := Manager{ProjectRoot: project, ConfigRoot: liveProfile(t), Executable: executable}
 	newProfile := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "shared"), Executable: executable}
 	if _, err := oldProfile.Setup(); err != nil {
 		t.Fatal(err)
@@ -151,5 +155,79 @@ func TestStatusNamesTheProfileItComparedAgainst(t *testing.T) {
 	// what is actually bound.
 	if status.PreviousProfile != profile {
 		t.Fatalf("previousProfile=%q, want %q", status.PreviousProfile, profile)
+	}
+}
+
+func liveExecutable(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "overgent")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func liveProfile(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "live")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"version":1,"deviceId":"dev_live"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// A binding left behind by an earlier Overgent - here a former product name -
+// is adopted by an ordinary Setup, with no reconnect button and no decision
+// presented to anyone.
+func TestAbandonedBindingIsAdoptedWithoutAsking(t *testing.T) {
+	project := t.TempDir()
+	executable := liveExecutable(t)
+	legacyRoot := filepath.Join(t.TempDir(), "Stickguy")
+	if err := os.MkdirAll(legacyRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyRoot, "config.json"), []byte(`{"version":1,"deviceId":"dev_legacy"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := Manager{ProjectRoot: project, ConfigRoot: legacyRoot, Executable: executable}
+	if _, err := legacy.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	current := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "Overgent"), Executable: executable}
+	status, err := current.Setup()
+	if err != nil {
+		t.Fatalf("setup refused an abandoned binding: %v", err)
+	}
+	if !status.Configured || status.Binding != "current" {
+		t.Fatalf("adopted status=%#v", status)
+	}
+	after, err := current.Status()
+	if err != nil || !after.Configured || after.Binding != "current" {
+		t.Fatalf("status after adoption=%#v err=%v", after, err)
+	}
+	settings, err := os.ReadFile(filepath.Join(project, ".claude", "settings.local.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(settings), legacyRoot) {
+		t.Fatalf("legacy hook command survived adoption: %s", settings)
+	}
+}
+
+// Repair fixes what an earlier build left behind and nothing else.
+func TestRepairAdoptsWithoutConnectingAnythingNew(t *testing.T) {
+	project := t.TempDir()
+	current := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "Overgent"), Executable: liveExecutable(t)}
+	if _, err := current.Repair(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".mcp.json")); !os.IsNotExist(err) {
+		t.Fatal("repair created an MCP binding for an agent that was never connected")
+	}
+	if _, err := os.Stat(filepath.Join(project, ".claude", "settings.local.json")); !os.IsNotExist(err) {
+		t.Fatal("repair installed hooks for an agent that was never connected")
 	}
 }

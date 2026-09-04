@@ -20,6 +20,9 @@ func (a *resetAPI) CreateInvite(context.Context, string, int, int) (hosted.Invit
 func (a *resetAPI) Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error) {
 	return hosted.Enrollment{}, errors.New("unused")
 }
+func (a *resetAPI) JoinProject(context.Context, string, string, string, string, string) (hosted.Membership, error) {
+	return hosted.Membership{}, errors.New("unused")
+}
 func (a *resetAPI) Bootstrap(context.Context) (hosted.Bootstrap, error) {
 	return hosted.Bootstrap{DeviceID: "dev_local"}, a.bootstrapErr
 }

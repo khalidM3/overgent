@@ -940,6 +940,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .connection-line.needs-attention strong { color: var(--alert); }
 .connection-line p { margin: 5px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.55; }
 
+/* Three lines about what this is, on the one screen where nothing has been
+   asked yet. A list rather than a paragraph because they are three separate
+   facts, and as a paragraph they were one thing to skip. */
+.welcome-points { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 13px; }
+.welcome-points li { position: relative; padding-left: 19px; color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+.welcome-points li::before { content: ""; position: absolute; left: 0; top: .72em; width: 9px; height: 1px; background: var(--ink-3); }
+
 /* First run is three steps, and the member is told which one they are on. Three
    hairline segments and one mono line - the progress is a fact, not a device. */
 .step-track { display: flex; flex-direction: column; gap: 9px; }
