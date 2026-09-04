@@ -24,3 +24,6 @@ Read in order:
 Use [`external-references.md`](external-references.md) when implementing third-party contracts; it is informational and lower precedence than Overgent's own contracts.
 
 Conflict precedence: security/privacy; accepted ADRs; product spec; protocol; architecture/stack; implementation plan. Resolve by updating docs and recording a superseding ADR, never silently in code.
+
+The open-source, local-first rewire (ADR-071…074 drafts, the bundled-backend
+spike, and the lane briefs) lives in [`migration/README.md`](migration/README.md).
