@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/khalidM3/overgent v0.0.0
-	github.com/wailsapp/wails/v3 v3.0.0-beta.12
+	github.com/wailsapp/wails/v3 v3.0.0-beta.16
 )
 
 require (
