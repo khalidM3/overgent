@@ -151,9 +151,11 @@ non-loopback development origins remain disabled.
 Current outcome: complete under ADR-031 and extended by ADR-041. Frozen
 Go/TypeScript/protocol and both desktop build modes pass; the real development
 bundle launches against Vite; and the anonymous loopback L6 live suite passes
-all structural, semantic, authorization, and dashboard assertions. An isolated
-`dev:shared` profile may connect two Macs to the same HTTPS cloud Convex
-development deployment without weakening the ordinary loopback profile.
+all structural, semantic, authorization, and dashboard assertions. Two Macs may
+connect to the same HTTPS cloud Convex development deployment by adding a team
+Project to the ordinary development profile (ADR-074); ADR-041's isolated
+`dev:shared` profile is retired, because a profile no longer talks to one
+server at a time.
 
 ## L6B — Native Project and agent onboarding
 

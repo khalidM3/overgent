@@ -187,14 +187,17 @@ func aiClient(ctx context.Context, paths config.Paths, explicitProjectID string)
 		}
 		projectID = workspace.ProjectID
 	}
-	if cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return nil, "", errors.New("ai settings require an enrolled service")
+	// AI settings are a property of the Project (ADR-073), so they are written
+	// to the backend that Project lives on rather than to a profile-wide one.
+	backend, bound := cfg.BackendForProject(projectID)
+	if !bound || backend.DeviceID == "" {
+		return nil, "", errors.New("ai settings require an enrolled Project")
 	}
-	token, err := credential.Get(ctx, cfg.DeviceID)
+	token, err := credential.Get(ctx, backend.DeviceID)
 	if err != nil {
 		return nil, "", err
 	}
-	client, err := hosted.New(cfg.APIBaseURL, token)
+	client, err := hosted.New(backend.APIBaseURL, token)
 	return client, projectID, err
 }
 

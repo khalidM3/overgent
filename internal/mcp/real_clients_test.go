@@ -61,7 +61,7 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: project, Baseline: baseline, Fingerprint: "synthetic_fixture"}}}
+	cfg := config.Single("https://fixture.example.test", "dev_fixture", []config.Workspace{{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: project, Baseline: baseline, Fingerprint: "synthetic_fixture"}})
 	if err = config.Save(paths, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,9 @@ func TestRealCodexAndClaudeLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sender := &realClientFixtureSender{}
 	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx, state, sender) }()
+	go func() {
+		done <- app.Run(ctx, state, func(context.Context, config.Backend) (app.Sender, error) { return sender, nil })
+	}()
 	waitForService(t, paths.Socket)
 	preflightProductionBridge(t, ctx, overgent, state, project)
 

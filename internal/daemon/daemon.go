@@ -10,8 +10,14 @@ import (
 )
 
 type Request struct {
-	Method, WorkspaceID                                                                 string
-	ProjectID, WorkstreamID, MemberID, SessionID, Root                                  string
+	Method, WorkspaceID                                string
+	ProjectID, WorkstreamID, MemberID, SessionID, Root string
+	// APIBaseURL and DeviceID name the backend a Project being registered
+	// lives on, and the device identity this profile uses with it (ADR-074).
+	// They travel together, and only workspace registration carries them: a
+	// Project joined on a friend's server may be the first thing this profile
+	// has ever heard of that server.
+	APIBaseURL, DeviceID                                                                string
 	Title, IntendedOutcome                                                              string
 	ApproachSummary                                                                     string
 	Components, Contracts, WaitingOn                                                    []string

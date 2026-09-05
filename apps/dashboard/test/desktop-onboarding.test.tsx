@@ -2,14 +2,15 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopOnboarding } from "../src/desktop-onboarding";
-import type { NativeOnboarding, OnboardingState } from "../src/native";
+import type { NativeOnboarding, OnboardingState, ProjectState } from "../src/native";
 
 const adapters = [
   { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
   { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
 ];
-const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only.", localAvailable: true, mode: "" };
-const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
+const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only.", localAvailable: true };
+const localProject: ProjectState = { projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", backendId: "bk_local", kind: "local", apiBaseUrl: "http://127.0.0.1:3211", credential: "ok" };
+const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", backendId: "bk_local", projects: [localProject], adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
 
 const needsReview: OnboardingState = {
   ...enrolled,
@@ -205,7 +206,8 @@ describe("desktop onboarding", () => {
     expect(api.connectAgentWorktree).not.toHaveBeenCalled();
     // Home is a place to leave, not a wall. Both exits are ordinary buttons.
     expect(screen.getByRole("button", { name: "Open Project" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add a Project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use on this Mac" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create team Project" })).toBeTruthy();
   });
 
   it("previews and explicitly confirms a safe profile reconnect", async () => {
@@ -340,7 +342,7 @@ describe("joining a second Project", () => {
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);
 
-    await user.click(await screen.findByRole("button", { name: "Join a Project" }));
+    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
     await user.type(await screen.findByLabelText("Invite code"), "inv_test.secret");
     await user.click(screen.getByRole("button", { name: "Choose…" }));
     await user.click(screen.getByRole("button", { name: "Join Project" }));
@@ -358,7 +360,7 @@ describe("joining a second Project", () => {
   it("comes back to the home screen instead of stranding the member", async () => {
     const user = userEvent.setup();
     render(<DesktopOnboarding api={nativeDouble({})} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Join a Project" }));
+    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
     expect(await screen.findByRole("button", { name: "Open Project" })).toBeTruthy();
   });
@@ -367,7 +369,7 @@ describe("joining a second Project", () => {
     const api = nativeDouble({ joinAdditionalProject: vi.fn(async () => { throw new Error("join Project: That invite has expired. Ask for a new one."); }) });
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Join a Project" }));
+    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
     await user.type(await screen.findByLabelText("Invite code"), "inv_test.secret");
     await user.click(screen.getByRole("button", { name: "Choose…" }));
     await user.click(screen.getByRole("button", { name: "Join Project" }));
@@ -416,10 +418,37 @@ describe("local mode", () => {
     expect(native.createProject).toHaveBeenCalledWith(expect.objectContaining({ serverOrigin: "https://convex.example.com" }));
   });
 
-  it("says which kind of Project this Mac holds instead of offering a switcher", async () => {
+  // A Mac binds each Project to its own backend (ADR-074), so the home screen
+  // names where every Project lives rather than declaring one kind for the
+  // whole Mac - and it offers all three ways to add another, whichever kind
+  // the Projects already there happen to be.
+  it("lists each Project with the backend it lives on", async () => {
     const native = api();
-    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, mode: "local" as const }));
+    const teamProject: ProjectState = { projectId: "prj_team", repositoryRoot: "/tmp/beacon", repositoryLabel: "beacon", backendId: "bk_team", kind: "team", apiBaseUrl: "https://convex.example.com", credential: "ok" };
+    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, projects: [teamProject, localProject] }));
     render(<DesktopOnboarding api={native} navigate={() => undefined} />);
-    expect(await screen.findByText("This Mac is set up for local Projects. Reset to switch.")).toBeTruthy();
+    const list = await screen.findByLabelText("Projects on this Mac");
+    expect(within(list).getByText("beacon")).toBeTruthy();
+    expect(within(list).getByText("https://convex.example.com")).toBeTruthy();
+    expect(within(list).getByText("atlas")).toBeTruthy();
+    expect(within(list).getByText(/On this Mac/)).toBeTruthy();
+    expect(screen.queryByText(/Reset to switch/)).toBeNull();
+    for (const name of ["Use on this Mac", "Create team Project", "Join with invite"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+  });
+
+  // A revoked team Project must not erase the local Project beside it, so the
+  // recovery names the backend it is recovering.
+  it("reconnects only the backend the rejected Project lives on", async () => {
+    const native = api();
+    const reset = vi.fn(async () => enrolled);
+    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, backendId: "bk_team", credential: "revoked" as const }));
+    (native as { resetEnrollment: unknown }).resetEnrollment = reset;
+    const user = userEvent.setup();
+    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: "Reconnect this Mac" }));
+    await user.click(within(screen.getByRole("group", { name: "Confirm reconnect" })).getByRole("button", { name: "Reconnect this Mac" }));
+    expect(reset).toHaveBeenCalledWith("bk_team");
   });
 });

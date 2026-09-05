@@ -213,16 +213,33 @@ root re-arms the review.
 
 ## More than one Project on one profile
 
-One per-user service keeps one device identity across every Project it owns, so
-`create` on a profile that has already enrolled reuses that identity and creates
-an additional Project rather than minting a second credential and stranding the
-first one's Projects:
+One per-user service keeps one device identity **per backend**, and each Project
+is bound to the backend it lives on (ADR-074). A Project created on a server the
+profile already uses reuses that identity; one created on a server it has never
+used mints a new identity there, next to the others.
+
+A second Project on the same backend:
 
 ```bash
 ./bin/overgent create --root /absolute/path/to/second-repository --label "Second Project"
 ```
 
+A Project that never leaves this Mac, beside whatever else is registered:
+
+```bash
+./bin/overgent create --local --root /absolute/path/to/third-repository --label "Local Project"
+```
+
+A team Project on a specific server:
+
+```bash
+./bin/overgent create --api https://YOUR-DEPLOYMENT.convex.site --root /absolute/path/to/team-repository --label "Team Project"
+```
+
 A repository that is already connected is refused rather than connected twice.
+
+`./bin/overgent backend list` prints the backends this profile holds, with the
+id that `reset --backend <id>` takes; `reset --all` forgets every one of them.
 
 To add another *local root* to a Project that already exists — two linked
 worktrees of the same repository, for example — register the root instead of
@@ -300,10 +317,12 @@ Testing team mode end to end needs a real remote origin: a cloud Convex
 development deployment, reached from each Mac's own dashboard and local
 service. The origin is entered wherever any other backend origin is entered —
 the desktop's "Advanced: connect to a different server" field, or `--api` on
-the CLI — not through a separate shared profile.
+the CLI.
 
-`pnpm dev:shared` and the ADR-041 shared profile remain as a development
-convenience; ADR-074 retires that separate profile once Lane 06 lands.
+There is no separate development profile for it. ADR-041's `pnpm dev:shared`
+existed because a profile could talk to one server at a time; a Project now
+carries its own backend, so a team Project is added to the ordinary development
+profile beside the local ones and both keep working.
 
 On the first Mac, sign in and create or select a cloud development deployment:
 
@@ -321,34 +340,27 @@ pbpaste | pnpm --dir convex exec convex env set OPENAI_API_KEY
 pnpm --dir convex exec convex env list --names-only
 ```
 
-Push function changes with `convex dev --once`, then point a development
-build at the deployment. As a development convenience, `pnpm dev:shared`
-still starts the whole stack (dashboard, local service, and desktop) pointed
-at a remote origin in one command, using a separate profile so it never reads
-or mutates the ordinary loopback development profile:
+Push function changes with `convex dev --once`, then run the ordinary
+development stack and add a team Project to it:
 
 ```bash
-OVERGENT_SHARED_API_ORIGIN=https://YOUR-DEPLOYMENT.convex.site pnpm dev:shared
+pnpm dev
+./bin/overgent create --api https://YOUR-DEPLOYMENT.convex.site --root /absolute/path/to/team-repository --label "Team dogfood"
 ```
 
-Equivalently, run an ordinary development build and enter the same
-`https://YOUR-DEPLOYMENT.convex.site` origin in the desktop's "Advanced:
-connect to a different server" field, or pass
-`--api https://YOUR-DEPLOYMENT.convex.site` to `overgent create` / `overgent
-join` on the CLI — this is the same path a self-hoster or an Overgent Cloud
+Equivalently, choose **Create team Project** in the app and enter the same
+`https://YOUR-DEPLOYMENT.convex.site` origin in "Advanced: connect to a
+different server" — this is the same path a self-hoster or an Overgent Cloud
 member uses (`self-hosting.md` §5), just against a development deployment
 instead of a production one.
 
 Create the Project and send the one-use invite privately. On the second Mac,
-use the same repository checkout and repository remote, run the same commit
-of Overgent pointed at the same origin, choose **Join a Project**, and enter
-the invite. Each Mac stores a different device credential and publishes
-independently to the shared Project.
-
-The shared profile (`pnpm dev:shared`) defaults to
-`~/Library/Application Support/Overgent Shared Dev`. Override it only with an
-absolute `OVERGENT_SHARED_CONFIG_ROOT`. It never reads or mutates the ordinary
-loopback development profile.
+use the same repository checkout and repository remote, run the same commit of
+Overgent, choose **Join with invite**, and paste the link. The https invite
+link names the server the Project lives on, so the second Mac does not have to
+be told which deployment it is. Each Mac stores a different device credential
+for that backend and publishes independently to the shared Project; the local
+Projects on either Mac are untouched.
 
 Remove only Overgent's managed MCP entries without disturbing unrelated agent
 configuration:

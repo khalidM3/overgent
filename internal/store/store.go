@@ -19,8 +19,12 @@ type Store struct{ db *sql.DB }
 type Workspace struct {
 	ID, ProjectID, WorkstreamID, MemberID, DeviceID, SessionID string
 	Root, Baseline, Fingerprint                                string
-	Paused                                                     bool
-	Revision                                                   int64
+	// BackendID names the backend this workspace's Project publishes to
+	// (ADR-074). It is carried here so a row read back from SQLite says which
+	// server it belongs to without re-reading the configuration.
+	BackendID string
+	Paused    bool
+	Revision  int64
 }
 type QueueEvent struct {
 	ID, WorkspaceID, Kind string
@@ -127,6 +131,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 		{"session_id", `ALTER TABLE workspaces ADD COLUMN session_id TEXT NOT NULL DEFAULT ''`},
 		{"registration_enqueued", `ALTER TABLE workspaces ADD COLUMN registration_enqueued INTEGER NOT NULL DEFAULT 0`},
 		{"intent_revision", `ALTER TABLE workspaces ADD COLUMN intent_revision INTEGER NOT NULL DEFAULT 0`},
+		{"backend_id", `ALTER TABLE workspaces ADD COLUMN backend_id TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, migration := range workspaceIdentityMigrations {
 		has, inspectErr := hasWorkspaceColumn(db, migration.column)
@@ -139,6 +144,21 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 				db.Close()
 				return nil, fmt.Errorf("migrate workspace identity: %w", err)
 			}
+		}
+	}
+	hasProjectBackend, err := hasColumn(db, `PRAGMA table_info(projects)`, "backend_id")
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("inspect project backend migration: %w", err)
+	}
+	if !hasProjectBackend {
+		// A profile written before ADR-074 had one backend for every Project,
+		// so there is nothing to back-fill here: the configuration migration
+		// knows which backend that was, and the first UpsertWorkspace of each
+		// workspace writes it.
+		if _, err = db.Exec(`ALTER TABLE projects ADD COLUMN backend_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate project backend binding: %w", err)
 		}
 	}
 	hasQuarantine, err := hasColumn(db, `PRAGMA table_info(event_queue)`, "quarantined_at")
@@ -189,7 +209,7 @@ INSERT OR IGNORE INTO service_state(id,boot_count) VALUES(1,0);`); err != nil {
 			}
 		}
 	}
-	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5),(6),(7)`); err != nil {
+	if _, err = db.Exec(`INSERT OR IGNORE INTO schema_migrations(version) VALUES(2),(3),(4),(5),(6),(7),(8)`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("record sqlite migration: %w", err)
 	}
@@ -603,7 +623,7 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.ExecContext(ctx, `INSERT INTO projects(id) VALUES(?) ON CONFLICT DO NOTHING`, w.ProjectID); e != nil {
+	if _, e = tx.ExecContext(ctx, `INSERT INTO projects(id,backend_id) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET backend_id=excluded.backend_id WHERE excluded.backend_id<>''`, w.ProjectID, w.BackendID); e != nil {
 		return e
 	}
 	// A different workspace id claiming this root is a re-enrollment: the old
@@ -616,7 +636,7 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 	if _, e = tx.ExecContext(ctx, `DELETE FROM workspaces WHERE root=? AND id<>?`, w.Root, w.ID); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(ctx, `INSERT INTO workspaces(id,project_id,workstream_id,member_id,device_id,session_id,root,baseline,repository_fingerprint,paused,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,workstream_id=excluded.workstream_id,member_id=excluded.member_id,device_id=excluded.device_id,session_id=excluded.session_id,root=excluded.root,baseline=excluded.baseline,repository_fingerprint=excluded.repository_fingerprint`, w.ID, w.ProjectID, w.WorkstreamID, w.MemberID, w.DeviceID, w.SessionID, w.Root, w.Baseline, w.Fingerprint, w.Paused, w.Revision); e != nil {
+	if _, e = tx.ExecContext(ctx, `INSERT INTO workspaces(id,project_id,workstream_id,member_id,device_id,session_id,root,baseline,repository_fingerprint,backend_id,paused,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,workstream_id=excluded.workstream_id,member_id=excluded.member_id,device_id=excluded.device_id,session_id=excluded.session_id,root=excluded.root,baseline=excluded.baseline,repository_fingerprint=excluded.repository_fingerprint,backend_id=excluded.backend_id`, w.ID, w.ProjectID, w.WorkstreamID, w.MemberID, w.DeviceID, w.SessionID, w.Root, w.Baseline, w.Fingerprint, w.BackendID, w.Paused, w.Revision); e != nil {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO workstreams(id,project_id,workspace_id,baseline,status) VALUES(?,?,?,?,'active') ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,workspace_id=excluded.workspace_id,baseline=excluded.baseline`, w.WorkstreamID, w.ProjectID, w.ID, w.Baseline); e != nil {
@@ -649,7 +669,7 @@ func registrationEventID(projectID, deviceID, workspaceID string) string {
 	return fmt.Sprintf("evt_registration_%x", sum[:16])
 }
 func (s *Store) Workspaces(ctx context.Context) ([]Workspace, error) {
-	rows, e := s.db.QueryContext(ctx, `SELECT id,project_id,workstream_id,member_id,device_id,session_id,root,baseline,repository_fingerprint,paused,revision FROM workspaces ORDER BY id`)
+	rows, e := s.db.QueryContext(ctx, `SELECT id,project_id,workstream_id,member_id,device_id,session_id,root,baseline,repository_fingerprint,backend_id,paused,revision FROM workspaces ORDER BY id`)
 	if e != nil {
 		return nil, e
 	}
@@ -657,7 +677,7 @@ func (s *Store) Workspaces(ctx context.Context) ([]Workspace, error) {
 	var out []Workspace
 	for rows.Next() {
 		var w Workspace
-		if e := rows.Scan(&w.ID, &w.ProjectID, &w.WorkstreamID, &w.MemberID, &w.DeviceID, &w.SessionID, &w.Root, &w.Baseline, &w.Fingerprint, &w.Paused, &w.Revision); e != nil {
+		if e := rows.Scan(&w.ID, &w.ProjectID, &w.WorkstreamID, &w.MemberID, &w.DeviceID, &w.SessionID, &w.Root, &w.Baseline, &w.Fingerprint, &w.BackendID, &w.Paused, &w.Revision); e != nil {
 			return nil, e
 		}
 		out = append(out, w)

@@ -34,7 +34,7 @@ type CredentialStore interface {
 }
 
 type Options struct {
-	ConfigRoot, RepositoryRoot, APIBaseURL, ProjectLabel, DeviceLabel, AppVersion string
+	ConfigRoot, RepositoryRoot, ProjectLabel, DeviceLabel, AppVersion string
 	// DisplayName is optional; empty means the member has not chosen one yet.
 	DisplayName string
 	// SkipInvite creates the Project without minting a one-use invite. A local
@@ -48,7 +48,12 @@ type Result struct {
 	JoinCode, DashboardTicket                      string
 }
 
+// Service is one onboarding flow against one backend. The backend travels
+// with the flow rather than with the profile: a Mac holds a device identity
+// per backend (ADR-069, ADR-074), so "which server" and "which credential"
+// are one question and are answered together.
 type Service struct {
+	Backend  config.Backend
 	Client   func(token string) (API, error)
 	Creds    CredentialStore
 	Register func(context.Context, string, string, string, config.Workspace) error
@@ -66,16 +71,62 @@ func (keychainStore) Delete(ctx context.Context, account string) error {
 	return credential.Delete(ctx, account)
 }
 
-func New(apiBaseURL string) Service {
+func New(backend config.Backend) Service {
 	return Service{
-		Client:   func(token string) (API, error) { return hosted.New(apiBaseURL, token) },
+		Backend:  backend,
+		Client:   func(token string) (API, error) { return hosted.New(backend.APIBaseURL, token) },
 		Creds:    keychainStore{},
 		Register: app.Register,
 	}
 }
 
+// CreateOnNewBackend creates a Project on this flow's backend, whether or not
+// the profile has used that backend before.
+//
+// A backend the profile has never seen gets a device identity minted for it;
+// one it already has an identity for reuses that identity, because a second
+// credential for the same server would strand the Projects the first one
+// holds. Both cases are one member action - "add a Project on this server" -
+// so the choice is made here rather than in each caller.
+func (s Service) CreateOnNewBackend(ctx context.Context, options Options) (Result, error) {
+	if s.Backend.DeviceID == "" {
+		return s.Create(ctx, options)
+	}
+	token, err := s.deviceToken(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	return s.CreateAdditional(ctx, options, s.Backend.DeviceID, token)
+}
+
+// JoinOnNewBackend redeems an invite on this flow's backend, minting a device
+// identity for a backend the profile has never used and reusing the one it has
+// otherwise. Joining a friend's team Project from a purely local profile is
+// the first case, and it is the common one.
+func (s Service) JoinOnNewBackend(ctx context.Context, options Options, joinCode string) (Result, error) {
+	if s.Backend.DeviceID == "" {
+		return s.Join(ctx, options, joinCode)
+	}
+	token, err := s.deviceToken(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	return s.JoinAdditional(ctx, options, s.Backend.DeviceID, token, joinCode)
+}
+
+func (s Service) deviceToken(ctx context.Context) (string, error) {
+	if s.Creds == nil {
+		return "", errors.New("credential store is unavailable")
+	}
+	token, err := s.Creds.Get(ctx, s.Backend.DeviceID)
+	if err != nil {
+		return "", fmt.Errorf("read this backend's device credential: %w", err)
+	}
+	return token, nil
+}
+
 func (s Service) Create(ctx context.Context, options Options) (Result, error) {
-	if err := validateOptions(options, true); err != nil {
+	if err := s.validateOptions(options, true); err != nil {
 		return Result{}, err
 	}
 	if err := preflightRepository(ctx, options.RepositoryRoot); err != nil {
@@ -113,7 +164,7 @@ func (s Service) Create(ctx context.Context, options Options) (Result, error) {
 // Unlike first enrollment, a local registration failure must never revoke the
 // shared device and strand its existing Projects.
 func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID, token string) (Result, error) {
-	if err := validateOptions(options, true); err != nil {
+	if err := s.validateOptions(options, true); err != nil {
 		return Result{}, err
 	}
 	if deviceID == "" || token == "" {
@@ -153,13 +204,13 @@ func (s Service) CreateAdditional(ctx context.Context, options Options, deviceID
 // is why it does not route through Join, whose rollback revokes the device it
 // just created - here that device is the one holding every other Project.
 func (s Service) JoinAdditional(ctx context.Context, options Options, deviceID, token, joinCode string) (Result, error) {
-	if err := validateOptions(options, false); err != nil {
+	if err := s.validateOptions(options, false); err != nil {
 		return Result{}, err
 	}
 	if deviceID == "" || token == "" {
 		return Result{}, errors.New("existing device ID and credential are required")
 	}
-	code, err := ParseInviteCode(joinCode)
+	code, _, err := ParseInviteCode(joinCode)
 	if err != nil {
 		return Result{}, err
 	}
@@ -190,7 +241,7 @@ func (s Service) JoinAdditional(ctx context.Context, options Options, deviceID, 
 	if err != nil {
 		return Result{}, err
 	}
-	if err = s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
+	if err = s.Register(ctx, options.ConfigRoot, s.Backend.APIBaseURL, deviceID, workspace); err != nil {
 		return Result{}, fmt.Errorf("register joined workspace: %w", err)
 	}
 	// No invite is minted here. A member who just accepted one has not been
@@ -233,51 +284,62 @@ const inviteLifetimeSeconds = 7 * 24 * 3600
 
 var inviteCodePattern = regexp.MustCompile(`^inv_[A-Za-z0-9]+\.[A-Za-z0-9_-]+$`)
 
-// ParseInviteCode extracts the canonical invite code from whatever form the
-// member pasted: the bare code, the join-page URL whose fragment carries it
-// (fragments never reach server logs), or the desktop deep link. Every form
-// resolves to the same code so the one string an owner shares works anywhere.
-func ParseInviteCode(raw string) (string, error) {
+// ParseInviteCode extracts the invite code, and the backend origin it names,
+// from whatever form the member pasted.
+//
+// Three forms are accepted: the bare code, the desktop deep link, and the
+// join-page URL whose fragment carries the code (a fragment never reaches
+// server logs). Only the https form knows where the Project lives, so only it
+// returns an origin; the other two return an empty one, meaning "the backend
+// the caller selected". This is what lets a member on a purely local profile
+// paste a link and join a team Project on a server this Mac has never used,
+// without being asked which server that was.
+func ParseInviteCode(raw string) (code, origin string, err error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || len(trimmed) > 2048 {
-		return "", errors.New("invite code is empty or too large")
+		return "", "", errors.New("invite code is empty or too large")
 	}
 	candidate := trimmed
 	if strings.Contains(trimmed, "://") {
-		parsed, err := url.Parse(trimmed)
-		if err != nil {
-			return "", errors.New("invite link could not be parsed")
+		parsed, parseErr := url.Parse(trimmed)
+		if parseErr != nil {
+			return "", "", errors.New("invite link could not be parsed")
 		}
 		switch {
 		case strings.EqualFold(parsed.Scheme, "https"):
 			if strings.Trim(parsed.Path, "/") != "join" || parsed.Fragment == "" {
-				return "", errors.New("invite link must be a /join URL carrying the code after #")
+				return "", "", errors.New("invite link must be a /join URL carrying the code after #")
 			}
-			candidate = parsed.Fragment
+			// Userinfo in a link is how a host is made to read as something
+			// else, and no legitimate invite carries it.
+			if parsed.User != nil || parsed.Host == "" || parsed.RawQuery != "" {
+				return "", "", errors.New("invite link must name a plain https host with no credentials or query")
+			}
+			candidate, origin = parsed.Fragment, "https://"+parsed.Host
 		case strings.EqualFold(parsed.Scheme, "overgent"):
 			// A scheme URL puts the first segment in Host ("overgent://join/…").
 			if !strings.EqualFold(parsed.Host, "join") {
-				return "", errors.New("invite deep link must use overgent://join/")
+				return "", "", errors.New("invite deep link must use overgent://join/")
 			}
 			candidate = strings.Trim(parsed.Path, "/")
 		default:
-			return "", errors.New("invite link must be https or overgent scheme")
+			return "", "", errors.New("invite link must be https or overgent scheme")
 		}
 	}
 	if !inviteCodePattern.MatchString(candidate) {
-		return "", errors.New("join code must have the form invite.secret")
+		return "", "", errors.New("join code must have the form invite.secret")
 	}
-	return candidate, nil
+	return candidate, origin, nil
 }
 
 func (s Service) Join(ctx context.Context, options Options, joinCode string) (Result, error) {
-	if err := validateOptions(options, false); err != nil {
+	if err := s.validateOptions(options, false); err != nil {
 		return Result{}, err
 	}
 	if err := preflightRepository(ctx, options.RepositoryRoot); err != nil {
 		return Result{}, err
 	}
-	code, err := ParseInviteCode(joinCode)
+	code, _, err := ParseInviteCode(joinCode)
 	if err != nil {
 		return Result{}, err
 	}
@@ -358,7 +420,7 @@ func (s Service) finish(ctx context.Context, options Options, client API, projec
 		}
 		joinCode = invite.ID + "." + invite.Secret
 	}
-	if err := s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
+	if err := s.Register(ctx, options.ConfigRoot, s.Backend.APIBaseURL, deviceID, workspace); err != nil {
 		rollback()
 		return Result{}, fmt.Errorf("register workspace: %w", err)
 	}
@@ -375,23 +437,31 @@ func (s Service) finishExisting(ctx context.Context, options Options, client API
 	if err != nil {
 		return Result{}, fmt.Errorf("create dashboard ticket: %w", err)
 	}
-	invite, err := client.CreateInvite(ctx, projectID, inviteLifetimeSeconds, 1)
-	if err != nil {
-		return Result{}, fmt.Errorf("create invite: %w", err)
+	// A local Project has no second member to hand a code to, and offering one
+	// is how a screen implies that inviting somebody is the next step
+	// (ADR-072). The same rule that governs a first local Project governs the
+	// second one.
+	joinCode := ""
+	if !options.SkipInvite {
+		invite, inviteErr := client.CreateInvite(ctx, projectID, inviteLifetimeSeconds, 1)
+		if inviteErr != nil {
+			return Result{}, fmt.Errorf("create invite: %w", inviteErr)
+		}
+		joinCode = invite.ID + "." + invite.Secret
 	}
-	if err := s.Register(ctx, options.ConfigRoot, options.APIBaseURL, deviceID, workspace); err != nil {
+	if err := s.Register(ctx, options.ConfigRoot, s.Backend.APIBaseURL, deviceID, workspace); err != nil {
 		return Result{}, fmt.Errorf("register additional workspace: %w", err)
 	}
 	return Result{
 		ProjectID: projectID, DeviceID: deviceID, WorkspaceID: workspace.ID,
-		WorkstreamID: workspace.WorkstreamID, JoinCode: invite.ID + "." + invite.Secret,
+		WorkstreamID: workspace.WorkstreamID, JoinCode: joinCode,
 		DashboardTicket: ticket.Ticket,
 	}, nil
 }
 
-func validateOptions(options Options, requireLabel bool) error {
-	if options.ConfigRoot == "" || options.RepositoryRoot == "" || options.APIBaseURL == "" || options.DeviceLabel == "" {
-		return errors.New("config root, repository root, API base URL, and device label are required")
+func (s Service) validateOptions(options Options, requireLabel bool) error {
+	if options.ConfigRoot == "" || options.RepositoryRoot == "" || s.Backend.APIBaseURL == "" || options.DeviceLabel == "" {
+		return errors.New("config root, repository root, backend API base URL, and device label are required")
 	}
 	if requireLabel && options.ProjectLabel == "" {
 		return errors.New("Project label is required")

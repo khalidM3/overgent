@@ -91,6 +91,7 @@ func TestL4TwoDeviceGoToHostedVerticalSlice(t *testing.T) {
 	}
 	creds := &memoryCredentials{values: map[string]string{}}
 	service := onboarding.Service{
+		Backend:  config.Backend{ID: config.BackendID(apiBase), APIBaseURL: apiBase, Kind: config.BackendKind(apiBase)},
 		Client:   func(token string) (onboarding.API, error) { return hosted.New(apiBase, token) },
 		Creds:    creds,
 		Register: app.Register,
@@ -99,14 +100,14 @@ func TestL4TwoDeviceGoToHostedVerticalSlice(t *testing.T) {
 	repoA, repoB := repository(t, "a"), repository(t, "b")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	created, err := service.Create(ctx, onboarding.Options{ConfigRoot: rootA, RepositoryRoot: repoA, APIBaseURL: apiBase, ProjectLabel: "Synthetic L4 Project", DeviceLabel: "Synthetic Device A"})
+	created, err := service.Create(ctx, onboarding.Options{ConfigRoot: rootA, RepositoryRoot: repoA, ProjectLabel: "Synthetic L4 Project", DeviceLabel: "Synthetic Device A"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if created.JoinCode == "" || created.DashboardTicket == "" {
 		t.Fatal("creator result omitted invite or dashboard activation ticket")
 	}
-	joined, err := service.Join(ctx, onboarding.Options{ConfigRoot: rootB, RepositoryRoot: repoB, APIBaseURL: apiBase, DeviceLabel: "Synthetic Device B"}, created.JoinCode)
+	joined, err := service.Join(ctx, onboarding.Options{ConfigRoot: rootB, RepositoryRoot: repoB, DeviceLabel: "Synthetic Device B"}, created.JoinCode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +305,9 @@ func startService(t *testing.T, root string, sender app.Sender) (context.CancelF
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- app.Run(ctx, root, sender) }()
+	go func() {
+		done <- app.Run(ctx, root, func(context.Context, config.Backend) (app.Sender, error) { return sender, nil })
+	}()
 	paths, _ := config.Resolve(root)
 	wait(t, func() bool {
 		_, err := daemon.Call(context.Background(), paths.Socket, daemon.Request{Method: "health"})
