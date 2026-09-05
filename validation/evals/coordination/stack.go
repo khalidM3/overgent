@@ -513,6 +513,7 @@ func newEvaluationEnvironment(ctx context.Context, fixtureRoot, siteURL, tempora
 	stateRoot := filepath.Join(temporaryRoot, "state")
 	credentials := &memoryCredentials{values: map[string]string{}}
 	onboardingService := onboarding.Service{
+		Backend:  config.Backend{ID: config.BackendID(siteURL), APIBaseURL: siteURL, Kind: config.BackendKind(siteURL)},
 		Client:   func(token string) (onboarding.API, error) { return hosted.New(siteURL, token) },
 		Creds:    credentials,
 		Register: app.Register,
@@ -531,7 +532,7 @@ func newEvaluationEnvironment(ctx context.Context, fixtureRoot, siteURL, tempora
 	}
 	first := pairs[scenarioDefinitions[0].ID]
 	created, err := onboardingService.Create(ctx, onboarding.Options{
-		ConfigRoot: stateRoot, RepositoryRoot: first.repository.worktreeA, APIBaseURL: siteURL,
+		ConfigRoot: stateRoot, RepositoryRoot: first.repository.worktreeA,
 		ProjectLabel: "Coordination eval", DeviceLabel: "Scripted agents",
 	})
 	if err != nil {
@@ -585,7 +586,9 @@ func newEvaluationEnvironment(ctx context.Context, fixtureRoot, siteURL, tempora
 		ctx: serviceContext, cancel: cancel, serviceDone: make(chan error, 1), stateRoot: stateRoot,
 		client: client, sender: sender, projectID: created.ProjectID, scenarios: pairs,
 	}
-	go func() { environment.serviceDone <- app.Run(serviceContext, stateRoot, sender) }()
+	go func() {
+		environment.serviceDone <- app.Run(serviceContext, stateRoot, func(context.Context, config.Backend) (app.Sender, error) { return sender, nil })
+	}()
 	if err := waitService(serviceContext, paths.Socket, environment.serviceDone); err != nil {
 		environment.stop()
 		return nil, fmt.Errorf("start coordination evaluation service: %w", err)

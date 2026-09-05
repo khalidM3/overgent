@@ -10,7 +10,7 @@ import { desktopHandoffURL, isDesktopShell, type AdapterState, type EnrollmentRe
  * shell can reach it. Handing over between the two should read as one screen
  * continuing, not as the app relaunching itself.
  */
-export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack, mode = "create" }: {
+export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack, mode = "create", placement = "team", onPlacement, localAvailable = false, defaultServer = "" }: {
   api: NativeOnboarding;
   displayName: string;
   navigate: (url: string) => void;
@@ -19,12 +19,24 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   /**
    * Creating a Project and accepting an invite to one are the same screen with
    * one field swapped, and both end in the same place. They are separate calls
-   * underneath - joining reuses this Mac's device identity rather than minting
-   * one - but that is not a distinction a member should have to make.
+   * underneath - joining reuses this Mac's device identity for that backend
+   * rather than minting one - but that is not a distinction a member should
+   * have to make.
    */
   mode?: "create" | "join";
+  /**
+   * Where this Project's coordination data lives. Every Project binds to its
+   * own backend (ADR-074), so the answer for this one says nothing about the
+   * Projects already on this Mac and is asked again each time.
+   */
+  placement?: "local" | "team";
+  onPlacement?: (placement: "local" | "team") => void;
+  localAvailable?: boolean;
+  /** The server a team Project defaults to, shown as the field's placeholder. */
+  defaultServer?: string;
 }) {
   const joining = mode === "join";
+  const local = placement === "local" && !joining;
   // Focus lands on the first action, which is choosing a repository, not on
   // the name field below it: focusing the name scrolled the screen's own
   // heading and the picker out of view on open.
@@ -76,7 +88,9 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
     event.preventDefault();
     setPending(true); setError("");
     try {
-      const result = joining ? await api.joinAdditionalProject(request) : await api.createAdditionalProject(request);
+      const result = joining
+        ? await api.joinAdditionalProject(request)
+        : local ? await api.createLocalProject(request) : await api.createAdditionalProject(request);
       setCreated({ ...result, warnings: Array.isArray(result.warnings) ? result.warnings : [] });
     } catch (cause) { setError((cause as Error).message); }
     finally { setPending(false); }
@@ -132,21 +146,43 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
       : "A Project is one Git repository on this Mac. Overgent coordinates every agent session you run in it — yours alone, or a team’s."}
   >
     <form onSubmit={(event) => void submit(event)}>
+      {/* Where this Project lives is asked before anything else, because it is
+          the only question on this screen whose answer cannot be changed
+          afterwards. A Mac that already has one kind can still add the other. */}
+      {!joining && onPlacement && <ScreenSection title="Where this Project’s data lives" help={local
+        ? "Nothing leaves this computer. A Project on this Mac needs no account and no network."
+        : "Coordination data is stored on Overgent Cloud, or on the server you name below."}>
+        <div className="screen-actions">
+          <button type="button" className={local ? "pill solid" : "pill"} disabled={!localAvailable} onClick={() => onPlacement("local")}>Use on this Mac</button>
+          <button type="button" className={local ? "pill" : "pill solid"} onClick={() => onPlacement("team")}>Team Project</button>
+        </div>
+        {!localAvailable && <p className="field-note" role="status">This build does not carry a backend to run on this Mac, so a Project needs a server.</p>}
+      </ScreenSection>}
       <div className="screen-form">
         {joining && <label><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="inv_abc123.secret" autoComplete="off" /></label>}
         <label><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button ref={chooseRef} type="button" className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
         {!joining && <label><span>Project name</span><input value={request.projectLabel} maxLength={120} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Atlas launch" /></label>}
+        {/* Self-hosting and Overgent Cloud are the same client against a
+            different origin. An invite link carries its own origin, so the
+            field is offered only where it decides anything. */}
+        {!joining && !local && <details className="field-advanced">
+          <summary>Advanced: connect to a different server</summary>
+          <label><span>Server address</span><input aria-label="Server address" value={request.serverOrigin} maxLength={200} onChange={(event) => setRequest({ ...request, serverOrigin: event.target.value })} placeholder={defaultServer || "https://api.overgent.com"} autoComplete="off" spellCheck={false} /></label>
+          <p className="field-note">Leave this empty to use {defaultServer || "Overgent Cloud"}. Your own deployment is described in docs/self-hosting.md.</p>
+        </details>}
       </div>
 
       <ScreenSection title="Connect coding agents" help="Sessions are observed after the agent restarts in this repository. Overgent marks observation ready only once a real session event arrives.">
         <AgentOptions adapters={adapters} request={request} onChange={setRequest} />
       </ScreenSection>
 
-      <ScreenSection title="What this Project shares">
+      <ScreenSection title={local ? "What this Project records" : "What this Project shares"}>
         {/* The section heading already names this, so the block does not say it
             twice - one statement, then the exact boundary one disclosure away. */}
         <div className="privacy-disclosure">
-          <p>Shares session titles, activity, and repository file paths with Project members — never your source, diffs, prompts, or credentials.</p>
+          <p>{local
+            ? "Session activity and repository file paths stay in a database on this Mac — never your source, diffs, prompts, or credentials, and nothing over the network."
+            : "Shares session titles, activity, and repository file paths with Project members — never your source, diffs, prompts, or credentials."}</p>
           <details className="field-advanced"><summary>Exactly what is and is not shared</summary><p>Shares session presence, the vendor-visible session title as bounded intent, tool category, subagent state, and safe repository-relative paths. Approved titles may be embedded by the Project’s configured semantic provider. Classifier-approved visible session messages may be shared with Project members while unpaused. The raw transcript file, source, diffs, system/developer prompts, command output, .env contents, credentials, and environment values never cross the wire.</p></details>
         </div>
         <p className="field-note">Registers the repository with the Overgent service already running on this Mac, and configures the agents ticked above in it. No second background service is started, and nothing else in your agent settings is changed.</p>

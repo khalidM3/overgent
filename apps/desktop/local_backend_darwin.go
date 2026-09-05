@@ -14,15 +14,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/khalidM3/overgent/internal/activation"
 	"github.com/khalidM3/overgent/internal/config"
+	"github.com/khalidM3/overgent/internal/credential"
 	"github.com/khalidM3/overgent/internal/daemon"
+	"github.com/khalidM3/overgent/internal/hosted"
 	"github.com/khalidM3/overgent/internal/localbackend"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// storedAPIBaseURL is the backend origin this profile was enrolled against, or
-// empty when it has not enrolled yet. Read failures are empty too: a profile
+// storedAPIBaseURL is the team server this profile most recently enrolled
+// against, or empty when it has none. Read failures are empty too: a profile
 // whose config cannot be read has no stored answer, and the build default is
 // the honest fallback.
+//
+// It is the default offered when a member creates another team Project, which
+// is what makes self-hosting work from a stock build (Lane 05): the origin is
+// entered once and every later team Project starts from it. Local backends are
+// skipped - loopback is never a sensible default for a Project meant to have
+// remote members - and the member can still type a different server.
 func storedAPIBaseURL(configRoot string) string {
 	if strings.TrimSpace(configRoot) == "" {
 		return ""
@@ -35,7 +45,13 @@ func storedAPIBaseURL(configRoot string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimRight(strings.TrimSpace(loaded.APIBaseURL), "/")
+	origin := ""
+	for _, backend := range loaded.Backends {
+		if backend.Kind == config.KindTeam {
+			origin = backend.APIBaseURL
+		}
+	}
+	return strings.TrimRight(strings.TrimSpace(origin), "/")
 }
 
 // The app serves one dashboard origin for local mode, for its whole lifetime.
@@ -60,21 +76,32 @@ func ensureDashboardOrigin(assets fs.FS) *dashboardOrigin {
 	return sharedOrigin
 }
 
-// localDashboardOrigin is the origin to activate against for a local Project,
-// or empty when this profile is not in local mode.
-func localDashboardOrigin() string {
-	if sharedOrigin == nil {
-		return ""
+// activationOriginFor is the origin one Project's dashboard is opened against.
+//
+// It is per Project, not per profile: a team Project is served by its own
+// deployment, and a local Project is served by this app, which is the local
+// equivalent of Vite in development and of Vercel in production. A profile
+// holding both asks this question once per Project rather than once per Mac.
+//
+// The local branch also brings the backend up and points the proxy at it,
+// because the proxy's target is only known once the service has started the
+// backend - and on a relaunch nothing else would have done it.
+func activationOriginFor(ctx context.Context, paths config.Paths, backend config.Backend) (string, error) {
+	if backend.Kind != config.KindLocal {
+		return desktopTeamActivationOrigin(backend.APIBaseURL), nil
 	}
-	if !localbackend.Configured(desktopConfigRoot()) {
-		return ""
+	endpoint, err := ensureLocalBackend(ctx, paths)
+	if err != nil {
+		return "", err
 	}
-	stored := storedAPIBaseURL(desktopConfigRoot())
-	if stored != "" && !isLoopbackOrigin(stored) {
-		// A team-mode Project on this profile is served by its own deployment.
-		return ""
+	origin := ensureDashboardOrigin(dashboardAssets())
+	if origin == nil {
+		return "", errors.New("the local dashboard could not be served")
 	}
-	return sharedOrigin.Origin()
+	if err = origin.SetBackend(endpoint.SiteOrigin); err != nil {
+		return "", err
+	}
+	return origin.Origin(), nil
 }
 
 // isLoopbackOrigin asks the same question the service and the CLI ask, through
@@ -194,4 +221,63 @@ func (service *OnboardingService) backendStatus() BackendStatus {
 	status.LastError = reported.LastError
 	status.SizeOnDisk = reported.DatabaseBytes
 	return status
+}
+
+// openNewestProject opens the live view for the Project this Mac most recently
+// added, in the window the app already has. It is the menu's "open" action and
+// is shared by both build profiles, because the only thing that differs
+// between them is which origin serves a team Project's dashboard.
+func openNewestProject(ctx context.Context, window *application.WebviewWindow, configRoot string) error {
+	paths, err := config.Resolve(configRoot)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	if len(cfg.Workspaces) == 0 {
+		return errors.New("live view requires an enrolled Project")
+	}
+	projectID := cfg.Workspaces[len(cfg.Workspaces)-1].ProjectID
+	url, err := liveProjectURL(ctx, paths, cfg, projectID)
+	if err != nil {
+		return err
+	}
+	handoff, err := activation.Start(url.origin, url.ticket)
+	if err != nil {
+		return err
+	}
+	window.SetURL(handoff.URL())
+	return handoff.Wait(ctx)
+}
+
+type liveProject struct{ origin, ticket string }
+
+// liveProjectURL mints a one-time dashboard session for one Project against
+// the backend that Project lives on, and names the origin its dashboard is
+// served from. Both are per Project after ADR-074: the credential, the server,
+// and the dashboard all follow the Project rather than the profile.
+func liveProjectURL(ctx context.Context, paths config.Paths, cfg config.Config, projectID string) (liveProject, error) {
+	backend, bound := cfg.BackendForProject(projectID)
+	if !bound || backend.DeviceID == "" {
+		return liveProject{}, errors.New("Project is not enrolled on this device")
+	}
+	token, err := credential.Get(ctx, backend.DeviceID)
+	if err != nil {
+		return liveProject{}, err
+	}
+	client, err := hosted.New(backend.APIBaseURL, token)
+	if err != nil {
+		return liveProject{}, err
+	}
+	ticket, err := client.CreateDashboardTicket(ctx, projectID)
+	if err != nil {
+		return liveProject{}, err
+	}
+	origin, err := activationOriginFor(ctx, paths, backend)
+	if err != nil {
+		return liveProject{}, err
+	}
+	return liveProject{origin: origin, ticket: ticket.Ticket}, nil
 }

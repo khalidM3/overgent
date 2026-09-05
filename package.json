@@ -7,7 +7,6 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:shared": "node scripts/dev.mjs --shared",
     "dev:ui": "OVERGENT_DASHBOARD_API_ORIGIN=http://127.0.0.1:3211 pnpm --dir apps/dashboard dev",
     "dev:backend": "cd convex && CONVEX_AGENT_MODE=anonymous CI=true ./node_modules/.bin/convex dev --tail-logs disable --typecheck enable",
     "dev:service": "node scripts/dev-service.mjs",

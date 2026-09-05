@@ -51,11 +51,29 @@ const (
 	maxInjectionChars     = 3200
 )
 
+// SenderFactory builds the publisher for one backend. A profile holds one
+// per distinct backend, so the credential a factory reads is the one stored
+// for that backend's device identity.
+type SenderFactory func(context.Context, config.Backend) (Sender, error)
+
 type Service struct {
-	paths       config.Paths
-	store       *store.Store
-	cfg         config.Config
-	sender      Sender
+	paths config.Paths
+	store *store.Store
+	// cfg is read by the publish loops and by every IPC handler, and rewritten
+	// when a Project is added while the service runs. It is guarded on its own
+	// rather than by the scan mutex: a publish must not wait behind a Git
+	// observation pass, and reading it unguarded from the flush goroutine is a
+	// race.
+	cfgMu sync.RWMutex
+	cfg   config.Config
+	// senders holds one publisher per backend id, built on first use. There is
+	// deliberately no service-wide client: a local Project and a team Project
+	// on one profile publish to different servers with different credentials
+	// (ADR-074), and a single client could only ever be right for one of them.
+	senderMu    sync.Mutex
+	senders     map[string]Sender
+	senderState map[string]hosted.CredentialStatus
+	newSender   SenderFactory
 	mu          sync.Mutex
 	scans, boot int64
 	// scanCycles counts completed scan passes, not published manifests. A
@@ -85,19 +103,96 @@ type Service struct {
 	// hosted roundtrip on each one.
 	midTurnFetchMu sync.Mutex
 	midTurnFetch   map[string]time.Time
-	// backend supervises the loopback Convex backend a local-mode Project runs
-	// on (ADR-072). It is nil for a team-mode profile, which has no backend of
-	// its own, and every use below is guarded on that.
+	// backend supervises the loopback Convex backend that this profile's local
+	// Projects run on (ADR-072). It is nil for a profile with no bundled
+	// backend, and every use below is guarded on that.
 	backend *localbackend.Manager
 }
 
-// isLocalBackendOrigin reports whether this origin is served by the backend
-// this profile supervises. The rule itself lives in one place, in
-// localbackend, so Lane 06 replacing the profile-level API origin with a
-// per-Project binding changes that body and nothing else.
-func isLocalBackendOrigin(origin string) bool { return localbackend.IsLoopbackOrigin(origin) }
+// config returns this service's current configuration. Config values are
+// copied on write, so the slices in the returned value are never mutated in
+// place and the caller can read them without holding anything.
+func (s *Service) config() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
 
-func Run(ctx context.Context, root string, sender Sender) error {
+func (s *Service) setConfig(next config.Config) {
+	s.cfgMu.Lock()
+	s.cfg = next
+	s.cfgMu.Unlock()
+}
+
+// senderFor returns the publisher for one backend, building it on first use.
+//
+// A backend whose credential cannot be read is remembered as unusable rather
+// than retried on every event: the Keychain entry is not going to appear
+// mid-flush, and the other backends on this profile must keep publishing.
+func (s *Service) senderFor(ctx context.Context, backend config.Backend) (Sender, bool) {
+	if backend.ID == "" {
+		return nil, false
+	}
+	s.senderMu.Lock()
+	defer s.senderMu.Unlock()
+	if sender, built := s.senders[backend.ID]; built {
+		return sender, sender != nil
+	}
+	if s.newSender == nil {
+		return nil, false
+	}
+	sender, err := s.newSender(ctx, backend)
+	if s.senders == nil {
+		s.senders = map[string]Sender{}
+	}
+	if s.senderState == nil {
+		s.senderState = map[string]hosted.CredentialStatus{}
+	}
+	if err != nil {
+		slog.Warn("backend publisher unavailable", "backend", backend.ID, "kind", backend.Kind, "error", err)
+		s.senders[backend.ID] = nil
+		s.senderState[backend.ID] = hosted.CredentialUnknown
+		return nil, false
+	}
+	s.senders[backend.ID] = sender
+	s.senderState[backend.ID] = hosted.CredentialOK
+	return sender, true
+}
+
+// senderForWorkspace resolves the publisher for one registered repository
+// through its Project's backend. An orphan workspace - a Project with no
+// backend binding - is reported, not fatal: the rest of the profile keeps
+// working while that one Project is unusable.
+func (s *Service) senderForWorkspace(ctx context.Context, workspace config.Workspace) (Sender, bool) {
+	backend, bound := s.config().BackendForWorkspace(workspace)
+	if !bound {
+		slog.Warn("workspace has no backend binding", "workspace", workspace.ID, "project", workspace.ProjectID)
+		return nil, false
+	}
+	return s.senderFor(ctx, backend)
+}
+
+// credentialStates reports what this service knows about each backend's stored
+// credential, without calling out to any of them. "ok" means a publisher was
+// built from the Keychain entry; "unknown" means there was nothing to build it
+// from. Whether a server still accepts that credential is a question only a
+// request can answer, and health is polled every two seconds.
+func (s *Service) credentialStates() []map[string]any {
+	backends := s.config().Backends
+	states := make([]map[string]any, 0, len(backends))
+	s.senderMu.Lock()
+	defer s.senderMu.Unlock()
+	for _, backend := range backends {
+		state := map[string]any{"id": backend.ID, "kind": backend.Kind, "apiBaseUrl": backend.APIBaseURL, "credential": string(hosted.CredentialUncertain)}
+		if status, known := s.senderState[backend.ID]; known {
+			state["credential"] = string(status)
+		}
+		states = append(states, state)
+	}
+	return states
+}
+
+func Run(ctx context.Context, root string, senders SenderFactory) error {
 	paths, e := config.Resolve(root)
 	if e != nil {
 		return e
@@ -122,7 +217,7 @@ func Run(ctx context.Context, root string, sender Sender) error {
 		return e
 	}
 	defer sdb.Close()
-	s := &Service{paths: paths, store: sdb, cfg: cfg, sender: sender}
+	s := &Service{paths: paths, store: sdb, cfg: cfg, newSender: senders}
 	// A profile with a bundled backend gets its manager whether or not a
 	// Project has been created yet: `backend status` and the desktop's
 	// first-run "Use on this Mac" both need it before there is any config.
@@ -142,8 +237,15 @@ func Run(ctx context.Context, root string, sender Sender) error {
 		}
 	}
 	s.boot, _ = sdb.Boot(ctx)
+	// This loop is also the store's back-fill for the ADR-074 migration: a
+	// profile upgraded from version 1 writes each workspace's backend binding
+	// on the first boot after the upgrade.
 	for _, w := range cfg.Workspaces {
-		if e = sdb.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, MemberID: w.MemberID, DeviceID: cfg.DeviceID, SessionID: w.SessionID, Root: w.Root, Baseline: w.Baseline, Fingerprint: w.Fingerprint}); e != nil {
+		backend, bound := cfg.BackendForWorkspace(w)
+		if !bound {
+			slog.Warn("workspace has no backend binding; it will not publish", "workspace", w.ID, "project", w.ProjectID)
+		}
+		if e = sdb.UpsertWorkspace(ctx, store.Workspace{ID: w.ID, ProjectID: w.ProjectID, WorkstreamID: w.WorkstreamID, MemberID: w.MemberID, DeviceID: backend.DeviceID, SessionID: w.SessionID, Root: w.Root, Baseline: w.Baseline, Fingerprint: w.Fingerprint, BackendID: backend.ID}); e != nil {
 			return e
 		}
 	}
@@ -188,7 +290,7 @@ func (s *Service) scanAll(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.scanCycles.Add(1)
-	for _, w := range s.cfg.Workspaces {
+	for _, w := range s.config().Workspaces {
 		m, e := git.Observe(ctx, git.Runner{}, w.Root, w.Baseline)
 		if e != nil {
 			continue
@@ -214,7 +316,7 @@ func (s *Service) scanAll(ctx context.Context) {
 	}
 }
 func (s *Service) flushLoop(ctx context.Context) {
-	if s.sender == nil {
+	if s.newSender == nil {
 		return
 	}
 	failures := 0
@@ -251,8 +353,10 @@ func (s *Service) flush(ctx context.Context) bool {
 	}
 	anyQuarantined := false
 	paused := map[string]bool{}
+	backendOf := map[string]string{}
 	for _, w := range ws {
 		paused[w.ID] = w.Paused
+		backendOf[w.ID] = w.BackendID
 	}
 	groups := map[string][]store.QueueEvent{}
 	var order []string
@@ -264,7 +368,27 @@ func (s *Service) flush(ctx context.Context) bool {
 			groups[e.WorkspaceID] = append(groups[e.WorkspaceID], e)
 		}
 	}
+	// A window is drained per workspace, as before, but the failure of one
+	// backend stops only the workspaces on that backend. A team Project whose
+	// server is unreachable must not hold up the local Project beside it.
+	healthy := true
+	failedBackends := map[string]bool{}
 	for _, workspaceID := range order {
+		backendID := backendOf[workspaceID]
+		if failedBackends[backendID] {
+			continue
+		}
+		sender, ok := s.senderForWorkspaceID(ctx, workspaceID)
+		if !ok {
+			// No backend binding, or no credential for the one there is.
+			// Nothing on this backend can publish, and that is a setup
+			// problem rather than a transport one, so it is reported in the
+			// vocabulary every other surface already uses for it.
+			failedBackends[backendID] = true
+			healthy = false
+			s.recordPublishReason("resolve_backend", "not_configured")
+			continue
+		}
 		events := groups[workspaceID]
 		for len(events) > 0 {
 			n := min(100, len(events))
@@ -274,7 +398,7 @@ func (s *Service) flush(ctx context.Context) bool {
 				s.recordPublishError("build_batch", e)
 				return false
 			}
-			if e = s.sender.Send(ctx, workspaceID, batch); e != nil {
+			if e = sender.Send(ctx, workspaceID, batch); e != nil {
 				if !permanentRejection(e) {
 					if backendRefused(e) {
 						// The loopback backend went away under us. Bring it
@@ -283,16 +407,24 @@ func (s *Service) flush(ctx context.Context) bool {
 						s.ensureBackend(ctx)
 					}
 					s.recordPublishError("send_batch", e)
-					return false
+					// Events are sequenced per workspace, so nothing after a
+					// failed window can be sent; and a server that just
+					// refused one workspace will refuse the next, so the rest
+					// of that backend waits for the next flush too.
+					failedBackends[backendID] = true
+					healthy = false
+					break
 				}
 				// The batch is all-or-nothing, so a permanent rejection says
 				// nothing about which event the backend refused. Retrying
 				// each one alone quarantines exactly the refused events
 				// instead of wedging the queue behind them forever (B24).
-				ok, retryErr := s.retryIndividually(ctx, workspaceID, window)
+				ok, retryErr := s.retryIndividually(ctx, sender, workspaceID, window)
 				if !ok {
 					s.recordPublishError("send_batch", retryErr)
-					return false
+					failedBackends[backendID] = true
+					healthy = false
+					break
 				}
 				anyQuarantined = true
 				events = events[n:]
@@ -310,6 +442,9 @@ func (s *Service) flush(ctx context.Context) bool {
 			events = events[n:]
 		}
 	}
+	if !healthy {
+		return false
+	}
 	if anyQuarantined {
 		// The queue is drained, but "rejected" must stay visible: clearing it
 		// would report a flush that abandoned events as a healthy publish.
@@ -317,6 +452,16 @@ func (s *Service) flush(ctx context.Context) bool {
 	}
 	s.clearPublishError()
 	return true
+}
+
+// senderForWorkspaceID resolves a publisher from a workspace id alone, which
+// is what the queue and the heartbeat loop hold.
+func (s *Service) senderForWorkspaceID(ctx context.Context, workspaceID string) (Sender, bool) {
+	workspace, found := workspaceByID(s.config(), workspaceID)
+	if !found {
+		return nil, false
+	}
+	return s.senderForWorkspace(ctx, workspace)
 }
 
 // permanentRejection reports whether the backend refused this content with a
@@ -333,13 +478,13 @@ func permanentRejection(err error) bool {
 // retryIndividually resends a rejected window one event at a time, acking the
 // accepted and quarantining the refused. A transient failure mid-way stops the
 // pass; whatever was not reached stays pending for the next flush.
-func (s *Service) retryIndividually(ctx context.Context, workspaceID string, window []store.QueueEvent) (bool, error) {
+func (s *Service) retryIndividually(ctx context.Context, sender Sender, workspaceID string, window []store.QueueEvent) (bool, error) {
 	for _, event := range window {
 		single, e := store.Batch([]store.QueueEvent{event})
 		if e != nil {
 			return false, e
 		}
-		if e = s.sender.Send(ctx, workspaceID, single); e != nil {
+		if e = sender.Send(ctx, workspaceID, single); e != nil {
 			if !permanentRejection(e) {
 				return false, e
 			}
@@ -423,11 +568,10 @@ func retryDelay(failures int) time.Duration {
 }
 
 func (s *Service) heartbeatLoop(ctx context.Context) {
-	presence, ok := s.sender.(presenceSender)
-	if !ok {
+	if s.newSender == nil {
 		return
 	}
-	s.sendHeartbeats(ctx, presence)
+	s.sendHeartbeats(ctx)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -435,17 +579,28 @@ func (s *Service) heartbeatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.sendHeartbeats(ctx, presence)
+			s.sendHeartbeats(ctx)
 		}
 	}
 }
 
-func (s *Service) sendHeartbeats(ctx context.Context, presence presenceSender) {
+// sendHeartbeats reports presence for each registered repository to the
+// backend that repository's Project lives on. The API is per workspace
+// already; only the client differs.
+func (s *Service) sendHeartbeats(ctx context.Context) {
 	workspaces, err := s.store.Workspaces(ctx)
 	if err != nil {
 		return
 	}
 	for _, workspace := range workspaces {
+		sender, ok := s.senderForWorkspaceID(ctx, workspace.ID)
+		if !ok {
+			continue
+		}
+		presence, ok := sender.(presenceSender)
+		if !ok {
+			continue
+		}
 		state := "active"
 		if workspace.Paused {
 			state = "paused"
@@ -476,7 +631,9 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		// the count travels with the health that the menu bar already reads.
 		focused, _ := s.store.ActiveFocus(ctx, time.Now())
 		quarantined, _ := s.store.QuarantinedCount(ctx)
-		data := map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "pid": os.Getpid()}
+		// Backends are reported as a list because a profile now holds several
+		// (ADR-074): one credential state per backend, not one for the Mac.
+		data := map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "backends": s.credentialStates(), "pid": os.Getpid()}
 		if s.backend != nil {
 			data["backend"] = s.backend.Status(ctx)
 		}
@@ -535,7 +692,7 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		if e := validateIntent(q); e != nil {
 			return daemon.Response{Error: e.Error()}
 		}
-		workstreamID := workspaceWorkstream(s.cfg, q.WorkspaceID)
+		workstreamID := workspaceWorkstream(s.config(), q.WorkspaceID)
 		if workstreamID == "" {
 			return daemon.Response{Error: "workspace not found"}
 		}
@@ -684,7 +841,7 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if q.AgentVendor != "claude" && q.AgentVendor != "codex" && q.AgentVendor != "cursor" || !validContractID(q.AgentWorkstreamID) {
 		return daemon.Response{OK: true, Data: result}
 	}
-	_, workspace, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots)
+	_, workspace, ok := workspaceForAnyRoot(s.config(), q.AgentCWD, q.AgentCandidateRoots)
 	if !ok {
 		return daemon.Response{OK: true, Data: result}
 	}
@@ -700,7 +857,11 @@ func (s *Service) handleAgentInjection(ctx context.Context, q daemon.Request) da
 	if _, focused, e := s.store.FocusedUntil(ctx, session, time.Now()); e == nil && focused {
 		return daemon.Response{OK: true, Data: result}
 	}
-	provider, ok := s.sender.(briefProvider)
+	sender, ok := s.senderForWorkspace(ctx, workspace)
+	if !ok {
+		return daemon.Response{OK: true, Data: result}
+	}
+	provider, ok := sender.(briefProvider)
 	if !ok {
 		return daemon.Response{OK: true, Data: result}
 	}
@@ -893,7 +1054,7 @@ func (s *Service) handleSessionDetail(q daemon.Request) daemon.Response {
 
 func (s *Service) handleCollaboration(ctx context.Context, q daemon.Request) daemon.Response {
 	workspace := config.Workspace{}
-	for _, candidate := range s.cfg.Workspaces {
+	for _, candidate := range s.config().Workspaces {
 		if candidate.ID == q.WorkspaceID {
 			workspace = candidate
 			break
@@ -902,7 +1063,11 @@ func (s *Service) handleCollaboration(ctx context.Context, q daemon.Request) dae
 	if workspace.ID == "" {
 		return daemon.Response{Error: "workspace not found"}
 	}
-	provider, ok := s.sender.(collaborationProvider)
+	sender, ok := s.senderForWorkspace(ctx, workspace)
+	if !ok {
+		return daemon.Response{Error: "hosted collaboration unavailable"}
+	}
+	provider, ok := sender.(collaborationProvider)
 	if !ok {
 		return daemon.Response{Error: "hosted collaboration unavailable"}
 	}
@@ -919,7 +1084,7 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 	// process knows which of them the member registered. The first registered
 	// root wins, and it is what a session-scoped variable is later pinned to, so
 	// every later hook in that session resolves to the same repository.
-	cwd, workspace, ok := workspaceForAnyRoot(s.cfg, q.AgentCWD, q.AgentCandidateRoots)
+	cwd, workspace, ok := workspaceForAnyRoot(s.config(), q.AgentCWD, q.AgentCandidateRoots)
 	if !ok {
 		return daemon.Response{Error: "agent session is not inside a registered repository"}
 	}
@@ -1107,6 +1272,9 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 	if q.Root == "" || q.ProjectID == "" || q.WorkspaceID == "" || q.WorkstreamID == "" || q.MemberID == "" || q.SessionID == "" {
 		return config.Workspace{}, errors.New("development workspace fields are required")
 	}
+	if q.APIBaseURL != "" && q.DeviceID == "" || q.APIBaseURL == "" && q.DeviceID != "" {
+		return config.Workspace{}, errors.New("a backend origin and its device ID are registered together")
+	}
 	for label, value := range map[string]struct{ value, pattern string }{
 		"Project": {q.ProjectID, `^prj_[a-z0-9_]{1,80}$`}, "workspace": {q.WorkspaceID, `^wsp_[a-z0-9_]{1,123}$`},
 		"workstream": {q.WorkstreamID, `^wrk_[a-z0-9_]{1,80}$`}, "member": {q.MemberID, `^mem_[a-z0-9_]{1,123}$`},
@@ -1136,8 +1304,9 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	current := s.config()
 	var projectMemberFound bool
-	for _, existing := range s.cfg.Workspaces {
+	for _, existing := range current.Workspaces {
 		if existing.ID == workspace.ID || existing.Root == workspace.Root {
 			return config.Workspace{}, errors.New("workspace already registered")
 		}
@@ -1147,6 +1316,21 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 	}
 	if requireExistingProjectMember && !projectMemberFound {
 		return config.Workspace{}, errors.New("development workspace must reuse an enrolled Project member")
+	}
+	// A Project added while the service is running arrives with the backend it
+	// was created on, because that backend may be one this profile has never
+	// seen - a friend's team Project joined from a purely local profile. A
+	// Project this profile already holds keeps the binding it has.
+	next := current
+	backend, bound := next.BackendForProject(workspace.ProjectID)
+	if q.APIBaseURL != "" {
+		var upsertErr error
+		if next, backend, upsertErr = next.UpsertBackend(q.APIBaseURL, q.DeviceID); upsertErr != nil {
+			return config.Workspace{}, upsertErr
+		}
+		next = next.BindProject(workspace.ProjectID, backend.ID)
+	} else if !bound {
+		return config.Workspace{}, errors.New("this Project has no backend on this profile; supply the backend origin and device ID")
 	}
 	if s.watch == nil {
 		return config.Workspace{}, errors.New("workspace watcher is unavailable")
@@ -1158,17 +1342,19 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 	if err = s.watch.Add(workspace.Root, ignores); err != nil {
 		return config.Workspace{}, fmt.Errorf("watch development workspace: %w", err)
 	}
-	previous := s.cfg
-	next := s.cfg
-	next.Workspaces = append(append([]config.Workspace(nil), s.cfg.Workspaces...), workspace)
+	next.Workspaces = append(append([]config.Workspace(nil), current.Workspaces...), workspace)
 	if err = config.Save(s.paths, next); err != nil {
 		return config.Workspace{}, err
 	}
-	if err = s.store.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: s.cfg.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
-		_ = config.Save(s.paths, previous)
+	if err = s.store.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: backend.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint, BackendID: backend.ID}); err != nil {
+		_ = config.Save(s.paths, current)
 		return config.Workspace{}, err
 	}
-	s.cfg = next
+	s.setConfig(next)
+	// A Project on a backend this profile has just learned about publishes to
+	// it as soon as the first event is flushed, so the backend it runs on has
+	// to be up by then.
+	s.ensureBackend(ctx)
 	return workspace, nil
 }
 
@@ -1184,7 +1370,7 @@ type lifecycleResult struct {
 }
 
 func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.Response {
-	workspace, found := workspaceByID(s.cfg, q.WorkspaceID)
+	workspace, found := workspaceByID(s.config(), q.WorkspaceID)
 	if !found || workspace.WorkstreamID == "" {
 		return daemon.Response{Error: "workspace not found"}
 	}
@@ -1325,7 +1511,11 @@ func (s *Service) handleLifecycle(ctx context.Context, q daemon.Request) daemon.
 		if budget == 0 {
 			budget = 400
 		}
-		provider, ok := s.sender.(briefProvider)
+		var provider briefProvider
+		ok := false
+		if sender, found := s.senderForWorkspace(ctx, workspace); found {
+			provider, ok = sender.(briefProvider)
+		}
 		if !ok {
 			result.Degraded, result.Degradation = true, "hosted_coordination_unavailable"
 		} else if brief, err := provider.CreateBrief(ctx, workstreamID, trigger, q.SinceCursor, budget); err != nil {
@@ -1510,14 +1700,17 @@ func Register(ctx context.Context, root, apiBaseURL, deviceID string, w config.W
 	if e != nil {
 		return e
 	}
-	if cfg.DeviceID != "" && cfg.DeviceID != deviceID {
-		return fmt.Errorf("device ID does not match registered service device")
+	// The backend is resolved or created here rather than being profile-wide:
+	// a Project registered against a server this profile has never used adds
+	// that server, next to whatever else is already registered (ADR-074).
+	cfg, backend, e := cfg.UpsertBackend(apiBaseURL, deviceID)
+	if e != nil {
+		return e
 	}
-	if cfg.APIBaseURL != "" && cfg.APIBaseURL != apiBaseURL {
-		return fmt.Errorf("hosted API base URL does not match registered service")
+	if existing, bound := cfg.BackendForProject(w.ProjectID); bound && existing.ID != backend.ID {
+		return fmt.Errorf("this Project is already registered against a different backend")
 	}
-	cfg.APIBaseURL = apiBaseURL
-	cfg.DeviceID = deviceID
+	cfg = cfg.BindProject(w.ProjectID, backend.ID)
 	absRoot, e := filepath.Abs(w.Root)
 	if e != nil {
 		return fmt.Errorf("resolve workspace root: %w", e)
@@ -1548,14 +1741,24 @@ func Register(ctx context.Context, root, apiBaseURL, deviceID string, w config.W
 	return config.Save(paths, cfg)
 }
 
-// ensureBackend brings this profile's loopback backend up when the Project it
-// publishes to is served by one. A team-mode profile has no manager and this is
-// a no-op; a local profile that cannot start its backend degrades to a recorded
+// ensureBackend brings this profile's loopback backend up when any Project on
+// it is served by one. A profile with only team Projects never starts it, and
+// a profile that cannot start it degrades to a recorded
 // publish failure rather than a refused boot, because the rest of the service -
 // observation, collision detection against already-published state, the menu -
 // still works while it is down.
 func (s *Service) ensureBackend(ctx context.Context) {
-	if s.backend == nil || !isLocalBackendOrigin(s.cfg.APIBaseURL) {
+	if s.backend == nil {
+		return
+	}
+	local := false
+	for _, backend := range s.config().Backends {
+		if backend.Kind == config.KindLocal {
+			local = true
+			break
+		}
+	}
+	if !local {
 		return
 	}
 	if _, err := s.backend.Ensure(ctx); err != nil {

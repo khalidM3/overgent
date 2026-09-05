@@ -6,15 +6,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/khalidM3/overgent/internal/activation"
 	"github.com/khalidM3/overgent/internal/config"
-	"github.com/khalidM3/overgent/internal/credential"
-	"github.com/khalidM3/overgent/internal/hosted"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -31,15 +28,15 @@ func desktopURLScheme() string   { return "overgent" }
 // different deployment. Activation rejects anything that is not HTTPS.
 var apiBaseURL = "https://api.overgent.com"
 
-// desktopAPIBaseURL is the backend this profile talks to: the origin the
-// profile was enrolled against if it has one, else the build default.
+// desktopAPIBaseURL is the server a new team Project defaults to: the one this
+// profile most recently enrolled a team Project against, else the build
+// default.
 //
 // The stored origin is what makes self-hosting work from a stock build (Lane
 // 05): the member enters their server once, in the onboarding's "connect to a
-// different server" field or with `overgent create --api`, and the existing
-// enroll path persists it in config.APIBaseURL. Lane 06 moves this from the
-// profile to each Project; keeping the read in one function is what makes that
-// a local change.
+// different server" field or with `overgent create --api`, and every later team
+// Project starts from it. It is only a default now - after ADR-074 each Project
+// carries the backend it actually lives on.
 func desktopAPIBaseURL() string {
 	if stored := storedAPIBaseURL(desktopConfigRoot()); stored != "" {
 		return stored
@@ -47,14 +44,14 @@ func desktopAPIBaseURL() string {
 	return apiBaseURL
 }
 
-// desktopActivationBaseURL is the origin that serves the dashboard and its
-// same-origin /v1 proxy. A hosted or self-hosted deployment serves both itself.
-// A local-mode Project has no such deployment, so the app serves them: see
-// dashboardOrigin, which is the local equivalent of Vite in development and of
-// Vercel in production.
-func desktopActivationBaseURL() string {
-	if origin := localDashboardOrigin(); origin != "" {
-		return origin
+// desktopTeamActivationOrigin is the origin that serves a team Project's
+// dashboard and its same-origin /v1 proxy. A hosted or self-hosted deployment
+// serves both itself, so it is the Project's own backend origin. A local
+// Project has no such deployment and is served by the app instead; see
+// activationOriginFor.
+func desktopTeamActivationOrigin(apiBaseURL string) string {
+	if strings.TrimSpace(apiBaseURL) != "" {
+		return strings.TrimRight(apiBaseURL, "/")
 	}
 	return desktopAPIBaseURL()
 }
@@ -151,34 +148,5 @@ func fileDigest(path string) string {
 }
 func desktopConfigRoot() string { root, _ := config.DefaultRoot(); return root }
 func openLocalProject(ctx context.Context, window *application.WebviewWindow) error {
-	paths, err := config.Resolve(desktopConfigRoot())
-	if err != nil {
-		return err
-	}
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return err
-	}
-	if len(cfg.Workspaces) == 0 || cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return errors.New("live view requires an enrolled Project")
-	}
-	projectID := cfg.Workspaces[len(cfg.Workspaces)-1].ProjectID
-	token, err := credential.Get(ctx, cfg.DeviceID)
-	if err != nil {
-		return err
-	}
-	client, err := hosted.New(cfg.APIBaseURL, token)
-	if err != nil {
-		return err
-	}
-	ticket, err := client.CreateDashboardTicket(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	handoff, err := activation.Start(desktopActivationBaseURL(), ticket.Ticket)
-	if err != nil {
-		return err
-	}
-	window.SetURL(handoff.URL())
-	return handoff.Wait(ctx)
+	return openNewestProject(ctx, window, desktopConfigRoot())
 }
