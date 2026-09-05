@@ -104,6 +104,19 @@ export interface EnrollmentResult {
   warnings: string[];
 }
 
+export interface AISettings {
+  judgment: { provider: "anthropic" | "openai-compatible" | "none"; model: string; baseUrl: string | null; keyConfigured: boolean; keyHint: string | null };
+  embeddings: { provider: "openai" | "deterministic"; model: string; dimensions: 1024; baseUrl: string | null; keyConfigured: boolean; keyHint: string | null };
+  effective: { judgment: "project" | "operator" | "none"; embeddings: "project" | "operator" | "deterministic" };
+  revision: number;
+  updatedAt: string;
+}
+
+export interface AISettingsWrite {
+  judgment: { provider: AISettings["judgment"]["provider"]; model: string; baseUrl?: string; apiKey?: string };
+  embeddings: { provider: AISettings["embeddings"]["provider"]; model: string; dimensions: 1024; baseUrl?: string; apiKey?: string };
+}
+
 interface WailsCall {
   ByName<T>(name: string, ...args: unknown[]): Promise<T>;
 }
@@ -206,10 +219,14 @@ export const nativeOnboarding = {
   sessionFocus: (workstreamId: string) => call<NativeSessionFocus>("SessionFocus", workstreamId),
   /** Minutes of quiet; zero or less lets the session hear again immediately. */
   setSessionFocus: (workstreamId: string, minutes: number) => call<NativeSessionFocus>("SetSessionFocus", workstreamId, minutes),
+  aiSettings: (projectId: string) => call<AISettings>("AISettings", projectId),
+  putAISettings: (projectId: string, write: AISettingsWrite) => call<AISettings>("PutAISettings", projectId, write),
 };
 
 // Optional on the interface so older signed desktop shells degrade by omitting
 // the action instead of making the rest of onboarding unusable during update.
-export type NativeOnboarding = Omit<typeof nativeOnboarding, "openOwningSession"> & {
+export type NativeOnboarding = Omit<typeof nativeOnboarding, "openOwningSession" | "aiSettings" | "putAISettings"> & {
   openOwningSession?: typeof nativeOnboarding.openOwningSession;
+  aiSettings?: typeof nativeOnboarding.aiSettings;
+  putAISettings?: typeof nativeOnboarding.putAISettings;
 };

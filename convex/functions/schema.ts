@@ -5,6 +5,7 @@ const role = v.union(v.literal("owner"), v.literal("member"));
 const manifestState = v.union(v.literal("staging"), v.literal("active"), v.literal("superseded"));
 const degradedReason = v.union(
   v.literal("not_configured"),
+  v.literal("provider_unconfigured"),
   v.literal("quota"),
   v.literal("provider_error"),
   v.literal("offline"),
@@ -23,6 +24,24 @@ export default defineSchema({
     // or written by current code; drop it once no such rows remain.
     planRevision: v.optional(v.number()),
   }).index("by_public_id", ["publicId"]),
+
+  projectAISettings: defineTable({
+    projectId: v.id("projects"),
+    revision: v.number(),
+    judgmentProvider: v.union(v.literal("anthropic"), v.literal("openai-compatible"), v.literal("none")),
+    judgmentModel: v.string(),
+    judgmentBaseUrl: v.optional(v.string()),
+    judgmentKeyCiphertext: v.optional(v.string()),
+    judgmentKeyHint: v.optional(v.string()),
+    embeddingProvider: v.union(v.literal("openai"), v.literal("deterministic")),
+    embeddingModel: v.string(),
+    embeddingDimensions: v.number(),
+    embeddingBaseUrl: v.optional(v.string()),
+    embeddingKeyCiphertext: v.optional(v.string()),
+    embeddingKeyHint: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedByMemberId: v.id("members"),
+  }).index("by_project", ["projectId"]),
 
   members: defineTable({
     publicId: v.string(),

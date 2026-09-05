@@ -88,6 +88,60 @@ export const createProject = internalMutation({
   },
 });
 
+export const projectAISettingsAuth = internalQuery({
+  args: {
+    tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()),
+    projectPublicId: v.string(), ownerOnly: v.boolean(), now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (args.ownerOnly && auth.member.role !== "owner") fail("forbidden");
+    const settings = await ctx.db.query("projectAISettings").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).unique();
+    return {
+      projectId: auth.project._id,
+      projectPublicId: auth.project.publicId,
+      memberId: auth.member._id,
+      settings,
+    };
+  },
+});
+
+export const projectAISettingsForProvider = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.status !== "active") return null;
+    const settings = await ctx.db.query("projectAISettings").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).unique();
+    return { projectPublicId: project.publicId, settings };
+  },
+});
+
+export const saveProjectAISettings = internalMutation({
+  args: {
+    tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number(),
+    judgmentProvider: v.union(v.literal("anthropic"), v.literal("openai-compatible"), v.literal("none")),
+    judgmentModel: v.string(), judgmentBaseUrl: v.optional(v.string()), judgmentKeyCiphertext: v.optional(v.string()), judgmentKeyHint: v.optional(v.string()),
+    embeddingProvider: v.union(v.literal("openai"), v.literal("deterministic")),
+    embeddingModel: v.string(), embeddingDimensions: v.number(), embeddingBaseUrl: v.optional(v.string()), embeddingKeyCiphertext: v.optional(v.string()), embeddingKeyHint: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireCollaborationActor(ctx, args);
+    if (auth.member.role !== "owner") fail("forbidden");
+    const existing = await ctx.db.query("projectAISettings").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).unique();
+    const record = {
+      judgmentProvider: args.judgmentProvider, judgmentModel: args.judgmentModel, judgmentBaseUrl: args.judgmentBaseUrl,
+      judgmentKeyCiphertext: args.judgmentKeyCiphertext, judgmentKeyHint: args.judgmentKeyHint,
+      embeddingProvider: args.embeddingProvider, embeddingModel: args.embeddingModel, embeddingDimensions: args.embeddingDimensions,
+      embeddingBaseUrl: args.embeddingBaseUrl, embeddingKeyCiphertext: args.embeddingKeyCiphertext, embeddingKeyHint: args.embeddingKeyHint,
+      updatedAt: args.now, updatedByMemberId: auth.member._id,
+    };
+    const revision = (existing?.revision ?? 0) + 1;
+    if (existing) await ctx.db.patch(existing._id, { ...record, revision });
+    else await ctx.db.insert("projectAISettings", { projectId: auth.project._id, ...record, revision });
+    return { projectId: auth.project._id, revision, updatedAt: args.now };
+  },
+});
+
 export const createInvite = internalMutation({
   args: {
     tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), invitePublicId: v.string(), secretHash: v.string(),
@@ -1165,7 +1219,7 @@ export const deleteProjectBatch = internalMutation({
       if (deliveries.length) for (const delivery of deliveries) await ctx.db.delete(delivery._id); else await ctx.db.delete(workstream._id);
       return again();
     }
-    const directTables = ["contextDeliveries", "sessionReadSets", "contractFingerprints", "findingFeedback", "findings", "sessionMessages", "syncComments", "syncCards", "activityEvents", "deviceCursors", "dashboardTickets", "browserSessions", "invites", "workspaces", "repositoryScopes"] as const;
+    const directTables = ["contextDeliveries", "sessionReadSets", "contractFingerprints", "findingFeedback", "findings", "sessionMessages", "syncComments", "syncCards", "activityEvents", "deviceCursors", "dashboardTickets", "browserSessions", "invites", "workspaces", "repositoryScopes", "projectAISettings"] as const;
     for (const table of directTables) {
       const rows = await ctx.db.query(table).withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(100);
       if (rows.length) { for (const row of rows) await ctx.db.delete(row._id); return again(); }

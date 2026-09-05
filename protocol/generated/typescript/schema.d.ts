@@ -229,6 +229,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/ai-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read effective provider configuration without returning key material. */
+        get: operations["getProjectAISettings"];
+        /** @description Owner-only full replacement. Omitted keys are retained and empty keys are cleared. */
+        put: operations["putProjectAISettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/collaboration": {
         parameters: {
             query?: never;
@@ -553,6 +571,54 @@ export interface components {
             ticket: string;
             /** Format: date-time */
             expiresAt: string;
+        };
+        AIKeyWrite: "" | string;
+        AISettingsWrite: {
+            judgment: {
+                /** @enum {unknown} */
+                provider: "anthropic" | "openai-compatible" | "none";
+                model: string;
+                baseUrl?: string;
+                apiKey?: "" | string;
+            };
+            embeddings: {
+                /** @enum {unknown} */
+                provider: "openai" | "deterministic";
+                model: string;
+                /** @constant */
+                dimensions: 1024;
+                baseUrl?: string;
+                apiKey?: "" | string;
+            };
+        };
+        AISettings: {
+            judgment: {
+                /** @enum {unknown} */
+                provider: "anthropic" | "openai-compatible" | "none";
+                model: string;
+                baseUrl: string | null;
+                keyConfigured: boolean;
+                keyHint: string | null;
+            };
+            embeddings: {
+                /** @enum {unknown} */
+                provider: "openai" | "deterministic";
+                model: string;
+                /** @constant */
+                dimensions: 1024;
+                baseUrl: string | null;
+                keyConfigured: boolean;
+                keyHint: string | null;
+            };
+            effective: {
+                /** @enum {unknown} */
+                judgment: "project" | "operator" | "none";
+                /** @enum {unknown} */
+                embeddings: "project" | "operator" | "deterministic";
+            };
+            revision: number;
+            /** Format: date-time */
+            updatedAt: string;
         };
         DeviceBootstrap: {
             deviceId: string;
@@ -3330,6 +3396,161 @@ export interface operations {
                             createdAt: string;
                         })[];
                         cursor: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    getProjectAISettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project AI settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        judgment: {
+                            /** @enum {unknown} */
+                            provider: "anthropic" | "openai-compatible" | "none";
+                            model: string;
+                            baseUrl: string | null;
+                            keyConfigured: boolean;
+                            keyHint: string | null;
+                        };
+                        embeddings: {
+                            /** @enum {unknown} */
+                            provider: "openai" | "deterministic";
+                            model: string;
+                            /** @constant */
+                            dimensions: 1024;
+                            baseUrl: string | null;
+                            keyConfigured: boolean;
+                            keyHint: string | null;
+                        };
+                        effective: {
+                            /** @enum {unknown} */
+                            judgment: "project" | "operator" | "none";
+                            /** @enum {unknown} */
+                            embeddings: "project" | "operator" | "deterministic";
+                        };
+                        revision: number;
+                        /** Format: date-time */
+                        updatedAt: string;
+                    };
+                };
+            };
+            /** @description Stable error envelope */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: {
+                            code: string;
+                            message: string;
+                            requestId: string;
+                            retryable: boolean;
+                            details?: Record<string, never>;
+                        };
+                    };
+                };
+            };
+        };
+    };
+    putProjectAISettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    judgment: {
+                        /** @enum {unknown} */
+                        provider: "anthropic" | "openai-compatible" | "none";
+                        model: string;
+                        baseUrl?: string;
+                        apiKey?: "" | string;
+                    };
+                    embeddings: {
+                        /** @enum {unknown} */
+                        provider: "openai" | "deterministic";
+                        model: string;
+                        /** @constant */
+                        dimensions: 1024;
+                        baseUrl?: string;
+                        apiKey?: "" | string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Updated Project AI settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        judgment: {
+                            /** @enum {unknown} */
+                            provider: "anthropic" | "openai-compatible" | "none";
+                            model: string;
+                            baseUrl: string | null;
+                            keyConfigured: boolean;
+                            keyHint: string | null;
+                        };
+                        embeddings: {
+                            /** @enum {unknown} */
+                            provider: "openai" | "deterministic";
+                            model: string;
+                            /** @constant */
+                            dimensions: 1024;
+                            baseUrl: string | null;
+                            keyConfigured: boolean;
+                            keyHint: string | null;
+                        };
+                        effective: {
+                            /** @enum {unknown} */
+                            judgment: "project" | "operator" | "none";
+                            /** @enum {unknown} */
+                            embeddings: "project" | "operator" | "deterministic";
+                        };
+                        revision: number;
+                        /** Format: date-time */
+                        updatedAt: string;
                     };
                 };
             };

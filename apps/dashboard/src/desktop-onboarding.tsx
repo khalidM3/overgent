@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentOptions, NewProjectScreen } from "./new-project";
 import { nativeOnboarding, type AdapterState, type EnrollmentRequest, type NativeOnboarding, type OnboardingState } from "./native";
 import type { AgentVendor } from "./model";
+import { DesktopAISettings } from "./desktop-ai-settings";
 
 /** First run in the order the member can answer: what this is, where, then what to connect. */
 const FIRST_RUN_STEPS = ["welcome", "repository", "agents"] as const;
@@ -232,6 +233,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
         {state.mode && <p className="field-note">This Mac is set up for {state.mode} Projects. Reset to switch.</p>}
         {state.backend?.present && state.backend.lastError && <p className="form-warning">Backend: {state.backend.lastError}</p>}
         <AdapterList state={state} onReconnect={setReconnectTarget} />
+        {api.aiSettings && api.putAISettings && <DesktopAISettings api={{ aiSettings: api.aiSettings, putAISettings: api.putAISettings }} projectId={state.projectId} />}
         {/* Said once, only when it is true, and only about the adapters it is
             true of. The previous version stated the healthy case as a banner on
             every visit, which made the unhealthy case read as more of the same. */}
