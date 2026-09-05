@@ -14,17 +14,17 @@
   "redirects": [
     {
       "source": "/install.sh",
-      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/install.sh",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/install.sh",
       "permanent": false
     },
     {
       "source": "/uninstall.sh",
-      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/uninstall.sh",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/uninstall.sh",
       "permanent": false
     },
     {
       "source": "/download/macos",
-      "destination": "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/Overgent_macOS_arm64.zip?download=1",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_macOS_arm64.zip?download=1",
       "permanent": false
     }
   ],
