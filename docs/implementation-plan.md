@@ -334,6 +334,22 @@ release trust inputs and security channel, publishes a credentialed candidate,
 records clean-machine lifecycle evidence, and a real two-person team completes
 the second-session gate. Linux, Windows, and Intel macOS remain unqualified.
 
+## L9 — Open-source rewire
+
+Deliver the local-first public release defined by migration Lanes 01–06: the
+bundled loopback backend, public-repository readiness, local Projects,
+per-Project bring-your-own AI settings, self-hosting and Cloud documentation,
+and per-Project backend binding. The evidence is the bundled-backend result in
+`validation/spikes/bundled-backend/README.md`, the local-mode run in
+`validation/evidence/l9-local-mode.md`, the Lane 04 protocol and backend test
+suite, the self-hosting walkthrough, and
+`validation/evidence/l9-project-backends.md`.
+
+Exit: a supported Mac can create a local Project with no account or network;
+team Projects can use Cloud or a self-hosted backend; provider keys stay
+encrypted and are never returned; and local and team Projects coexist in one
+profile without widening the wire privacy boundary.
+
 ## Parallel agent lanes
 
 After L0: Agent A owns Go local core; Agent B Convex/API; Agent C dashboard fixtures; one integrator owns protocol/generated code and end-to-end merge. Agents never redefine shared schemas independently.

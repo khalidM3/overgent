@@ -1,57 +1,46 @@
 # Overgent
 
-Overgent is a persistent coordination harness for anyone building software with more than one coding agent at a time — one developer running parallel sessions, or a team. It acts as air traffic control around the coding harnesses people already use: combining live Git evidence, reported intent, and semantic coordination intelligence, then routing only relevant findings and decisions to each workstream before merge time. A Project with a single member is a complete Project; two of your own sessions in one repository collide with each other exactly as two people's do.
+Overgent is air traffic control for multiple coding agents working in one repository. It catches overlapping edits, stale contract assumptions, and duplicated work while agents are working—not at merge time. It observes and routes coordination context; it never edits code, merges changes, or steers an agent's model loop, tools, or permissions.
 
-## Current coverage
-
-These are qualification boundaries, not design ones. Codex and Claude Code have qualified adapters today, and each additional vendor needs its own adapter (ADR-039) rather than a configuration flag. The desktop beta is qualified on Apple Silicon macOS; the Go core is CGO-free and cross-compiles, but no other target is validated yet and none may be advertised as a supported install until it is (ADR-050).
-
-The repository has completed L-1 and L0–L6 and has implemented L8 to its owner-controlled beta gates, including the deterministic vertical slice, MCP lifecycle core, coordination-intelligence loop, signed update/recovery path, fleet/data controls, and Apple Silicon desktop beta. Publication still requires Apple/update signing credentials, a monitored private security channel, clean-machine evidence, and the real-team second-session gate. Start with [`AGENTS.md`](AGENTS.md) and read [`docs/README.md`](docs/README.md) in order.
-
-Core decisions: persistent Projects; standalone Go local core; one service per user; React dashboard and Convex backend; deterministic evidence plus V1 semantic coordination over bounded summaries; no raw transcript, system-prompt, diff, or source-content collection in V1. The intended trust model publishes all installed/collection code and core hosted coordination code while isolating private cloud operations in a separate repository.
-
-Implementation follows [`docs/implementation-plan.md`](docs/implementation-plan.md).
-
-## Coding-agent integration status
-
-The official-SDK MCP lifecycle bridge and bounded Project hook adapters are implemented and locally conformant for dogfooding. The explicit `--development` setup path installs Project-scoped MCP configuration plus supported Codex and Claude Code lifecycle hooks. Hooks observe session state, tool categories, safe repository-relative paths, and an approved bounded session title; relevant coordination briefs remain MCP pull, with the dashboard as the urgent human-attention surface.
-
-Status and cleanup remain available for isolated validation entries:
+## Install
 
 ```bash
-overgent setup status --agent codex --project-root /path/to/project
-overgent setup remove --agent codex --project-root /path/to/project
-overgent setup status --agent claude --project-root /path/to/project
-overgent setup remove --agent claude --project-root /path/to/project
+curl -fsSL https://overgent.com/install.sh | sh
 ```
 
-Overgent does not bypass either client's trust boundary or claim an unsupported interrupt channel. See [L5 evidence](validation/evidence/l5-mcp.md) and the current adapter limitations in [`docs/development.md`](docs/development.md).
+Overgent currently supports Apple Silicon Macs running macOS 12 or later. For other platforms, [build from source](docs/development.md).
 
-Adapter setup is profile-aware: partial current-profile entries are repaired,
-bindings owned by another Overgent profile get an explicit reconnect preview,
-and the desktop waits for a real provider event before labeling observation as
-verified.
+## Local by default
 
-For the native hot-reload stack and the two-worktree Codex/Claude collision
-exercise, see [`docs/development.md`](docs/development.md).
+A new Project runs against the bundled backend on loopback. Nothing leaves your Mac, and its coordination data stays under your Overgent profile root.
 
-For the release boundary and owner prerequisites, see [`docs/beta-release.md`](docs/beta-release.md). For a real two-Mac dogfood Project, configure one cloud Convex development
-deployment and run `pnpm dev:shared` on both Macs with the same HTTPS
-`OVERGENT_SHARED_API_ORIGIN`. This uses an isolated local profile; see the
-shared-development section in [`docs/development.md`](docs/development.md).
+## Team mode
 
-## Optional managed semantic retrieval
+Create or join a team Project on Overgent Cloud when you want to work with teammates. Only derived, structured coordination facts sync; source files, raw diffs, Git objects, transcripts, prompts, credentials, and command output do not. See the full [prohibited-data list](docs/security-privacy.md).
 
-The default local dogfood profile includes the deterministic,
-vocabulary-bounded semantic fallback. A hosted deployment can enrich the same
-privacy-filtered intent/checkpoint summaries with OpenAI
-`text-embedding-3-large`; see [`docs/openai-embeddings.md`](docs/openai-embeddings.md).
-The API key is a hosted deployment secret only and is never part of the local
-client or agent configuration.
+You can also run the same backend yourself; see [self-hosting](docs/self-hosting.md).
 
-## Development checks
+## Bring your own model
 
-Use Go 1.26 and Node 22 or newer. Corepack supplies the pinned pnpm release.
+Configure semantic judgment for a Project with your own provider key:
+
+```bash
+export ANTHROPIC_API_KEY='...'
+overgent ai set --judgment-provider anthropic --judgment-model claude-sonnet-4-5 --judgment-key-env ANTHROPIC_API_KEY
+overgent ai status --json
+```
+
+See [AI providers](docs/ai-providers.md) for Project settings, OpenAI-compatible providers, and how Overgent behaves with no key configured.
+
+## Agents and findings
+
+Codex and Claude Code are supported today. Cursor has a configuration adapter, but its live hook behavior is not yet verified. To add another agent adapter, follow [adapter development](docs/adapter-development.md).
+
+Deterministic findings are always available: path overlap, shared dependencies, and contract evidence. Semantic findings are available only when a provider is configured, and remain explicitly probabilistic.
+
+## Development
+
+Read [the documentation](docs/README.md) in order, then use these checks:
 
 ```bash
 go test ./...
@@ -64,6 +53,4 @@ pnpm protocol:generate
 pnpm protocol:check
 ```
 
-`protocol:generate` is the only supported way to update generated Go and TypeScript protocol types. `protocol:check` regenerates into an isolated temporary directory and fails on byte drift. Generated files are committed.
-
-The public/private data and repository split is explicit in [`docs/public-repository-boundary.md`](docs/public-repository-boundary.md). Overgent is licensed under Apache-2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Public launch still requires an operational private security-reporting channel.
+See [contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md). Overgent is licensed under [Apache-2.0](LICENSE).

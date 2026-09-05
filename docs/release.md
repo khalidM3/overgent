@@ -1,4 +1,4 @@
-# Overgent beta release
+# Overgent release
 
 ## Supported boundary
 

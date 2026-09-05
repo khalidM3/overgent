@@ -11,8 +11,8 @@ interface ReleaseManifest {
   assets?: unknown;
 }
 
-const DESKTOP_URL = "https://releases.overgent.com/download/macos";
-const INSTALL_COMMAND = "curl -fsSL https://releases.overgent.com/install.sh | sh";
+const DESKTOP_URL = "https://overgent.com/download/macos";
+const INSTALL_COMMAND = "curl -fsSL https://overgent.com/install.sh | sh";
 
 export function LandingPage() {
   const [release, setRelease] = useState<ReleaseState>({ status: "loading" });
@@ -50,11 +50,11 @@ export function LandingPage() {
     <main>
       <section className="landing-hero">
         <div>
-          <p className="landing-kicker"><span>Public beta</span> Coordination for parallel agents</p>
+          <p className="landing-kicker"><span>Open source</span> Coordination for parallel agents</p>
           <h1>Keep every coding agent working from the same reality.</h1>
-          <p className="landing-lede">Overgent gives Codex and Claude Code a shared view of intent, files, contracts, and dependencies — then routes the right correction before parallel work collides.</p>
+          <p className="landing-lede">Run local by default, invite teammates only when you choose, and bring your own model for semantic coordination.</p>
           <div className="landing-actions">
-            <a className="landing-primary" href={ready ? DESKTOP_URL : "#download"}><Download size={16} /> {ready ? "Download for macOS" : "Get the beta"}</a>
+            <a className="landing-primary" href={ready ? DESKTOP_URL : "#download"}><Download size={16} /> {ready ? "Download for macOS" : "Get Overgent"}</a>
             <a className="landing-secondary" href="/dashboard">Open dashboard <ArrowRight size={15} /></a>
           </div>
           <p className="landing-trust"><ShieldCheck size={14} /> Raw source, prompts, diffs, credentials, and command output never cross the wire.</p>
@@ -96,7 +96,7 @@ export function LandingPage() {
 
       <section className="landing-section landing-privacy" id="privacy" aria-labelledby="privacy-heading">
         <h2 id="privacy-heading">Share coordination facts, not the work itself.</h2>
-        <p className="landing-section-lede">The local service can see what is changing, but the wire accepts only derived, structured coordination facts. Raw source, raw diffs, Git objects, prompts, transcripts, tool output, environment values, and credentials stay on your machine.</p>
+        <p className="landing-section-lede">The local service can see what is changing, but the wire accepts only derived, structured coordination facts. Raw source, raw diffs, Git objects, prompts, transcripts, tool output, environment values, and credentials stay on your machine. Overgent is open source under Apache-2.0.</p>
       </section>
 
       <section className="landing-section" id="download" aria-labelledby="download-heading">
@@ -177,6 +177,6 @@ function CopyCommand({ enabled }: { enabled: boolean }) {
         {copied ? <Check size={15} /> : <Copy size={15} />}
       </button>
     </div>
-    {!enabled && <small>Live once the signed beta is promoted.</small>}
+    {!enabled && <small>Live once the first signed release is promoted.</small>}
   </div>;
 }
