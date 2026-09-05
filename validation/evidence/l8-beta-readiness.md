@@ -27,4 +27,4 @@ tests require a runner that permits loopback sockets; the managed workspace
 sandbox used for this pass forbids them. The credentialed release workflow,
 notarization, clean-machine lifecycle, restart/reconnect soak, and two-person
 second session cannot be claimed until the owner supplies the inputs described
-in `docs/beta-release.md` and records their results here.
+in `docs/release.md` and records their results here.

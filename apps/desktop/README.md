@@ -32,4 +32,4 @@ Wails `v3.0.0-beta.12` is exact-pinned in this separate Go module because Wails
 v3 remains prerelease and requires CGO. The root Go core remains pure-Go and
 does not import Wails. The release workflow signs, notarizes, staples, and
 packages the production app; unsigned local builds remain development-only.
-See `docs/beta-release.md` for the exact supported boundary.
+See `docs/release.md` for the exact supported boundary.

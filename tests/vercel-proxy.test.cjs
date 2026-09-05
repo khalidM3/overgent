@@ -101,9 +101,9 @@ test("release channel rejects non-Blob and non-current targets", async () => {
   }
 });
 
-test("public installer and desktop aliases redirect to promoted Blob artifacts", () => {
+test("public installer and desktop aliases redirect to the latest published GitHub Release assets", () => {
   const redirects = Object.fromEntries(vercelConfig.redirects.map((redirect) => [redirect.source, redirect.destination]));
-  assert.equal(redirects["/install.sh"], "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/install.sh");
-  assert.equal(redirects["/uninstall.sh"], "https://7y8t6bjdbq682vo5.public.blob.vercel-storage.com/current/uninstall.sh");
-  assert.match(redirects["/download/macos"], /\/current\/Overgent_macOS_arm64\.zip\?download=1$/);
+  assert.equal(redirects["/install.sh"], "https://github.com/khalidM3/overgent/releases/latest/download/install.sh");
+  assert.equal(redirects["/uninstall.sh"], "https://github.com/khalidM3/overgent/releases/latest/download/uninstall.sh");
+  assert.equal(redirects["/download/macos"], "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_macOS_arm64.zip?download=1");
 });

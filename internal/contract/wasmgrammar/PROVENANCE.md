@@ -113,4 +113,4 @@ These modules were built on a developer machine, not in CI. The inputs are
 pinned to exact commits, so a rebuild is reproducible by hand, but nothing yet
 proves that the committed bytes came from those commits. Moving the build into the
 release workflow and comparing the hash is a prerequisite of the signed-release
-gate in `docs/beta-release.md`.
+gate in `docs/release.md`.
