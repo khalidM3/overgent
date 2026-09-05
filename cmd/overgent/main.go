@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -119,29 +120,22 @@ func run(args []string) error {
 		} else {
 			*apiBase = validated
 		}
-		// A profile that has already enrolled has a device identity, and one
-		// per-user service keeps one identity across all of its Projects. Minting
-		// a second credential here would strand the Projects the first one owns,
-		// so an enrolled profile takes the additional-Project path instead of
-		// failing and leaving `workspace add` as the only undocumented way
-		// through. The desktop app has always done this; the CLI now matches it.
-		existing, existingErr := enrolledDevice(paths, *repository)
-		if existingErr != nil {
-			return existingErr
+		// The backend named here is the Project's, not the profile's: a local
+		// Project and a team Project sit side by side (ADR-074). The flow
+		// reuses this profile's device identity for that backend when it has
+		// one, and mints a new one when this is a server it has never used.
+		cfg, configErr := config.Load(paths)
+		if configErr != nil {
+			return configErr
 		}
-		var result onboarding.Result
-		var createErr error
-		if existing.deviceID != "" {
-			token, tokenErr := credential.Get(ctx, existing.deviceID)
-			if tokenErr != nil {
-				return fmt.Errorf("read existing device credential: %w", tokenErr)
-			}
-			service := onboarding.New(existing.apiBaseURL)
-			result, createErr = service.CreateAdditional(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: existing.apiBaseURL, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}, existing.deviceID, token)
-		} else {
-			service := onboarding.New(*apiBase)
-			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version, SkipInvite: *local})
+		if repositoryErr := repositoryAvailable(cfg, *repository); repositoryErr != nil {
+			return repositoryErr
 		}
+		service := onboarding.New(cfg.BackendTarget(*apiBase))
+		result, createErr := service.CreateOnNewBackend(ctx, onboarding.Options{
+			ConfigRoot: *root, RepositoryRoot: *repository, ProjectLabel: *label,
+			DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version, SkipInvite: *local,
+		})
 		if createErr != nil {
 			return createErr
 		}
@@ -162,31 +156,35 @@ func run(args []string) error {
 		if joinFlags.NArg() != 1 {
 			return errors.New("join requires one invite link or code")
 		}
+		// An https invite link names the server the Project lives on, which is
+		// the whole point of pasting a link rather than a bare code: a member
+		// on a purely local profile can join a friend's team Project without
+		// being asked which server it is on. A bare code or a deep link names
+		// no server, so --api (or its default) decides.
+		_, inviteOrigin, inviteErr := onboarding.ParseInviteCode(joinFlags.Arg(0))
+		if inviteErr != nil {
+			return inviteErr
+		}
+		if inviteOrigin != "" {
+			if flagProvided(fs, "api") && strings.TrimRight(*apiBase, "/") != inviteOrigin {
+				return errors.New("this invite link names a different server than --api; pass the bare invite code to use --api")
+			}
+			*apiBase = inviteOrigin
+		}
 		validatedAPI, originErr := onboarding.ValidateAPIOrigin(*apiBase)
 		if originErr != nil {
 			return originErr
 		}
 		*apiBase = validatedAPI
-		// A Mac that is already enrolled joins as itself. Enrolling again would
-		// mint a second device identity, which the local profile then refuses to
-		// register - spending the invite and joining nothing.
-		existing, configErr := config.Load(paths)
+		cfg, configErr := config.Load(paths)
 		if configErr != nil {
 			return configErr
 		}
-		options := onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}
-		var result onboarding.Result
-		var joinErr error
-		if existing.DeviceID != "" {
-			options.APIBaseURL = existing.APIBaseURL
-			token, credentialErr := credential.Get(ctx, existing.DeviceID)
-			if credentialErr != nil {
-				return fmt.Errorf("read existing device credential: %w", credentialErr)
-			}
-			result, joinErr = onboarding.New(existing.APIBaseURL).JoinAdditional(ctx, options, existing.DeviceID, token, joinFlags.Arg(0))
-		} else {
-			result, joinErr = onboarding.New(*apiBase).Join(ctx, options, joinFlags.Arg(0))
+		if repositoryErr := repositoryAvailable(cfg, *repository); repositoryErr != nil {
+			return repositoryErr
 		}
+		options := onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}
+		result, joinErr := onboarding.New(cfg.BackendTarget(*apiBase)).JoinOnNewBackend(ctx, options, joinFlags.Arg(0))
 		if joinErr != nil {
 			return joinErr
 		}
@@ -197,24 +195,47 @@ func run(args []string) error {
 			WorkstreamID string `json:"workstreamId"`
 		}{result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID})
 	case "reset":
-		// Recovery for a device whose credential the hosted API no longer
-		// accepts - revoked by an owner, or unknown to the deployment. The
-		// desktop app offers the same action; this is the headless path.
+		// Recovery for a device whose credential a backend no longer accepts -
+		// revoked by an owner, or unknown to the deployment. It is scoped to
+		// one backend, because a profile now holds several and a revoked team
+		// Project says nothing about the local Project beside it. --all is the
+		// whole-profile form.
 		resetFlags := flag.NewFlagSet("reset", flag.ContinueOnError)
 		force := resetFlags.Bool("force", false, "clear the local enrollment even if the credential could not be verified")
+		backendID := resetFlags.String("backend", "", "backend id to reset; see overgent backend list")
+		all := resetFlags.Bool("all", false, "reset every backend on this profile")
 		if e = resetFlags.Parse(rest[1:]); e != nil {
 			return e
 		}
-		outcome, resetErr := onboarding.New(*apiBase).Reset(ctx, *root, *force)
+		cfg, configErr := config.Load(paths)
+		if configErr != nil {
+			return configErr
+		}
+		if *all && *backendID != "" {
+			return errors.New("reset accepts --backend or --all, not both")
+		}
+		var outcomes []onboarding.ResetOutcome
+		var resetErr error
+		switch {
+		case *all:
+			outcomes, resetErr = onboarding.ResetAll(ctx, *root, *force)
+		default:
+			backend, resolveErr := resolveBackend(cfg, *backendID)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			var outcome onboarding.ResetOutcome
+			outcome, resetErr = onboarding.New(backend).Reset(ctx, *root, *force)
+			outcomes = []onboarding.ResetOutcome{outcome}
+		}
 		if resetErr != nil {
 			return resetErr
 		}
-		return json.NewEncoder(os.Stdout).Encode(struct {
-			Credential        string `json:"credential"`
-			DeviceID          string `json:"deviceId,omitempty"`
-			ClearedWorkspaces int    `json:"clearedWorkspaces"`
-			CredentialDeleted bool   `json:"credentialDeleted"`
-		}{string(outcome.Status), outcome.DeviceID, outcome.ClearedWorkspaces, outcome.CredentialDeleted})
+		reported := make([]resetReport, 0, len(outcomes))
+		for _, outcome := range outcomes {
+			reported = append(reported, resetReport{string(outcome.Status), outcome.BackendID, outcome.APIBaseURL, outcome.DeviceID, outcome.ClearedWorkspaces, outcome.CredentialDeleted})
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"backends": reported})
 	case "dashboard":
 		dashboardFlags := flag.NewFlagSet("dashboard", flag.ContinueOnError)
 		projectID := dashboardFlags.String("project", "", "Project id")
@@ -225,14 +246,21 @@ func run(args []string) error {
 		if loadErr != nil {
 			return loadErr
 		}
-		if *projectID == "" || cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-			return errors.New("dashboard requires an enrolled service and project id")
+		if *projectID == "" {
+			return errors.New("dashboard requires a project id")
 		}
-		token, credentialErr := credential.Get(ctx, cfg.DeviceID)
+		// The dashboard opens against the backend this Project lives on, not a
+		// profile-wide origin: two Projects on one Mac can be served by two
+		// different servers.
+		backend, bound := cfg.BackendForProject(*projectID)
+		if !bound || backend.DeviceID == "" {
+			return errors.New("dashboard requires an enrolled Project")
+		}
+		token, credentialErr := credential.Get(ctx, backend.DeviceID)
 		if credentialErr != nil {
 			return credentialErr
 		}
-		client, clientErr := hosted.New(cfg.APIBaseURL, token)
+		client, clientErr := hosted.New(backend.APIBaseURL, token)
 		if clientErr != nil {
 			return clientErr
 		}
@@ -240,7 +268,7 @@ func run(args []string) error {
 		if ticketErr != nil {
 			return ticketErr
 		}
-		return activation.Open(ctx, cfg.APIBaseURL, ticket.Ticket)
+		return activation.Open(ctx, backend.APIBaseURL, ticket.Ticket)
 	case "mcp":
 		if len(rest) != 1 {
 			return errors.New("mcp accepts no arguments")
@@ -374,11 +402,7 @@ func run(args []string) error {
 		if rest[1] == "run" {
 			ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			sender, senderErr := app.NewHostedSender(ctx, *root)
-			if senderErr != nil {
-				return senderErr
-			}
-			return app.Run(ctx, *root, sender)
+			return app.Run(ctx, *root, app.NewHostedSenders())
 		}
 		if rest[1] == "status" {
 			if response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "health"}); callErr == nil && response.OK {
@@ -448,7 +472,7 @@ func run(args []string) error {
 			if loadErr != nil {
 				return loadErr
 			}
-			if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
+			if len(cfg.Backends) == 0 || len(cfg.Workspaces) == 0 {
 				return errors.New("development profile is not enrolled; run overgent create first")
 			}
 			projectIDs := map[string]bool{}
@@ -483,8 +507,15 @@ func run(args []string) error {
 			if idErr != nil {
 				return idErr
 			}
-			*member, *device, *apiBase = source.MemberID, cfg.DeviceID, cfg.APIBaseURL
-			request := daemon.Request{Method: "add_development_workspace", WorkspaceID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo}
+			// A second root joins a Project that already exists, so it takes
+			// that Project's backend rather than the profile's: after ADR-074
+			// there is no such thing as the profile's backend.
+			backend, bound := cfg.BackendForProject(*project)
+			if !bound {
+				return errors.New("selected Project has no backend on this profile")
+			}
+			*member, *device, *apiBase = source.MemberID, backend.DeviceID, backend.APIBaseURL
+			request := daemon.Request{Method: "add_development_workspace", WorkspaceID: *id, ProjectID: *project, WorkstreamID: *workstream, MemberID: *member, SessionID: *session, Root: *repo, APIBaseURL: *apiBase, DeviceID: *device}
 			response, callErr := daemon.Call(ctx, paths.Socket, request)
 			if callErr == nil {
 				if !response.OK {
@@ -957,36 +988,53 @@ func restartInstalledService(ctx context.Context, executable string, paths confi
 
 // enrolledState describes an already-enrolled profile. A zero deviceID means
 // this profile has never enrolled and the caller should run first enrollment.
-type enrolledState struct {
-	deviceID   string
-	apiBaseURL string
+type resetReport struct {
+	Credential        string `json:"credential"`
+	BackendID         string `json:"backendId,omitempty"`
+	APIBaseURL        string `json:"apiBaseUrl,omitempty"`
+	DeviceID          string `json:"deviceId,omitempty"`
+	ClearedWorkspaces int    `json:"clearedWorkspaces"`
+	CredentialDeleted bool   `json:"credentialDeleted"`
 }
 
-// enrolledDevice reports the device identity a profile has already enrolled, and
-// refuses a repository that is already connected. The API origin is read from
-// the enrolled configuration rather than the flag, because an additional Project
-// has to be created on the same backend that issued the credential being reused.
-func enrolledDevice(paths config.Paths, repository string) (enrolledState, error) {
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return enrolledState{}, err
-	}
-	if cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return enrolledState{}, nil
-	}
+// repositoryAvailable refuses a repository that is already connected. It is
+// checked before anything reaches the network so a mistake cannot spend an
+// invite or create a Project nothing will be registered against.
+func repositoryAvailable(cfg config.Config, repository string) error {
 	root, err := filepath.Abs(repository)
 	if err != nil {
-		return enrolledState{}, err
+		return err
 	}
 	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
 		root = resolved
 	}
 	for _, workspace := range cfg.Workspaces {
 		if workspace.Root == root {
-			return enrolledState{}, errors.New("this repository is already connected to a Project")
+			return errors.New("this repository is already connected to a Project")
 		}
 	}
-	return enrolledState{deviceID: cfg.DeviceID, apiBaseURL: cfg.APIBaseURL}, nil
+	return nil
+}
+
+// resolveBackend picks the backend a command names. A profile with exactly one
+// backend does not have to name it; a profile with several must, because
+// guessing which enrollment to erase is not a guess worth making.
+func resolveBackend(cfg config.Config, backendID string) (config.Backend, error) {
+	if backendID != "" {
+		backend, known := cfg.BackendByID(backendID)
+		if !known {
+			return config.Backend{}, fmt.Errorf("no backend %s on this profile", backendID)
+		}
+		return backend, nil
+	}
+	switch len(cfg.Backends) {
+	case 0:
+		return config.Backend{}, errors.New("this profile has no enrolled backend")
+	case 1:
+		return cfg.Backends[0], nil
+	default:
+		return config.Backend{}, errors.New("this profile has more than one backend; pass --backend <id> or --all")
+	}
 }
 
 // flagProvided reports whether the member actually typed this flag. Every flag

@@ -700,6 +700,14 @@ func executableExists(path string) bool {
 // enrolled device. It reads the file directly rather than through
 // internal/config so that this predicate stays free of that package's platform
 // gate and of any dependency the setup packages do not already have.
+// profileHasDevice reports whether another profile still holds a device
+// identity, which is what makes its bindings somebody's rather than debris.
+//
+// It reads the file directly rather than through internal/config, because this
+// package is imported by the setup managers that config-loading code in turn
+// depends on. Both shapes are accepted: configuration version 1 held one
+// device identity for the profile, and version 2 holds one per backend
+// (ADR-074). A profile with any identity on any backend is still in use.
 func profileHasDevice(root string) bool {
 	data, err := os.ReadFile(filepath.Join(root, "config.json"))
 	if err != nil {
@@ -707,6 +715,20 @@ func profileHasDevice(root string) bool {
 	}
 	var stored struct {
 		DeviceID string `json:"deviceId"`
+		Backends []struct {
+			DeviceID string `json:"deviceId"`
+		} `json:"backends"`
 	}
-	return json.Unmarshal(data, &stored) == nil && stored.DeviceID != ""
+	if json.Unmarshal(data, &stored) != nil {
+		return false
+	}
+	if stored.DeviceID != "" {
+		return true
+	}
+	for _, backend := range stored.Backends {
+		if backend.DeviceID != "" {
+			return true
+		}
+	}
+	return false
 }

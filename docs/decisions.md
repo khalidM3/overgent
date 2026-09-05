@@ -396,6 +396,11 @@ provider. Accepted by the owner 2026-08-25.
 
 ## ADR-041: Add an isolated HTTPS shared-development profile
 
+Superseded by ADR-074 and retired in Lane 06: a profile now binds each Project
+to its own backend, so a team Project sits beside a local one on the ordinary
+development profile and `pnpm dev:shared` no longer exists. The record below is
+kept for the reasoning that led here.
+
 The owner requires a real two-member dogfood before signed production
 distribution. Add `pnpm dev:shared` as an explicit development profile that
 uses the same Go service, Convex functions, dashboard, enrollment, and adapter

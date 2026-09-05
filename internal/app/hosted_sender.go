@@ -21,27 +21,26 @@ type batchPublisher interface {
 
 type hostedSender struct{ client batchPublisher }
 
-func NewHostedSender(ctx context.Context, root string) (Sender, error) {
-	paths, err := config.Resolve(root)
-	if err != nil {
-		return nil, err
+// NewHostedSenders is the production publisher factory: one client per
+// backend, each authenticated as the device identity this profile enrolled
+// with that backend. A profile holding a local Project and a team Project
+// therefore holds two credentials and two clients, and neither can be used
+// against the other's server.
+func NewHostedSenders() SenderFactory {
+	return func(ctx context.Context, backend config.Backend) (Sender, error) {
+		if backend.DeviceID == "" || backend.APIBaseURL == "" {
+			return nil, errors.New("service is not enrolled; run overgent create or join")
+		}
+		token, err := credential.Get(ctx, backend.DeviceID)
+		if err != nil {
+			return nil, err
+		}
+		client, err := hosted.New(backend.APIBaseURL, token)
+		if err != nil {
+			return nil, err
+		}
+		return hostedSender{client: client}, nil
 	}
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return nil, err
-	}
-	if cfg.DeviceID == "" || cfg.APIBaseURL == "" {
-		return nil, errors.New("service is not enrolled; run overgent create or join")
-	}
-	token, err := credential.Get(ctx, cfg.DeviceID)
-	if err != nil {
-		return nil, err
-	}
-	client, err := hosted.New(cfg.APIBaseURL, token)
-	if err != nil {
-		return nil, err
-	}
-	return hostedSender{client: client}, nil
 }
 
 func (s hostedSender) Send(ctx context.Context, _ string, batch []byte) error {

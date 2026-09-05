@@ -275,45 +275,49 @@ func TestRemoveAllAgentBindingsUsesManagedRemoval(t *testing.T) {
 }
 
 // B5: `create` on a profile that has already enrolled used to mint a second
-// device credential, which would strand the Projects the first one owns, so the
-// only way to add a Project was an undocumented `workspace add`. An enrolled
-// profile now takes the additional-Project path instead.
-func TestCreateReusesAnEnrolledDeviceAndRefusesAConnectedRepository(t *testing.T) {
+// device credential, which would strand the Projects the first one owns. The
+// question is now per backend (ADR-074): a Project created on a server this
+// profile already uses reuses that server's identity, and one created on a
+// server it has never used mints a new identity there without touching the
+// first.
+func TestCreateReusesTheIdentityOfTheBackendItTargets(t *testing.T) {
 	paths, err := config.Resolve(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh, err := enrolledDevice(paths, t.TempDir())
+	fresh, err := config.Load(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fresh.deviceID != "" {
-		t.Fatalf("a profile that never enrolled must take first enrollment: %#v", fresh)
+	if target := fresh.BackendTarget("https://enrolled.example"); target.DeviceID != "" {
+		t.Fatalf("a profile that never enrolled must take first enrollment: %#v", target)
 	}
 
 	connected := t.TempDir()
 	if resolved, resolveErr := filepath.EvalSymlinks(connected); resolveErr == nil {
 		connected = resolved
 	}
-	if err = config.Save(paths, config.Config{
-		Version: 1, APIBaseURL: "https://enrolled.example", DeviceID: "dev_existing",
-		Workspaces: []config.Workspace{{ID: "wsp_a", Root: connected, ProjectID: "prj_a"}},
-	}); err != nil {
+	if err = config.Save(paths, config.Single("https://enrolled.example", "dev_existing", []config.Workspace{{ID: "wsp_a", Root: connected, ProjectID: "prj_a"}})); err != nil {
 		t.Fatal(err)
 	}
-
-	// The API origin comes from the enrolled configuration, because the extra
-	// Project must be created on the backend that issued the reused credential.
-	state, err := enrolledDevice(paths, t.TempDir())
+	enrolled, err := config.Load(paths)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.deviceID != "dev_existing" || state.apiBaseURL != "https://enrolled.example" {
-		t.Fatalf("state=%#v", state)
+	if target := enrolled.BackendTarget("https://enrolled.example"); target.DeviceID != "dev_existing" {
+		t.Fatalf("the enrolled backend's identity was not reused: %#v", target)
+	}
+	// A different server is a different device identity, which is the whole
+	// point: a local Project and a team Project sit on one profile.
+	if target := enrolled.BackendTarget("http://127.0.0.1:51601"); target.DeviceID != "" || target.Kind != config.KindLocal {
+		t.Fatalf("an unseen backend must mint its own identity: %#v", target)
 	}
 
-	if _, err = enrolledDevice(paths, connected); err == nil {
+	if err = repositoryAvailable(enrolled, connected); err == nil {
 		t.Fatal("a repository already connected to a Project must be refused")
+	}
+	if err = repositoryAvailable(enrolled, t.TempDir()); err != nil {
+		t.Fatalf("an unconnected repository was refused: %v", err)
 	}
 }
 
@@ -408,5 +412,34 @@ func TestCursorHookFailsOpenWithoutOutput(t *testing.T) {
 	var output bytes.Buffer
 	if err := runCursorHook(context.Background(), "unused", "beforeShellExecution", strings.NewReader(valid), &output, failing); err != nil || output.Len() != 0 {
 		t.Fatalf("an unconfigured event produced %q / %v", output.String(), err)
+	}
+}
+
+// `reset` names one backend now, because a profile holds several and erasing
+// the wrong enrollment cannot be undone. A profile with exactly one does not
+// have to name it; a profile with more must.
+func TestResolveBackendRefusesToGuessBetweenBackends(t *testing.T) {
+	empty := config.Config{Version: config.Version}
+	if _, err := resolveBackend(empty, ""); err == nil {
+		t.Fatal("an unenrolled profile resolved a backend")
+	}
+	single := config.Single("https://api.overgent.com", "dev_team", nil)
+	backend, err := resolveBackend(single, "")
+	if err != nil || backend.DeviceID != "dev_team" {
+		t.Fatalf("resolveBackend on one backend = %+v, %v", backend, err)
+	}
+	both, local, err := single.UpsertBackend("http://127.0.0.1:51601", "dev_local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = resolveBackend(both, ""); err == nil {
+		t.Fatal("a profile with two backends resolved one without being told which")
+	}
+	named, err := resolveBackend(both, local.ID)
+	if err != nil || named.Kind != config.KindLocal {
+		t.Fatalf("resolveBackend by id = %+v, %v", named, err)
+	}
+	if _, err = resolveBackend(both, "bk_absent"); err == nil {
+		t.Fatal("a backend this profile does not have was resolved")
 	}
 }

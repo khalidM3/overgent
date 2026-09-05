@@ -144,8 +144,7 @@ func TestBackendResetForgetsOnlyALocalEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	teamConfig := config.Config{Version: 1, APIBaseURL: "https://api.overgent.com", DeviceID: "dev_team",
-		Workspaces: []config.Workspace{{ID: "wsp_team", ProjectID: "prj_team", Root: t.TempDir()}}}
+	teamConfig := config.Single("https://api.overgent.com", "dev_team", []config.Workspace{{ID: "wsp_team", ProjectID: "prj_team", Root: t.TempDir()}})
 	if err = config.Save(teamPaths, teamConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +156,7 @@ func TestBackendResetForgetsOnlyALocalEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after.Workspaces) != 1 || after.DeviceID != "dev_team" {
+	if len(after.Workspaces) != 1 || len(after.Backends) != 1 || after.Backends[0].DeviceID != "dev_team" {
 		t.Fatalf("the team enrollment was modified: %+v", after)
 	}
 
@@ -169,8 +168,7 @@ func TestBackendResetForgetsOnlyALocalEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	localConfig := config.Config{Version: 1, APIBaseURL: "http://127.0.0.1:51601", DeviceID: "dev_local",
-		Workspaces: []config.Workspace{{ID: "wsp_local", ProjectID: "prj_local", Root: t.TempDir()}}}
+	localConfig := config.Single("http://127.0.0.1:51601", "dev_local", []config.Workspace{{ID: "wsp_local", ProjectID: "prj_local", Root: t.TempDir()}})
 	if err = config.Save(localPaths, localConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +180,36 @@ func TestBackendResetForgetsOnlyALocalEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after.Workspaces) != 0 || after.DeviceID != "" || after.APIBaseURL != "" {
+	if len(after.Workspaces) != 0 || len(after.Backends) != 0 || len(after.Projects) != 0 {
 		t.Fatalf("first run was not restored: %+v", after)
+	}
+
+	// A profile holding both kinds is the case ADR-074 exists for: the local
+	// backend's Projects go, and the team Project beside them stays.
+	mixed := t.TempDir()
+	mixedPaths, err := config.Resolve(mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixedConfig := config.Single("https://api.overgent.com", "dev_team", []config.Workspace{{ID: "wsp_team", ProjectID: "prj_team", Root: t.TempDir()}})
+	mixedConfig, localBackend, err := mixedConfig.UpsertBackend("http://127.0.0.1:51601", "dev_local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixedConfig = mixedConfig.BindProject("prj_local", localBackend.ID)
+	mixedConfig.Workspaces = append(mixedConfig.Workspaces, config.Workspace{ID: "wsp_local", ProjectID: "prj_local", Root: t.TempDir()})
+	if err = config.Save(mixedPaths, mixedConfig); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err = clearLocalEnrollment(t.Context(), mixedPaths)
+	if err != nil || cleared != 1 {
+		t.Fatalf("the local half was not cleared: %d %v", cleared, err)
+	}
+	after, err = config.Load(mixedPaths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Backends) != 1 || after.Backends[0].Kind != config.KindTeam || len(after.Workspaces) != 1 || after.Workspaces[0].ID != "wsp_team" {
+		t.Fatalf("the team Project did not survive a local backend reset: %+v", after)
 	}
 }

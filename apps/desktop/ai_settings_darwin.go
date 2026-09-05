@@ -87,14 +87,18 @@ func (service *OnboardingService) aiSettingsClient(projectID string) (*hosted.Cl
 			break
 		}
 	}
-	if !member || cfg.DeviceID == "" {
+	// Settings are a property of the Project (ADR-073), so they are written to
+	// the backend that Project lives on, with the credential this Mac holds
+	// for that backend.
+	backend, bound := cfg.BackendForProject(projectID)
+	if !member || !bound || backend.DeviceID == "" {
 		return nil, errors.New("Project is not enrolled on this device")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	token, err := credential.Get(ctx, cfg.DeviceID)
+	token, err := credential.Get(ctx, backend.DeviceID)
 	if err != nil {
 		return nil, err
 	}
-	return hosted.New(cfg.APIBaseURL, token)
+	return hosted.New(backend.APIBaseURL, token)
 }

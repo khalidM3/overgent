@@ -26,9 +26,22 @@ import (
 // falls back to a manager of its own.
 func runBackend(ctx context.Context, paths config.Paths, args []string) error {
 	if len(args) == 0 {
-		return errors.New("backend requires status, start, stop, install, verify, reset, or export")
+		return errors.New("backend requires list, status, start, stop, install, verify, reset, or export")
 	}
 	switch args[0] {
+	case "list":
+		// The backends a profile holds, with the id every per-backend command
+		// takes. Without this, `reset --backend <id>` would ask for a string
+		// nothing prints.
+		cfg, err := config.Load(paths)
+		if err != nil {
+			return err
+		}
+		listed := make([]map[string]any, 0, len(cfg.Backends))
+		for _, backend := range cfg.Backends {
+			listed = append(listed, map[string]any{"id": backend.ID, "kind": backend.Kind, "apiBaseUrl": backend.APIBaseURL, "projects": cfg.ProjectsForBackend(backend.ID)})
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"backends": listed})
 	case "status":
 		statusFlags := flag.NewFlagSet("backend status", flag.ContinueOnError)
 		asJSON := statusFlags.Bool("json", false, "print the status as JSON")
@@ -100,9 +113,9 @@ func runBackend(ctx context.Context, paths config.Paths, args []string) error {
 		// stored credential authenticates against, so the enrollment naming
 		// them is now a reference to nothing. Clearing it here is what makes
 		// "reset, then relaunch" return to first run instead of showing an
-		// enrolled Project whose backend has never heard of it. A team-mode
-		// profile is left alone: its Projects live on a server this command
-		// did not touch.
+		// enrolled Project whose backend has never heard of it. Team Projects
+		// on the same profile are left alone: they live on a server this
+		// command did not touch.
 		cleared, err := clearLocalEnrollment(ctx, paths)
 		if err != nil {
 			return err
@@ -147,7 +160,7 @@ func runBackend(ctx context.Context, paths config.Paths, args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"database": path})
 	}
-	return errors.New("backend requires status, start, stop, install, verify, reset, or export")
+	return errors.New("backend requires list, status, start, stop, install, verify, reset, or export")
 }
 
 func backendStatus(ctx context.Context, paths config.Paths) (localbackend.Status, error) {
@@ -232,31 +245,44 @@ func confirmBackendReset() bool {
 }
 
 // clearLocalEnrollment forgets a profile's local Projects after its backend
-// database has been deleted, and returns how many it forgot.
+// database has been deleted, and returns how many repositories it forgot.
 //
-// It does not go through onboarding.Reset, whose gate is "the hosted API
-// actually rejected this credential". That gate protects a member from erasing
-// a working enrollment because a remote server answered 401 once. Here there is
-// nothing to protect: the database those Projects lived in was deleted by the
-// command that is calling this.
+// It is scoped to backends whose Projects lived in that database. Team
+// Projects on the same profile live on servers this command did not touch, and
+// after ADR-074 they sit right beside the local ones, so clearing the profile
+// wholesale would delete enrollments the reset had no business touching.
+//
+// It does not go through onboarding.Reset, whose gate is "the backend actually
+// rejected this credential". That gate protects a member from erasing a
+// working enrollment because a server answered 401 once. Here there is nothing
+// to protect: the database those Projects lived in was deleted by the command
+// that is calling this.
 func clearLocalEnrollment(ctx context.Context, paths config.Paths) (int, error) {
 	cfg, err := config.Load(paths)
 	if err != nil {
 		return 0, err
 	}
-	if cfg.DeviceID == "" || !localbackend.IsLoopbackOrigin(cfg.APIBaseURL) {
+	cleared := 0
+	var devices []string
+	for _, backend := range cfg.Backends {
+		if backend.Kind != config.KindLocal {
+			continue
+		}
+		var removed int
+		cfg, removed = cfg.RemoveBackend(backend.ID)
+		cleared += removed
+		devices = append(devices, backend.DeviceID)
+	}
+	if len(devices) == 0 {
 		return 0, nil
 	}
-	cleared := len(cfg.Workspaces)
-	deviceID := cfg.DeviceID
-	cfg.Workspaces = nil
-	cfg.DeviceID = ""
-	cfg.APIBaseURL = ""
 	if err = config.Save(paths, cfg); err != nil {
 		return 0, err
 	}
 	// A credential for a device that no longer exists is not worth keeping, and
 	// a failure to delete it must not fail a reset that already succeeded.
-	_ = credential.Delete(ctx, deviceID)
+	for _, deviceID := range devices {
+		_ = credential.Delete(ctx, deviceID)
+	}
 	return cleared, nil
 }

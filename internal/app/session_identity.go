@@ -34,7 +34,7 @@ func (s *Service) handleAgentSessionResolution(ctx context.Context, q daemon.Req
 	if !ok {
 		return daemon.Response{OK: true, Data: agentSessionResolution{}}
 	}
-	workspace, ok := workspaceForCWD(s.cfg, cwd)
+	workspace, ok := workspaceForCWD(s.config(), cwd)
 	if !ok {
 		return daemon.Response{OK: true, Data: agentSessionResolution{}}
 	}

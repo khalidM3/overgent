@@ -23,11 +23,11 @@ func TestOnboardingStateReadsOnlyBoundedLocalMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Version: 1, APIBaseURL: "http://127.0.0.1:3211", DeviceID: "dev_test", Workspaces: []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}}}
+	cfg := config.Single("http://127.0.0.1:3211", "dev_test", []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}})
 	if err = config.Save(paths, cfg); err != nil {
 		t.Fatal(err)
 	}
-	service := &OnboardingService{configRoot: root, apiBaseURL: cfg.APIBaseURL, activationBaseURL: "http://127.0.0.1:5173/api"}
+	service := &OnboardingService{configRoot: root, apiBaseURL: "http://127.0.0.1:3211"}
 	state, err := service.State()
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
-	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+	if err = config.Save(paths, config.Single("https://example.convex.site", "dev_test", []config.Workspace{workspace})); err != nil {
 		t.Fatal(err)
 	}
 	executable, err := os.Executable()
@@ -79,7 +79,7 @@ func TestOnboardingDetectsAndReconnectsAnotherManagedProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = config.Save(oldPaths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_other"}); err != nil {
+	if err = config.Save(oldPaths, config.Single("https://example.convex.site", "dev_other", nil)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = (codexsetup.Manager{ProjectRoot: repository, ConfigRoot: oldRoot, Executable: executable}).Setup(); err != nil {
@@ -116,7 +116,7 @@ func TestOnboardingRequiresLiveEventBeforeAdapterReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
-	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+	if err = config.Save(paths, config.Single("https://example.convex.site", "dev_test", []config.Workspace{workspace})); err != nil {
 		t.Fatal(err)
 	}
 	executable, _ := os.Executable()
@@ -219,7 +219,7 @@ func TestLaunchRepairAdoptsALeftoverProfileWithoutAsking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = config.Save(legacyPaths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_legacy"}); err != nil {
+	if err = config.Save(legacyPaths, config.Single("https://example.convex.site", "dev_legacy", nil)); err != nil {
 		t.Fatal(err)
 	}
 	executable, err := os.Executable()
@@ -235,7 +235,7 @@ func TestLaunchRepairAdoptsALeftoverProfileWithoutAsking(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := config.Workspace{ID: "wsp_test", ProjectID: "prj_test", WorkstreamID: "wrk_test", Root: repository}
-	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://example.convex.site", DeviceID: "dev_test", Workspaces: []config.Workspace{workspace}}); err != nil {
+	if err = config.Save(paths, config.Single("https://example.convex.site", "dev_test", []config.Workspace{workspace})); err != nil {
 		t.Fatal(err)
 	}
 

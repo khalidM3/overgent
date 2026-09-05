@@ -26,12 +26,29 @@ func TestStoredAPIBaseURLPrefersTheProfileAndCanonicalizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	// This is what makes a stock build talk to a self-hosted server: the origin
-	// the Project was created against is the one every later launch uses.
-	if err = config.Save(paths, config.Config{Version: 1, APIBaseURL: "https://convex.example.com/", DeviceID: "dev_test"}); err != nil {
+	// a team Project was created against is the default every later team
+	// Project starts from.
+	if err = config.Save(paths, config.Single("https://convex.example.com/", "dev_test", nil)); err != nil {
 		t.Fatal(err)
 	}
 	if got := storedAPIBaseURL(root); got != "https://convex.example.com" {
 		t.Fatalf("stored origin=%q", got)
+	}
+	// A loopback backend is never the default for a Project meant to have
+	// remote members, so a profile holding both still reports the team server.
+	both, backendErr := config.Load(paths)
+	if backendErr != nil {
+		t.Fatal(backendErr)
+	}
+	both, _, backendErr = both.UpsertBackend("http://127.0.0.1:43103", "dev_local")
+	if backendErr != nil {
+		t.Fatal(backendErr)
+	}
+	if err = config.Save(paths, both); err != nil {
+		t.Fatal(err)
+	}
+	if got := storedAPIBaseURL(root); got != "https://convex.example.com" {
+		t.Fatalf("a local backend became the default team server: %q", got)
 	}
 	if got := storedAPIBaseURL(""); got != "" {
 		t.Fatalf("an empty root reported %q", got)
@@ -171,51 +188,48 @@ func TestCreateLocalProjectRefusesWithoutABundledBackend(t *testing.T) {
 	}
 }
 
-func TestCreateLocalProjectRefusesOnATeamProfile(t *testing.T) {
-	// Until Lane 06 lands, a profile holds one kind of Project. Adding a local
-	// Project to a team profile would give the service two backends and one
-	// APIBaseURL, which is a profile that publishes to the wrong place.
+// A Project binds to its own backend (ADR-074), so a Mac with a team Project
+// can still add a local one. What must not happen is the reverse of the old
+// rule: silently reusing the team backend for a Project the member asked to
+// keep on this Mac.
+func TestOnboardingStateNamesEachProjectsBackend(t *testing.T) {
 	root := t.TempDir()
 	paths, err := config.Resolve(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Version: 1, APIBaseURL: "https://api.overgent.com", DeviceID: "dev_test",
-		Workspaces: []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", Root: t.TempDir()}}}
+	team, local := t.TempDir(), t.TempDir()
+	cfg := config.Single("https://api.overgent.com", "dev_team", []config.Workspace{{ID: "wsp_team", ProjectID: "prj_team", Root: team}})
+	cfg, localBackend, err := cfg.UpsertBackend("http://127.0.0.1:43103", "dev_local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = cfg.BindProject("prj_local", localBackend.ID)
+	cfg.Workspaces = append(cfg.Workspaces, config.Workspace{ID: "wsp_local", ProjectID: "prj_local", Root: local})
 	if err = config.Save(paths, cfg); err != nil {
 		t.Fatal(err)
 	}
-	service := &OnboardingService{configRoot: root, localAvailable: true}
-	_, err = service.CreateLocalProject(EnrollmentRequest{RepositoryRoot: cfg.Workspaces[0].Root})
-	if err == nil || !strings.Contains(err.Error(), "Reset to switch") {
-		t.Fatalf("a team profile accepted a local Project: %v", err)
-	}
-}
-
-func TestOnboardingStateNamesTheProfileKind(t *testing.T) {
-	root := t.TempDir()
-	paths, err := config.Resolve(root)
+	service := &OnboardingService{configRoot: root, apiBaseURL: "https://api.overgent.com"}
+	state, err := service.State()
 	if err != nil {
 		t.Fatal(err)
 	}
-	repository := t.TempDir()
-	for origin, want := range map[string]string{
-		"http://127.0.0.1:43103":   "local",
-		"https://api.overgent.com": "team",
-	} {
-		cfg := config.Config{Version: 1, APIBaseURL: origin, DeviceID: "dev_test",
-			Workspaces: []config.Workspace{{ID: "wsp_test", ProjectID: "prj_test", Root: repository}}}
-		if err = config.Save(paths, cfg); err != nil {
-			t.Fatal(err)
-		}
-		service := &OnboardingService{configRoot: root, apiBaseURL: origin}
-		state, stateErr := service.State()
-		if stateErr != nil {
-			t.Fatal(stateErr)
-		}
-		if state.Mode != want {
-			t.Fatalf("origin %q reported mode %q, want %q", origin, state.Mode, want)
-		}
+	kinds := map[string]string{}
+	origins := map[string]string{}
+	for _, project := range state.Projects {
+		kinds[project.ProjectID] = project.Kind
+		origins[project.ProjectID] = project.APIBaseURL
+	}
+	if kinds["prj_local"] != config.KindLocal || kinds["prj_team"] != config.KindTeam {
+		t.Fatalf("Project kinds = %v", kinds)
+	}
+	if origins["prj_team"] != "https://api.overgent.com" || origins["prj_local"] != "http://127.0.0.1:43103" {
+		t.Fatalf("Project origins = %v", origins)
+	}
+	// The newest registration is the selected Project, and the recovery action
+	// names its backend rather than the whole Mac.
+	if state.BackendID != localBackend.ID {
+		t.Fatalf("selected backend = %q, want the newest Project's", state.BackendID)
 	}
 }
 
