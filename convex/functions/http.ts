@@ -299,7 +299,9 @@ http.route({ path: "/v1/dashboard-activations", method: "POST", handler: httpAct
   const loopback = ["127.0.0.1", "::1", "localhost"].includes(requestURL.hostname);
   return new Response(null, { status: 303, headers: {
     "cache-control": "no-store",
-    "location": loopback ? "http://127.0.0.1:5173/?live=1" : "/dashboard?live=1",
+    // Relative on loopback so the same 303 works for the Vite dev server, the
+    // desktop's embedded dashboard origin, and any other same-origin proxy.
+    "location": loopback ? "/?live=1" : "/dashboard?live=1",
     "set-cookie": `overgent_session=${session}; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=Strict`,
     "x-content-type-options": "nosniff",
   } });

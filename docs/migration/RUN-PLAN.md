@@ -40,6 +40,12 @@ the spike is exploring.
 - 2026-09-04: Block A done. Sessions 1, 2, 5 merged in order. Spike accepted
   (Option A). Block B may start. Session 5's "second Mac follows the doc"
   check was not run; it moves to Session 7's launch verification.
+- 2026-09-04: Block B done. Sessions 3 and 4 merged; the loopback activation
+  redirect in `convex/functions/http.ts` was made relative at merge time.
+  Open launch checks carried to Session 7: walk "Use on this Mac" in the
+  built app; one real Anthropic adjudication; the second-Mac self-hosting
+  walkthrough. Sessions 6 and 7 may run in parallel; merge 6 before 7 and
+  add the profile-switch sentence to the README only if 6 does not land.
 
 ## Merge order and integration check
 

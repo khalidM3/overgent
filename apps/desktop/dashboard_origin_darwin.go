@@ -171,10 +171,11 @@ func (handler *dashboardOrigin) proxy(writer http.ResponseWriter, request *http.
 //
 // The backend answers browser activation with a 303 whose target is the
 // dashboard it expects to be served beside it: the hosted deployment's own
-// `/dashboard?live=1`, or, when the request arrived over loopback, the Vite dev
-// server on port 5173 (convex/functions/http.ts). Neither exists in a local
-// install, and both are the same intent - "now open the live view" - so an
-// absolute redirect to another origin is rewritten to this one's live route.
+// `/dashboard?live=1`, or a relative `/?live=1` over loopback
+// (convex/functions/http.ts). Older backends answered loopback with an
+// absolute Vite URL on port 5173; both are the same intent - "now open the
+// live view" - so any redirect to another origin is rewritten to this one's
+// live route.
 // Only the path is taken; the query and fragment the backend chose are kept.
 func localDashboardLocation(location string) string {
 	parsed, err := url.Parse(location)

@@ -18,6 +18,26 @@ a local Project on the loopback backend and a team Project on Overgent Cloud
 or a self-hosted origin at the same time. Hooks, MCP bindings, the pause
 switch, focus, and injection behave exactly as today for each Project.
 
+## Inputs from Lanes 03 and 04 (merged 2026-09-04)
+
+- `internal/localbackend` exists. `localbackend.IsLoopbackOrigin` is the
+  single loopback check; `internal/app/app.go` `isLocalBackendOrigin`
+  delegates to it. Move the decision to `Backend.Kind` as this brief says.
+- `internal/app/app.go` is about 1,500 lines, not 3.9k.
+- `overgent backend reset` currently clears a **local** profile's enrollment
+  because a profile is one kind. After this lane it must clear only the
+  Projects bound to the local backend.
+- IPC methods `backend_status`, `backend_ensure`, `backend_stop` exist; keep
+  them backend-scoped by id.
+- `apps/desktop/dashboard_origin_darwin.go` serves the embedded dashboard on
+  a loopback origin and proxies `/api/v1` to the local backend. A team
+  Project opens the dashboard against its own origin as before; the desktop
+  must choose per Project.
+- `onboarding.ValidateAPIOrigin` is the shared origin validator (CLI and
+  desktop). AI settings are already per Project (Lane 04) and need no change.
+- `credential.Store` does not exist; `localbackend.CredentialStore` and
+  `onboarding.CredentialStore` are the interfaces to reuse.
+
 ## Read first (all of it, before editing anything)
 
 - `internal/config/config.go` (`Config` v1: `APIBaseURL`, `DeviceID`,
