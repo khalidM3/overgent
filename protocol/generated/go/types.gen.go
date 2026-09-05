@@ -302,6 +302,45 @@ type CreateProjectJSONBody struct {
 	Label       string  `json:"label"`
 }
 
+// PutProjectAISettingsJSONBody defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBody struct {
+	Embeddings struct {
+		ApiKey     *PutProjectAISettingsJSONBody_Embeddings_ApiKey `json:"apiKey,omitempty"`
+		BaseUrl    *string                                         `json:"baseUrl,omitempty"`
+		Dimensions interface{}                                     `json:"dimensions"`
+		Model      string                                          `json:"model"`
+		Provider   interface{}                                     `json:"provider"`
+	} `json:"embeddings"`
+	Judgment struct {
+		ApiKey   *PutProjectAISettingsJSONBody_Judgment_ApiKey `json:"apiKey,omitempty"`
+		BaseUrl  *string                                       `json:"baseUrl,omitempty"`
+		Model    string                                        `json:"model"`
+		Provider interface{}                                   `json:"provider"`
+	} `json:"judgment"`
+}
+
+// PutProjectAISettingsJSONBodyEmbeddingsApiKey0 defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBodyEmbeddingsApiKey0 = interface{}
+
+// PutProjectAISettingsJSONBodyEmbeddingsApiKey1 defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBodyEmbeddingsApiKey1 = string
+
+// PutProjectAISettingsJSONBody_Embeddings_ApiKey defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBody_Embeddings_ApiKey struct {
+	union json.RawMessage
+}
+
+// PutProjectAISettingsJSONBodyJudgmentApiKey0 defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBodyJudgmentApiKey0 = interface{}
+
+// PutProjectAISettingsJSONBodyJudgmentApiKey1 defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBodyJudgmentApiKey1 = string
+
+// PutProjectAISettingsJSONBody_Judgment_ApiKey defines parameters for PutProjectAISettings.
+type PutProjectAISettingsJSONBody_Judgment_ApiKey struct {
+	union json.RawMessage
+}
+
 // GetProjectChangesParams defines parameters for GetProjectChanges.
 type GetProjectChangesParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -473,6 +512,9 @@ type HeartbeatJSONRequestBody HeartbeatJSONBody
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody CreateProjectJSONBody
 
+// PutProjectAISettingsJSONRequestBody defines body for PutProjectAISettings for application/json ContentType.
+type PutProjectAISettingsJSONRequestBody PutProjectAISettingsJSONBody
+
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody CreateInviteJSONBody
 
@@ -601,6 +643,130 @@ func (t GetContextItem200JSONResponseBody) MarshalJSON() ([]byte, error) {
 }
 
 func (t *GetContextItem200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsPutProjectAISettingsJSONBodyEmbeddingsApiKey0 returns the union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey as a PutProjectAISettingsJSONBodyEmbeddingsApiKey0
+func (t PutProjectAISettingsJSONBody_Embeddings_ApiKey) AsPutProjectAISettingsJSONBodyEmbeddingsApiKey0() (PutProjectAISettingsJSONBodyEmbeddingsApiKey0, error) {
+	var body PutProjectAISettingsJSONBodyEmbeddingsApiKey0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPutProjectAISettingsJSONBodyEmbeddingsApiKey0 overwrites any union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey as the provided PutProjectAISettingsJSONBodyEmbeddingsApiKey0
+func (t *PutProjectAISettingsJSONBody_Embeddings_ApiKey) FromPutProjectAISettingsJSONBodyEmbeddingsApiKey0(v PutProjectAISettingsJSONBodyEmbeddingsApiKey0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePutProjectAISettingsJSONBodyEmbeddingsApiKey0 performs a merge with any union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey, using the provided PutProjectAISettingsJSONBodyEmbeddingsApiKey0
+func (t *PutProjectAISettingsJSONBody_Embeddings_ApiKey) MergePutProjectAISettingsJSONBodyEmbeddingsApiKey0(v PutProjectAISettingsJSONBodyEmbeddingsApiKey0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPutProjectAISettingsJSONBodyEmbeddingsApiKey1 returns the union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey as a PutProjectAISettingsJSONBodyEmbeddingsApiKey1
+func (t PutProjectAISettingsJSONBody_Embeddings_ApiKey) AsPutProjectAISettingsJSONBodyEmbeddingsApiKey1() (PutProjectAISettingsJSONBodyEmbeddingsApiKey1, error) {
+	var body PutProjectAISettingsJSONBodyEmbeddingsApiKey1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPutProjectAISettingsJSONBodyEmbeddingsApiKey1 overwrites any union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey as the provided PutProjectAISettingsJSONBodyEmbeddingsApiKey1
+func (t *PutProjectAISettingsJSONBody_Embeddings_ApiKey) FromPutProjectAISettingsJSONBodyEmbeddingsApiKey1(v PutProjectAISettingsJSONBodyEmbeddingsApiKey1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePutProjectAISettingsJSONBodyEmbeddingsApiKey1 performs a merge with any union data inside the PutProjectAISettingsJSONBody_Embeddings_ApiKey, using the provided PutProjectAISettingsJSONBodyEmbeddingsApiKey1
+func (t *PutProjectAISettingsJSONBody_Embeddings_ApiKey) MergePutProjectAISettingsJSONBodyEmbeddingsApiKey1(v PutProjectAISettingsJSONBodyEmbeddingsApiKey1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PutProjectAISettingsJSONBody_Embeddings_ApiKey) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PutProjectAISettingsJSONBody_Embeddings_ApiKey) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsPutProjectAISettingsJSONBodyJudgmentApiKey0 returns the union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey as a PutProjectAISettingsJSONBodyJudgmentApiKey0
+func (t PutProjectAISettingsJSONBody_Judgment_ApiKey) AsPutProjectAISettingsJSONBodyJudgmentApiKey0() (PutProjectAISettingsJSONBodyJudgmentApiKey0, error) {
+	var body PutProjectAISettingsJSONBodyJudgmentApiKey0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPutProjectAISettingsJSONBodyJudgmentApiKey0 overwrites any union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey as the provided PutProjectAISettingsJSONBodyJudgmentApiKey0
+func (t *PutProjectAISettingsJSONBody_Judgment_ApiKey) FromPutProjectAISettingsJSONBodyJudgmentApiKey0(v PutProjectAISettingsJSONBodyJudgmentApiKey0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePutProjectAISettingsJSONBodyJudgmentApiKey0 performs a merge with any union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey, using the provided PutProjectAISettingsJSONBodyJudgmentApiKey0
+func (t *PutProjectAISettingsJSONBody_Judgment_ApiKey) MergePutProjectAISettingsJSONBodyJudgmentApiKey0(v PutProjectAISettingsJSONBodyJudgmentApiKey0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPutProjectAISettingsJSONBodyJudgmentApiKey1 returns the union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey as a PutProjectAISettingsJSONBodyJudgmentApiKey1
+func (t PutProjectAISettingsJSONBody_Judgment_ApiKey) AsPutProjectAISettingsJSONBodyJudgmentApiKey1() (PutProjectAISettingsJSONBodyJudgmentApiKey1, error) {
+	var body PutProjectAISettingsJSONBodyJudgmentApiKey1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPutProjectAISettingsJSONBodyJudgmentApiKey1 overwrites any union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey as the provided PutProjectAISettingsJSONBodyJudgmentApiKey1
+func (t *PutProjectAISettingsJSONBody_Judgment_ApiKey) FromPutProjectAISettingsJSONBodyJudgmentApiKey1(v PutProjectAISettingsJSONBodyJudgmentApiKey1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePutProjectAISettingsJSONBodyJudgmentApiKey1 performs a merge with any union data inside the PutProjectAISettingsJSONBody_Judgment_ApiKey, using the provided PutProjectAISettingsJSONBodyJudgmentApiKey1
+func (t *PutProjectAISettingsJSONBody_Judgment_ApiKey) MergePutProjectAISettingsJSONBodyJudgmentApiKey1(v PutProjectAISettingsJSONBodyJudgmentApiKey1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PutProjectAISettingsJSONBody_Judgment_ApiKey) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PutProjectAISettingsJSONBody_Judgment_ApiKey) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

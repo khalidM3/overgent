@@ -11,7 +11,7 @@ import {
  */
 export const ANTHROPIC_JUDGMENT_MODEL = "claude-sonnet-5";
 export const ANTHROPIC_API_VERSION = "2023-06-01";
-const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+const DEFAULT_BASE_URL = "https://api.anthropic.com";
 
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -78,13 +78,15 @@ export function judgmentRequestText(candidate: JudgmentCandidate): string {
  * A failure is the caller's signal to keep the deterministic verdict.
  */
 export class AnthropicJudgmentProvider implements JudgmentProvider {
-  readonly name = `anthropic/${ANTHROPIC_JUDGMENT_MODEL}`;
+  readonly name: string;
 
   constructor(
-    private readonly apiKey: string,
+    private readonly options: { apiKey: string; model?: string; baseUrl?: string },
     private readonly fetcher: FetchLike = fetch,
   ) {
-    if (!apiKey || apiKey.length < 20) throw new Error("anthropic_api_key_invalid");
+    if (!options.apiKey || options.apiKey.length < 8) throw new Error("anthropic_api_key_invalid");
+    if (!options.model || options.model.length > 120) options.model = ANTHROPIC_JUDGMENT_MODEL;
+    this.name = `anthropic/${options.model}`;
   }
 
   async judge(candidate: JudgmentCandidate, signal: AbortSignal): Promise<JudgmentVerdict> {
@@ -95,16 +97,16 @@ export class AnthropicJudgmentProvider implements JudgmentProvider {
     // policy's own size limit describes a single approved summary.
     const description = judgmentRequestText(candidate);
     if (description.length > 8_000) throw new Error("judgment_candidate_invalid");
-    const response = await this.fetcher(MESSAGES_URL, {
+    const response = await this.fetcher(`${(this.options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "")}/v1/messages`, {
       method: "POST",
       signal,
       headers: {
         "content-type": "application/json",
-        "x-api-key": this.apiKey,
+        "x-api-key": this.options.apiKey,
         "anthropic-version": ANTHROPIC_API_VERSION,
       },
       body: JSON.stringify({
-        model: ANTHROPIC_JUDGMENT_MODEL,
+        model: this.options.model,
         max_tokens: 1_024,
         system: SYSTEM_PROMPT,
         output_config: { effort: "low", format: { type: "json_schema", schema: VERDICT_SCHEMA } },
