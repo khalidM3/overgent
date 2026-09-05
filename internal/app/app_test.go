@@ -25,6 +25,18 @@ import (
 	"time"
 )
 
+// fixtureOrigin is the backend every single-backend fixture publishes to. A
+// service resolves its publisher through the Project's backend now, so a
+// fixture that names no backend would correctly publish nothing.
+const fixtureOrigin = "https://fixture.example.test"
+
+// fixtureSender hands the same publisher to every backend, which is what a
+// single-backend fixture means. Tests that need two backends build the map
+// themselves.
+func fixtureSender(sender Sender) SenderFactory {
+	return func(context.Context, config.Backend) (Sender, error) { return sender, nil }
+}
+
 type fakeSender struct {
 	mu      sync.Mutex
 	events  int
@@ -50,7 +62,11 @@ func TestDoctorSurfacesLastPublishErrorAfterSendFailure(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, workspace); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, sender: failingPublishSender{err: errors.New("hosted publish unavailable")}}
+	service := &Service{
+		store:     db,
+		cfg:       config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, SessionID: workspace.SessionID, Root: workspace.Root}}),
+		newSender: fixtureSender(failingPublishSender{err: errors.New("hosted publish unavailable")}),
+	}
 	if service.flush(ctx) {
 		t.Fatal("flush unexpectedly succeeded")
 	}
@@ -107,7 +123,7 @@ func TestAgentInjectionFetchesThroughIPCStateAndDeduplicatesRevision(t *testing.
 		t.Fatal(err)
 	}
 	sender := &injectionFixtureSender{revision: 1}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sender)}
 	request := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "UserPromptSubmit"}
 	first := service.handle(ctx, request)
 	firstResult := first.Data.(agentInjectionResult)
@@ -137,7 +153,7 @@ func TestAgentInjectionFetchTimeoutFailsOpen(t *testing.T) {
 	}
 	defer db.Close()
 	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &injectionFixtureSender{revision: 1, delay: true}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(&injectionFixtureSender{revision: 1, delay: true})}
 	response := service.handle(ctx, daemon.Request{Method: "agent_injection", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "SessionStart"})
 	if !response.OK || response.Data.(agentInjectionResult).AdditionalContext != "" {
 		t.Fatalf("timeout did not fail open: %#v", response)
@@ -168,7 +184,7 @@ func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	sender := &lifecycleFixtureSender{}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sender)}
 	begin := daemon.Request{Method: "begin_work", WorkspaceID: workspace.ID, IdempotencyKey: "begin_1", Title: "Bounded lifecycle", IntendedOutcome: "Preserve coordination evidence", WaitingOn: []string{"session-api"}}
 	response := service.handle(ctx, begin)
 	result, ok := response.Data.(lifecycleResult)
@@ -258,7 +274,7 @@ func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace})}
 	response := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: filepath.Join(root, "src"), AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "codex-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "apply_patch", AgentPaths: []string{filepath.Join(root, "src", "nav.tsx")}})
 	if !response.OK {
 		t.Fatalf("response=%#v", response)
@@ -326,7 +342,7 @@ func TestProjectSessionContentComesFromTranscriptAndRejectsSecrets(t *testing.T)
 	}
 	sessionID := "wrk_agent_0123456789abcdef0123456789abcdef"
 
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sharingTestSender{}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sharingTestSender{})}
 	base := daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: sessionID, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request", AgentTranscriptPath: transcript}
 	response := service.handle(ctx, base)
 	// The owner still sees their own complete session locally. The dashboard
@@ -593,7 +609,11 @@ func start(t *testing.T, state string, s Sender) (context.CancelFunc, chan error
 	t.Helper()
 	ctx, c := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, state, s) }()
+	factory := SenderFactory(nil)
+	if s != nil {
+		factory = fixtureSender(s)
+	}
+	go func() { done <- Run(ctx, state, factory) }()
 	return c, done
 }
 func waitHealth(t *testing.T, s string, done chan error) {
@@ -703,7 +723,7 @@ func TestAgentEventCollectsRealBranchFromWorktree(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_branch", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_branch", Workspaces: []config.Workspace{workspace}}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_branch", []config.Workspace{workspace})}
 	response := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "claude-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "Edit"})
 	if !response.OK {
 		t.Fatalf("response=%#v", response)
@@ -741,7 +761,7 @@ func TestAgentEventKeepsReadToolPathsOutOfWorkEvidence(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace})}
 	target := filepath.Join(root, "backend", "sessions.go")
 
 	base := daemon.Request{Method: "agent_event", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "claude-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "inspecting", AgentPaths: []string{target}}
@@ -854,7 +874,7 @@ func TestLifecyclePrefersTheCallingAgentSessionWorkstream(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &lifecycleFixtureSender{}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(&lifecycleFixtureSender{})}
 
 	session, _, ok := agentactivity.WorkstreamIDFor("claude", "b4f019ed-0c2a-4f0e-9a1d-2f7b4c1d8e55")
 	if !ok {
@@ -907,9 +927,9 @@ func TestCodexSessionResolutionRoutesBeginWorkAndFailsClosedOnCheckoutAmbiguity(
 		t.Fatal(err)
 	}
 	service := &Service{
-		store:  db,
-		cfg:    config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}},
-		sender: &lifecycleFixtureSender{},
+		store:     db,
+		cfg:       config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}),
+		newSender: fixtureSender(&lifecycleFixtureSender{}),
 		codexThreadLister: func(context.Context, string, int) ([]codexappserver.Thread, error) {
 			t.Fatal("hook-derived service state was sufficient; app-server fallback must not run")
 			return nil, nil
@@ -992,7 +1012,7 @@ func TestCodexSessionResolutionFallsBackToRecentExactCWDThreadList(t *testing.T)
 	const threadID = "01a04ac6-684c-7650-a8b4-311eb918f98a"
 	service := &Service{
 		store: db,
-		cfg:   config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}},
+		cfg:   config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}),
 		codexThreadLister: func(_ context.Context, cwd string, limit int) ([]codexappserver.Thread, error) {
 			if cwd != root || limit != 2 {
 				t.Fatalf("thread/list cwd=%q limit=%d", cwd, limit)
@@ -1026,7 +1046,7 @@ func TestReenrolledProjectDoesNotReuseTheOldProjectsSessionWorkstream(t *testing
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace})}
 
 	session, _, ok := agentactivity.WorkstreamIDFor("claude", "b4f019ed-0c2a-4f0e-9a1d-2f7b4c1d8e55")
 	if !ok {
@@ -1047,7 +1067,7 @@ func TestReenrolledProjectDoesNotReuseTheOldProjectsSessionWorkstream(t *testing
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: reenrolled.ID, ProjectID: reenrolled.ProjectID, WorkstreamID: reenrolled.WorkstreamID, MemberID: reenrolled.MemberID, DeviceID: "dev_fixture", SessionID: reenrolled.SessionID, Root: root, Baseline: reenrolled.Baseline, Fingerprint: reenrolled.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service.cfg = config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{reenrolled}}
+	service.cfg = config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{reenrolled})
 	if response := service.handle(ctx, observe); !response.OK {
 		t.Fatalf("post-re-enrollment agent event=%#v", response)
 	}
@@ -1095,7 +1115,7 @@ func TestFocusSuppressesInjectionWithoutConsumingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := "wrk_agent_0123456789abcdef0123456789abcdef"
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: &injectionFixtureSender{revision: 1}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(&injectionFixtureSender{revision: 1})}
 	inject := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: session, AgentEvent: "UserPromptSubmit"}
 
 	// The dashboard's focus switch names the published identity — the only one
@@ -1189,7 +1209,7 @@ func TestPauseScopesToOneProject(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev"}}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev", nil)}
 	response := service.handle(ctx, daemon.Request{Method: "pause", ProjectID: "prj_atlas"})
 	if !response.OK || response.Data.(map[string]any)["workspaces"] != 2 {
 		t.Fatalf("project pause=%#v", response)
@@ -1233,7 +1253,11 @@ func TestPermanentRejectionQuarantinesInsteadOfWedging(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejection := &hosted.APIError{Status: 403, Code: "forbidden", Retryable: false}
-	service := &Service{store: db, sender: failingPublishSender{err: rejection}}
+	service := &Service{
+		store:     db,
+		cfg:       config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, SessionID: workspace.SessionID, Root: workspace.Root}}),
+		newSender: fixtureSender(failingPublishSender{err: rejection}),
+	}
 	service.flush(ctx)
 	pending, err := db.Pending(ctx)
 	if err != nil {
@@ -1296,7 +1320,7 @@ func TestMidTurnInjectionDeliversUrgentFindingsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &midTurnFixtureSender{}
-	service := &Service{store: db, cfg: config.Config{Version: 1, DeviceID: "dev_fixture", Workspaces: []config.Workspace{workspace}}, sender: sender}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sender)}
 	request := daemon.Request{Method: "agent_injection", AgentVendor: "claude", AgentCWD: root, AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentEvent: "PostToolUse"}
 	first := service.handle(ctx, request)
 	result, ok := first.Data.(agentInjectionResult)

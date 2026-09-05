@@ -44,6 +44,8 @@ func (f *fakeCreds) Delete(_ context.Context, account string) error {
 	return nil
 }
 
+const resetOrigin = "https://api.overgent.com"
+
 func enrolledProfile(t *testing.T) (string, config.Paths) {
 	t.Helper()
 	root := t.TempDir()
@@ -51,10 +53,7 @@ func enrolledProfile(t *testing.T) (string, config.Paths) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	cfg := config.Config{
-		Version: 1, APIBaseURL: "https://api.overgent.com", DeviceID: "dev_local",
-		Workspaces: []config.Workspace{{ID: "wsp_1", ProjectID: "prj_1", Root: root}},
-	}
+	cfg := config.Single(resetOrigin, "dev_local", []config.Workspace{{ID: "wsp_1", ProjectID: "prj_1", Root: root}})
 	if err := config.Save(paths, cfg); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -62,7 +61,16 @@ func enrolledProfile(t *testing.T) (string, config.Paths) {
 }
 
 func serviceFor(api *resetAPI, creds *fakeCreds) Service {
-	return Service{Client: func(string) (API, error) { return api, nil }, Creds: creds}
+	backend := config.Backend{ID: config.BackendID(resetOrigin), APIBaseURL: resetOrigin, DeviceID: "dev_local", Kind: config.KindTeam}
+	return Service{Backend: backend, Client: func(string) (API, error) { return api, nil }, Creds: creds}
+}
+
+// unenrolledServiceFor targets a backend this profile has no identity on,
+// which is what "nothing to reset" now means: the question is per backend, not
+// per Mac.
+func unenrolledServiceFor(api *resetAPI, creds *fakeCreds) Service {
+	backend := config.Backend{ID: config.BackendID(resetOrigin), APIBaseURL: resetOrigin, Kind: config.KindTeam}
+	return Service{Backend: backend, Client: func(string) (API, error) { return api, nil }, Creds: creds}
 }
 
 func TestResetClearsARejectedEnrollment(t *testing.T) {
@@ -84,11 +92,62 @@ func TestResetClearsARejectedEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if after.DeviceID != "" || len(after.Workspaces) != 0 {
-		t.Fatalf("device identity survived the reset: %+v", after)
+	// The backend goes with its Projects. Keeping an entry whose device
+	// identity has just been revoked would describe an enrollment that no
+	// longer exists; the origin is offered again as the default server for the
+	// next team Project.
+	if len(after.Backends) != 0 || len(after.Projects) != 0 || len(after.Workspaces) != 0 {
+		t.Fatalf("the rejected enrollment survived the reset: %+v", after)
 	}
-	if after.APIBaseURL != "https://api.overgent.com" {
-		t.Fatalf("apiBaseURL = %q, want the origin kept for re-enrollment", after.APIBaseURL)
+}
+
+// A profile holds several backends after ADR-074, and one of them being
+// revoked says nothing about the others. Resetting the rejected one must leave
+// the local Project beside it exactly as it was.
+func TestResetLeavesEveryOtherBackendAlone(t *testing.T) {
+	root := t.TempDir()
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	const localOrigin = "http://127.0.0.1:51601"
+	cfg := config.Single(resetOrigin, "dev_team", []config.Workspace{{ID: "wsp_team", ProjectID: "prj_team", Root: root}})
+	cfg, localBackend, err := cfg.UpsertBackend(localOrigin, "dev_local")
+	if err != nil {
+		t.Fatalf("upsert local backend: %v", err)
+	}
+	cfg = cfg.BindProject("prj_local", localBackend.ID)
+	cfg.Workspaces = append(cfg.Workspaces, config.Workspace{ID: "wsp_local", ProjectID: "prj_local", Root: t.TempDir()})
+	if err := config.Save(paths, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	creds := &fakeCreds{token: "stale-token"}
+	service := Service{
+		Backend: config.Backend{ID: config.BackendID(resetOrigin), APIBaseURL: resetOrigin, DeviceID: "dev_team", Kind: config.KindTeam},
+		Client: func(string) (API, error) {
+			return &resetAPI{bootstrapErr: &hosted.APIError{Status: 401, Code: "credential_revoked"}}, nil
+		},
+		Creds: creds,
+	}
+	outcome, err := service.Reset(context.Background(), root, false)
+	if err != nil {
+		t.Fatalf("Reset() error = %v", err)
+	}
+	if outcome.ClearedWorkspaces != 1 {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	after, err := config.Load(paths)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(after.Backends) != 1 || after.Backends[0].ID != localBackend.ID {
+		t.Fatalf("the local backend did not survive: %+v", after.Backends)
+	}
+	if len(after.Workspaces) != 1 || after.Workspaces[0].ID != "wsp_local" {
+		t.Fatalf("the local Project's repository did not survive: %+v", after.Workspaces)
+	}
+	if len(creds.deleted) != 1 || creds.deleted[0] != "dev_team" {
+		t.Fatalf("deleted = %v, want only the revoked backend's device", creds.deleted)
 	}
 }
 
@@ -101,7 +160,7 @@ func TestResetRefusesWhenTheCredentialStillWorks(t *testing.T) {
 		t.Fatal("Reset() must refuse to erase a working enrollment")
 	}
 	after, _ := config.Load(paths)
-	if after.DeviceID != "dev_local" || len(after.Workspaces) != 1 {
+	if len(after.Backends) != 1 || after.Backends[0].DeviceID != "dev_local" || len(after.Workspaces) != 1 {
 		t.Fatalf("a working enrollment was modified: %+v", after)
 	}
 	if len(creds.deleted) != 0 {
@@ -119,7 +178,7 @@ func TestResetRefusesWhenItCannotVerify(t *testing.T) {
 		t.Fatal("Reset() must refuse when the credential could not be verified")
 	}
 	after, _ := config.Load(paths)
-	if after.DeviceID != "dev_local" {
+	if len(after.Backends) != 1 || after.Backends[0].DeviceID != "dev_local" {
 		t.Fatalf("an unverified enrollment was erased: %+v", after)
 	}
 	if len(creds.deleted) != 0 {
@@ -136,13 +195,13 @@ func TestResetForceOverridesAnUnverifiableCheck(t *testing.T) {
 		t.Fatalf("forced Reset() error = %v", err)
 	}
 	after, _ := config.Load(paths)
-	if after.DeviceID != "" {
+	if len(after.Backends) != 0 {
 		t.Fatalf("forced reset left the device identity: %+v", after)
 	}
 }
 
 func TestResetOnAnUnenrolledProfileIsANoOp(t *testing.T) {
-	service := serviceFor(&resetAPI{}, &fakeCreds{})
+	service := unenrolledServiceFor(&resetAPI{}, &fakeCreds{})
 	outcome, err := service.Reset(context.Background(), t.TempDir(), false)
 	if err != nil {
 		t.Fatalf("Reset() error = %v", err)

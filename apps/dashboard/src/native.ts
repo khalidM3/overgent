@@ -17,6 +17,21 @@ export interface AdapterState {
   reviewGuidance?: string;
 }
 
+/**
+ * One Project on this Mac and the backend it lives on. After ADR-074 a local
+ * Project and a team Project sit side by side, so "where does this Project's
+ * data live" is answered per Project rather than per Mac.
+ */
+export interface ProjectState {
+  projectId: string;
+  repositoryRoot: string;
+  repositoryLabel: string;
+  backendId: string;
+  kind: "local" | "team" | "";
+  apiBaseUrl: string;
+  credential?: "ok" | "revoked" | "unknown" | "uncertain";
+}
+
 export interface OnboardingState {
   available: boolean;
   development: boolean;
@@ -26,19 +41,21 @@ export interface OnboardingState {
   repositoryLabel: string;
   deviceLabel: string;
   apiBaseUrl: string;
+  /** The backend the selected Project lives on, so a reset names one enrollment. */
+  backendId?: string;
+  projects?: ProjectState[];
   adapters: AdapterState[];
   limitation: string;
   /**
-   * Whether this Mac's stored credential still authenticates. "revoked" and
-   * "unknown" both arrive from the hosted API as 401 but need different copy;
-   * "uncertain" means the check could not complete and must never be shown as a
-   * reason to erase an enrollment.
+   * Whether the credential this Mac holds for the selected Project's backend
+   * still authenticates. "revoked" and "unknown" both arrive as 401 but need
+   * different copy; "uncertain" means the check could not complete and must
+   * never be shown as a reason to erase an enrollment. It is per backend: one
+   * revoked team Project says nothing about the local Project beside it.
    */
   credential?: "ok" | "revoked" | "unknown" | "uncertain";
   /** This build carries a backend, so "Use on this Mac" is a real choice. */
   localAvailable?: boolean;
-  /** Which kind of Project this profile holds once enrolled: local or team. */
-  mode?: "" | "local" | "team";
   /** The bundled backend's state, shown beside service health. */
   backend?: {
     present: boolean;
@@ -204,15 +221,17 @@ export const nativeOnboarding = {
   createLocalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateLocalProject", request),
   createAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateAdditionalProject", request),
   joinProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinProject", request),
-  // Accepting an invite on a Mac that is already enrolled. Distinct from
-  // joinProject, which mints a device identity and is only correct on a Mac
-  // that has none.
+  // Accepting an invite from the "Add a Project" screen. It reaches the same
+  // flow as joinProject; whether this Mac already has a device identity is a
+  // question about the invite's backend, and the flow answers it.
   joinAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinAdditionalProject", request),
   configureAdapters: (root: string, codex: boolean, claude: boolean, cursor: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude, cursor),
   reconnectAdapter: (root: string, agent: AgentVendor) => call<AdapterState>("ReconnectAdapter", root, agent),
   connectAgentWorktree: (root: string, agent: AgentVendor) => call<AdapterState>("ConnectAgentWorktree", root, agent),
   openLiveProject: (projectId: string) => call<string>("OpenLiveProject", projectId),
-  resetEnrollment: () => call<OnboardingState>("ResetEnrollment"),
+  // Scoped to one backend. An empty id forgets every backend on this Mac,
+  // which is the "start over completely" form.
+  resetEnrollment: (backendId = "") => call<OnboardingState>("ResetEnrollment", backendId),
   sessionDetail: (workstreamId: string) => call<NativeSessionDetail>("SessionDetail", workstreamId),
   openOwningSession: (workstreamId: string, prompt: string, target: "vendor" | "vscode" = "vendor") => call<NativeSessionOpenResult>("OpenOwningSession", workstreamId, prompt, target),
   setProjectPaused: (projectId: string, paused: boolean) => call<void>("SetProjectPaused", projectId, paused),

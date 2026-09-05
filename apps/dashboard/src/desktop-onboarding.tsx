@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 // the add-Project form did not, so the second Project a member made was the
 // one that observed nothing.
 import { AgentOptions, NewProjectScreen } from "./new-project";
-import { nativeOnboarding, type AdapterState, type EnrollmentRequest, type NativeOnboarding, type OnboardingState } from "./native";
+import { nativeOnboarding, type AdapterState, type EnrollmentRequest, type NativeOnboarding, type OnboardingState, type ProjectState } from "./native";
 import type { AgentVendor } from "./model";
 import { DesktopAISettings } from "./desktop-ai-settings";
 
@@ -22,8 +22,9 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const [state, setState] = useState<OnboardingState | null>(null);
   const [request, setRequest] = useState(emptyRequest);
   const [mode, setMode] = useState<"create" | "join">("create");
-  // Where this Project's coordination data lives. Until Lane 06 lands a profile
-  // holds one kind, so this is asked once, first, and never asked again.
+  // Where this Project's coordination data lives. It is a property of the
+  // Project, not of the Mac (ADR-074), so it is asked once per Project - here
+  // for the first one, and again on the "Add a Project" screen.
   const [placement, setPlacement] = useState<"local" | "team">("local");
   const [step, setStep] = useState<FirstRunStep>("welcome");
   const [pending, setPending] = useState(false);
@@ -43,6 +44,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   // immediately is the whole point of the handoff; making the member find it
   // again would just move the dead end.
   const [addProject, setAddProject] = useState<"create" | "join" | null>(() => new URLSearchParams(window.location.search).get("add") === "project" ? "create" : null);
+  const [addPlacement, setAddPlacement] = useState<"local" | "team">("local");
 
   const agentDefaultsApplied = useRef(false);
   const refresh = async () => {
@@ -105,10 +107,13 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
     try { navigate(await api.openLiveProject(state.projectId)); }
     catch (cause) { setError((cause as Error).message); setPending(false); }
   };
+  // Reconnecting names one backend. A member whose team Project was revoked
+  // still has their local Project, and erasing it too would be a different,
+  // unasked-for action.
   const resetEnrollment = async () => {
     setPending(true); setError("");
     try {
-      setState(await api.resetEnrollment());
+      setState(await api.resetEnrollment(state?.backendId ?? ""));
       setConfirmingReset(false);
     } catch (cause) { setError((cause as Error).message); }
     finally { setPending(false); }
@@ -124,7 +129,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
     finally { setPending(false); }
   };
   if (state?.enrolled && addProject) {
-    return <NewProjectScreen api={api} displayName="" navigate={navigate} mode={addProject} backLabel={state.repositoryLabel || "Overgent"} onBack={() => setAddProject(null)} />;
+    return <NewProjectScreen api={api} displayName="" navigate={navigate} mode={addProject} placement={addPlacement} onPlacement={setAddPlacement} localAvailable={Boolean(state.localAvailable)} defaultServer={state.apiBaseUrl} backLabel={state.repositoryLabel || "Overgent"} onBack={() => setAddProject(null)} />;
   }
   if (!state && !error) return <main className="onboarding-shell"><header><Brand /></header><section className="onboarding-card" role="status"><span className="spinner" /><h1>Checking this Mac…</h1></section></main>;
   if (!state) return <main className="onboarding-shell"><header><Brand /></header><section className="onboarding-card"><p className="form-error" role="alert">{error}</p><button className="pill" onClick={() => { setError(""); void refresh().catch((cause: Error) => setError(cause.message)); }}>Try again</button></section></main>;
@@ -218,19 +223,21 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
       <section className="onboarding-card">
         <h1>{state.repositoryLabel}</h1>
         <p className="repo-path">{state.repositoryRoot}</p>
+        {/* The same three answers as first run, because they are the same
+            question. A Project binds to its own backend (ADR-074), so a Mac
+            that already has a local Project can still join a team one, and the
+            other way round; the choice is offered every time rather than being
+            fixed by whatever the first Project happened to be. */}
         <div className="onboarding-actions">
           <button className="pill solid" disabled={pending} onClick={() => void open()}>{pending ? "Opening…" : "Open Project"}</button>
-          <button className="pill" disabled={pending} onClick={() => setAddProject("create")}>Add a Project</button>
+          <button className="pill" disabled={pending || !state.localAvailable} onClick={() => { setAddPlacement("local"); setAddProject("create"); }}>Use on this Mac</button>
+          <button className="pill" disabled={pending} onClick={() => { setAddPlacement("team"); setAddProject("create"); }}>Create team Project</button>
           {/* An invite has to be acceptable from inside the app. Without this
               the only way to take one was to reset this Mac, which would have
               discarded every Project already on it. */}
-          <button className="pill" disabled={pending} onClick={() => setAddProject("join")}>Join a Project</button>
+          <button className="pill" disabled={pending} onClick={() => { setAddPlacement("team"); setAddProject("join"); }}>Join with invite</button>
         </div>
-        {/* A profile holds local Projects or team Projects, not both, until
-            Lane 06 lands the per-Project binding. Saying which one this Mac is
-            set up for - once, in a line - is what keeps "Add a Project" from
-            reading as an offer to add the other kind. */}
-        {state.mode && <p className="field-note">This Mac is set up for {state.mode} Projects. Reset to switch.</p>}
+        <ProjectList projects={state.projects ?? []} selected={state.projectId} />
         {state.backend?.present && state.backend.lastError && <p className="form-warning">Backend: {state.backend.lastError}</p>}
         <AdapterList state={state} onReconnect={setReconnectTarget} />
         {api.aiSettings && api.putAISettings && <DesktopAISettings api={{ aiSettings: api.aiSettings, putAISettings: api.putAISettings }} projectId={state.projectId} />}
@@ -380,6 +387,29 @@ function adapterInstalled(state: OnboardingState, name: string): boolean {
 // wrote configuration for something that was not there to read it.
 function needsAdapterSetup(state: OnboardingState, name: string): boolean {
   return state.adapters.some((adapter) => adapter.name === name && adapter.installed && (adapter.binding === "not_configured" || adapter.binding === "partial"));
+}
+
+/**
+ * Every Project on this Mac, with where its coordination data actually lives.
+ *
+ * The origin is monospace because it is an address the member may have typed
+ * and may need to check character by character - a self-hosted server and a
+ * typo of it look identical in prose. A local Project names no server at all,
+ * because there is nothing to check: the data is on this Mac.
+ */
+function ProjectList({ projects, selected }: { projects: ProjectState[]; selected: string }) {
+  if (projects.length === 0) return null;
+  return <div className="project-list" aria-label="Projects on this Mac">
+    {projects.map((project) => <div key={project.projectId} className={project.projectId === selected ? "project-row current" : "project-row"}>
+      <span>
+        <strong>{project.repositoryLabel}</strong>
+        <small>{project.kind === "local"
+          ? "On this Mac"
+          : <>Team · <code>{project.apiBaseUrl}</code></>}
+          {project.credential === "revoked" || project.credential === "unknown" ? " · needs reconnecting" : ""}</small>
+      </span>
+    </div>)}
+  </div>;
 }
 
 function Brand() { return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true">O</span><span>overgent</span></div>; }

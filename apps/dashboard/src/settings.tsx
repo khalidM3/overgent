@@ -160,6 +160,12 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   const [pending, setPending] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
+  // A link is only useful if its origin is one a teammate can open. The
+  // dashboard is served from the origin that serves this Project's /v1 - the
+  // hosted deployment, a self-hosted one, or, for a Project that lives on this
+  // Mac, the app itself on loopback. Only the first two can be shared, so the
+  // last one hands over the bare code instead of a link naming 127.0.0.1.
+  const shareable = window.location.protocol === "https:";
   const refresh = () => source.getProjectAccess(projectId).then(setAccess).catch(() => setError("Project access controls could not be loaded."));
   useEffect(() => { void refresh(); }, [projectId]);
   const run = (operation: () => Promise<void>, message: string) => {
@@ -176,15 +182,17 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
     <ScreenSection title="Invite a teammate" help="An invite is a one-use link that expires in seven days and can be revoked below. Whoever opens it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
       <div className="screen-actions">
         {owner
-          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteLink(`${window.location.origin}/join#${result.code}`); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create invite link</button>
+          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteLink(shareable ? `${window.location.origin}/join#${result.code}` : result.code); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create invite link</button>
           : <p className="settings-help warning">Only the Project owner can invite people.</p>}
       </div>
       {inviteLink && <div className="invite-code" role="status">
-        <strong>Share this link privately</strong>
+        <strong>{shareable ? "Share this link privately" : "Share this code privately"}</strong>
         <code>{inviteLink}</code>
         <div className="screen-actions">
-          <button className="pill" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
-          <span className="settings-help">Shown once. The code after # never reaches server logs; the same string also works with <code>overgent join</code>.</span>
+          <button className="pill" onClick={copy}>{copied ? "Copied" : shareable ? "Copy link" : "Copy code"}</button>
+          <span className="settings-help">{shareable
+            ? <>Shown once. The code after # never reaches server logs; the same string also works with <code>overgent join</code>.</>
+            : <>Shown once. This Project is served from this Mac, so there is no address a teammate could open — they need a Project on a server both of you can reach.</>}</span>
         </div>
       </div>}
     </ScreenSection>

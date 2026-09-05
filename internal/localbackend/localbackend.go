@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +25,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/khalidM3/overgent/internal/config"
 )
 
 // convexClientVersion is the npm Convex CLI whose deploy2 request shape the
@@ -196,23 +197,10 @@ func Configured(root string) bool {
 }
 
 // IsLoopbackOrigin reports whether this origin is served by a backend running
-// on this Mac, which is the whole of the local-versus-team question today.
-//
-// It lives here, in one function, so Lane 06 moving that question from the
-// profile's APIBaseURL to a per-Project binding changes one body rather than
-// the service, the CLI, and the desktop separately.
-func IsLoopbackOrigin(origin string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(origin))
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" {
-		return false
-	}
-	host := parsed.Hostname()
-	if host == "localhost" {
-		return true
-	}
-	address := net.ParseIP(host)
-	return address != nil && address.IsLoopback()
-}
+// on this Mac. The rule itself now lives in internal/config, because that is
+// where a Project's backend kind is decided when the binding is written; this
+// stays as the name every existing caller already asks it by.
+func IsLoopbackOrigin(origin string) bool { return config.IsLoopbackOrigin(origin) }
 
 // StatePath is where Install and the desktop write the bundle paths.
 func StatePath(root string) string { return filepath.Join(root, "backend", "backend.json") }

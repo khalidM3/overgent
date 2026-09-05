@@ -23,7 +23,6 @@ import (
 	"github.com/khalidM3/overgent/internal/claudesetup"
 	"github.com/khalidM3/overgent/internal/codexsetup"
 	"github.com/khalidM3/overgent/internal/config"
-	"github.com/khalidM3/overgent/internal/credential"
 	"github.com/khalidM3/overgent/internal/cursorsetup"
 	"github.com/khalidM3/overgent/internal/daemon"
 	"github.com/khalidM3/overgent/internal/hosted"
@@ -53,17 +52,35 @@ type AdapterState struct {
 	ReviewGuidance  string `json:"reviewGuidance,omitempty"`
 }
 
+// ProjectState is one Project on this profile and the backend it lives on.
+// The origin is shown because "where does this Project's coordination data
+// live" is the one question a member cannot answer from the Project's name,
+// and after ADR-074 two Projects side by side can answer it differently.
+type ProjectState struct {
+	ProjectID       string `json:"projectId"`
+	RepositoryRoot  string `json:"repositoryRoot"`
+	RepositoryLabel string `json:"repositoryLabel"`
+	BackendID       string `json:"backendId"`
+	Kind            string `json:"kind"`
+	APIBaseURL      string `json:"apiBaseUrl"`
+	Credential      string `json:"credential"`
+}
+
 type OnboardingState struct {
-	Available       bool           `json:"available"`
-	Development     bool           `json:"development"`
-	Enrolled        bool           `json:"enrolled"`
-	ProjectID       string         `json:"projectId"`
-	RepositoryRoot  string         `json:"repositoryRoot"`
-	RepositoryLabel string         `json:"repositoryLabel"`
-	DeviceLabel     string         `json:"deviceLabel"`
-	APIBaseURL      string         `json:"apiBaseUrl"`
-	Adapters        []AdapterState `json:"adapters"`
-	Limitation      string         `json:"limitation"`
+	Available       bool   `json:"available"`
+	Development     bool   `json:"development"`
+	Enrolled        bool   `json:"enrolled"`
+	ProjectID       string `json:"projectId"`
+	RepositoryRoot  string `json:"repositoryRoot"`
+	RepositoryLabel string `json:"repositoryLabel"`
+	DeviceLabel     string `json:"deviceLabel"`
+	APIBaseURL      string `json:"apiBaseUrl"`
+	// BackendID is the backend the selected Project lives on, so a recovery
+	// action names one enrollment rather than the whole Mac.
+	BackendID  string         `json:"backendId"`
+	Projects   []ProjectState `json:"projects"`
+	Adapters   []AdapterState `json:"adapters"`
+	Limitation string         `json:"limitation"`
 	// Credential reports whether this Mac's stored credential is still accepted.
 	// "revoked" and "unknown" both arrive as HTTP 401 but need different copy,
 	// and "uncertain" (offline, timeout, server fault) must never be presented
@@ -72,10 +89,6 @@ type OnboardingState struct {
 	// LocalAvailable reports that this build carries a backend, so "Use on this
 	// Mac" is a real choice rather than a button that fails when pressed.
 	LocalAvailable bool `json:"localAvailable"`
-	// Mode is "local" or "team" once enrolled, and "" before. Until Lane 06
-	// lands a profile is one or the other, and the onboarding says so rather
-	// than offering a switcher that would silently strand the other kind.
-	Mode string `json:"mode"`
 	// Backend is the bundled backend's state, shown beside service health.
 	Backend BackendStatus `json:"backend"`
 }
@@ -102,7 +115,7 @@ type EnrollmentResult struct {
 }
 
 type OnboardingService struct {
-	configRoot, apiBaseURL, activationBaseURL, cliBinary string
+	configRoot, apiBaseURL, cliBinary string
 	// localAvailable is whether this build carries a bundled backend.
 	localAvailable bool
 	// Test seams for the local-only session opener. Production leaves these nil
@@ -111,10 +124,11 @@ type OnboardingService struct {
 	openSessionURL      func(string) error
 	startSessionCommand func(string, []string, string) error
 
-	credentialMu      sync.Mutex
-	credentialStatus  hosted.CredentialStatus
-	credentialSubject string
-	credentialAt      time.Time
+	// credentials caches one answer per backend. A profile holds several after
+	// ADR-074, and one revoked team Project says nothing about the local
+	// Project beside it, so a single cached value would report the wrong one.
+	credentialMu sync.Mutex
+	credentials  map[string]cachedCredential
 	// repairOnce keeps the launch-time adoption pass to one run per launch. It
 	// touches files on disk, and State() is polled every two seconds while an
 	// adapter restart is pending.
@@ -126,34 +140,43 @@ type OnboardingService struct {
 // un-reject itself in between.
 const credentialTTL = 15 * time.Second
 
-// credentialHealth answers whether the stored credential still authenticates,
-// reusing a recent answer rather than calling out on every State(). The check
-// itself lives in internal/onboarding so the desktop and the CLI cannot drift.
-func (service *OnboardingService) credentialHealth(ctx context.Context, deviceID, apiBaseURL string) hosted.CredentialStatus {
-	subject := deviceID + "@" + apiBaseURL
+type cachedCredential struct {
+	status  hosted.CredentialStatus
+	subject string
+	at      time.Time
+}
+
+// credentialHealth answers whether the credential stored for one backend still
+// authenticates against it, reusing a recent answer rather than calling out on
+// every State(). The check itself lives in internal/onboarding so the desktop
+// and the CLI cannot drift.
+func (service *OnboardingService) credentialHealth(ctx context.Context, backend config.Backend) hosted.CredentialStatus {
+	subject := backend.DeviceID + "@" + backend.APIBaseURL
 	service.credentialMu.Lock()
-	if service.credentialSubject == subject && time.Since(service.credentialAt) < credentialTTL {
-		cached := service.credentialStatus
+	if cached, known := service.credentials[backend.ID]; known && cached.subject == subject && time.Since(cached.at) < credentialTTL {
 		service.credentialMu.Unlock()
-		return cached
+		return cached.status
 	}
 	service.credentialMu.Unlock()
 
-	status, _, err := onboarding.New(apiBaseURL).CredentialState(ctx, service.configRoot)
+	status, _, err := onboarding.New(backend).CredentialState(ctx, service.configRoot)
 	if err != nil {
 		status = hosted.CredentialUncertain
 	}
 
 	service.credentialMu.Lock()
-	service.credentialStatus, service.credentialSubject, service.credentialAt = status, subject, time.Now()
+	if service.credentials == nil {
+		service.credentials = map[string]cachedCredential{}
+	}
+	service.credentials[backend.ID] = cachedCredential{status: status, subject: subject, at: time.Now()}
 	service.credentialMu.Unlock()
 	return status
 }
 
-// forgetCredentialHealth drops the cached answer so the next State() re-checks.
+// forgetCredentialHealth drops the cached answers so the next State() re-checks.
 func (service *OnboardingService) forgetCredentialHealth() {
 	service.credentialMu.Lock()
-	service.credentialSubject, service.credentialAt = "", time.Time{}
+	service.credentials = nil
 	service.credentialMu.Unlock()
 }
 
@@ -163,8 +186,7 @@ func newOnboardingService() *OnboardingService {
 	// service find the backend again after an app update replaced the bundle.
 	recordBundledBackend(root)
 	return &OnboardingService{
-		configRoot: root, apiBaseURL: desktopAPIBaseURL(),
-		activationBaseURL: desktopActivationBaseURL(), cliBinary: desktopCLIBinary(),
+		configRoot: root, apiBaseURL: desktopAPIBaseURL(), cliBinary: desktopCLIBinary(),
 		localAvailable: localbackend.Configured(root),
 	}
 }
@@ -201,11 +223,6 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 		return state, nil
 	}
 	state.Enrolled = true
-	state.Mode = "team"
-	if isLoopbackOrigin(cfg.APIBaseURL) {
-		state.Mode = "local"
-	}
-	state.APIBaseURL = cfg.APIBaseURL
 	// The newest registration is the Project the member most recently added.
 	// A specific Project can always be opened through OpenLiveProject.
 	selected := cfg.Workspaces[len(cfg.Workspaces)-1]
@@ -224,10 +241,34 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 	service.repairAdapters(roots)
 	state.Adapters = service.adapterStates(roots)
 	// Report credential health with the rest of the state so a locked-out Mac
-	// shows a recovery path on open, instead of only after an action fails.
+	// shows a recovery path on open, instead of only after an action fails. It
+	// is asked once per backend: a profile holds several, and a revoked team
+	// Project must not present the local Project beside it as broken.
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	state.Credential = string(service.credentialHealth(ctx, cfg.DeviceID, cfg.APIBaseURL))
+	health := map[string]string{}
+	for _, backend := range cfg.Backends {
+		health[backend.ID] = string(service.credentialHealth(ctx, backend))
+	}
+	seen := map[string]bool{}
+	for index := len(cfg.Workspaces) - 1; index >= 0; index-- {
+		workspace := cfg.Workspaces[index]
+		if seen[workspace.ProjectID] {
+			continue
+		}
+		seen[workspace.ProjectID] = true
+		backend, _ := cfg.BackendForWorkspace(workspace)
+		state.Projects = append(state.Projects, ProjectState{
+			ProjectID: workspace.ProjectID, RepositoryRoot: workspace.Root,
+			RepositoryLabel: filepath.Base(workspace.Root), BackendID: backend.ID,
+			Kind: backend.Kind, APIBaseURL: backend.APIBaseURL, Credential: health[backend.ID],
+		})
+	}
+	if backend, bound := cfg.BackendForWorkspace(selected); bound {
+		state.APIBaseURL = backend.APIBaseURL
+		state.BackendID = backend.ID
+		state.Credential = health[backend.ID]
+	}
 	return state, nil
 }
 
@@ -254,11 +295,24 @@ func (service *OnboardingService) repairAdapters(roots []string) {
 	})
 }
 
-// ResetEnrollment forgets this Mac's device identity so the member can enroll
-// again from the app, without a terminal. The safety gate - refusing unless the
-// hosted API actually rejected the credential - lives in internal/onboarding
-// and is shared with "overgent reset".
-func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
+// ResetEnrollment forgets this Mac's device identity on one backend so the
+// member can enroll against it again, without a terminal. It is scoped to a
+// backend because a profile holds several (ADR-074): a revoked team Project
+// must not take the local Project beside it with it. An empty backend id means
+// every backend, which is the "forget this Mac entirely" form.
+//
+// The safety gate - refusing unless the backend actually rejected the
+// credential - lives in internal/onboarding and is shared with `overgent reset`.
+func (service *OnboardingService) ResetEnrollment(backendID string) (OnboardingState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if strings.TrimSpace(backendID) == "" {
+		if _, err := onboarding.ResetAll(ctx, service.configRoot, false); err != nil {
+			return OnboardingState{}, err
+		}
+		service.forgetCredentialHealth()
+		return service.State()
+	}
 	paths, err := config.Resolve(service.configRoot)
 	if err != nil {
 		return OnboardingState{}, err
@@ -267,9 +321,11 @@ func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
 	if err != nil {
 		return OnboardingState{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	if _, err := onboarding.New(cfg.APIBaseURL).Reset(ctx, service.configRoot, false); err != nil {
+	backend, known := cfg.BackendByID(backendID)
+	if !known {
+		return OnboardingState{}, errors.New("this Mac has no such backend")
+	}
+	if _, err := onboarding.New(backend).Reset(ctx, service.configRoot, false); err != nil {
 		return OnboardingState{}, err
 	}
 	service.forgetCredentialHealth()
@@ -277,7 +333,7 @@ func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
 }
 
 func (service *OnboardingService) CreateProject(request EnrollmentRequest) (EnrollmentResult, error) {
-	return service.enroll(request, true)
+	return service.addProject(request, false, false)
 }
 
 // CreateLocalProject sets up a Project that never leaves this Mac.
@@ -287,49 +343,53 @@ func (service *OnboardingService) CreateProject(request EnrollmentRequest) (Enro
 // is the loopback backend the service just started, and no invite is minted,
 // because a code offered on the success screen is how a member is told that
 // inviting somebody is the next step.
+//
+// It is available whenever the build carries a backend, not only on a fresh
+// profile: after ADR-074 a local Project sits beside a team Project rather
+// than replacing it.
 func (service *OnboardingService) CreateLocalProject(request EnrollmentRequest) (EnrollmentResult, error) {
-	if !service.localAvailable {
-		return EnrollmentResult{}, errors.New("this build does not carry a backend to run on this Mac")
-	}
-	paths, err := config.Resolve(service.configRoot)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	if len(cfg.Workspaces) > 0 && !isLoopbackOrigin(cfg.APIBaseURL) {
-		return EnrollmentResult{}, errors.New("this Mac is set up for team Projects. Reset to switch.")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	// The service owns the backend process, so it has to exist before the
-	// backend does. On a fresh profile this is the call that installs it.
-	if serviceErr := service.ensureService(ctx); serviceErr != nil {
-		return EnrollmentResult{}, fmt.Errorf("start the Overgent background service: %w", serviceErr)
-	}
-	endpoint, err := ensureLocalBackend(ctx, paths)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	if origin := ensureDashboardOrigin(dashboardAssets()); origin != nil {
-		if err = origin.SetBackend(endpoint.SiteOrigin); err != nil {
-			return EnrollmentResult{}, err
-		}
-	}
-	request.ServerOrigin = endpoint.SiteOrigin
-	return service.enroll(request, true)
+	return service.addProject(request, true, false)
 }
 
-// CreateAdditionalProject reuses this Mac's enrolled device credential and
-// hot-registers the repository with the one running service. The webview sees
-// only the resulting Project ID and one-use invite, never the credential.
+// CreateAdditionalProject is the same call from the "Add a Project" screen.
+// The distinction it used to carry - whether this Mac had enrolled yet - is
+// now answered per backend inside the flow.
 func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	return service.addProject(request, false, false)
+}
+
+func (service *OnboardingService) JoinProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	return service.addProject(request, false, true)
+}
+
+func (service *OnboardingService) JoinAdditionalProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	return service.addProject(request, false, true)
+}
+
+// addProject is the one enrollment path: choose the backend, then create or
+// join on it.
+//
+// Creating, joining, adding a second Project and adding the first were four
+// methods that differed only in which backend they targeted and whether this
+// Mac already had a device identity there. Both of those are now questions
+// about a backend rather than about the Mac, and both are answered in one
+// place, so the four cannot drift apart again.
+func (service *OnboardingService) addProject(request EnrollmentRequest, local, join bool) (EnrollmentResult, error) {
+	if local && !service.localAvailable {
+		return EnrollmentResult{}, errors.New("this build does not carry a backend to run on this Mac")
+	}
 	root, err := canonicalRepository(request.RepositoryRoot)
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
+	request.RepositoryRoot = root
+	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
+	// An empty display name is passed through as empty so the member is asked to
+	// choose one rather than silently inheriting this machine's hostname.
+	if request.DisplayName, err = boundedDisplayName(request.DisplayName); err != nil {
+		return EnrollmentResult{}, err
+	}
+	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
 	paths, err := config.Resolve(service.configRoot)
 	if err != nil {
 		return EnrollmentResult{}, err
@@ -337,34 +397,33 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 	cfg, err := config.Load(paths)
 	if err != nil {
 		return EnrollmentResult{}, err
-	}
-	if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
-		return EnrollmentResult{}, errors.New("add a Project after this Mac has completed enrollment")
 	}
 	for _, workspace := range cfg.Workspaces {
 		if workspace.Root == root {
 			return EnrollmentResult{}, errors.New("this repository is already connected to a Project")
 		}
 	}
-	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
-	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
-	request.DisplayName, err = boundedDisplayName(request.DisplayName)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	apiBaseURL, err := service.resolveOrigin(ctx, paths, request, local, join)
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	token, err := credential.Get(ctx, cfg.DeviceID)
-	if err != nil {
-		return EnrollmentResult{}, fmt.Errorf("read existing device credential: %w", err)
+	options := onboarding.Options{
+		ConfigRoot: service.configRoot, RepositoryRoot: root, ProjectLabel: request.ProjectLabel,
+		DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName,
+		AppVersion: "overgent/desktop-beta", SkipInvite: local,
 	}
-	flow := onboarding.New(cfg.APIBaseURL)
+	// Registering through the running service rather than restarting it is what
+	// keeps every live agent session it is observing alive.
+	flow := onboarding.New(cfg.BackendTarget(apiBaseURL))
 	flow.Register = service.hotRegister(paths)
-	result, err := flow.CreateAdditional(ctx, onboarding.Options{
-		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
-		ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel,
-		DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta",
-	}, cfg.DeviceID, token)
+	var result onboarding.Result
+	if join {
+		result, err = flow.JoinOnNewBackend(ctx, options, strings.TrimSpace(request.JoinCode))
+	} else {
+		result, err = flow.CreateOnNewBackend(ctx, options)
+	}
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
@@ -375,75 +434,55 @@ func (service *OnboardingService) CreateAdditionalProject(request EnrollmentRequ
 	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
 }
 
-func (service *OnboardingService) JoinProject(request EnrollmentRequest) (EnrollmentResult, error) {
-	return service.enroll(request, false)
-}
-
-// JoinAdditionalProject accepts an invite on a Mac that is already enrolled.
+// resolveOrigin answers which backend this Project will live on.
 //
-// It is separate from JoinProject for the same reason CreateAdditionalProject is
-// separate from CreateProject: first enrollment mints a device identity and
-// rolls it back on failure, and here that identity is the one holding every
-// Project this Mac already has.
-func (service *OnboardingService) JoinAdditionalProject(request EnrollmentRequest) (EnrollmentResult, error) {
-	root, err := canonicalRepository(request.RepositoryRoot)
-	if err != nil {
-		return EnrollmentResult{}, err
+// A local Project lives on the loopback backend the service starts here. An
+// https invite link names its own origin, which is what lets a member on a
+// purely local profile join a friend's team Project without being asked which
+// server it is on. Otherwise it is the "connect to a different server" field,
+// or this build's default.
+func (service *OnboardingService) resolveOrigin(ctx context.Context, paths config.Paths, request EnrollmentRequest, local, join bool) (string, error) {
+	if local {
+		// The service owns the backend process, so it has to exist before the
+		// backend does. On a fresh profile this is the call that installs it.
+		if serviceErr := service.ensureService(ctx); serviceErr != nil {
+			return "", fmt.Errorf("start the Overgent background service: %w", serviceErr)
+		}
+		endpoint, err := ensureLocalBackend(ctx, paths)
+		if err != nil {
+			return "", err
+		}
+		return endpoint.SiteOrigin, nil
 	}
-	paths, err := config.Resolve(service.configRoot)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	cfg, err := config.Load(paths)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	if cfg.DeviceID == "" || cfg.APIBaseURL == "" || len(cfg.Workspaces) == 0 {
-		return EnrollmentResult{}, errors.New("join a second Project after this Mac has completed enrollment")
-	}
-	for _, workspace := range cfg.Workspaces {
-		if workspace.Root == root {
-			return EnrollmentResult{}, errors.New("this repository is already connected to a Project")
+	if join {
+		_, origin, err := onboarding.ParseInviteCode(strings.TrimSpace(request.JoinCode))
+		if err != nil {
+			return "", err
+		}
+		if origin != "" {
+			return origin, nil
 		}
 	}
-	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
-	request.DisplayName, err = boundedDisplayName(request.DisplayName)
-	if err != nil {
-		return EnrollmentResult{}, err
+	if strings.TrimSpace(request.ServerOrigin) != "" {
+		return onboarding.ValidateAPIOrigin(request.ServerOrigin)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	token, err := credential.Get(ctx, cfg.DeviceID)
-	if err != nil {
-		return EnrollmentResult{}, fmt.Errorf("read existing device credential: %w", err)
-	}
-	flow := onboarding.New(cfg.APIBaseURL)
-	flow.Register = service.hotRegister(paths)
-	result, err := flow.JoinAdditional(ctx, onboarding.Options{
-		ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: cfg.APIBaseURL,
-		DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName,
-		AppVersion: "overgent/desktop-beta",
-	}, cfg.DeviceID, token, strings.TrimSpace(request.JoinCode))
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
-	if serviceErr := service.ensureService(ctx); serviceErr != nil {
-		warnings = append(warnings, "Background service: "+serviceErr.Error())
-	}
-	return EnrollmentResult{ProjectID: result.ProjectID, Warnings: warnings}, nil
+	return service.apiBaseURL, nil
 }
 
 // hotRegister registers a repository with the service already running on this
 // Mac, falling back to writing the profile directly when no service answers.
 // Restarting the service to pick up a new Project would drop every live agent
 // session it is currently observing.
+//
+// The backend origin and device identity travel with the call because the
+// Project may be the first one this profile has on that server.
 func (service *OnboardingService) hotRegister(paths config.Paths) func(context.Context, string, string, string, config.Workspace) error {
 	return func(registerContext context.Context, configRoot, apiBaseURL, deviceID string, workspace config.Workspace) error {
 		response, callErr := daemon.Call(registerContext, paths.Socket, daemon.Request{
 			Method: "add_project_workspace", WorkspaceID: workspace.ID, ProjectID: workspace.ProjectID,
 			WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID,
 			SessionID: workspace.SessionID, Root: workspace.Root,
+			APIBaseURL: apiBaseURL, DeviceID: deviceID,
 		})
 		if callErr == nil {
 			if !response.OK {
@@ -453,51 +492,6 @@ func (service *OnboardingService) hotRegister(paths config.Paths) func(context.C
 		}
 		return app.Register(registerContext, configRoot, apiBaseURL, deviceID, workspace)
 	}
-}
-
-func (service *OnboardingService) enroll(request EnrollmentRequest, create bool) (EnrollmentResult, error) {
-	root, err := canonicalRepository(request.RepositoryRoot)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	request.RepositoryRoot = root
-	request.DeviceLabel = boundedLabel(request.DeviceLabel, defaultDeviceLabel())
-	// An empty display name is passed through as empty so the member is asked to
-	// choose one rather than silently inheriting this machine's hostname.
-	displayName, err := boundedDisplayName(request.DisplayName)
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	request.DisplayName = displayName
-	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
-	// A member who typed a server in "connect to a different server" gets that
-	// origin; everyone else gets this build's default. The existing enroll path
-	// persists whichever one the Project was created against.
-	apiBaseURL := service.apiBaseURL
-	if strings.TrimSpace(request.ServerOrigin) != "" {
-		apiBaseURL, err = onboarding.ValidateAPIOrigin(request.ServerOrigin)
-		if err != nil {
-			return EnrollmentResult{}, err
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta", SkipInvite: isLoopbackOrigin(apiBaseURL)}
-	flow := onboarding.New(apiBaseURL)
-	var result onboarding.Result
-	if create {
-		result, err = flow.Create(ctx, options)
-	} else {
-		result, err = flow.Join(ctx, options, strings.TrimSpace(request.JoinCode))
-	}
-	if err != nil {
-		return EnrollmentResult{}, err
-	}
-	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
-	if serviceErr := service.ensureService(ctx); serviceErr != nil {
-		warnings = append(warnings, "Background service: "+serviceErr.Error())
-	}
-	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
 }
 
 func (service *OnboardingService) ensureService(ctx context.Context) error {
@@ -737,31 +731,13 @@ func (service *OnboardingService) OpenLiveProject(projectID string) (string, err
 	if err != nil {
 		return "", err
 	}
-	found := false
-	for _, workspace := range cfg.Workspaces {
-		if workspace.ProjectID == projectID {
-			found = true
-			break
-		}
-	}
-	if !found || cfg.DeviceID == "" {
-		return "", errors.New("Project is not enrolled on this device")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	token, err := credential.Get(ctx, cfg.DeviceID)
+	live, err := liveProjectURL(ctx, paths, cfg, projectID)
 	if err != nil {
 		return "", err
 	}
-	client, err := hosted.New(cfg.APIBaseURL, token)
-	if err != nil {
-		return "", err
-	}
-	ticket, err := client.CreateDashboardTicket(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
-	handoff, err := activation.Start(service.activationBaseURL, ticket.Ticket)
+	handoff, err := activation.Start(live.origin, live.ticket)
 	if err != nil {
 		return "", err
 	}

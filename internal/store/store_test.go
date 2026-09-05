@@ -434,3 +434,64 @@ func TestReenrollmentReplacesWorkspaceWithSameRoot(t *testing.T) {
 		t.Fatalf("workspaces after re-enrollment: %#v", workspaces)
 	}
 }
+
+// A database written before ADR-074 has no backend column, and the Projects in
+// it belonged to the one backend the profile had. The column is added on
+// open, and the first UpsertWorkspace after the configuration migration writes
+// the binding - that is the whole back-fill.
+func TestMigrationAddsTheProjectBackendBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY);
+INSERT INTO schema_migrations(version) VALUES(1);
+CREATE TABLE projects(id TEXT PRIMARY KEY);
+INSERT INTO projects(id) VALUES('prj_legacy');
+CREATE TABLE workspaces(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,workstream_id TEXT NOT NULL,root TEXT NOT NULL UNIQUE,baseline TEXT NOT NULL,paused INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 0,sequence INTEGER NOT NULL DEFAULT 0);`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open() on a pre-ADR-074 database: %v", err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	if err = store.UpsertWorkspace(ctx, Workspace{
+		ID: "wsp_legacy", ProjectID: "prj_legacy", WorkstreamID: "wrk_legacy", MemberID: "mem_legacy",
+		DeviceID: "dev_legacy", SessionID: "ses_legacy", Root: "/fixture/legacy", Baseline: "abc",
+		Fingerprint: "opaque", BackendID: "bk_migrated",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := store.Workspaces(ctx)
+	if err != nil || len(workspaces) != 1 || workspaces[0].BackendID != "bk_migrated" {
+		t.Fatalf("workspaces = %#v err = %v", workspaces, err)
+	}
+	var backendID string
+	if err = store.db.QueryRowContext(ctx, `SELECT backend_id FROM projects WHERE id='prj_legacy'`).Scan(&backendID); err != nil {
+		t.Fatal(err)
+	}
+	if backendID != "bk_migrated" {
+		t.Fatalf("project backend_id = %q", backendID)
+	}
+
+	// A later write that names no backend must not erase the binding: the
+	// development `workspace add` path resolves the Project's existing backend
+	// rather than restating it.
+	if err = store.UpsertWorkspace(ctx, Workspace{
+		ID: "wsp_second", ProjectID: "prj_legacy", WorkstreamID: "wrk_second", MemberID: "mem_legacy",
+		DeviceID: "dev_legacy", SessionID: "ses_second", Root: "/fixture/second", Baseline: "abc", Fingerprint: "opaque",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.db.QueryRowContext(ctx, `SELECT backend_id FROM projects WHERE id='prj_legacy'`).Scan(&backendID); err != nil {
+		t.Fatal(err)
+	}
+	if backendID != "bk_migrated" {
+		t.Fatalf("an unspecified backend erased the binding: %q", backendID)
+	}
+}
