@@ -1200,7 +1200,7 @@ an exact commit in `internal/contract/wasmgrammar/PROVENANCE.md`, and a test
 asserts the committed artifact's hash and size against that record so it cannot
 drift unnoticed. The blob was built on a developer
 machine rather than in CI; moving that build into the release workflow is a
-prerequisite of the signed-release gate in `docs/beta-release.md`, not of this
+prerequisite of the signed-release gate in `docs/release.md`, not of this
 decision. `github.com/odvcencio/gotreesitter`, a pure-Go tree-sitter
 reimplementation needing no build toolchain, is the named fallback if
 maintaining a WASI build step proves worse than expected; it was rejected for
@@ -1516,3 +1516,19 @@ framing and makes joining a friend's team Project disruptive.
 
 Consequences: Lane 06; largest refactor of the migration; may ship after the
 first public release if the README states the profile-switch limitation. Accepted by the owner 2026-09-04; direction confirmed in the migration planning session.
+
+## ADR-075: Publish release assets through GitHub Releases; retain Blob only as the update anchor
+
+Supersedes the blob-copy half of ADR-067. Once the source repository is public
+under ADR-071, signed, notarized release artifacts are attached to immutable
+draft GitHub Releases. The signed update manifest names those GitHub asset URLs.
+After clean-machine verification, the protected promotion workflow publishes the
+draft release and copies only `current/update-manifest.json` to the public Blob
+store. Clients continue to discover updates at
+`https://releases.overgent.com/current/update-manifest.json`; the domain, not
+GitHub, remains the update anchor.
+
+The install, uninstall, and macOS download aliases redirect to the latest
+published GitHub Release assets. The protected release environment retains the
+signing and Blob credentials; forks cannot use either. Accepted by the owner
+2026-09-04.

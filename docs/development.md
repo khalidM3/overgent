@@ -44,8 +44,8 @@ command is required for this normal path. The app exchanges a one-time ticket
 through the loopback Vite proxy so the development session cookie remains
 same-origin while the Wails bridge stays attached during hot reload. The
 development app refuses non-loopback API/dashboard origins. Production builds
-ignore Vite and use the signed beta onboarding/API boundary described in
-`beta-release.md`.
+ignore Vite and use the signed release onboarding/API boundary described in
+`release.md`.
 
 ## First local Project
 

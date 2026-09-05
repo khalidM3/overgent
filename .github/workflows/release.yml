@@ -126,13 +126,12 @@ jobs:
       - name: Create signed updater metadata
         env:
           UPDATE_PRIVATE_KEY: "${{ secrets.OVERGENT_UPDATE_SIGNING_PRIVATE_KEY }}"
-          RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
         run: |
           printf '%s' "$UPDATE_PRIVATE_KEY" > "$RUNNER_TEMP/update-signing-key"
           OVERGENT_UPDATE_SIGNING_KEY_FILE="$RUNNER_TEMP/update-signing-key" go run ./cmd/release-metadata \
             -dist dist \
             -version "${GITHUB_REF_NAME}" \
-            -base-url "${RELEASE_BLOB_ORIGIN}/releases/${GITHUB_REF_NAME}" \
+            -base-url "https://github.com/khalidM3/overgent/releases/download/${GITHUB_REF_NAME}" \
             -output dist/update-manifest.json
       - name: Render release installer
         run: |
@@ -154,8 +153,3 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json dist/update-manifest.json.sigstore.json dist/desktop-checksums.txt.sigstore.json --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-      - name: Publish public candidate artifacts
-        env:
-          BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
-          OVERGENT_RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
-        run: node scripts/publish-release-blobs.mjs candidate "${GITHUB_REF_NAME}"

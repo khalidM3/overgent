@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Immutable candidate version, for example v0.1.0-beta.1
+        description: Immutable draft release version, for example v0.1.0
         required: true
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   promote:
@@ -21,9 +21,15 @@ jobs:
         with: { node-version: "22" }
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Publish verified draft release
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          RELEASE_VERSION: "${{ inputs.version }}"
+        run: gh release edit "$RELEASE_VERSION" --draft=false
       - name: Promote verified signed manifest
         env:
           BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
           OVERGENT_RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
           RELEASE_VERSION: "${{ inputs.version }}"
+          RELEASE_MANIFEST_URL: "https://github.com/khalidM3/overgent/releases/download/${{ inputs.version }}/update-manifest.json"
         run: node scripts/publish-release-blobs.mjs promote "$RELEASE_VERSION"
