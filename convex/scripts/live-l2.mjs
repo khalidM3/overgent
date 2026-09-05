@@ -126,6 +126,23 @@ const tokenB = enrollmentB.deviceToken;
 const bootstrapB = (await request("GET", "/v1/device/bootstrap", { token: tokenB })).body;
 assert.equal(bootstrapB.projects[0].id, projectA.id);
 
+// AI settings are readable by every member but writable only by an owner. A
+// read exposes configuration state and a bounded hint, never key material.
+const defaultAISettings = (await request("GET", `/v1/projects/${projectA.id}/ai-settings`, { token: tokenB })).body;
+assert.equal(defaultAISettings.effective.judgment, "none");
+assert.equal(defaultAISettings.effective.embeddings, "deterministic");
+assert(!JSON.stringify(defaultAISettings).includes("apiKey"));
+const deterministicAIWrite = {
+  judgment: { provider: "none", model: "none" },
+  embeddings: { provider: "deterministic", model: "deterministic-v1", dimensions: 1024 },
+};
+const memberAIWrite = await request("PUT", `/v1/projects/${projectA.id}/ai-settings`, { token: tokenB, body: deterministicAIWrite, expected: 403 });
+assert.equal(memberAIWrite.body.error.code, "forbidden");
+const savedAISettings = (await request("PUT", `/v1/projects/${projectA.id}/ai-settings`, { token: tokenA, body: deterministicAIWrite })).body;
+assert.equal(savedAISettings.judgment.provider, "none");
+assert.equal(savedAISettings.embeddings.provider, "deterministic");
+assert(!JSON.stringify(savedAISettings).includes("apiKey"));
+
 const exchange = await request("POST", "/v1/dashboard-tickets/exchange", {
   body: { ticket: enrollmentB.dashboardTicket },
   expected: 204,
@@ -693,10 +710,10 @@ await request("POST", "/v1/events/batch", { token: tokenA, body: { events: [
     workspaceId: ids.workspaceA, sessionId: ids.sessionA, sequence: 51, source: "hook",
     type: "session.read_set_reported",
     payload: { workspaceId: ids.workspaceA, sessionWorkstreamId: readerAgentId, entries: [
-      { path: contractPath, fileContractHashAtRead: hashes.contractV1, observedAt: "2026-08-26T08:59:00Z" },
-      { path: additivePath, fileContractHashAtRead: hashes.additiveV1, observedAt: "2026-08-26T08:59:01Z" },
-      { path: bodyOnlyPath, fileContractHashAtRead: hashes.bodyOnly, observedAt: "2026-08-26T08:59:02Z" },
-      { path: fallbackPath, fileContractHashAtRead: hashes.fallbackV1, observedAt: "2026-08-26T08:59:03Z" },
+      { path: contractPath, fileContractHashAtRead: hashes.contractV1, observedAt: "2026-08-26T08:59:00Z", fidelity: "observed" },
+      { path: additivePath, fileContractHashAtRead: hashes.additiveV1, observedAt: "2026-08-26T08:59:01Z", fidelity: "observed" },
+      { path: bodyOnlyPath, fileContractHashAtRead: hashes.bodyOnly, observedAt: "2026-08-26T08:59:02Z", fidelity: "observed" },
+      { path: fallbackPath, fileContractHashAtRead: hashes.fallbackV1, observedAt: "2026-08-26T08:59:03Z", fidelity: "observed" },
     ] },
   }),
 ] } });
@@ -846,7 +863,7 @@ const fallbackFinding = afterUnattributed.items.find((item) =>
   JSON.stringify(item.evidence).includes(fallbackPath));
 assert(fallbackFinding, "an unattributed fingerprint must still invalidate a read set");
 const fallbackEvidence = fallbackFinding.evidence.find((entry) => entry.kind === "symbol");
-assert.equal(fallbackEvidence.contract.changedByWorkstreamId, claudeAgentId,
+assert.equal(fallbackEvidence.contract.changedByWorkstreamId, ids.workstreamB,
   "without a named workstream, attribution falls back to the most recently active one");
 assert.notEqual(fallbackEvidence.contract.changedByWorkstreamId, readerAgentId);
 
@@ -905,7 +922,10 @@ const oversizedRequest = await request("POST", "/v1/events/batch", {
 assert.equal(oversizedRequest.body.error.code, "request_too_large");
 
 let rateLimited = false;
-for (let attempt = 0; attempt < 12; attempt++) {
+// Enrollment is deliberately sharded across 16 shared unauthenticated buckets
+// with 12 attempts each. The pigeonhole bound, not the old single-bucket
+// allowance, makes this assertion deterministic.
+for (let attempt = 0; attempt < 16 * 12 + 1; attempt++) {
   const response = await fetch(`${siteUrl}/v1/enrollments`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       inviteId: invite.id,

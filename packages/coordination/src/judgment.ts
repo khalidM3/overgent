@@ -332,7 +332,7 @@ function baseJudgment(candidate: JudgmentCandidate): JudgmentVerdict {
         delivery: "silent",
       };
     }
-    if (!candidate.workstreams.some((workstream) => workstream.reportedChange)) {
+    if (!candidate.workstreams.some((workstream) => workstream.reportedChange) && candidate.sharedSignals.length === 0) {
       return {
         relationship: "unrelated", confidence: "medium", severity: "low",
         explanation: bounded(`Only anticipated contract lists overlap on ${candidate.sharedSignals[0] ?? "a shared contract"}; neither workstream has reported work on it yet.`),

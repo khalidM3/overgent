@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Buffer } from "node:buffer";
 
 // Convex functions use Convex's bundler resolution and are intentionally not
 // part of this package's NodeNext typecheck. A variable dynamic import lets
@@ -9,6 +10,21 @@ const serviceModulePath = "../functions/service.js";
 afterEach(() => {
   vi.useRealTimers();
   delete process.env.ANTHROPIC_API_KEY;
+});
+
+describe("Project provider secret encryption", () => {
+  it("round trips only with the same Project and field AAD", async () => {
+    const module = await import(intelligenceModulePath) as {
+      encryptProjectSecret(secret: string, key: string, projectId: string, field: string, nonce?: Uint8Array): Promise<string>;
+      decryptProjectSecret(ciphertext: string, key: string, projectId: string, field: string): Promise<string>;
+    };
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const ciphertext = await module.encryptProjectSecret("sk-test-project-key", key, "prj_a", "judgment", new Uint8Array(12).fill(3));
+    expect(ciphertext).not.toContain("sk-test-project-key");
+    await expect(module.decryptProjectSecret(ciphertext, key, "prj_a", "judgment")).resolves.toBe("sk-test-project-key");
+    await expect(module.decryptProjectSecret(ciphertext, key, "prj_b", "judgment")).rejects.toThrow();
+    await expect(module.decryptProjectSecret(ciphertext, key, "prj_a", "embeddings")).rejects.toThrow();
+  });
 });
 
 describe("semantic vector search", () => {
@@ -60,12 +76,39 @@ describe("semantic vector search", () => {
 });
 
 describe("judgment degradation", () => {
+  it("records provider_unconfigured before spending judgment budget", async () => {
+    const { adjudicateFinding } = await import(intelligenceModulePath) as Record<string, unknown>;
+    delete process.env.OVERGENT_OPERATOR_KEYS_ENABLED;
+    delete process.env.ANTHROPIC_API_KEY;
+    const mutationArgs: Array<Record<string, unknown>> = [];
+    let queryCount = 0;
+    const ctx = {
+      runQuery: async () => queryCount++ === 0
+        ? { scopeKey: "scope_none", projectId: "project_none", severity: "medium", delivery: "dashboard" }
+        : { projectPublicId: "prj_none", settings: null },
+      runMutation: async (_reference: unknown, args: Record<string, unknown>) => { mutationArgs.push(args); return false; },
+    };
+    const candidate = {
+      kind: "redundant_work", severity: "medium", confidence: "medium",
+      reason: "Two workstreams may implement the same behavior.", signalKind: "semantic", sharedSignals: ["credential"],
+      trackedContractSymbols: [], structurallyUnambiguous: false,
+      workstreams: [
+        { id: "wrk_a", title: "Rotate", summary: "Rotate credentials", status: "active", reportedChange: true, verification: "unknown" },
+        { id: "wrk_b", title: "Revoke", summary: "Revoke sessions", status: "active", reportedChange: true, verification: "unknown" },
+      ],
+    };
+    const handler = (adjudicateFinding as unknown as { _handler: (ctx: unknown, args: unknown) => Promise<unknown> })._handler;
+    await expect(handler(ctx, { findingPublicId: "fnd_none", expectedRevision: 1, candidate })).resolves.toMatchObject({ mode: "fallback" });
+    expect(mutationArgs).toEqual([expect.objectContaining({ scopeKey: "scope_none", reason: "provider_unconfigured", providerName: "none" })]);
+  });
+
   it("records quota with the rate-window recovery time when the project budget is exhausted", async () => {
     const { adjudicateFinding } = await import(intelligenceModulePath) as Record<string, unknown>;
     const now = 1_800_000_000_000;
     vi.useFakeTimers();
     vi.setSystemTime(now);
     process.env.ANTHROPIC_API_KEY = "fixture-only";
+    process.env.OVERGENT_OPERATOR_KEYS_ENABLED = "true";
     const mutationArgs: Array<Record<string, unknown>> = [];
     const ctx = {
       runQuery: async () => ({ scopeKey: "scope_a", projectId: "project_a", severity: "medium", delivery: "dashboard" }),

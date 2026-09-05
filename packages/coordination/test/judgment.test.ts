@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AnthropicJudgmentProvider, ANTHROPIC_JUDGMENT_MODEL, contractSignalTracked, decideDelivery,
+  AnthropicJudgmentProvider, ANTHROPIC_JUDGMENT_MODEL, OpenAICompatibleJudgmentProvider, contractSignalTracked, decideDelivery,
   deterministicJudgment, judgeCandidate, judgmentRequestText, needsManagedAdjudication,
   parseJudgmentVerdict, readVerificationState, readWorkIntentClass, renderBrief, sharedBehaviorTerms,
   branchRelation, signalSymbol,
@@ -84,12 +84,12 @@ describe("deterministic judgment", () => {
     expect(judged.delivery).toBe("dashboard");
   });
 
-  it("holds an anticipated-only contract overlap until one side reports work", () => {
+  it("keeps an explicitly named anticipated contract overlap visible", () => {
     const anticipated = candidate({
       kind: "shared_dependency", reason: "Active workstreams share session-api; coordinate its revision and consumers.",
       signalKind: "contract", sharedSignals: ["session-api"],
     });
-    expect(deterministicJudgment(anticipated).delivery).toBe("silent");
+    expect(deterministicJudgment(anticipated).delivery).toBe("dashboard");
   });
 
   it("labels drift caused by an unverified checkpoint as work-in-progress below the verified severity", () => {
@@ -202,14 +202,14 @@ describe("managed adjudication boundary", () => {
   it("skips a candidate that explains itself and one nobody will read", () => {
     const overlap = candidate({ kind: "direct_collision", signalKind: "path", sharedSignals: ["shared/settings.ts"], structurallyUnambiguous: true });
     expect(needsManagedAdjudication(overlap, deterministicJudgment(overlap))).toBe(false);
-    const silent = candidate({ kind: "shared_dependency", signalKind: "contract", sharedSignals: ["session-api"] });
+    const silent = candidate({ kind: "shared_dependency", signalKind: "contract", sharedSignals: [] });
     expect(needsManagedAdjudication(silent, deterministicJudgment(silent))).toBe(false);
     expect(needsManagedAdjudication(candidate(), deterministicJudgment(candidate()))).toBe(true);
   });
 
   it("sends only bounded coordination facts to the configured Anthropic model", async () => {
     let request: RequestInit | undefined;
-    const provider = new AnthropicJudgmentProvider(key, async (url, init) => {
+    const provider = new AnthropicJudgmentProvider({ apiKey: key }, async (url, init) => {
       expect(url).toBe("https://api.anthropic.com/v1/messages");
       request = init;
       return new Response(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(verdict) }], stop_reason: "end_turn" }), { status: 200 });
@@ -223,9 +223,20 @@ describe("managed adjudication boundary", () => {
     expect(judgmentRequestText(candidate())).not.toContain(key);
   });
 
+  it("uses configured models and OpenAI-compatible base URLs", async () => {
+    let body: Record<string, unknown> | undefined;
+    const provider = new OpenAICompatibleJudgmentProvider({ apiKey: "synthetic-key", model: "local-judge", baseUrl: "http://127.0.0.1:11434" }, async (url, init) => {
+      expect(url).toBe("http://127.0.0.1:11434/v1/chat/completions");
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(verdict) } }] }), { status: 200 });
+    });
+    await expect(provider.judge(candidate(), new AbortController().signal)).resolves.toEqual(verdict);
+    expect(body).toMatchObject({ model: "local-judge", response_format: { type: "json_object" } });
+  });
+
   it("rejects a key the provider cannot use and a candidate with no peer", async () => {
-    expect(() => new AnthropicJudgmentProvider("short")).toThrow("anthropic_api_key_invalid");
-    const provider = new AnthropicJudgmentProvider(key, async () => new Response("{}", { status: 200 }));
+    expect(() => new AnthropicJudgmentProvider({ apiKey: "short" })).toThrow("anthropic_api_key_invalid");
+    const provider = new AnthropicJudgmentProvider({ apiKey: key }, async () => new Response("{}", { status: 200 }));
     await expect(provider.judge(candidate({ workstreams: [workstream("wrk_a")] }), new AbortController().signal)).rejects.toThrow("judgment_candidate_invalid");
   });
 
@@ -251,10 +262,10 @@ describe("managed adjudication boundary", () => {
       { content: [{ type: "text", text: "not json" }], stop_reason: "end_turn" },
       { content: [], stop_reason: "end_turn" },
     ]) {
-      const provider = new AnthropicJudgmentProvider(key, async () => new Response(JSON.stringify(payload), { status: 200 }));
+      const provider = new AnthropicJudgmentProvider({ apiKey: key }, async () => new Response(JSON.stringify(payload), { status: 200 }));
       await expect(provider.judge(candidate(), new AbortController().signal)).rejects.toThrow();
     }
-    const failing = new AnthropicJudgmentProvider(key, async () => new Response("", { status: 500 }));
+    const failing = new AnthropicJudgmentProvider({ apiKey: key }, async () => new Response("", { status: 500 }));
     await expect(failing.judge(candidate(), new AbortController().signal)).rejects.toThrow("anthropic_judgment_request_failed_500");
   });
 });

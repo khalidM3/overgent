@@ -1,17 +1,134 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { ActionCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { ANTHROPIC_JUDGMENT_MODEL, AnthropicJudgmentProvider, OpenAIEmbeddingProvider, conceptVector, deterministicJudgment, judgeCandidate, needsManagedAdjudication, type JudgmentCandidate } from "@overgent/coordination";
+import { ANTHROPIC_JUDGMENT_MODEL, AnthropicJudgmentProvider, OpenAICompatibleJudgmentProvider, OpenAIEmbeddingProvider, OPENAI_EMBEDDING_MODEL, conceptVector, deterministicJudgment, judgeCandidate, needsManagedAdjudication, type JudgmentCandidate, type JudgmentProvider } from "@overgent/coordination";
 
 const OPENAI_EMBEDDING_DIMENSIONS = 1024;
-const OPENAI_EMBEDDING_MODEL_VERSION = "text-embedding-3-large/1024";
 const FALLBACK_EMBEDDING_MODEL_VERSION = "overgent-concepts/v1/1024";
 const FOREIGN_EMBEDDING_MIGRATION_BATCH = 100;
-const ANTHROPIC_JUDGMENT_PROVIDER = `anthropic/${ANTHROPIC_JUDGMENT_MODEL}`;
+const DEFAULT_JUDGMENT = { provider: "anthropic" as const, model: ANTHROPIC_JUDGMENT_MODEL };
+const DEFAULT_EMBEDDINGS = { provider: "openai" as const, model: OPENAI_EMBEDDING_MODEL, dimensions: OPENAI_EMBEDDING_DIMENSIONS };
 
-type DegradedReason = "not_configured" | "quota" | "provider_error" | "offline" | "paused";
+type DegradedReason = "not_configured" | "provider_unconfigured" | "quota" | "provider_error" | "offline" | "paused";
+
+type StoredAISettings = {
+  revision: number;
+  judgmentProvider: "anthropic" | "openai-compatible" | "none";
+  judgmentModel: string;
+  judgmentBaseUrl?: string;
+  judgmentKeyCiphertext?: string;
+  judgmentKeyHint?: string;
+  embeddingProvider: "openai" | "deterministic";
+  embeddingModel: string;
+  embeddingDimensions: number;
+  embeddingBaseUrl?: string;
+  embeddingKeyCiphertext?: string;
+  embeddingKeyHint?: string;
+  updatedAt: number;
+};
+
+function decodeSecretsKey(encoded: string): Uint8Array {
+  let raw: string;
+  try { raw = atob(encoded); } catch { throw new Error("secrets_key_invalid"); }
+  const bytes = Uint8Array.from(raw, (char) => char.charCodeAt(0));
+  if (bytes.length !== 32) throw new Error("secrets_key_invalid");
+  return bytes;
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  let value = "";
+  for (const byte of bytes) value += String.fromCharCode(byte);
+  return btoa(value);
+}
+
+function exactBuffer(bytes: Uint8Array): ArrayBuffer {
+  return Uint8Array.from(bytes).buffer;
+}
+
+/** AES-256-GCM ciphertext is nonce || sealed bytes and is bound to Project+field. */
+export async function encryptProjectSecret(secret: string, deploymentKey: string, projectId: string, field: string, suppliedNonce?: Uint8Array): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", exactBuffer(decodeSecretsKey(deploymentKey)), "AES-GCM", false, ["encrypt"]);
+  const nonce = suppliedNonce ?? crypto.getRandomValues(new Uint8Array(12));
+  if (nonce.length !== 12) throw new Error("secret_nonce_invalid");
+  const additionalData = new TextEncoder().encode(`${projectId}:${field}`);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: exactBuffer(nonce), additionalData: exactBuffer(additionalData) }, key, exactBuffer(new TextEncoder().encode(secret))));
+  const sealed = new Uint8Array(nonce.length + encrypted.length);
+  sealed.set(nonce); sealed.set(encrypted, nonce.length);
+  return encodeBase64(sealed);
+}
+
+export async function decryptProjectSecret(ciphertext: string, deploymentKey: string, projectId: string, field: string): Promise<string> {
+  const sealed = decodeBase64(ciphertext);
+  if (sealed.length < 29) throw new Error("secret_ciphertext_invalid");
+  const key = await crypto.subtle.importKey("raw", exactBuffer(decodeSecretsKey(deploymentKey)), "AES-GCM", false, ["decrypt"]);
+  const additionalData = new TextEncoder().encode(`${projectId}:${field}`);
+  const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: exactBuffer(sealed.slice(0, 12)), additionalData: exactBuffer(additionalData) }, key, exactBuffer(sealed.slice(12)));
+  return new TextDecoder().decode(plaintext);
+}
+
+function decodeBase64(encoded: string): Uint8Array {
+  try { return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)); }
+  catch { throw new Error("secret_ciphertext_invalid"); }
+}
+
+type ResolvedProviders = {
+  settings: StoredAISettings | null;
+  effective: { judgment: "project" | "operator" | "none"; embeddings: "project" | "operator" | "deterministic" };
+  judgment?: { provider: "anthropic" | "openai-compatible"; apiKey: string; model: string; baseUrl?: string };
+  embeddings?: { provider: "openai"; apiKey: string; model: string; dimensions: number; baseUrl?: string };
+};
+
+export function selectProviderSource(options: { disabled: boolean; projectKeyUsable: boolean; operatorEnabled: boolean; operatorKeyConfigured: boolean; fallback: "none" | "deterministic" }): "project" | "operator" | "none" | "deterministic" {
+  if (options.disabled) return options.fallback;
+  if (options.projectKeyUsable) return "project";
+  if (options.operatorEnabled && options.operatorKeyConfigured) return "operator";
+  return options.fallback;
+}
+
+async function resolveProviders(ctx: ActionCtx, projectId: Id<"projects">): Promise<ResolvedProviders> {
+  const loaded = await ctx.runQuery(internal.service.projectAISettingsForProvider, { projectId }) as { projectPublicId: string; settings: StoredAISettings | null } | null;
+  if (!loaded) return { settings: null, effective: { judgment: "none", embeddings: "deterministic" } };
+  const settings = loaded.settings;
+  const judgmentProvider = settings?.judgmentProvider ?? DEFAULT_JUDGMENT.provider;
+  const embeddingProvider = settings?.embeddingProvider ?? DEFAULT_EMBEDDINGS.provider;
+  const secretsKey = process.env.OVERGENT_SECRETS_KEY;
+  let judgment: ResolvedProviders["judgment"];
+  let embeddings: ResolvedProviders["embeddings"];
+  let judgmentEffective: ResolvedProviders["effective"]["judgment"] = "none";
+  let embeddingEffective: ResolvedProviders["effective"]["embeddings"] = "deterministic";
+  const judgmentOperatorKey = judgmentProvider === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
+  const judgmentSource = selectProviderSource({ disabled: judgmentProvider === "none", projectKeyUsable: Boolean(settings?.judgmentKeyCiphertext && secretsKey), operatorEnabled: process.env.OVERGENT_OPERATOR_KEYS_ENABLED === "true", operatorKeyConfigured: Boolean(judgmentOperatorKey), fallback: "none" });
+  if (judgmentSource === "project" && settings?.judgmentKeyCiphertext && secretsKey && judgmentProvider !== "none") {
+    judgment = { provider: judgmentProvider, apiKey: await decryptProjectSecret(settings.judgmentKeyCiphertext, secretsKey, loaded.projectPublicId, "judgment"), model: settings.judgmentModel, ...(settings.judgmentBaseUrl ? { baseUrl: settings.judgmentBaseUrl } : {}) };
+    judgmentEffective = "project";
+  } else if (judgmentSource === "operator" && judgmentProvider !== "none" && judgmentOperatorKey) {
+    judgment = { provider: judgmentProvider, apiKey: judgmentOperatorKey, model: settings?.judgmentModel ?? DEFAULT_JUDGMENT.model, ...(settings?.judgmentBaseUrl ? { baseUrl: settings.judgmentBaseUrl } : {}) };
+    judgmentEffective = "operator";
+  }
+  const embeddingSource = selectProviderSource({ disabled: embeddingProvider === "deterministic", projectKeyUsable: Boolean(settings?.embeddingKeyCiphertext && secretsKey), operatorEnabled: process.env.OVERGENT_OPERATOR_KEYS_ENABLED === "true", operatorKeyConfigured: Boolean(process.env.OPENAI_API_KEY), fallback: "deterministic" });
+  if (embeddingSource === "project" && settings?.embeddingKeyCiphertext && secretsKey && embeddingProvider === "openai") {
+    embeddings = { provider: "openai", apiKey: await decryptProjectSecret(settings.embeddingKeyCiphertext, secretsKey, loaded.projectPublicId, "embeddings"), model: settings.embeddingModel, dimensions: settings.embeddingDimensions, ...(settings.embeddingBaseUrl ? { baseUrl: settings.embeddingBaseUrl } : {}) };
+    embeddingEffective = "project";
+  } else if (embeddingSource === "operator" && process.env.OPENAI_API_KEY) {
+    embeddings = { provider: "openai", apiKey: process.env.OPENAI_API_KEY, model: settings?.embeddingModel ?? DEFAULT_EMBEDDINGS.model, dimensions: settings?.embeddingDimensions ?? DEFAULT_EMBEDDINGS.dimensions, ...(settings?.embeddingBaseUrl ? { baseUrl: settings.embeddingBaseUrl } : {}) };
+    embeddingEffective = "operator";
+  }
+  return { settings, effective: { judgment: judgmentEffective, embeddings: embeddingEffective }, judgment, embeddings };
+}
+
+function publicAISettings(settings: StoredAISettings | null, effective: ResolvedProviders["effective"], revision?: number, updatedAt?: number) {
+  return {
+    judgment: { provider: settings?.judgmentProvider ?? DEFAULT_JUDGMENT.provider, model: settings?.judgmentModel ?? DEFAULT_JUDGMENT.model, baseUrl: settings?.judgmentBaseUrl ?? null, keyConfigured: Boolean(settings?.judgmentKeyCiphertext), keyHint: settings?.judgmentKeyHint ?? null },
+    embeddings: { provider: settings?.embeddingProvider ?? DEFAULT_EMBEDDINGS.provider, model: settings?.embeddingModel ?? DEFAULT_EMBEDDINGS.model, dimensions: settings?.embeddingDimensions ?? DEFAULT_EMBEDDINGS.dimensions, baseUrl: settings?.embeddingBaseUrl ?? null, keyConfigured: Boolean(settings?.embeddingKeyCiphertext), keyHint: settings?.embeddingKeyHint ?? null },
+    effective,
+    revision: revision ?? settings?.revision ?? 1,
+    updatedAt: new Date(updatedAt ?? settings?.updatedAt ?? 0).toISOString(),
+  };
+}
+
+type AISettingsResponse = ReturnType<typeof publicAISettings>;
 
 function scopeModelKey(scopeKey: string, modelVersion: string): string {
   return `${scopeKey.length}:${scopeKey}${modelVersion}`;
@@ -23,6 +140,89 @@ function providerFailureReason(error: unknown): DegradedReason {
   if (/abort|timeout|timed out|network|fetch failed|unavailable|connection/i.test(message)) return "offline";
   return "provider_error";
 }
+
+export const getProjectAISettings = internalAction({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), now: v.number() },
+  handler: async (ctx, args) => {
+    const auth = await ctx.runQuery(internal.service.projectAISettingsAuth, { ...args, ownerOnly: false }) as { projectId: Id<"projects"> };
+    const resolved = await resolveProviders(ctx, auth.projectId);
+    return publicAISettings(resolved.settings, resolved.effective);
+  },
+});
+
+export const configureProjectEmbeddingModel = internalMutation({
+  args: { projectId: v.id("projects"), provider: v.union(v.literal("openai"), v.literal("deterministic")), model: v.string(), dimensions: v.number(), now: v.number() },
+  handler: async (ctx, args) => {
+    const modelVersion = args.provider === "deterministic" ? FALLBACK_EMBEDDING_MODEL_VERSION : `${args.model}/${args.dimensions}`;
+    const scopes = await ctx.db.query("repositoryScopes").withIndex("by_project", (q) => q.eq("projectId", args.projectId)).take(101);
+    if (scopes.length > 100) throw new Error("E:page_too_large");
+    for (const scope of scopes) {
+      if (scope.semanticModelVersion === modelVersion) continue;
+      await ctx.db.patch(scope._id, { semanticProviderName: args.provider === "deterministic" ? "overgent" : `openai/${args.model}`, semanticModelVersion: modelVersion, updatedAt: args.now });
+      await ctx.scheduler.runAfter(0, internal.intelligence.convergeForeignEmbeddings, { scopeKey: scope.scopeKey, modelVersion });
+    }
+  },
+});
+
+type PutProjectAISettingsArgs = {
+  tokenHash?: string;
+  sessionHash?: string;
+  projectPublicId: string;
+  write: unknown;
+  now: number;
+};
+
+// The HTTP action calls this handler directly so the plaintext key exists only
+// in that request's memory. Passing it through ctx.runAction would make the key
+// part of a second Convex invocation's arguments; only the encrypted mutation
+// payload is allowed to cross that boundary.
+export async function putProjectAISettingsHandler(ctx: ActionCtx, args: PutProjectAISettingsArgs): Promise<AISettingsResponse> {
+    const auth = await ctx.runQuery(internal.service.projectAISettingsAuth, {
+      tokenHash: args.tokenHash, sessionHash: args.sessionHash, projectPublicId: args.projectPublicId, ownerOnly: true, now: args.now,
+    }) as { projectId: Id<"projects">; projectPublicId: string; settings: StoredAISettings | null };
+    const write = args.write as {
+      judgment: { provider: "anthropic" | "openai-compatible" | "none"; model: string; baseUrl?: string; apiKey?: string };
+      embeddings: { provider: "openai" | "deterministic"; model: string; dimensions: number; baseUrl?: string; apiKey?: string };
+    };
+    let judgmentKeyCiphertext = auth.settings?.judgmentKeyCiphertext;
+    let judgmentKeyHint = auth.settings?.judgmentKeyHint;
+    let embeddingKeyCiphertext = auth.settings?.embeddingKeyCiphertext;
+    let embeddingKeyHint = auth.settings?.embeddingKeyHint;
+    const secretsKey = process.env.OVERGENT_SECRETS_KEY;
+    if (write.judgment.provider === "none") { judgmentKeyCiphertext = undefined; judgmentKeyHint = undefined; }
+    else if (write.judgment.apiKey !== undefined) {
+      if (write.judgment.apiKey === "") { judgmentKeyCiphertext = undefined; judgmentKeyHint = undefined; }
+      else {
+        if (!secretsKey) throw new Error("E:secrets_key_unconfigured");
+        judgmentKeyCiphertext = await encryptProjectSecret(write.judgment.apiKey, secretsKey, auth.projectPublicId, "judgment");
+        judgmentKeyHint = `…${write.judgment.apiKey.slice(-4)}`;
+      }
+    }
+    if (write.embeddings.provider === "deterministic") { embeddingKeyCiphertext = undefined; embeddingKeyHint = undefined; }
+    else if (write.embeddings.apiKey !== undefined) {
+      if (write.embeddings.apiKey === "") { embeddingKeyCiphertext = undefined; embeddingKeyHint = undefined; }
+      else {
+        if (!secretsKey) throw new Error("E:secrets_key_unconfigured");
+        embeddingKeyCiphertext = await encryptProjectSecret(write.embeddings.apiKey, secretsKey, auth.projectPublicId, "embeddings");
+        embeddingKeyHint = `…${write.embeddings.apiKey.slice(-4)}`;
+      }
+    }
+    const saved: { projectId: Id<"projects">; revision: number; updatedAt: number } = await ctx.runMutation(internal.service.saveProjectAISettings, {
+      tokenHash: args.tokenHash, sessionHash: args.sessionHash, projectPublicId: args.projectPublicId, now: args.now,
+      judgmentProvider: write.judgment.provider, judgmentModel: write.judgment.model, judgmentBaseUrl: write.judgment.baseUrl,
+      judgmentKeyCiphertext, judgmentKeyHint,
+      embeddingProvider: write.embeddings.provider, embeddingModel: write.embeddings.model, embeddingDimensions: write.embeddings.dimensions, embeddingBaseUrl: write.embeddings.baseUrl,
+      embeddingKeyCiphertext, embeddingKeyHint,
+    });
+    await ctx.runMutation(internal.intelligence.configureProjectEmbeddingModel, { projectId: auth.projectId, provider: write.embeddings.provider, model: write.embeddings.model, dimensions: write.embeddings.dimensions, now: args.now });
+    const resolved = await resolveProviders(ctx, auth.projectId);
+    return publicAISettings(resolved.settings, resolved.effective, saved.revision, saved.updatedAt);
+}
+
+export const putProjectAISettings = internalAction({
+  args: { tokenHash: v.optional(v.string()), sessionHash: v.optional(v.string()), projectPublicId: v.string(), write: v.any(), now: v.number() },
+  handler: putProjectAISettingsHandler,
+});
 
 async function loadContext(ctx: QueryCtx, args: { tokenHash: string; workstreamPublicId: string }) {
     const device = await ctx.db.query("devices").withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash)).unique();
@@ -70,7 +270,7 @@ export const semanticEmbeddingInput = internalQuery({
   handler: async (ctx, args) => {
     const object = await ctx.db.query("semanticObjects").withIndex("by_public_id", (q) => q.eq("publicId", args.semanticObjectPublicId)).unique();
     if (!object || !object.active || object.revision !== args.expectedRevision) return null;
-    return { publicId: object.publicId, revision: object.revision, text: object.text, scopeKey: object.scopeKey };
+    return { publicId: object.publicId, revision: object.revision, text: object.text, scopeKey: object.scopeKey, projectId: object.projectId };
   },
 });
 
@@ -173,7 +373,7 @@ export const recordOpenAIEmbeddingFailure = internalMutation({
   args: {
     scopeKey: v.string(),
     now: v.number(),
-    reason: v.union(v.literal("not_configured"), v.literal("quota"), v.literal("provider_error"), v.literal("offline"), v.literal("paused")),
+    reason: v.union(v.literal("not_configured"), v.literal("provider_unconfigured"), v.literal("quota"), v.literal("provider_error"), v.literal("offline"), v.literal("paused")),
     providerName: v.string(),
   },
   handler: async (ctx, args) => {
@@ -185,26 +385,27 @@ export const recordOpenAIEmbeddingFailure = internalMutation({
 export const embedSemanticObject = internalAction({
   args: { semanticObjectPublicId: v.string(), expectedRevision: v.number() },
   handler: async (ctx, args): Promise<{ applied: boolean; mode: "stale" | "fallback" | "openai" }> => {
-    const input: { publicId: string; revision: number; text: string; scopeKey: string } | null = await ctx.runQuery(internal.intelligence.semanticEmbeddingInput, args);
+    const input: { publicId: string; revision: number; text: string; scopeKey: string; projectId: Id<"projects"> } | null = await ctx.runQuery(internal.intelligence.semanticEmbeddingInput, args);
     if (!input) return { applied: false, mode: "stale" as const };
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    const resolved = await resolveProviders(ctx, input.projectId);
+    if (!resolved.embeddings) {
       const switched: boolean = await ctx.runMutation(internal.intelligence.configureFallbackEmbeddingModel, { scopeKey: input.scopeKey, now: Date.now() });
       if (switched) await ctx.runMutation(internal.intelligence.convergeForeignEmbeddings, { scopeKey: input.scopeKey, modelVersion: FALLBACK_EMBEDDING_MODEL_VERSION });
-      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now(), reason: "not_configured", providerName: "openai/text-embedding-3-large" });
+      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now(), reason: "provider_unconfigured", providerName: "openai" });
       return { applied: false, mode: "fallback" as const };
     }
     try {
-      const provider = new OpenAIEmbeddingProvider(apiKey, OPENAI_EMBEDDING_DIMENSIONS);
+      const provider = new OpenAIEmbeddingProvider(resolved.embeddings);
       const [embedded] = await provider.embed([{ projectId: "internal", repositoryId: input.scopeKey, objectId: input.publicId, revision: input.revision, text: input.text }], AbortSignal.timeout(10_000));
       if (!embedded) throw new Error("openai_embedding_missing");
+      const modelVersion = `${resolved.embeddings.model}/${resolved.embeddings.dimensions}`;
       const applied: { applied: boolean; modelChanged: boolean } = await ctx.runMutation(internal.intelligence.applyOpenAIEmbedding, {
-        semanticObjectPublicId: input.publicId, expectedRevision: input.revision, providerName: provider.name, modelVersion: OPENAI_EMBEDDING_MODEL_VERSION, vector: [...embedded.vector], now: Date.now(),
+        semanticObjectPublicId: input.publicId, expectedRevision: input.revision, providerName: provider.name, modelVersion, vector: [...embedded.vector], now: Date.now(),
       });
       if (applied.applied) {
         // Convergence only on an actual provider switch; re-scanning the scope
         // after every routine embed would be an O(N^2) page storm.
-        if (applied.modelChanged) await ctx.runMutation(internal.intelligence.convergeForeignEmbeddings, { scopeKey: input.scopeKey, modelVersion: OPENAI_EMBEDDING_MODEL_VERSION });
+        if (applied.modelChanged) await ctx.runMutation(internal.intelligence.convergeForeignEmbeddings, { scopeKey: input.scopeKey, modelVersion });
         await ctx.runMutation(internal.service.refreshSemanticFindings, { scopeKey: input.scopeKey, now: Date.now() });
       }
       return { applied: applied.applied, mode: "openai" as const };
@@ -212,8 +413,8 @@ export const embedSemanticObject = internalAction({
       // The reason a scope degraded is the only thing that can tell an operator
       // whether to wait, add credit, or fix a key. Recording only the boolean
       // made every embedding failure indistinguishable from every other.
-      console.error("openai_embedding_failed", { scopeKey: input.scopeKey, reason: error instanceof Error ? error.message : String(error) });
-      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now(), reason: providerFailureReason(error), providerName: "openai/text-embedding-3-large" });
+      console.error("openai_embedding_failed", { scopeKey: input.scopeKey, reason: providerFailureReason(error) });
+      await ctx.runMutation(internal.intelligence.recordOpenAIEmbeddingFailure, { scopeKey: input.scopeKey, now: Date.now(), reason: providerFailureReason(error), providerName: `openai/${resolved.embeddings.model}` });
       return { applied: false, mode: "fallback" as const };
     }
   },
@@ -320,7 +521,7 @@ export const recordJudgmentDegraded = internalMutation({
   args: {
     scopeKey: v.string(),
     now: v.number(),
-    reason: v.union(v.literal("not_configured"), v.literal("quota"), v.literal("provider_error"), v.literal("offline"), v.literal("paused")),
+    reason: v.union(v.literal("not_configured"), v.literal("provider_unconfigured"), v.literal("quota"), v.literal("provider_error"), v.literal("offline"), v.literal("paused")),
     providerName: v.string(),
     recoversAt: v.optional(v.number()),
   },
@@ -337,29 +538,32 @@ export const recordJudgmentDegraded = internalMutation({
 
 export const adjudicateFinding = internalAction({
   args: { findingPublicId: v.string(), expectedRevision: v.number(), candidate: v.any() },
-  handler: async (ctx, args): Promise<{ applied: boolean; mode: "stale" | "skipped" | "budget" | "fallback" | "anthropic" }> => {
+  handler: async (ctx, args): Promise<{ applied: boolean; mode: "stale" | "skipped" | "budget" | "fallback" | "project" | "operator" }> => {
     const candidate = args.candidate as JudgmentCandidate;
     const input: { scopeKey: string; projectId: Id<"projects">; severity: string; delivery: string } | null =
       await ctx.runQuery(internal.intelligence.judgmentInput, { findingPublicId: args.findingPublicId, expectedRevision: args.expectedRevision });
     if (!input) return { applied: false, mode: "stale" as const };
     const offline = deterministicJudgment(candidate);
     if (!needsManagedAdjudication(candidate, offline)) return { applied: false, mode: "skipped" as const };
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now(), reason: "not_configured", providerName: ANTHROPIC_JUDGMENT_PROVIDER });
+    const resolved = await resolveProviders(ctx, input.projectId);
+    if (!resolved.judgment) {
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now(), reason: "provider_unconfigured", providerName: resolved.settings?.judgmentProvider ?? "none" });
       return { applied: false, mode: "fallback" as const };
     }
+    const providerName = `${resolved.judgment.provider}/${resolved.judgment.model}`;
     const budgetNow = Date.now();
     const budget: { claimed: boolean; recoversAt: number } = await ctx.runMutation(internal.intelligence.claimJudgmentBudget, { projectId: input.projectId, now: budgetNow });
     if (!budget.claimed) {
-      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: budgetNow, reason: "quota", providerName: ANTHROPIC_JUDGMENT_PROVIDER, recoversAt: budget.recoversAt });
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: budgetNow, reason: "quota", providerName, recoversAt: budget.recoversAt });
       return { applied: false, mode: "budget" as const };
     }
-    let provider;
+    let provider: JudgmentProvider;
     try {
-      provider = new AnthropicJudgmentProvider(apiKey);
+      provider = resolved.judgment.provider === "anthropic"
+        ? new AnthropicJudgmentProvider(resolved.judgment)
+        : new OpenAICompatibleJudgmentProvider(resolved.judgment);
     } catch (error) {
-      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now(), reason: providerFailureReason(error), providerName: ANTHROPIC_JUDGMENT_PROVIDER });
+      await ctx.runMutation(internal.intelligence.recordJudgmentDegraded, { scopeKey: input.scopeKey, now: Date.now(), reason: providerFailureReason(error), providerName });
       return { applied: false, mode: "fallback" as const };
     }
     let judged;
@@ -377,6 +581,6 @@ export const adjudicateFinding = internalAction({
       findingPublicId: args.findingPublicId, expectedRevision: args.expectedRevision, providerName: judged.provider,
       severity: judged.verdict.severity, reason: judged.verdict.explanation, delivery: judged.verdict.delivery, now: Date.now(),
     });
-    return { applied, mode: "anthropic" as const };
+    return { applied, mode: resolved.effective.judgment === "project" ? "project" as const : "operator" as const };
   },
 });

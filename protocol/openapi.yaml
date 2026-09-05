@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Overgent Public API
-  version: 1.0.0-alpha.1
-  description: Versioned coordination contracts, including optional declared dependency claims, dependency-readiness findings, and pull-only ScopeSnapshots derived from canonical workstream facts. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited. Session messages require Project membership, an unpaused workspace, and classifier approval.
+  version: 1.1.0-alpha.1
+  description: Versioned coordination contracts, including per-Project bring-your-own AI provider settings. Provider credentials use only the dedicated owner-authenticated settings operation and never enter coordination events. Source, diffs, transcript files, environment values, credentials, and raw command output are prohibited from every coordination payload.
 servers:
   - url: https://api.overgent.com/v1
 security:
@@ -88,6 +88,20 @@ paths:
       operationId: getProjectChanges
       parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/Cursor' } ]
       responses: { '200': { description: Changes, content: { application/json: { schema: { $ref: '#/components/schemas/ChangePage' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /projects/{id}/ai-settings:
+    get:
+      operationId: getProjectAISettings
+      description: Read effective provider configuration without returning key material.
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses: { '200': { description: Project AI settings, content: { application/json: { schema: { $ref: '#/components/schemas/AISettings' } } } }, default: { $ref: '#/components/responses/Error' } }
+    put:
+      operationId: putProjectAISettings
+      description: Owner-only full replacement. Omitted keys are retained and empty keys are cleared.
+      security: [ { deviceToken: [] }, { browserSession: [] } ]
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AISettingsWrite' } } } }
+      responses: { '200': { description: Updated Project AI settings, content: { application/json: { schema: { $ref: '#/components/schemas/AISettings' } } } }, default: { $ref: '#/components/responses/Error' } }
   /projects/{id}/collaboration:
     get:
       operationId: getProjectCollaboration
@@ -300,6 +314,69 @@ components:
       additionalProperties: false
       required: [ticket, expiresAt]
       properties: { ticket: { type: string, minLength: 22, maxLength: 512 }, expiresAt: { $ref: '#/components/schemas/Timestamp' } }
+    AIKeyWrite:
+      oneOf:
+        - { const: '' }
+        - { type: string, minLength: 8, maxLength: 512, pattern: '^\S{8,512}$' }
+    AISettingsWrite:
+      type: object
+      additionalProperties: false
+      required: [judgment, embeddings]
+      properties:
+        judgment:
+          type: object
+          additionalProperties: false
+          required: [provider, model]
+          properties:
+            provider: { enum: [anthropic, openai-compatible, none] }
+            model: { type: string, minLength: 1, maxLength: 120 }
+            baseUrl: { type: string, maxLength: 2048 }
+            apiKey: { $ref: '#/components/schemas/AIKeyWrite' }
+        embeddings:
+          type: object
+          additionalProperties: false
+          required: [provider, model, dimensions]
+          properties:
+            provider: { enum: [openai, deterministic] }
+            model: { type: string, minLength: 1, maxLength: 120 }
+            dimensions: { const: 1024 }
+            baseUrl: { type: string, maxLength: 2048 }
+            apiKey: { $ref: '#/components/schemas/AIKeyWrite' }
+    AISettings:
+      type: object
+      additionalProperties: false
+      required: [judgment, embeddings, effective, revision, updatedAt]
+      properties:
+        judgment:
+          type: object
+          additionalProperties: false
+          required: [provider, model, baseUrl, keyConfigured, keyHint]
+          properties:
+            provider: { enum: [anthropic, openai-compatible, none] }
+            model: { type: string, minLength: 1, maxLength: 120 }
+            baseUrl: { type: [string, 'null'], maxLength: 2048 }
+            keyConfigured: { type: boolean }
+            keyHint: { type: [string, 'null'], maxLength: 5 }
+        embeddings:
+          type: object
+          additionalProperties: false
+          required: [provider, model, dimensions, baseUrl, keyConfigured, keyHint]
+          properties:
+            provider: { enum: [openai, deterministic] }
+            model: { type: string, minLength: 1, maxLength: 120 }
+            dimensions: { const: 1024 }
+            baseUrl: { type: [string, 'null'], maxLength: 2048 }
+            keyConfigured: { type: boolean }
+            keyHint: { type: [string, 'null'], maxLength: 5 }
+        effective:
+          type: object
+          additionalProperties: false
+          required: [judgment, embeddings]
+          properties:
+            judgment: { enum: [project, operator, none] }
+            embeddings: { enum: [project, operator, deterministic] }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
     DeviceBootstrap:
       type: object
       additionalProperties: false

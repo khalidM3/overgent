@@ -16,6 +16,7 @@ import {
   validateEventBatch,
 } from "../src/domain";
 import { activationFailureResponse } from "../src/activation";
+import { putProjectAISettingsHandler } from "./intelligence";
 
 const http = httpRouter();
 const JSON_HEADERS = {
@@ -111,6 +112,17 @@ http.route({ pathPrefix: "/v1/projects/", method: "PATCH", handler: httpAction(a
   await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "members.rename", 20);
   return json(await ctx.runMutation(internal.service.updateMemberDisplayName, {
     ...auth, projectPublicId: expectId(match[1]), displayName: expectString(body.displayName, 2, 60), now: Date.now(),
+  }));
+})) });
+
+http.route({ pathPrefix: "/v1/projects/", method: "PUT", handler: httpAction(async (ctx, request) => withErrors(async () => {
+  const match = new URL(request.url).pathname.match(/^\/v1\/projects\/([^/]+)\/ai-settings$/);
+  if (!match) throw new HttpFailure("not_found", 404);
+  const auth = collaborationAuth(request);
+  await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.ai-settings.put", 20);
+  const write = parseAISettingsWrite(await readJson(request));
+  return json(await putProjectAISettingsHandler(ctx, {
+    ...auth, projectPublicId: expectId(match[1]), write, now: Date.now(),
   }));
 })) });
 
@@ -349,6 +361,14 @@ http.route({ path: "/v1/presence/heartbeat", method: "POST", handler: httpAction
 
 http.route({ pathPrefix: "/v1/projects/", method: "GET", handler: httpAction(async (ctx, request) => withErrors(async () => {
   const requestURL = new URL(request.url);
+  const aiSettingsMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/ai-settings$/);
+  if (aiSettingsMatch) {
+    const auth = collaborationAuth(request);
+    await consumeEdgeRate(ctx, auth.tokenHash ?? auth.sessionHash!, "projects.ai-settings.get", 120);
+    return json(await ctx.runAction(internal.intelligence.getProjectAISettings, {
+      ...auth, projectPublicId: expectId(aiSettingsMatch[1]), now: Date.now(),
+    }));
+  }
   const accessMatch = requestURL.pathname.match(/^\/v1\/projects\/([^/]+)\/access$/);
   if (accessMatch) {
     const auth = collaborationAuth(request);
@@ -530,6 +550,54 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+export function parseAISettingsWrite(value: unknown) {
+  const body = expectObject(value);
+  expectExactKeys(body, ["judgment", "embeddings"]);
+  const judgment = expectObject(body.judgment);
+  expectExactKeys(judgment, ["provider", "model"], ["baseUrl", "apiKey"]);
+  const judgmentProvider = expectString(judgment.provider, 4, 20);
+  if (!["anthropic", "openai-compatible", "none"].includes(judgmentProvider)) throw new ValidationError("validation_failed");
+  const embeddings = expectObject(body.embeddings);
+  expectExactKeys(embeddings, ["provider", "model", "dimensions"], ["baseUrl", "apiKey"]);
+  const embeddingProvider = expectString(embeddings.provider, 6, 13);
+  if (!["openai", "deterministic"].includes(embeddingProvider)) throw new ValidationError("validation_failed");
+  const dimensions = expectInteger(embeddings.dimensions, 1, 3072);
+  if (dimensions !== 1024) throw new ValidationError("unsupported_dimensions");
+  return {
+    judgment: {
+      provider: judgmentProvider,
+      model: expectString(judgment.model, 1, 120),
+      ...(judgment.baseUrl === undefined ? {} : { baseUrl: providerBaseURL(judgment.baseUrl) }),
+      ...(judgment.apiKey === undefined ? {} : { apiKey: providerKey(judgment.apiKey) }),
+    },
+    embeddings: {
+      provider: embeddingProvider,
+      model: expectString(embeddings.model, 1, 120),
+      dimensions,
+      ...(embeddings.baseUrl === undefined ? {} : { baseUrl: providerBaseURL(embeddings.baseUrl) }),
+      ...(embeddings.apiKey === undefined ? {} : { apiKey: providerKey(embeddings.apiKey) }),
+    },
+  };
+}
+
+function providerKey(value: unknown): string {
+  if (value === "") return "";
+  const key = expectString(value, 8, 512);
+  if (/\s/.test(key)) throw new ValidationError("validation_failed");
+  return key;
+}
+
+function providerBaseURL(value: unknown): string {
+  const raw = expectString(value, 1, 2048);
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { throw new ValidationError("validation_failed"); }
+  const loopback = ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname);
+  if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash || (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback))) {
+    throw new ValidationError("validation_failed");
+  }
+  return parsed.origin;
+}
+
 async function readActivationTicket(request: Request): Promise<string> {
   const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/x-www-form-urlencoded") throw new HttpFailure("content_type_unsupported", 415);
@@ -676,9 +744,11 @@ function classify(error: unknown): { code: string; status: number } {
   if (["unauthorized", "credential_revoked"].includes(code)) return { code, status: 401 };
   if (["forbidden"].includes(code)) return { code, status: 403 };
   if (["email_identity_rejected"].includes(code)) return { code, status: 400 };
+  if (["unsupported_dimensions"].includes(code)) return { code, status: 400 };
   if (["not_found", "workspace_not_registered", "workstream_not_found", "manifest_not_found"].includes(code)) return { code, status: 404 };
   if (["rate_limited"].includes(code)) return { code, status: 429 };
   if (["internal_error"].includes(code)) return { code, status: 500 };
+  if (["secrets_key_unconfigured"].includes(code)) return { code, status: 503 };
   return { code, status: 409 };
 }
 
@@ -692,6 +762,8 @@ function errorMessage(code: string): string {
     schema_version_unsupported: "Upgrade Overgent to continue.",
     request_too_large: "The request exceeds the supported size.",
     email_identity_rejected: "Choose a display name; an email address cannot be your Project identity.",
+    unsupported_dimensions: "This deployment's vector index requires 1024 embedding dimensions.",
+    secrets_key_unconfigured: "This backend cannot store provider keys until OVERGENT_SECRETS_KEY is configured.",
     already_member: "This Mac has already joined that Project.",
     invite_invalid: "That invite code was not recognised.",
     invite_revoked: "That invite was revoked. Ask for a new one.",
