@@ -74,7 +74,7 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
+		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|ai|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -521,7 +521,14 @@ func run(args []string) error {
 			return errors.New("intent requires workspace, title, and outcome")
 		}
 		return printCall(ctx, paths.Socket, daemon.Request{Method: "intent", WorkspaceID: *workspaceID, Title: *title, IntendedOutcome: *outcome, ApproachSummary: *approach})
-	case "doctor", "scan":
+	case "ai":
+		return runAI(ctx, paths, rest[1:], os.Stdin, os.Stdout)
+	case "doctor":
+		if err := printCall(ctx, paths.Socket, daemon.Request{Method: "doctor"}); err != nil {
+			return err
+		}
+		return printAIDoctor(ctx, paths, os.Stdout)
+	case "scan":
 		return printCall(ctx, paths.Socket, daemon.Request{Method: rest[0]})
 	case "diagnostics":
 		return writeDiagnostics(ctx, paths)

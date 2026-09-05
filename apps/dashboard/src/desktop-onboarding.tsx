@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentOptions, NewProjectScreen } from "./new-project";
 import { nativeOnboarding, type AdapterState, type EnrollmentRequest, type NativeOnboarding, type OnboardingState } from "./native";
 import type { AgentVendor } from "./model";
+import { DesktopAISettings } from "./desktop-ai-settings";
 
 /** First run in the order the member can answer: what this is, where, then what to connect. */
 const FIRST_RUN_STEPS = ["welcome", "repository", "agents"] as const;
@@ -221,6 +222,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
           <button className="pill" disabled={pending} onClick={() => setAddProject("join")}>Join a Project</button>
         </div>
         <AdapterList state={state} onReconnect={setReconnectTarget} />
+        {api.aiSettings && api.putAISettings && <DesktopAISettings api={{ aiSettings: api.aiSettings, putAISettings: api.putAISettings }} projectId={state.projectId} />}
         {/* Said once, only when it is true, and only about the adapters it is
             true of. The previous version stated the healthy case as a banner on
             every visit, which made the unhealthy case read as more of the same. */}

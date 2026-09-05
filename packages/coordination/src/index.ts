@@ -136,3 +136,4 @@ export * from "./intelligence.js";
 export * from "./openai.js";
 export * from "./judgment.js";
 export * from "./anthropic.js";
+export * from "./openai-compatible.js";

@@ -931,6 +931,12 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .onboarding-card > .eyebrow { margin: 0; }
 .onboarding-lede { margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; }
 .repo-path { margin: -8px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); word-break: break-all; }
+.intelligence-settings { display: grid; gap: 16px; padding-top: 18px; border-top: 1px solid var(--line); }
+.intelligence-settings h2, .intelligence-settings h3 { margin: 0; }
+.intelligence-settings h2 { font-size: 17px; }
+.intelligence-settings h3 { font-size: 13px; }
+.provider-settings { display: grid; gap: 10px; }
+.intelligence-effective { margin: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 
 .connection-line { display: flex; align-items: flex-start; gap: 11px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .connection-line > span[aria-hidden] { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-size: 11px; font-weight: 700; }
@@ -961,7 +967,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > span { font-size: 12.5px; font-weight: 650; }
-.field input { width: 100%; min-width: 0; padding: 8px 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; font-size: 13.5px; }
+.field input, .field select { width: 100%; min-width: 0; padding: 8px 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 9px; font-size: 13.5px; }
 .field input::placeholder { color: var(--ink-3); }
 .field input[readonly] { color: var(--ink-2); }
 .field-note { color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }

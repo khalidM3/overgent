@@ -45,6 +45,30 @@ type DashboardTicket struct {
 	Ticket    string
 	ExpiresAt time.Time
 }
+type AISettingsWrite = protocoltypes.PutProjectAISettingsJSONBody
+type AISettings struct {
+	Judgment struct {
+		Provider      string  `json:"provider"`
+		Model         string  `json:"model"`
+		BaseURL       *string `json:"baseUrl"`
+		KeyConfigured bool    `json:"keyConfigured"`
+		KeyHint       *string `json:"keyHint"`
+	} `json:"judgment"`
+	Embeddings struct {
+		Provider      string  `json:"provider"`
+		Model         string  `json:"model"`
+		Dimensions    int     `json:"dimensions"`
+		BaseURL       *string `json:"baseUrl"`
+		KeyConfigured bool    `json:"keyConfigured"`
+		KeyHint       *string `json:"keyHint"`
+	} `json:"embeddings"`
+	Effective struct {
+		Judgment   string `json:"judgment"`
+		Embeddings string `json:"embeddings"`
+	} `json:"effective"`
+	Revision  int       `json:"revision"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
 type BatchAck struct {
 	AcceptedEventIDs []string
 	Cursor           string
@@ -231,6 +255,18 @@ func (c *Client) ProjectChanges(ctx context.Context, projectID string) (ChangePa
 	}
 	err := c.request(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/changes", nil, &out, http.StatusOK)
 	return ChangePage(out), err
+}
+
+func (c *Client) AISettings(ctx context.Context, projectID string) (AISettings, error) {
+	var out AISettings
+	err := c.request(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/ai-settings", nil, &out, http.StatusOK)
+	return out, err
+}
+
+func (c *Client) PutAISettings(ctx context.Context, projectID string, write AISettingsWrite) (AISettings, error) {
+	var out AISettings
+	err := c.request(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(projectID)+"/ai-settings", write, &out, http.StatusOK)
+	return out, err
 }
 
 func (c *Client) Collaboration(ctx context.Context, projectID string) (CollaborationSnapshot, error) {

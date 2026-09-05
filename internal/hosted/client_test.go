@@ -59,6 +59,58 @@ func TestClientRejectsInsecureRemoteAndReturnsStableAPIError(t *testing.T) {
 	}
 }
 
+func TestAISettingsUseRedactedVersionedContract(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/v1/projects/prj_fixture/ai-settings" || r.Header.Get("Authorization") != "Bearer fixture-token" {
+			t.Fatalf("unexpected request: %s %#v", r.URL.Path, r.Header)
+		}
+		if requests == 1 && r.Method != http.MethodGet {
+			t.Fatalf("first method=%s", r.Method)
+		}
+		if requests == 2 {
+			if r.Method != http.MethodPut {
+				t.Fatalf("second method=%s", r.Method)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			encoded, _ := json.Marshal(body)
+			if strings.Contains(string(encoded), "apiKey") {
+				t.Fatalf("omitted key appeared on wire: %s", encoded)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"judgment":{"provider":"none","model":"none","baseUrl":null,"keyConfigured":false,"keyHint":null},"embeddings":{"provider":"deterministic","model":"deterministic-v1","dimensions":1024,"baseUrl":null,"keyConfigured":false,"keyHint":null},"effective":{"judgment":"none","embeddings":"deterministic"},"revision":2,"updatedAt":"2026-09-04T00:00:00Z"}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := client.AISettings(context.Background(), "prj_fixture")
+	if err != nil || settings.Effective.Judgment != "none" {
+		t.Fatalf("settings=%#v err=%v", settings, err)
+	}
+	write := settingsWriteFixture(settings)
+	updated, err := client.PutAISettings(context.Background(), "prj_fixture", write)
+	if err != nil || updated.Revision != 2 || requests != 2 {
+		t.Fatalf("updated=%#v requests=%d err=%v", updated, requests, err)
+	}
+}
+
+func settingsWriteFixture(settings AISettings) AISettingsWrite {
+	var write AISettingsWrite
+	write.Judgment.Provider = settings.Judgment.Provider
+	write.Judgment.Model = settings.Judgment.Model
+	write.Embeddings.Provider = settings.Embeddings.Provider
+	write.Embeddings.Model = settings.Embeddings.Model
+	write.Embeddings.Dimensions = settings.Embeddings.Dimensions
+	return write
+}
+
 func TestCreateBriefUsesFrozenAuthenticatedContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/workstreams/wrk_fixture/briefs" || r.Header.Get("Authorization") != "Bearer fixture-token" {

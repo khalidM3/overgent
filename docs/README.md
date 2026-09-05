@@ -16,7 +16,7 @@ Read in order:
 12. [`prebuild-validation.md`](prebuild-validation.md) — executable architecture/adapter assumptions to prove first.
 13. [`implementation-plan.md`](implementation-plan.md) — continuous order/exit gates.
 14. [`development.md`](development.md) — local desktop, service, backend, and two-agent dogfood workflow.
-15. [`openai-embeddings.md`](openai-embeddings.md) — optional managed semantic-provider setup and failure behavior.
+15. [`ai-providers.md`](ai-providers.md) — per-Project AI provider setup, resolution, and degradation behavior.
 16. [`beta-release.md`](beta-release.md) — supported beta boundary, release credentials, publication, install, update, rollback, and uninstall.
 17. [`adapter-development.md`](adapter-development.md) — adding and qualifying a coding-agent adapter without widening the harness or wire boundary.
 18. [`design-system.md`](design-system.md) — binding dashboard/desktop UI rules: tokens, type, layout, components, and the checklist before adding UI.

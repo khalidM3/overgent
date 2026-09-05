@@ -86,7 +86,7 @@ describe("L6 intelligence engine", () => {
 
   it("embeds only approved text with the configured OpenAI model and dimensions", async () => {
     let request: RequestInit | undefined;
-    const provider = new OpenAIEmbeddingProvider("sk-test-key-that-never-leaves-this-unit-test", 4, async (_url, init) => {
+    const provider = new OpenAIEmbeddingProvider({ apiKey: "sk-test-key-that-never-leaves-this-unit-test", dimensions: 4 }, async (_url, init) => {
       request = init;
       return new Response(JSON.stringify({ data: [{ index: 0, embedding: [0.1, 0.2, 0.3, 0.4] }] }), { status: 200 });
     });
