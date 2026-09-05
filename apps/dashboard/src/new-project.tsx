@@ -29,7 +29,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   // the name field below it: focusing the name scrolled the screen's own
   // heading and the picker out of view on open.
   const chooseRef = useRef<HTMLButtonElement>(null);
-  const [request, setRequest] = useState<EnrollmentRequest>({ repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName, joinCode: "", enableCodex: false, enableClaude: false, enableCursor: false });
+  const [request, setRequest] = useState<EnrollmentRequest>({ repositoryRoot: "", projectLabel: "", deviceLabel: "This Mac", displayName, joinCode: "", serverOrigin: "", enableCodex: false, enableClaude: false, enableCursor: false });
   const [adapters, setAdapters] = useState<AdapterState[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");

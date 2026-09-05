@@ -8,7 +8,7 @@ const adapters = [
   { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
   { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
 ];
-const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only." };
+const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only.", localAvailable: true, mode: "" };
 const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
 
 const needsReview: OnboardingState = {
@@ -25,8 +25,13 @@ const needsReview: OnboardingState = {
  * First run is three steps, so a test that wants the connect step has to walk
  * there. The walk is the assertion in one test and setup in the rest.
  */
-async function reachAgentStep(user: ReturnType<typeof userEvent.setup>, mode: "create" | "join" = "create") {
-  await user.click(await screen.findByRole("button", { name: mode === "create" ? "Create a Project" : "I have an invite code" }));
+async function reachAgentStep(user: ReturnType<typeof userEvent.setup>, mode: "create" | "join" | "local" = "create") {
+  if (mode === "local") {
+    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
+  } else {
+    await user.click(await screen.findByRole("button", { name: "Create or join a team Project" }));
+    if (mode === "join") await user.click(screen.getByRole("button", { name: "I have an invite code" }));
+  }
   await user.click(screen.getByRole("button", { name: "Choose…" }));
   if (mode === "join") await user.type(screen.getByLabelText("Invite code"), "inv_test.secret");
   await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -36,7 +41,7 @@ describe("desktop onboarding", () => {
   it("tells the member a Codex binding is inert while its hooks await review", async () => {
     const api = {
       state: vi.fn(async () => needsReview),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
@@ -51,7 +56,7 @@ describe("desktop onboarding", () => {
   it("opens on what Overgent is and what it already found on this Mac", async () => {
     const api = {
       state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
@@ -64,14 +69,17 @@ describe("desktop onboarding", () => {
     expect(points.length).toBe(3);
     expect(screen.queryByLabelText("Your name")).toBeNull();
     expect(screen.queryByText(/Step 1 of 3/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Create a Project" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "I have an invite code" })).toBeTruthy();
+    // The first question is where the data goes, and "Use on this Mac" is the
+    // default because it is the answer that shares nothing.
+    expect(screen.getByRole("button", { name: "Use on this Mac" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create or join a team Project" })).toBeTruthy();
+    expect(screen.getByText("Nothing leaves this computer.")).toBeTruthy();
   });
 
   it("states plainly when it found no coding agents, without dressing it as a fault", async () => {
     const api = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
@@ -91,7 +99,7 @@ describe("desktop onboarding", () => {
     const user = userEvent.setup();
     const api = {
       state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
@@ -113,12 +121,12 @@ describe("desktop onboarding", () => {
     const user = userEvent.setup();
     const api = {
       state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(async () => ""), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(async () => ""), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     } as unknown as NativeOnboarding;
     render(<DesktopOnboarding api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Create a Project" }));
+    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
     expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     // A control that cannot be pressed explains itself or it is a dead end.
     expect(screen.getByText("Choose a repository to continue.")).toBeTruthy();
@@ -130,7 +138,7 @@ describe("desktop onboarding", () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => calls++ === 0 ? initial : enrolled),
       chooseRepository: vi.fn(async () => "/tmp/atlas"),
-      createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })),
+      createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })), createLocalProject: vi.fn(),
       createAdditionalProject: vi.fn(),
       joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -157,7 +165,7 @@ describe("desktop onboarding", () => {
   it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     const user = userEvent.setup();
     render(<DesktopOnboarding api={api} />);
@@ -175,7 +183,7 @@ describe("desktop onboarding", () => {
   it("opens the authenticated live Project through a native one-time handoff", async () => {
     const navigate = vi.fn();
     const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
+      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
       openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     const user = userEvent.setup();
@@ -186,7 +194,7 @@ describe("desktop onboarding", () => {
 
   it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
     const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
+      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
       connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
@@ -203,7 +211,7 @@ describe("desktop onboarding", () => {
   it("previews and explicitly confirms a safe profile reconnect", async () => {
     const otherProfile: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, configured: false, binding: "other_profile", previousProfile: "Overgent", runtimeVerified: false, restartRequired: false, reconnectAllowed: true, detail: "Connected to a different Overgent profile." } : adapter) };
     const api: NativeOnboarding = {
-      state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(),
+      state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(),
       reconnectAdapter: vi.fn(async () => ({ ...otherProfile.adapters[0], configured: true, binding: "current" as const, reconnectAllowed: false, restartRequired: true })),
       connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -221,7 +229,7 @@ describe("desktop onboarding", () => {
   it("keeps a configured adapter pending until a live event verifies it", async () => {
     const pending: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, runtimeVerified: false, restartRequired: true, detail: "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection." } : adapter) };
     const api: NativeOnboarding = {
-      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} />);
     expect(await screen.findByText(/Restart the agent, then start a new task/)).toBeTruthy();
@@ -237,11 +245,11 @@ describe("first-run identity", () => {
     const user = userEvent.setup();
     const api: NativeOnboarding = {
       state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
     render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Create a Project" }));
+    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
 
     const name = screen.getByLabelText("Your name") as HTMLInputElement;
     expect(name.value).toBe("");
@@ -260,7 +268,7 @@ describe("first-run identity", () => {
     const reset = vi.fn(async () => initial);
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...enrolled, credential: "revoked" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: reset, sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -280,7 +288,7 @@ describe("first-run identity", () => {
   it("explains an unknown credential differently from a revoked one", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...enrolled, credential: "unknown" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -294,7 +302,7 @@ describe("first-run identity", () => {
     const api: NativeOnboarding = {
       // Offline, timing out, or a server fault - none of which mean locked out.
       state: vi.fn(async () => ({ ...enrolled, credential: "uncertain" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: reset, sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -307,7 +315,7 @@ describe("first-run identity", () => {
   it("leaves a healthy enrollment alone", async () => {
     const api: NativeOnboarding = {
       state: vi.fn(async () => ({ ...enrolled, credential: "ok" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
       configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
       resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     };
@@ -320,7 +328,7 @@ describe("first-run identity", () => {
 describe("joining a second Project", () => {
   const nativeDouble = (overrides: Record<string, unknown>) => ({
     state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/beacon"),
-    createProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+    createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
     configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
     resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
     ...overrides,
@@ -364,5 +372,54 @@ describe("joining a second Project", () => {
     await user.click(screen.getByRole("button", { name: "Choose…" }));
     await user.click(screen.getByRole("button", { name: "Join Project" }));
     expect(await screen.findByText(/That invite has expired/)).toBeTruthy();
+  });
+});
+
+describe("local mode", () => {
+  const api = () => ({
+    state: vi.fn(async () => initial),
+    chooseRepository: vi.fn(async () => "/tmp/atlas"),
+    createProject: vi.fn(),
+    createLocalProject: vi.fn(async () => ({ projectId: "prj_local", joinCode: "", warnings: [] })),
+    createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
+    configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
+    resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
+  }) as unknown as NativeOnboarding;
+
+  it("creates a Project on this Mac without offering an invite or a server", async () => {
+    const user = userEvent.setup();
+    const native = api();
+    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
+    // Nothing about servers or invites belongs on a path where there is no
+    // remote and no second member.
+    expect(screen.queryByText("Advanced: connect to a different server")).toBeNull();
+    expect(screen.queryByLabelText("Invite code")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Choose…" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByText(/stay in a database on this Mac/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Create and connect" }));
+    expect(native.createLocalProject).toHaveBeenCalledTimes(1);
+    expect(native.createProject).not.toHaveBeenCalled();
+  });
+
+  it("offers the server field only on the team path and passes what was typed", async () => {
+    const user = userEvent.setup();
+    const native = api();
+    (native as { createProject: unknown }).createProject = vi.fn(async () => ({ projectId: "prj_team", joinCode: "inv_a.b", warnings: [] }));
+    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: "Create or join a team Project" }));
+    await user.click(screen.getByRole("button", { name: "Choose…" }));
+    await user.type(screen.getByLabelText("Server address"), "https://convex.example.com");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Create and connect" }));
+    expect(native.createProject).toHaveBeenCalledWith(expect.objectContaining({ serverOrigin: "https://convex.example.com" }));
+  });
+
+  it("says which kind of Project this Mac holds instead of offering a switcher", async () => {
+    const native = api();
+    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, mode: "local" as const }));
+    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
+    expect(await screen.findByText("This Mac is set up for local Projects. Reset to switch.")).toBeTruthy();
   });
 });

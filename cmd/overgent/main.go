@@ -74,7 +74,7 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
+		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|backend|workspace|intent|pause|resume|focus|unfocus|doctor|diagnostics|scan|update")
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -98,8 +98,26 @@ func run(args []string) error {
 		label := createFlags.String("label", "", "Project label")
 		deviceLabel := createFlags.String("device-label", "", "device label shared with Project members")
 		repository := createFlags.String("root", ".", "Git repository root")
+		local := createFlags.Bool("local", false, "create the Project on this Mac's bundled backend; nothing leaves this computer")
 		if e = createFlags.Parse(rest[1:]); e != nil {
 			return e
+		}
+		// --local names where the Project lives, and so does --api. Accepting
+		// both would mean silently ignoring one of the two things the member
+		// said about where their coordination data goes.
+		if *local && flagProvided(fs, "api") {
+			return errors.New("create accepts --local or --api, not both")
+		}
+		if *local {
+			endpoint, localErr := backendEnsure(ctx, paths)
+			if localErr != nil {
+				return localErr
+			}
+			*apiBase = endpoint.SiteOrigin
+		} else if validated, originErr := onboarding.ValidateAPIOrigin(*apiBase); originErr != nil {
+			return originErr
+		} else {
+			*apiBase = validated
 		}
 		// A profile that has already enrolled has a device identity, and one
 		// per-user service keeps one identity across all of its Projects. Minting
@@ -122,7 +140,7 @@ func run(args []string) error {
 			result, createErr = service.CreateAdditional(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: existing.apiBaseURL, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version}, existing.deviceID, token)
 		} else {
 			service := onboarding.New(*apiBase)
-			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version})
+			result, createErr = service.Create(ctx, onboarding.Options{ConfigRoot: *root, RepositoryRoot: *repository, APIBaseURL: *apiBase, ProjectLabel: *label, DeviceLabel: *deviceLabel, AppVersion: "overgent/" + version, SkipInvite: *local})
 		}
 		if createErr != nil {
 			return createErr
@@ -144,6 +162,11 @@ func run(args []string) error {
 		if joinFlags.NArg() != 1 {
 			return errors.New("join requires one invite link or code")
 		}
+		validatedAPI, originErr := onboarding.ValidateAPIOrigin(*apiBase)
+		if originErr != nil {
+			return originErr
+		}
+		*apiBase = validatedAPI
 		// A Mac that is already enrolled joins as itself. Enrolling again would
 		// mint a second device identity, which the local profile then refuses to
 		// register - spending the invite and joining nothing.
@@ -391,6 +414,8 @@ func run(args []string) error {
 			}
 			return json.NewEncoder(os.Stdout).Encode(status)
 		}
+	case "backend":
+		return runBackend(ctx, paths, rest[1:])
 	case "workspace":
 		if len(rest) >= 2 && rest[1] == "list" {
 			cfg, loadErr := config.Load(paths)
@@ -955,4 +980,17 @@ func enrolledDevice(paths config.Paths, repository string) (enrolledState, error
 		}
 	}
 	return enrolledState{deviceID: cfg.DeviceID, apiBaseURL: cfg.APIBaseURL}, nil
+}
+
+// flagProvided reports whether the member actually typed this flag. Every flag
+// here has a default, so comparing against the default cannot tell "not given"
+// from "given the same value".
+func flagProvided(set *flag.FlagSet, name string) bool {
+	provided := false
+	set.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			provided = true
+		}
+	})
+	return provided
 }

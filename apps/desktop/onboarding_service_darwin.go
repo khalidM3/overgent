@@ -27,6 +27,7 @@ import (
 	"github.com/khalidM3/overgent/internal/cursorsetup"
 	"github.com/khalidM3/overgent/internal/daemon"
 	"github.com/khalidM3/overgent/internal/hosted"
+	"github.com/khalidM3/overgent/internal/localbackend"
 	"github.com/khalidM3/overgent/internal/onboarding"
 	servicemanager "github.com/khalidM3/overgent/internal/service"
 	"github.com/khalidM3/overgent/internal/store"
@@ -68,6 +69,15 @@ type OnboardingState struct {
 	// and "uncertain" (offline, timeout, server fault) must never be presented
 	// as a reason to erase an enrollment.
 	Credential string `json:"credential"`
+	// LocalAvailable reports that this build carries a backend, so "Use on this
+	// Mac" is a real choice rather than a button that fails when pressed.
+	LocalAvailable bool `json:"localAvailable"`
+	// Mode is "local" or "team" once enrolled, and "" before. Until Lane 06
+	// lands a profile is one or the other, and the onboarding says so rather
+	// than offering a switcher that would silently strand the other kind.
+	Mode string `json:"mode"`
+	// Backend is the bundled backend's state, shown beside service health.
+	Backend BackendStatus `json:"backend"`
 }
 
 type EnrollmentRequest struct {
@@ -76,9 +86,13 @@ type EnrollmentRequest struct {
 	DeviceLabel    string `json:"deviceLabel"`
 	DisplayName    string `json:"displayName"`
 	JoinCode       string `json:"joinCode"`
-	EnableCodex    bool   `json:"enableCodex"`
-	EnableClaude   bool   `json:"enableClaude"`
-	EnableCursor   bool   `json:"enableCursor"`
+	// ServerOrigin is the "Advanced: connect to a different server" field. Empty
+	// means the build default. Validated with exactly hosted.New's rule so the
+	// desktop and `overgent create --api` accept the same thing (Lane 05).
+	ServerOrigin string `json:"serverOrigin"`
+	EnableCodex  bool   `json:"enableCodex"`
+	EnableClaude bool   `json:"enableClaude"`
+	EnableCursor bool   `json:"enableCursor"`
 }
 
 type EnrollmentResult struct {
@@ -89,6 +103,8 @@ type EnrollmentResult struct {
 
 type OnboardingService struct {
 	configRoot, apiBaseURL, activationBaseURL, cliBinary string
+	// localAvailable is whether this build carries a bundled backend.
+	localAvailable bool
 	// Test seams for the local-only session opener. Production leaves these nil
 	// and uses the OS URL handler / an argument-array child process.
 	homeDirectory       string
@@ -143,7 +159,14 @@ func (service *OnboardingService) forgetCredentialHealth() {
 
 func newOnboardingService() *OnboardingService {
 	root := desktopConfigRoot()
-	return &OnboardingService{configRoot: root, apiBaseURL: desktopAPIBaseURL(), activationBaseURL: desktopActivationBaseURL(), cliBinary: desktopCLIBinary()}
+	// Recording the bundled artifact paths on every launch is what lets the
+	// service find the backend again after an app update replaced the bundle.
+	recordBundledBackend(root)
+	return &OnboardingService{
+		configRoot: root, apiBaseURL: desktopAPIBaseURL(),
+		activationBaseURL: desktopActivationBaseURL(), cliBinary: desktopCLIBinary(),
+		localAvailable: localbackend.Configured(root),
+	}
 }
 
 func (service *OnboardingService) ChooseRepository() (string, error) {
@@ -171,11 +194,18 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 	if err != nil {
 		return state, err
 	}
+	state.LocalAvailable = service.localAvailable
+	state.Backend = service.backendStatus()
 	if len(cfg.Workspaces) == 0 {
 		state.Adapters = service.adapterStates(nil)
 		return state, nil
 	}
 	state.Enrolled = true
+	state.Mode = "team"
+	if isLoopbackOrigin(cfg.APIBaseURL) {
+		state.Mode = "local"
+	}
+	state.APIBaseURL = cfg.APIBaseURL
 	// The newest registration is the Project the member most recently added.
 	// A specific Project can always be opened through OpenLiveProject.
 	selected := cfg.Workspaces[len(cfg.Workspaces)-1]
@@ -247,6 +277,48 @@ func (service *OnboardingService) ResetEnrollment() (OnboardingState, error) {
 }
 
 func (service *OnboardingService) CreateProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	return service.enroll(request, true)
+}
+
+// CreateLocalProject sets up a Project that never leaves this Mac.
+//
+// It is the same enrollment as CreateProject with two differences, both of
+// which follow from there being no second member and no remote: the API origin
+// is the loopback backend the service just started, and no invite is minted,
+// because a code offered on the success screen is how a member is told that
+// inviting somebody is the next step.
+func (service *OnboardingService) CreateLocalProject(request EnrollmentRequest) (EnrollmentResult, error) {
+	if !service.localAvailable {
+		return EnrollmentResult{}, errors.New("this build does not carry a backend to run on this Mac")
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	if len(cfg.Workspaces) > 0 && !isLoopbackOrigin(cfg.APIBaseURL) {
+		return EnrollmentResult{}, errors.New("this Mac is set up for team Projects. Reset to switch.")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	// The service owns the backend process, so it has to exist before the
+	// backend does. On a fresh profile this is the call that installs it.
+	if serviceErr := service.ensureService(ctx); serviceErr != nil {
+		return EnrollmentResult{}, fmt.Errorf("start the Overgent background service: %w", serviceErr)
+	}
+	endpoint, err := ensureLocalBackend(ctx, paths)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	if origin := ensureDashboardOrigin(dashboardAssets()); origin != nil {
+		if err = origin.SetBackend(endpoint.SiteOrigin); err != nil {
+			return EnrollmentResult{}, err
+		}
+	}
+	request.ServerOrigin = endpoint.SiteOrigin
 	return service.enroll(request, true)
 }
 
@@ -398,10 +470,20 @@ func (service *OnboardingService) enroll(request EnrollmentRequest, create bool)
 	}
 	request.DisplayName = displayName
 	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	// A member who typed a server in "connect to a different server" gets that
+	// origin; everyone else gets this build's default. The existing enroll path
+	// persists whichever one the Project was created against.
+	apiBaseURL := service.apiBaseURL
+	if strings.TrimSpace(request.ServerOrigin) != "" {
+		apiBaseURL, err = onboarding.ValidateAPIOrigin(request.ServerOrigin)
+		if err != nil {
+			return EnrollmentResult{}, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: service.apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta"}
-	flow := onboarding.New(service.apiBaseURL)
+	options := onboarding.Options{ConfigRoot: service.configRoot, RepositoryRoot: root, APIBaseURL: apiBaseURL, ProjectLabel: request.ProjectLabel, DeviceLabel: request.DeviceLabel, DisplayName: request.DisplayName, AppVersion: "overgent/desktop-beta", SkipInvite: isLoopbackOrigin(apiBaseURL)}
+	flow := onboarding.New(apiBaseURL)
 	var result onboarding.Result
 	if create {
 		result, err = flow.Create(ctx, options)

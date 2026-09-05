@@ -55,6 +55,7 @@ import { desktopHandoffURL, isDesktopShell, isDesktopWebview, nativeOnboarding, 
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
 import { LandingPage } from "./landing";
+import { decideRoute } from "./routing";
 import "./style.css";
 
 const defaultSource = new FixtureProjectSource();
@@ -1953,24 +1954,24 @@ export function JoinLanding({ fragment = window.location.hash.slice(1) }: { frag
 
 const root = document.getElementById("root");
 if (root) {
-  const parameters = new URLSearchParams(window.location.search);
-  const desktopPreview = parameters.get("desktop") === "preview" || isDesktopWebview;
-  const onboarding = parameters.get("desktop") === "onboarding";
   // Fixtures are a design harness, so they are opt-in and always labelled. They
   // used to be what an unrecognised URL fell back to, which meant any plain
   // browser hit on this origin rendered an invented Project - session titles,
   // findings, agent transcripts - with nothing on screen saying it was fake.
   // The live view already has an honest unauthenticated state, so it is the
-  // safe thing to land on when the URL asks for nothing in particular.
-  const fixtures = parameters.get("fixtures") === "1" || (desktopPreview && parameters.get("live") !== "1");
-  const banner = !onboarding && (fixtures || desktopPreview);
-  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
-  // The public marketing page is for the hosted origin only. Anything running
-  // inside the desktop webview, or asking for a harness, belongs in the app.
-  const landing = pathname === "/" && !isDesktopWebview && !desktopPreview && !onboarding && !fixtures;
-  if (banner) document.documentElement.dataset.desktopPreview = "true";
+  // safe thing to land on when the URL asks for nothing in particular. The
+  // whole decision lives in decideRoute so it can be tested (see routing.ts).
+  const { route, banner } = decideRoute({
+    pathname: window.location.pathname,
+    search: window.location.search,
+    desktopShell: isDesktopShell,
+    desktopWebview: isDesktopWebview,
+  });
+  if (banner !== "none") document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
-    {banner && (desktopPreview ? <DesktopPreviewBanner live={!fixtures} /> : <FixtureDataBanner />)}
-    {pathname === "/join" ? <JoinLanding /> : onboarding ? <DesktopOnboarding /> : fixtures ? <App /> : landing ? <LandingPage /> : <LiveApp />}
+    {banner === "preview-live" && <DesktopPreviewBanner live />}
+    {banner === "preview-fixtures" && <DesktopPreviewBanner live={false} />}
+    {banner === "fixtures" && <FixtureDataBanner />}
+    {route === "join" ? <JoinLanding /> : route === "onboarding" ? <DesktopOnboarding /> : route === "fixtures" ? <App /> : route === "landing" ? <LandingPage /> : <LiveApp />}
   </StrictMode>);
 }

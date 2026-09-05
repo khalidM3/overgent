@@ -25,14 +25,39 @@ func desktopMenuLabel() string   { return "Overgent beta" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
 func desktopURLScheme() string   { return "overgent" }
 
-// apiBaseURL is the hosted origin a production build talks to. Releases keep the
-// default; a private build for a closed test overrides it with
+// apiBaseURL is the hosted origin a production build talks to by default.
+// Releases keep it; a private build for a closed test overrides it with
 // -X main.apiBaseURL=... so the app does not have to be edited to point at a
 // different deployment. Activation rejects anything that is not HTTPS.
 var apiBaseURL = "https://api.overgent.com"
 
-func desktopAPIBaseURL() string        { return apiBaseURL }
-func desktopActivationBaseURL() string { return desktopAPIBaseURL() }
+// desktopAPIBaseURL is the backend this profile talks to: the origin the
+// profile was enrolled against if it has one, else the build default.
+//
+// The stored origin is what makes self-hosting work from a stock build (Lane
+// 05): the member enters their server once, in the onboarding's "connect to a
+// different server" field or with `overgent create --api`, and the existing
+// enroll path persists it in config.APIBaseURL. Lane 06 moves this from the
+// profile to each Project; keeping the read in one function is what makes that
+// a local change.
+func desktopAPIBaseURL() string {
+	if stored := storedAPIBaseURL(desktopConfigRoot()); stored != "" {
+		return stored
+	}
+	return apiBaseURL
+}
+
+// desktopActivationBaseURL is the origin that serves the dashboard and its
+// same-origin /v1 proxy. A hosted or self-hosted deployment serves both itself.
+// A local-mode Project has no such deployment, so the app serves them: see
+// dashboardOrigin, which is the local equivalent of Vite in development and of
+// Vercel in production.
+func desktopActivationBaseURL() string {
+	if origin := localDashboardOrigin(); origin != "" {
+		return origin
+	}
+	return desktopAPIBaseURL()
+}
 
 // desktopCLIBinary returns the Overgent CLI this app should bind agents to,
 // installing the bundled one at a stable path so that the managed hook and MCP
