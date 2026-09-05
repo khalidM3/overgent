@@ -2,3 +2,10 @@ Overgent
 Copyright 2026 Overgent contributors
 
 This product is licensed under the Apache License, Version 2.0.
+
+Third-party components
+
+Overgent redistributes the Convex Local Backend, Copyright 2026 Convex, Inc.,
+under the Functional Source License, Version 1.1, Apache 2.0 Future License
+(FSL-1.1-Apache-2.0). A copy of that license is included with the distributed
+backend artifact and is available from the pinned Convex release.

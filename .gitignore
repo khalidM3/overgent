@@ -22,6 +22,12 @@ convex/_generated/
 # Local build artifacts from go build ./validation/...
 /coordination
 
+# Desktop build output, including the downloaded Convex backend binary and the
+# deploy payload generated at release time. Both are large, both are derived
+# from scripts/backend-version.json and the tagged commit, and GoReleaser
+# refuses to run against a dirty tree.
+/apps/desktop/build/
+
 # Notarized desktop archive staged by the release workflow before it is
 # uploaded. GoReleaser refuses to run against a dirty tree, so leaving this
 # untracked aborted the release after the build and notarization had already

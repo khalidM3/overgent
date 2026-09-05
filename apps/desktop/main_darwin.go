@@ -92,6 +92,9 @@ func main() {
 	menu.Add(desktopMenuLabel()).SetEnabled(false)
 	serviceItem := menu.Add("Service: checking…").SetEnabled(false)
 	activityItem := menu.Add("Activity: checking…").SetEnabled(false)
+	// Only a local-mode profile has a backend of its own, so this line appears
+	// only where it means something.
+	backendItem := menu.Add("").SetHidden(true).SetEnabled(false)
 	menu.AddSeparator()
 	menu.Add("Open Overgent").OnClick(func(*application.Context) {
 		window.Show()
@@ -137,6 +140,11 @@ func main() {
 		stateMu.Unlock()
 		serviceItem.SetLabel(status.ServiceLabel())
 		activityItem.SetLabel(status.ActivityLabel())
+		if label := status.BackendLabel(); label == "" {
+			backendItem.SetHidden(true)
+		} else {
+			backendItem.SetLabel(label).SetHidden(false)
+		}
 		pauseItem.SetLabel(status.PauseLabel()).SetEnabled(status.Connected && status.WorkspaceCount > 0)
 		if label := status.FocusLabel(); label == "" {
 			focusItem.SetHidden(true)

@@ -22,7 +22,8 @@ if (!/^precompiled-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-f0-9]+$/.test(manifest.version 
 }
 
 const archiveName = "convex-local-backend-aarch64-apple-darwin.zip";
-const downloadUrl = `https://github.com/get-convex/convex-backend/releases/download/${manifest.version}/${archiveName}`;
+const releaseUrl = `https://github.com/get-convex/convex-backend/releases/download/${manifest.version}`;
+const downloadUrl = `${releaseUrl}/${archiveName}`;
 const buildRoot = path.join(root, "apps", "desktop", "build");
 const destination = path.join(buildRoot, "backend");
 await mkdir(buildRoot, { recursive: true });
@@ -48,6 +49,15 @@ try {
   const binaryBytes = await readFile(binary);
   if (binaryBytes.length === 0) throw new Error("backend archive contained an empty binary");
   await chmod(binary, 0o755);
+
+  // The binary is redistributed under the Convex release's own FSL-1.1 terms,
+  // not the npm package's Apache-2.0, and that license is a separate asset of
+  // the same release. It ships beside the binary it governs; NOTICE names it.
+  const licenseResponse = await fetch(`${releaseUrl}/LICENSE.md`, { redirect: "follow" });
+  if (!licenseResponse.ok) throw new Error(`backend license download failed: HTTP ${licenseResponse.status}`);
+  const license = Buffer.from(await licenseResponse.arrayBuffer());
+  if (!license.includes("Functional Source License")) throw new Error("backend license asset is not the expected FSL text");
+  await writeFile(path.join(extracted, "LICENSE.md"), license, { mode: 0o644 });
   await rm(destination, { recursive: true, force: true });
   await rename(extracted, destination);
   process.stdout.write(`${path.join(destination, "convex-local-backend")}\n`);

@@ -1,5 +1,6 @@
 {
   "version": "precompiled-2026-08-25-7cce8fb",
+  "cliVersion": "1.45.0",
   "sha256": {
     "darwin-arm64": "98831b0f511f6eed70b0b4dfca62015df57877e08017d2b2979b39d62ae7317b"
   }

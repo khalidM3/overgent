@@ -37,6 +37,10 @@ type Options struct {
 	ConfigRoot, RepositoryRoot, APIBaseURL, ProjectLabel, DeviceLabel, AppVersion string
 	// DisplayName is optional; empty means the member has not chosen one yet.
 	DisplayName string
+	// SkipInvite creates the Project without minting a one-use invite. A local
+	// Project has no second member to hand one to, and offering a code is how a
+	// screen implies that inviting somebody is the next step (ADR-072).
+	SkipInvite bool
 }
 
 type Result struct {
@@ -100,7 +104,7 @@ func (s Service) Create(ctx context.Context, options Options) (Result, error) {
 	if bootstrap.DeviceID == "" || !containsProject(bootstrap.Projects, project.ID) {
 		return Result{}, errors.New("creator bootstrap did not contain the new Project")
 	}
-	return s.finish(ctx, options, client, project.ID, bootstrap.DeviceID, token, "", true)
+	return s.finish(ctx, options, client, project.ID, bootstrap.DeviceID, token, "", !options.SkipInvite)
 }
 
 // CreateAdditional creates another Project for a device that is already

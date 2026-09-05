@@ -62,6 +62,39 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
       - uses: anchore/sbom-action/download-syft@v0
+      # The bundled backend ships inside the app, and its deploy payload is
+      # generated from *this* tag's Convex functions rather than committed, so
+      # the deployed bundle is always the code the release was cut from.
+      #
+      # The verify step is the gate the bundled-backend spike asked for: the
+      # deploy2 endpoints it replays are internal Convex detail, so a backend or
+      # CLI bump can change their shape with no announcement. Replaying the
+      # fresh payload against a fresh backend here means a broken pin fails the
+      # release instead of reaching a member as an app that starts and then
+      # coordinates nothing.
+      - name: Generate and verify the bundled backend deploy payload
+        run: |
+          set -euo pipefail
+          node scripts/fetch-backend.mjs
+          BACKEND="apps/desktop/build/backend/convex-local-backend"
+          WORK="$RUNNER_TEMP/backend-payload"
+          mkdir -p "$WORK"
+          INSTANCE="overgent-release-$(openssl rand -hex 4)"
+          SECRET="$(openssl rand -hex 32)"
+          ADMIN_KEY="$("$BACKEND" keygen admin-key --instance-name "$INSTANCE" --instance-secret "$SECRET")"
+          "$BACKEND" --interface 127.0.0.1 --port 3210 --site-proxy-port 3211             --convex-origin http://127.0.0.1:3210 --convex-site http://127.0.0.1:3211             --instance-name "$INSTANCE" --instance-secret "$SECRET"             --local-storage "$WORK/storage" --disable-beacon "$WORK/build.sqlite3"             > "$WORK/backend.log" 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill "$BACKEND_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:3210/version >/dev/null 2>&1; then break; fi
+            sleep 0.25
+          done
+          validation/spikes/bundled-backend/push.sh build http://127.0.0.1:3210 "$ADMIN_KEY" "$WORK"
+          cp "$WORK/backend-push.json" apps/desktop/build/backend-push.json
+          kill "$BACKEND_PID"
+          wait "$BACKEND_PID" 2>/dev/null || true
+          trap - EXIT
+          go run ./cmd/overgent backend verify --binary "$BACKEND" --bundle apps/desktop/build/backend-push.json
       - name: Build, sign, and notarize macOS desktop beta
         env:
           OVERGENT_VERSION: "${{ github.ref_name }}"

@@ -81,6 +81,80 @@ sessions in the CLI, IDE, or Desktop app use the same documented hook events;
 an ordinary Claude chat that is not a Claude Code repository session is outside
 this repository-scoped flow.
 
+## Local mode from a built app
+
+`pnpm dev` is unchanged: it keeps using `convex dev` on `127.0.0.1:3210/3211`,
+and a development build carries no bundled backend, so the app offers only team
+Projects. Local mode is what a *released* build does, and this is how to run it
+on this Mac.
+
+Build an app that carries the backend. The binary is downloaded and checksummed
+against `scripts/backend-version.json`; the deploy payload is the tagged
+commit's Convex functions, which the release workflow generates and a local
+build has to produce once by hand:
+
+```bash
+node scripts/fetch-backend.mjs
+```
+
+Then start a scratch backend, derive its admin key, and record the payload
+(this is the same sequence `.github/workflows/release.yml` runs):
+
+```bash
+BACKEND=apps/desktop/build/backend/convex-local-backend
+WORK="$(mktemp -d)"
+INSTANCE="overgent-local-$(openssl rand -hex 4)"
+SECRET="$(openssl rand -hex 32)"
+ADMIN_KEY="$("$BACKEND" keygen admin-key --instance-name "$INSTANCE" --instance-secret "$SECRET")"
+"$BACKEND" --interface 127.0.0.1 --port 3220 --site-proxy-port 3221 \
+  --convex-origin http://127.0.0.1:3220 --convex-site http://127.0.0.1:3221 \
+  --instance-name "$INSTANCE" --instance-secret "$SECRET" \
+  --local-storage "$WORK/storage" --disable-beacon "$WORK/build.sqlite3" &
+validation/spikes/bundled-backend/push.sh build http://127.0.0.1:3220 "$ADMIN_KEY" "$WORK"
+cp "$WORK/backend-push.json" apps/desktop/build/backend-push.json
+kill %1
+```
+
+Confirm the payload actually deploys before building an app around it:
+
+```bash
+go run ./cmd/overgent backend verify \
+  --binary apps/desktop/build/backend/convex-local-backend \
+  --bundle apps/desktop/build/backend-push.json
+```
+
+Build and open the app against a throwaway profile, so the exercise never
+touches the profile you use:
+
+```bash
+pnpm desktop:build
+OVERGENT_CONFIG_ROOT="$(mktemp -d)/Overgent" \
+  open -n apps/desktop/build/bin/Overgent.app
+```
+
+Choose **Use on this Mac**, pick a repository, and the dashboard opens on the
+app's own loopback origin. Nothing in that path needs Node, an account, or the
+network. The backend runs while the service runs; the menu bar names its port
+and the release it is on.
+
+Headless, the same thing is:
+
+```bash
+./bin/overgent --config-root "$PROFILE" backend install \
+  --binary "/Applications/Overgent.app/Contents/Resources/backend/convex-local-backend" \
+  --bundle "/Applications/Overgent.app/Contents/Resources/backend/backend-push.json"
+./bin/overgent --config-root "$PROFILE" create --local --label "Local dogfood" --root /absolute/path/to/repository
+./bin/overgent --config-root "$PROFILE" backend status --json
+```
+
+`create --local` and `create --api` are mutually exclusive: both name where the
+Project's coordination data goes. A local Project mints no invite, because
+there is no second member to give one to.
+
+To start over, `overgent backend reset` stops the backend and deletes its
+database and file storage, which returns the app to first run. It asks for
+confirmation unless you pass `--yes`.
+
 ## Codex-versus-Claude collision exercise
 
 Use the same registered checkout for the normal exercise. Start a new Codex
@@ -228,9 +302,8 @@ service. The origin is entered wherever any other backend origin is entered —
 the desktop's "Advanced: connect to a different server" field, or `--api` on
 the CLI — not through a separate shared profile.
 
-Until the desktop server field lands (Lane 03), `pnpm dev:shared` and the
-ADR-041 shared profile remain the way to run this; ADR-074 retires that
-separate profile once Lane 06 lands.
+`pnpm dev:shared` and the ADR-041 shared profile remain as a development
+convenience; ADR-074 retires that separate profile once Lane 06 lands.
 
 On the first Mac, sign in and create or select a cloud development deployment:
 
