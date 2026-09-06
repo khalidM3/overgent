@@ -58,7 +58,8 @@ describe("local-first entry", () => {
  });
  it("shows integration trust problems in settings without claiming readiness", async () => {
   window.history.replaceState(null, "", "/?settings=1"); const api = mockAPI({ ...enrolled, adapters: [{ ...adapter, configured: true, hooksNeedReview: true, detail: "Review hooks in Codex before sessions can be observed." }] }); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
-  const settings = await screen.findByRole("main", { name: "App settings" }); expect(within(settings).getByText(/Review hooks in Codex/)).toBeTruthy(); expect(within(settings).queryByText("Observed session activity")).toBeNull();
+  const settings = await screen.findByRole("main", { name: "App settings" }); await userEvent.setup().click(within(settings).getByRole("button", { name: "Agents" }));
+  expect(within(settings).getByText(/Review hooks in Codex/)).toBeTruthy(); expect(within(settings).queryByText("Observing session activity")).toBeNull();
  });
  it("returns to the Project that opened Add without trusting a URL destination", async () => {
   window.history.replaceState(null, "", "/?add=project&from=prj_test"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);

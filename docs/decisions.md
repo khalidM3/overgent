@@ -1608,3 +1608,61 @@ Intelligence tab in App settings; nothing on the enrollment path, because a
 Project configures itself perfectly well with no defaults set and asking for an
 API key during onboarding would gate first run on a decision that can be taken
 later. Accepted 2026-09-05.
+
+## ADR-078: The Project is the only top level; Workroom and History are views of one
+
+Revises the sidebar structure ADR-064 left in place, and declines a
+cross-Project workroom on the evidence below.
+
+The sidebar listed `Workroom`, then `History`, then every Project, then App
+settings. Neither of the first two is a destination beside that list: the
+workroom **is** the selected Project's view, and History is that same Project's
+record. Promoting them asserted a sibling relationship to the Project list that
+does not exist, and put the open Project on screen three ways at once — as the
+Workroom item, as the History item, and as the current row below them.
+
+**The Project list is now the top level, and a Project has views.** Workroom and
+History are chosen from a tab row directly under the Project's own name, so the
+reading order states the real hierarchy: which Project, then which view of it.
+The sidebar holds brand, search, the Project list with its add control, and App
+settings. The "Needs you" count the Workroom item carried moves to the tab and
+was never lost besides — it already read beside the block's own heading, and per
+Project on the sidebar rows, which is the duplication design-system.md Rule 7
+forbids. The workroom sidebar and the entry shell's sidebar
+(`desktop-onboarding.tsx`) now present the same list in the same place; the two
+shells stay separate, because the hosted workroom cannot reach the local service
+and that is what the entry shell exists for.
+
+Two consequences fall out. Back from a screen names the Project rather than
+naming "History" whenever that view happened to be open — a view is not a place
+you came from. And the toolbar button that opens People is named **People**, in
+every Project: it read "Sharing" on a local Project and "Invite" on a shared one
+while announcing "Invite people to this Project" either way, so the visible word
+and the accessible name disagreed. "Sharing" also named the wrong control. Pause
+is the sharing control, and it keeps its own word; People is who is in the
+Project — members, invites, devices, revocation — and is named for the screen it
+opens.
+
+**The alternative considered and declined** was making Workroom mean something
+Projects cannot: every agent session across every Project, with the Project as a
+column. `loadSession` already aggregates across backends, and
+`LiveProjectSource.timers` is already keyed per Project, so N concurrent polls
+is a small change. The cost is not the timers:
+
+- `onStatus` is a single global setter driving `LiveApp`'s one state. With N
+  backends polling, one unreachable team server flips the whole app to `offline`
+  while the Project on screen is healthy. Cross-Project liveness needs
+  per-Project status first.
+- `scopeKey(projectId, repoFingerprint)` in `convex/src/domain.ts` scopes
+  findings, contract fingerprints and semantic objects. A cross-Project view
+  could list sessions side by side and could not show a single collision between
+  them, and must not imply otherwise. That is the whole content of the workroom,
+  so the aggregate view would be a launcher wearing the workroom's name — less
+  than what is there now, in the place the most valuable screen used to be.
+
+Declined for those reasons rather than for cost, and revisitable: nothing here
+depends on one Project being one repository, so multi-repo Projects would add
+rows to a list that already exists rather than requiring this to be torn up. If
+it is revisited, per-Project poll status is the prerequisite and the absence of
+cross-Project coordination is the thing the interface has to say out loud.
+Accepted 2026-09-05.

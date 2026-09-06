@@ -33,9 +33,9 @@ describe("defaults for new Projects", () => {
     const user = userEvent.setup();
     render(<AIDefaultsSettings api={bridge} />);
 
-    await user.selectOptions(await screen.findByLabelText("Judgment provider"), "anthropic");
-    await user.type(screen.getByLabelText("Judgment model"), "claude-opus-5");
-    await user.type(screen.getByLabelText("Judgment API key"), "sk-test-key");
+    await user.selectOptions(await screen.findByLabelText("Model provider"), "anthropic");
+    await user.selectOptions(screen.getByLabelText("Model"), "claude-opus-5");
+    await user.type(screen.getByLabelText("API key"), "sk-test-key");
     await user.click(screen.getByRole("button", { name: "Save defaults" }));
 
     expect(bridge.putAIDefaults).toHaveBeenCalledWith(expect.objectContaining({
@@ -43,7 +43,7 @@ describe("defaults for new Projects", () => {
     }));
     // Re-read from what came back: a stored key is a flag, never a value, so
     // the field goes empty and says the key is kept.
-    const key = await screen.findByLabelText("Judgment API key") as HTMLInputElement;
+    const key = await screen.findByLabelText("API key") as HTMLInputElement;
     expect(key.value).toBe("");
     expect(key.placeholder).toMatch(/Key saved/);
   });
@@ -51,9 +51,9 @@ describe("defaults for new Projects", () => {
   it("will not save a provider with no model, which would configure nothing", async () => {
     const user = userEvent.setup();
     render(<AIDefaultsSettings api={api()} />);
-    await user.selectOptions(await screen.findByLabelText("Judgment provider"), "anthropic");
+    await user.selectOptions(await screen.findByLabelText("Model provider"), "anthropic");
     expect((screen.getByRole("button", { name: "Save defaults" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.type(screen.getByLabelText("Judgment model"), "claude-opus-5");
+    await user.selectOptions(screen.getByLabelText("Model"), "claude-opus-5");
     expect((screen.getByRole("button", { name: "Save defaults" }) as HTMLButtonElement).disabled).toBe(false);
   });
 

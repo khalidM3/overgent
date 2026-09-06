@@ -22,7 +22,6 @@ import {
   FileText,
   GitBranch,
   Info,
-  LayoutGrid,
   Loader2,
   Moon,
   MessageSquare,
@@ -46,10 +45,12 @@ import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
 import { DesktopOnboarding, MacSettings, rememberProject } from "./desktop-onboarding";
+import { AppearanceChoices } from "./mac-settings";
+import { useTheme } from "./theme";
 import { DesktopAISettings } from "./desktop-ai-settings";
 import { Screen, ScreenSection } from "./screen";
 import { NewProjectScreen } from "./new-project";
-import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
+import { IdentitySettings, PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
 import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, Resolution, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 
@@ -73,6 +74,14 @@ interface AppProps {
 }
 
 type Selection = { kind: "session"; id: string } | { kind: "finding"; id: string };
+/**
+ * Which view of the selected Project is on screen.
+ *
+ * Both are views of one Project, never destinations beside it: the workroom is
+ * what is happening in this Project and History is what already happened in it
+ * (ADR-078). They are chosen from a tab row under the Project's name, which is
+ * why nothing above that name switches between them.
+ */
 type View = "workroom" | "history";
 /** Settings, People and Add a Project are screens, not dialogs. */
 type ScreenName = "app-settings" | "settings" | "people" | "new-project";
@@ -300,7 +309,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const localProject = macState?.projects?.find((project) => project.projectId === projectId);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [dark, setDark] = useState(() => { try { return localStorage.getItem("overgent.theme") === "dark"; } catch { return false; } });
+  // Appearance is light, dark, or whatever macOS is set to; `useTheme` owns
+  // the resolution and the stamping, so nothing here has to repeat the media
+  // query to know which one is showing.
+  const { choice: theme, setChoice: setTheme, dark } = useTheme();
   const [view, setView] = useState<View>("workroom");
   const [identity, setIdentity] = useState<{ name: string; source: MemberNameSource }>({ name: session.memberName, source: session.memberNameSource });
   useEffect(() => {
@@ -353,11 +365,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const anyLive = snapshot.workstreams.some((stream) => stream.presence === "online" || stream.agent?.status === "active");
   const tick = useSecondTick(anyLive);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    try { localStorage.setItem("overgent.theme", dark ? "dark" : "light"); } catch { /* Optional local preference. */ }
-    return () => { delete document.documentElement.dataset.theme; };
-  }, [dark]);
+  useEffect(() => () => { delete document.documentElement.dataset.theme; }, []);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -384,7 +392,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const pushScreen = (name: ScreenName) => setScreens((stack) => [...stack, name]);
   const goBack = () => setScreens((stack) => stack.slice(0, -1));
   const previous = screens[screens.length - 2];
-  const backLabel = previous ? screenTitle[previous] : view === "history" ? "History" : snapshot.project.name;
+  // Back from a screen returns to the Project, and names it. It used to name
+  // "History" when that view was open, which announced a view as if it were the
+  // place you had come from; the Project is the place either way (ADR-078).
+  const backLabel = previous ? screenTitle[previous] : snapshot.project.name;
 
   const selectProject = (nextId: string) => { rememberProject(nextId); if (isDesktopWebview) window.history.replaceState(null, "", `/?live=1&project=${encodeURIComponent(nextId)}`); setProjectId(nextId); onProjectChange?.(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
   // Deleting or leaving a Project must actually leave it. Queuing the request
@@ -416,7 +427,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const shellClass = ["workroom-shell", sidebarCollapsed ? "sidebar-collapsed" : "", screen ? "screen-open" : ""].filter(Boolean).join(" ");
 
   return <div className={shellClass}>
-    <aside className="side">
+    {/* Navigation, and named: this panel is the Project list now that nothing
+        sits above it, so it says so rather than being an unlabelled region a
+        screen reader announces as "complementary". */}
+    <nav className="side" aria-label="Projects">
       <div className="side-top">
         <Brand compact={sidebarCollapsed} />
         <button className="icon-button side-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? "Expand Projects sidebar" : "Collapse Projects sidebar"}>{sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button>
@@ -424,15 +438,17 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
 
       <button className="command-trigger" onClick={() => setCommandOpen(true)} aria-label="Search Projects and commands"><Search size={15} />{!sidebarCollapsed && <><span>Search</span><kbd>⌘K</kbd></>}</button>
 
+      {/* The sidebar lists Projects and nothing above them.
+          Workroom and History used to sit here as root items, which put the
+          Project you were in on screen three ways at once: as the Workroom
+          item, as the History item, and as the highlighted row in the list
+          below. Neither was a destination - the workroom *is* the selected
+          Project's view and History is that Project's record - so promoting
+          them beside the list asserted a sibling relationship that does not
+          exist. They are now views of the Project, chosen under its name
+          (ADR-078). The "Needs you" count they carried is not lost: it reads
+          beside the block's own heading and, per Project, on the rows here. */}
       <div className="side-scroll">
-        <button className="nav-item" aria-current={!screen && view === "workroom" ? "page" : undefined} onClick={() => showView("workroom")}>
-          <LayoutGrid size={16} />{!sidebarCollapsed && <span>Workroom</span>}
-          {!sidebarCollapsed && needsYou.length > 0 && <span className="nav-count">{needsYou.length}</span>}
-        </button>
-        <button className="nav-item" aria-current={!screen && view === "history" ? "page" : undefined} onClick={() => showView("history")}>
-          <Route size={16} />{!sidebarCollapsed && <span>History</span>}
-        </button>
-
         {/* Adding a Project belongs to the Projects group, so it sits on the
             group's own line as an icon rather than as a full-width row
             pretending to be a Project that is not there. */}
@@ -457,7 +473,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
         <MemberChip name={identity.name} size="large" />
         {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>App settings</small></span>}
       </button>
-    </aside>
+    </nav>
 
     {screen === null && <>
       <main className="workroom-main">
@@ -465,7 +481,16 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
           <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} controllable={localPause} />
-          <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />{localProject?.kind === "local" ? "Sharing" : "Invite"}</button>
+          {/* Two controls, two jobs, and each named for its own. This button
+              used to read "Sharing" on a local Project and "Invite" on a shared
+              one while its accessible name said "Invite" either way, so on a
+              local Project the word on screen and the word a screen reader
+              announced disagreed. Worse, "Sharing" named the wrong control:
+              Pause is what starts and stops sharing, and this opens People -
+              members, invites, devices, and revocation. It is now named for
+              the screen it opens, in every Project, and the conditional that
+              made a screen change its name by Project kind is gone. */}
+          <button className="pill" onClick={() => showScreen("people")} aria-label="Open People for this Project"><Users size={14} />People</button>
           {/* Theme is a preference set once and it lives in Settings. The
               toolbar is for things you act on while reading this Project, and
               settings closes the row rather than interrupting it. */}
@@ -483,6 +508,17 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
               </div>
             </header>
 
+            {/* Which view of the Project just named above, so the reading order
+                is Project then view rather than two things claiming to be
+                places. It reuses the App settings tab convention rather than
+                introducing a second way to switch between sections of one
+                screen; `aria-current="page"` is what that convention marks the
+                open section with. */}
+            <nav className="view-tabs" aria-label="Project views">
+              <button className="text-button" aria-current={view === "workroom" ? "page" : undefined} onClick={() => showView("workroom")}>Workroom{needsYou.length > 0 && <span className="tab-count hot">{needsYou.length}</span>}</button>
+              <button className="text-button" aria-current={view === "history" ? "page" : undefined} onClick={() => showView("history")}>History</button>
+            </nav>
+
             <p className="sr-only" aria-live="polite">{snapshot.workspacePaused ? "Workspace sharing is paused." : "Workspace sharing is active."}</p>
 
             <NoticeQueue notices={[
@@ -494,7 +530,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
               // says whose sharing stopped. Nobody can pause a teammate.
               ...(snapshot.workspacePaused ? [<div key="paused" className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Overgent app or menu bar.</span></div>}</div>] : []),
               ...(offline ? [<div key="offline" className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>] : []),
-              ...(identity.source === "device" && localProject?.kind !== "local" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
+              ...(identity.source === "device" && localProject?.kind !== "local" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Project settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("app-settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
             ]} />
 
             {view === "workroom"
@@ -526,14 +562,21 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
     </>}
 
     {screen === "settings" && <SettingsScreen
-      snapshot={snapshot} dark={dark} identity={identity} projectId={projectId} source={source} offline={offline}
-      backLabel={backLabel} onBack={goBack} onIdentity={setIdentity} onTheme={() => setDark((value) => !value)}
-      onPeople={() => pushScreen("people")} onRemoved={() => removeProject(projectId)}
-      intelligence={macState && nativeApi.aiSettings && nativeApi.putAISettings ? <DesktopAISettings key={projectId} api={{ aiSettings: nativeApi.aiSettings, putAISettings: nativeApi.putAISettings }} projectId={projectId} local={localProject?.kind === "local"} /> : undefined}
+      snapshot={snapshot} mac={localProject} projectId={projectId} source={source} offline={offline}
+      backLabel={backLabel} onBack={goBack} onRemoved={() => removeProject(projectId)}
+      intelligence={macState && nativeApi.aiSettings && nativeApi.putAISettings ? <DesktopAISettings key={projectId} api={{ aiSettings: nativeApi.aiSettings, putAISettings: nativeApi.putAISettings, ...(nativeApi.aiDefaults ? { aiDefaults: nativeApi.aiDefaults } : {}) }} projectId={projectId} local={localProject?.kind === "local"} /> : undefined}
       onAppSettings={() => pushScreen("app-settings")}
 
     />}
-    {screen === "app-settings" && (macState ? <MacSettings api={nativeApi} state={macState} projectId={projectId} onBack={goBack} refresh={refreshMac} dark={dark} onTheme={() => setDark((value) => !value)} /> : <Screen title="App settings" backLabel={backLabel} onBack={goBack}><ScreenSection title="Appearance"><button className="pill" onClick={() => setDark((value) => !value)}>{dark ? "Use light appearance" : "Use dark appearance"}</button></ScreenSection><p className="settings-help">Agent connections are managed in the Overgent desktop app.</p></Screen>)}
+    {screen === "app-settings" && (macState ? <MacSettings api={nativeApi} state={macState} projectId={projectId} onBack={goBack} refresh={refreshMac} theme={theme} onTheme={setTheme}
+      identity={<IdentitySettings identity={identity} projects={projects} source={source} offline={offline} onIdentity={setIdentity} />} /> : <Screen title="App settings" backLabel={backLabel} onBack={goBack} lede="Preferences that are the same in every Project.">
+      {/* No desktop bridge here, so agents and this Mac's intelligence
+          defaults are out of reach - but a name and an appearance are not,
+          and they are the two this window can honestly offer. */}
+      <IdentitySettings identity={identity} projects={projects} source={source} offline={offline} onIdentity={setIdentity} />
+      <ScreenSection title="Appearance" help="How Overgent looks in this browser."><AppearanceChoices theme={theme} onTheme={setTheme} /></ScreenSection>
+      <p className="settings-help">Coding agents and the intelligence new Projects start from are managed in the Overgent desktop app.</p>
+    </Screen>)}
     {screen === "people" && <PeopleScreen local={localProject?.kind === "local"} serverOrigin={localProject?.apiBaseUrl} projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack} />}
     {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} returnProjectId={projectId} />}
 
@@ -1230,11 +1273,14 @@ function HistoryView({ snapshot, tick, now, selection, onSelectFinding }: {
   for (const entry of cases) counts[caseFilterBand(entry)] += 1;
 
   let lastDay: string | null = null;
+  // No heading of its own: the view tab above the column already names this
+  // view, and repeating the word under it is the duplication Rule 7 forbids.
+  // The total the heading carried moves onto the All filter, which is the one
+  // place on this screen that was already counting cases.
   return <>
-    <div className="block-head lead"><h2>History</h2><span className="count">{cases.length}</span></div>
     <p className="block-note">Everything this Project has caught and what became of it, newest first.</p>
     {cases.length > 0 && <div className="case-filter" role="group" aria-label="Filter history">
-      {(["all", "open", "settled", "dismissed"] as const).map((value) => <button key={value} className="text-button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "open" ? "Open" : value === "settled" ? "Settled" : "Dismissed"}{value !== "all" && counts[value] > 0 ? ` ${counts[value]}` : ""}</button>)}
+      {(["all", "open", "settled", "dismissed"] as const).map((value) => <button key={value} className="text-button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "open" ? "Open" : value === "settled" ? "Settled" : "Dismissed"}{counts[value] > 0 ? ` ${counts[value]}` : ""}</button>)}
     </div>}
     {cases.length === 0 && <p className="block-empty">Nothing has been raised in this Project yet. When a finding is caught, decided, or dismissed, its whole story lands here.</p>}
     {cases.length > 0 && visible.length === 0 && <p className="block-empty">Nothing here under this filter.</p>}
