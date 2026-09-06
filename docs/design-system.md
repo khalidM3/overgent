@@ -324,6 +324,17 @@ its own height and its own header. This is the shape people recognise.
 The inspector is **wider than the sidebar**, because the sidebar is navigation
 and the inspector is where the reading happens.
 
+**The inspector is a third column only while something is selected.** Nothing is
+selected on arrival: the workroom used to open on a guessed session, which put a
+panel nobody asked for beside the list and, when the guess had nothing to work
+with, an empty state a quarter of the window wide. With no selection the shell
+is `.no-inspector` and the grid is two columns; a click on a session or a
+finding brings the third one in, and Escape takes it away again (stepping back
+through a drill-in trail first, exactly as the inspector's own back control
+does). Because the column comes and goes, the main column is **left-anchored,
+not centred** — a centred column slides sideways on every selection, moving the
+row out from under the pointer that just clicked it.
+
 The sidebar is a `nav[aria-label="Projects"]` holding brand, search, the Project
 list with its add control, and App settings — **and nothing above the list**.
 Both shells share that shape: the entry shell in `desktop-onboarding.tsx` and
@@ -340,14 +351,22 @@ column, an `h1` at 25px.
 bearing: without it the grid row sizes to its tallest content and the panels
 overflow the viewport instead of scrolling internally.
 
-The project header carries identity and freshness only: name, repository,
-`rev N`, and `synced <elapsed> ago`. Nothing else earns a place there.
+The project header carries identity and freshness only: the Project name and
+`synced <elapsed> ago`. Nothing else earns a place there — it used to also carry
+the repository slug, which on most Projects restated the name and is a settings
+fact when it does not (Settings → This Project, and under every row in ⌘K), and
+`rev N`, an internal counter no member acts on. The revision still reads in the
+offline notice, where a stale one is the whole point.
 
 Directly beneath it, a **view tab row** (`.view-tabs`, `nav[aria-label="Project
 views"]`) chooses between the Project's two views — Workroom and History — so
 the reading order is *which Project*, then *which view of it*. It reuses the
 `.settings-tabs` shape rather than introducing a second way to switch between
 sections of one screen, and marks the open view with `aria-current="page"`.
+Both rows mark the open tab with a **2px rule sitting on the group's hairline**,
+drawn as an `::after` on the button and pulled one pixel down so it covers the
+line it replaces — never `text-decoration` with a guessed `text-underline-offset`,
+which floats a thin second line above the border instead of landing on it.
 Workroom carries the "Needs you" count when there is one; History carries no
 count, because a running total of everything ever caught is not a thing to act
 on. Both used to be root items in the sidebar, above the Project list, which
@@ -781,8 +800,9 @@ not "Create sync card".
    Dismissed); free-text search and kind/person filters wait until a real
    Project's log is long enough to need them.
 4. **Narrow viewports.** The shell has `min-width: 1240px` and scrolls
-   horizontally below that. A collapsed-inspector breakpoint exists in CSS
-   (`.no-inspector`) but is not yet wired to a control.
+   horizontally below that. `.no-inspector` is now wired — it is what the
+   workroom uses when nothing is selected — but no breakpoint drops the
+   inspector on a narrow window yet.
 5. **Cross-Project switching in one browser session.** Switching between
    Projects already enrolled on this Mac now works in place: the session lists
    every Project the device belongs to, the sidebar switches between them, and
@@ -816,12 +836,14 @@ not "Create sync card".
    exposing a narrow authenticated loopback endpoint to the hosted origin, or
    keeping the desktop window on its own origin and embedding the Project view,
    and neither has been designed yet.
-6. **Desktop title bar.** `apps/desktop/main_darwin.go` uses
-   `MacTitleBarDefault`, which guarantees the macOS traffic lights cannot
-   overlap the sidebar brand mark. The frameless alternative
-   (`MacTitleBarHiddenInset` plus reserved space and a drag region at the top of
-   the sidebar) would suit the floor-to-ceiling panels better, but it needs a
-   desktop build to verify and has not been attempted.
+6. ~~Desktop title bar.~~ Done: `apps/desktop/main_darwin.go` uses
+   `MacTitleBarHiddenInset`, so the window has no native title bar and the page
+   owns the whole frame. The page holds up its end of that in the "desktop
+   shell" block of `style.css`, keyed on `html[data-desktop-shell]`: the
+   sidebar's top row reserves `--titlebar-inset` so the brand mark starts below
+   the traffic lights, and `.side-top`, `.main-bar` and `.screen-bar` are marked
+   `--wails-draggable: drag` (controls inside them opt back out) so the window
+   still moves by its top edge. Verified against a desktop build.
 
 ## 9. Checklist before adding UI
 

@@ -14,11 +14,32 @@ Overgent currently supports Apple Silicon Macs running macOS 12 or later. For ot
 
 A new Project runs against the bundled backend on loopback. Nothing leaves your Mac, and its coordination data stays under your Overgent profile root.
 
+```bash
+overgent init --local
+overgent status
+```
+
 ## Team mode
 
 Create or join a team Project on Overgent Cloud when you want to work with teammates. Only derived, structured coordination facts sync; source files, raw diffs, Git objects, transcripts, prompts, credentials, and command output do not. See the full [prohibited-data list](docs/security-privacy.md).
 
 You can also run the same backend yourself; see [self-hosting](docs/self-hosting.md).
+
+## Terminal experience
+
+Run `overgent` inside a registered repository for a contextual status, or use
+`overgent projects` outside one. `overgent init` provides guided setup on a
+terminal and requires explicit flags in scripts. Human output is used on a
+terminal; read commands expose versioned JSON with `--json`.
+
+```bash
+overgent help
+overgent privacy
+overgent completion zsh > ~/.zfunc/_overgent
+```
+
+The CLI remains a companion to the Project workroom, not a coding-agent shell.
+See the [CLI experience contract](docs/cli-experience.md).
 
 ## Bring your own model
 

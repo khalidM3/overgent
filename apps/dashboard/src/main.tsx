@@ -48,7 +48,7 @@ import { DesktopOnboarding, MacSettings, rememberProject } from "./desktop-onboa
 import { AppearanceChoices } from "./mac-settings";
 import { useTheme } from "./theme";
 import { DesktopAISettings } from "./desktop-ai-settings";
-import { Screen, ScreenSection } from "./screen";
+import { Screen, ScreenSection, useEscape } from "./screen";
 import { NewProjectScreen } from "./new-project";
 import { IdentitySettings, PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
@@ -350,10 +350,13 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   // row shows, so the order always agrees with the clock beside it.
   const mySessions = useMemo(() => orderSessions(mine, now, (session) => elapsedFromLabel(session.updatedLabel) ?? Number.POSITIVE_INFINITY), [mine, now]);
 
-  const defaultSession = mine.find((stream) => stream.agent?.status === "active") ?? mine[0] ?? snapshot.workstreams[0];
-  // History gets no default: falling back to "your most active session" is
-  // right beside a live list and pure non-sequitur beside a record.
-  const effectiveSelection: Selection | null = selection ?? (view === "workroom" && defaultSession ? { kind: "session", id: defaultSession.id } : null);
+  // Nothing is selected until the member selects something. The workroom used
+  // to fall back to "your most active session", which opened the inspector on
+  // arrival with a panel nobody asked for - and on a Project where that guess
+  // was wrong (or where there was no session to guess) the third column was
+  // either the wrong session or an empty state taking a quarter of the window.
+  // The panel is now a consequence of an act: no selection, no column.
+  const effectiveSelection: Selection | null = selection;
   const selectedSession = effectiveSelection?.kind === "session" ? snapshot.workstreams.find((stream) => stream.id === effectiveSelection.id) ?? null : null;
   const selectedCollision = effectiveSelection?.kind === "finding" ? snapshot.findings.find((finding) => finding.id === effectiveSelection.id) ?? null : null;
   const previousCollision = trail.length > 1 && trail[trail.length - 2]?.kind === "finding"
@@ -421,10 +424,19 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   // Whatever was selected belonged to the view being left; carrying it across
   // rendered a stale panel beside an unrelated list.
   const showView = (next: View) => { setView(next); setScreens([]); setSelection(null); };
+  // The inspector is opened by an act and has to be closable by one. Escape
+  // steps back through the trail exactly as the inspector's own back does, and
+  // the last step closes the column - the same key that leaves a screen. A
+  // screen open above the workroom owns Escape itself, so this stands down.
+  useEscape(() => { if (screens.length === 0) popSelection(); });
 
   if (projects.length === 0) return <EmptyView />;
 
-  const shellClass = ["workroom-shell", sidebarCollapsed ? "sidebar-collapsed" : "", screen ? "screen-open" : ""].filter(Boolean).join(" ");
+  // The inspector is a column only when it has something to show. `screen-open`
+  // already collapses it for a full-screen screen; `no-inspector` is the same
+  // grid for the same reason - there is no third column to lay out.
+  const inspecting = Boolean(selectedSession ?? selectedCollision);
+  const shellClass = ["workroom-shell", sidebarCollapsed ? "sidebar-collapsed" : "", screen ? "screen-open" : "", !screen && !inspecting ? "no-inspector" : ""].filter(Boolean).join(" ");
 
   return <div className={shellClass}>
     {/* Navigation, and named: this panel is the Project list now that nothing
@@ -501,9 +513,14 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
           <div className="main-column">
             <header className="project-head">
               <h1>{snapshot.project.name}</h1>
+              {/* One fact, and it is the one that decays: how long ago this
+                  view was true. The repository slug restated the Project name
+                  on most Projects and is a settings fact when it does not
+                  (Settings → This Project, and under every row in ⌘K), and
+                  `rev N` was an internal counter no member acts on - it still
+                  reads in the offline notice, where a stale revision is the
+                  point. */}
               <div className="project-sub">
-                <span>{snapshot.project.repositoryLabel}</span><span>·</span>
-                <span>rev {snapshot.contextRevision}</span><span>·</span>
                 <span>{offline ? "offline, last synced " : "synced "}<Since label={snapshot.synchronizedAt} tick={tick} /> ago</span>
               </div>
             </header>
@@ -544,7 +561,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
         </div>
       </main>
 
-      <aside className="inspector" aria-label="Details inspector">
+      {inspecting && <aside className="inspector" aria-label="Details inspector">
       {selectedSession
         ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} nativeApi={nativeApi} finding={selectedSessionFinding} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
           : selectedCollision
@@ -557,8 +574,8 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
                 onOpenSession={drillIntoSession}
                 back={inspectorBack}
               />
-            : <InspectorEmpty />}
-      </aside>
+            : null}
+      </aside>}
     </>}
 
     {screen === "settings" && <SettingsScreen
@@ -1353,14 +1370,22 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
 
   useEffect(() => {
     if (!detailsOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setDetailsOpen(false); };
+    // Escape closes the innermost thing and only that. This popover is inside
+    // the inspector, which now also closes on Escape, so it claims the key
+    // first: capture runs before the workroom's window listener, and marking
+    // the event handled is what makes that listener stand down.
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDetailsOpen(false);
+    };
     const closeOutside = (event: PointerEvent) => {
       if (detailsAnchorRef.current && event.target instanceof Node && !detailsAnchorRef.current.contains(event.target)) setDetailsOpen(false);
     };
-    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", closeOnEscape, true);
     document.addEventListener("pointerdown", closeOutside);
     return () => {
-      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("keydown", closeOnEscape, true);
       document.removeEventListener("pointerdown", closeOutside);
     };
   }, [detailsOpen]);
@@ -1970,10 +1995,6 @@ function plainWords(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function InspectorEmpty() {
-  return <div className="inspector-empty"><Bot size={20} /><h2>Nothing selected</h2><p>Choose a session or a finding to inspect it here.</p></div>;
-}
-
 /**
  * Honest fidelity (overgent-v1-spec section 3) requires saying when findings are
  * structural only. Healthy semantic processing is the expected state, so it says
@@ -2061,6 +2082,11 @@ if (root) {
     development: import.meta.env.DEV,
   });
   if (banner !== "none") document.documentElement.dataset.desktopPreview = "true";
+  // The window has no native title bar, so the page has to reserve the corner
+  // macOS draws the traffic lights into and provide its own drag region (see
+  // "desktop shell" in style.css). This is true on any origin the Overgent
+  // window navigates to, which is what isDesktopShell answers.
+  if (isDesktopShell) document.documentElement.dataset.desktopShell = "true";
   createRoot(root).render(<StrictMode>
     {banner === "preview-live" && <DesktopPreviewBanner live />}
     {banner === "preview-fixtures" && <DesktopPreviewBanner live={false} />}

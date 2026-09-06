@@ -119,6 +119,32 @@ func Open(ctx context.Context, apiBaseURL, ticket string) error {
 	return handoff.Wait(ctx)
 }
 
+// OpenApp asks macOS to route a validated Project deep link to the installed
+// Overgent desktop app. The app mints its own one-time dashboard ticket and
+// keeps the live Project inside its webview.
+func OpenApp(ctx context.Context, projectID string) error {
+	if !validProjectID(projectID) {
+		return errors.New("Project id is invalid")
+	}
+	deepLink := "overgent://project/" + url.PathEscape(projectID)
+	if err := exec.CommandContext(ctx, "/usr/bin/open", "-b", "com.overgent.app", deepLink).Run(); err != nil {
+		return fmt.Errorf("open Overgent app: %w", err)
+	}
+	return nil
+}
+
+func validProjectID(value string) bool {
+	if !strings.HasPrefix(value, "prj_") || len(value) < 5 || len(value) > 84 {
+		return false
+	}
+	for _, char := range value[4:] {
+		if char < 'A' || char > 'Z' && char < 'a' || char > 'z' && char < '0' || char > '9' && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 func isLoopback(host string) bool {
 	return host == "localhost" || net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
 }

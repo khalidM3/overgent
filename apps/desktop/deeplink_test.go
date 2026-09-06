@@ -58,6 +58,23 @@ func TestDeepLinkTargetNeverCarriesUrlContentIntoTheDestination(t *testing.T) {
 	}
 }
 
+func TestProjectDeepLinkAcceptsOnlyAnOpaqueProjectID(t *testing.T) {
+	projectID, ok := desktopDeepLinkProject(desktopURLScheme() + "://project/prj_atlas-01")
+	if !ok || projectID != "prj_atlas-01" {
+		t.Fatalf("project deep link = (%q, %v)", projectID, ok)
+	}
+	for _, raw := range []string{
+		desktopURLScheme() + "://project/../../admin",
+		desktopURLScheme() + "://project/prj_ok?next=https://evil.example",
+		desktopURLScheme() + "://project/not-a-project",
+		"https://overgent.com/project/prj_atlas",
+	} {
+		if projectID, ok := desktopDeepLinkProject(raw); ok {
+			t.Fatalf("unsafe deep link %q accepted as %q", raw, projectID)
+		}
+	}
+}
+
 // The dashboard matches " OvergentDesktop/" in navigator.userAgent to decide
 // whether a hosted page is inside the desktop window. Both halves of that
 // contract are easy to change independently and impossible to notice breaking,

@@ -359,3 +359,21 @@ Every handoff includes behavior/acceptance criterion, files/contracts changed, v
 ## Definition of done
 
 Behavior matches acceptance criteria; success/failure tests exist; security/privacy addressed; docs/contracts/generated files current; formatting/lint/typecheck/tests pass; no debug bypass/placeholders on production path; clean process reproduces result.
+
+## L10 — Contextual CLI experience
+
+Deliver ADR-079 and `docs/cli-experience.md`: a Project-aware root/status,
+human-readable default output with versioned JSON/JSONL, complete hierarchical
+help and completions, guided local/team enrollment, actionable degradation and
+recovery, privacy visibility, finding/session/history inspection where the
+existing authorized contracts expose it, line-oriented watch mode, TTY/width/
+color/ASCII behavior, and golden tests. The CLI remains a client of the one
+service and never duplicates the dashboard's cross-Project or agent-loop role.
+
+Exit: a clean supported terminal reaches a useful local Project in under the
+existing 60-second target; `overgent` answers whether the selected Project needs
+the member; every public read has stable machine output; non-TTY commands never
+prompt or emit ANSI; offline/AI/adapter gaps are labeled honestly; pause and
+diagnostics preserve the privacy boundary; 40/80/120-column snapshots and the
+standard repository checks pass. A full alternate-screen TUI remains gated on
+measured demand.

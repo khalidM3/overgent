@@ -36,7 +36,11 @@ describe("Project Workroom behavior", () => {
     expect(screen.queryByRole("heading", { name: "Nearby" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open Codex session for Khalid" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Claude Code session for Mina" })).toBeTruthy();
+    // Nothing is inspected until something is opened: arriving at a Project
+    // shows the Project, not a guess at which session you meant.
+    expect(screen.queryByLabelText("Details inspector")).toBeNull();
 
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     expect(within(inspector).getByRole("heading", { name: "Rotate the browser session boundary" })).toBeTruthy();
     expect(within(inspector).getByText("Working now")).toBeTruthy();
@@ -92,6 +96,7 @@ describe("Project Workroom behavior", () => {
     expect(codexRow.textContent).not.toContain("evidence");
     expect(codexRow.textContent).not.toMatch(/\d+%/);
 
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     // "Goal" labelled the heading directly above it, and `scope r8` reads in
     // the snapshot header below. Neither is repeated here.
@@ -119,12 +124,14 @@ describe("Project Workroom behavior", () => {
   });
 
   it("shows the goals a session moved on from, so completed work is not read against the wrong goal", async () => {
+    const user = userEvent.setup();
     renderReady();
 
     // The row is scanned, so it carries the count rather than the list.
     const codexRow = screen.getByRole("button", { name: "Open Codex session for Khalid" });
     expect(codexRow.textContent).toContain("2 earlier goals");
 
+    await user.click(codexRow);
     const inspector = screen.getByLabelText("Details inspector");
     const scope = within(inspector).getByRole("group", { name: "Scope snapshot revision 8" });
     expect(within(scope).getByText("Earlier in this session")).toBeTruthy();
@@ -148,6 +155,7 @@ describe("Project Workroom behavior", () => {
     const api = { openOwningSession } as unknown as NativeOnboarding;
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} />);
 
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     await user.click(await within(inspector).findByRole("button", { name: "Continue in Codex" }));
     expect(within(inspector).getByText(/still reported active/)).toBeTruthy();
@@ -170,8 +178,7 @@ describe("Project Workroom behavior", () => {
     session.agent.activity = [{ id: "codex-end", at: "2 min", occurredAt: session.agent.endedAt, kind: "SessionEnd", status: "done", action: "Session ended", paths: [] }, ...(session.agent.activity ?? [])];
     const user = userEvent.setup();
     render(<App initialState="ready" initialSession={fixtureSession} source={new FixtureProjectSource([snapshot])} />);
-    // A finished session is never the default selection while another of the
-    // member's own sessions is still running, so open the one under test.
+    // The inspector opens on what you open, so open the session under test.
     await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
 
     const inspector = screen.getByLabelText("Details inspector");
@@ -211,7 +218,9 @@ describe("Project Workroom behavior", () => {
     await user.click(screen.getByText(/recorded events/));
     expect(screen.getByText("Published one new path-only manifest revision.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Workroom/ }));
-    expect(screen.getByText("rev 185")).toBeTruthy();
+    // The revision the update produced is the History entry above; the Workroom
+    // header reports how fresh the view is, not which numbered revision it is.
+    expect(screen.getByText(/^synced /)).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /Collision detected Khalid and Mina/ }));
     const detail = screen.getByLabelText("Selected finding detail");
@@ -474,6 +483,7 @@ describe("session content", () => {
   it("always shows your own session locally, before and without sharing it", async () => {
     const user = userEvent.setup();
     renderReady();
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     // The owner sees prompts, replies, and reasoning locally while the safe
     // projection is automatically available to Project members.
@@ -547,10 +557,11 @@ describe("read coverage disclosure", () => {
   it("tells the operator when a session is never told about contract drift", async () => {
     const user = userEvent.setup();
     renderReady();
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
     const sessionInfo = within(inspector).getByLabelText("Session details");
-    // The default selection is the Codex session, whose reads nothing observes.
+    // A Codex session: nothing observes its reads.
     expect(within(sessionInfo).getByText("Contract drift")).toBeTruthy();
     expect(within(sessionInfo).getByText("Not observed")).toBeTruthy();
     expect(within(sessionInfo).getByText(/Silence here is missing evidence, not an all-clear/)).toBeTruthy();
@@ -727,8 +738,10 @@ describe("reading a session", () => {
     expect([...hues][0]).toBeTruthy();
   });
 
-  it("keeps what the session is in the header and what it did in the thread", () => {
+  it("keeps what the session is in the header and what it did in the thread", async () => {
+    const user = userEvent.setup();
     render(<App initialState="ready" source={new FixtureProjectSource()} />);
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
     // Status is an attribute of the session and appears once, in the header.
     const live = within(inspector).getByLabelText("Current session activity");
@@ -827,6 +840,7 @@ describe("the workroom summarises, the inspector explains", () => {
     expect(row.textContent).not.toContain("codex-a1b2c3");
     expect(row.textContent).toContain("feature/session-rotation");
 
+    await user.click(row);
     const inspector = screen.getByLabelText("Details inspector");
     await user.click(within(inspector).getByRole("button", { name: "Open session details" }));
     expect(within(within(inspector).getByLabelText("Session details")).getByText("codex-a1b2c3")).toBeTruthy();
@@ -839,7 +853,8 @@ describe("focus, the inbound half of the pair", () => {
     const source = new FixtureProjectSource();
     render(<App initialState="ready" source={source} />);
 
-    // The viewer's own active session is the default selection.
+    // Mute belongs to a session, so it appears once that session is open.
+    await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const mute = await screen.findByRole("button", { name: /Mute for an hour/ });
     // Focus is asymmetric on purpose: quieting yourself must not make teammates
     // less able to avoid your work, so it never touches what is published.

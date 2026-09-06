@@ -737,6 +737,12 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		return s.handleCollaboration(ctx, q)
 	case "session_detail":
 		return s.handleSessionDetail(q)
+	case "project_activity":
+		sessions, e := s.store.RecentAgentSessions(ctx, q.WorkspaceID, time.Now().Add(-30*time.Minute))
+		if e != nil {
+			return daemon.Response{Error: e.Error()}
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"sessions": sessions}}
 	case "agent_event":
 		return s.handleAgentEvent(ctx, q)
 	case "agent_injection":
