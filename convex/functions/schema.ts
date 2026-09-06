@@ -167,6 +167,13 @@ export default defineSchema({
     revision: v.number(),
     currentManifestId: v.optional(v.id("changeManifests")),
     vendor: v.optional(v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor"))),
+    // A workstream conjured to hang a manifest on, rather than one a member or
+    // an agent session ever announced. It exists so residual git evidence has
+    // an owner (B29) and is not a session: it has no goal, no turn loop, and
+    // nothing to say about itself, so presenting it beside real sessions
+    // produced a permanent "No goal reported / implementing" row. Cleared the
+    // moment an intent or an agent event gives it a real identity.
+    origin: v.optional(v.literal("manifest")),
     sessionAlias: v.optional(v.string()),
     agentStatus: v.optional(v.union(v.literal("active"), v.literal("waiting"), v.literal("idle"), v.literal("done"), v.literal("error"))),
     activityKind: v.optional(v.string()),

@@ -86,6 +86,38 @@ describe("ScopeSnapshot derivation", () => {
     expect(JSON.stringify([verifying, waiting, complete])).not.toMatch(/\d+%/);
   });
 
+  it("reports a stopped turn as idle rather than as work still in progress", () => {
+    // `Stop` sets both statuses to idle. This used to fall through to
+    // "implementing", so a session sat there claiming to be working for the ten
+    // minutes until the retention sweep ended it, beside its own "Turn
+    // finished" line.
+    const stopped = deriveScopeSnapshot({
+      revision: 5,
+      workstreamStatus: "idle",
+      agentStatus: "idle",
+      vendor: "codex",
+      observed: { currentAction: "Turn finished" },
+    });
+    expect(stopped.state).toBe("idle");
+    expect(stopped.now.text).toBe("Turn finished");
+
+    // Idle never outranks a real claim on the member's attention.
+    const permission = deriveScopeSnapshot({ revision: 6, workstreamStatus: "idle", agentStatus: "waiting" });
+    const ended = deriveScopeSnapshot({ revision: 7, workstreamStatus: "idle", agentStatus: "done" });
+    const checking = deriveScopeSnapshot({
+      revision: 8,
+      workstreamStatus: "idle",
+      agentStatus: "idle",
+      observed: { verification: [{ ...passed, state: "running" }] },
+    });
+    expect(permission.state).toBe("waiting");
+    expect(ended.state).toBe("complete");
+    expect(checking.state).toBe("verifying");
+
+    // A session that has not stopped is unaffected.
+    expect(deriveScopeSnapshot({ revision: 9, workstreamStatus: "active", agentStatus: "active" }).state).toBe("implementing");
+  });
+
   it("carries the goals a session moved on from, oldest first, without rewording them", () => {
     const snapshot = deriveScopeSnapshot({
       revision: 6,

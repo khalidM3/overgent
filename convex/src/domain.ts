@@ -689,6 +689,33 @@ export function contractConfidenceBand(fidelity: ReadFidelity): "deterministic" 
   return fidelity === "observed" ? "deterministic" : fidelity === "vendor_inferred" ? "high" : "medium";
 }
 
+/**
+ * Whether a workstream exists only to give a change manifest an owner.
+ *
+ * Every workspace gets one of these the first time git is observed there, so
+ * the residual paths of a member working without an adapter have something to
+ * hang on (B29). It is not a session: nobody opened it, it declares no goal, it
+ * has no vendor and no turn loop, and nothing will ever end it — agent sessions
+ * expire on silence and this deliberately does not. Listing it beside real
+ * sessions therefore put a permanent "No goal reported / implementing" row at
+ * the top of every new Project, its clock counting up forever.
+ *
+ * `origin` marks it from creation. The title fallback recognizes the rows
+ * created before that field existed, which are otherwise indistinguishable and
+ * would go on haunting Projects that already exist. Both halves stop matching
+ * the moment a declared intent or an agent session gives the row an identity,
+ * so a real workstream can never be hidden by either.
+ */
+export function manifestPlaceholder(workstream: {
+  vendor?: string | undefined;
+  intendedOutcome?: string | undefined;
+  origin?: string | undefined;
+  title?: string | undefined;
+}): boolean {
+  if (workstream.vendor !== undefined || workstream.intendedOutcome !== undefined) return false;
+  return workstream.origin === "manifest" || workstream.title === "Manifest workstream";
+}
+
 // A coding session emits hook events continuously while it works, so a long
 // silence means the member closed the terminal or walked away — not that the
 // session is between turns.

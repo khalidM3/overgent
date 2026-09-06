@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   sessionHasGoneQuiet,
+  manifestPlaceholder,
   SESSION_IDLE_TIMEOUT_MS,
   contractConfidenceBand,
   readCoverageOf,
@@ -494,5 +495,27 @@ describe("quiet session expiry", () => {
 
   it("leaves an already finished session untouched", () => {
     expect(sessionHasGoneQuiet(session({ status: "done", updatedAt: 0 }), now)).toBe(false);
+  });
+});
+
+describe("manifestPlaceholder", () => {
+  const placeholder = { title: "Manifest workstream", summary: "Structural metadata only", origin: "manifest" };
+
+  it("recognizes the workstream a manifest was hung on, however old the row is", () => {
+    expect(manifestPlaceholder(placeholder)).toBe(true);
+    // Rows created before `origin` existed carry only the title the one insert
+    // site sets, and they are the ones already sitting in members' Projects.
+    expect(manifestPlaceholder({ title: "Manifest workstream" })).toBe(true);
+  });
+
+  it("never hides a workstream that has an identity of its own", () => {
+    // An agent session claimed it.
+    expect(manifestPlaceholder({ ...placeholder, vendor: "codex" })).toBe(false);
+    // A member declared an intent on it, which is what `overgent report` does
+    // for someone coordinating without an adapter.
+    expect(manifestPlaceholder({ ...placeholder, intendedOutcome: "Split the payments client" })).toBe(false);
+    // And nothing about an ordinary workstream resembles the placeholder.
+    expect(manifestPlaceholder({ title: "Rotate the browser session", intendedOutcome: "Rotate it" })).toBe(false);
+    expect(manifestPlaceholder({ title: "Rotate the browser session" })).toBe(false);
   });
 });
