@@ -27,6 +27,7 @@
         "implementing",
         "verifying",
         "waiting",
+        "idle",
         "complete"
       ]
     },
