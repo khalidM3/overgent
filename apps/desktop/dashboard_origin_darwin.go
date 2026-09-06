@@ -57,9 +57,26 @@ func startDashboardOrigin(assets fs.FS) (*dashboardOrigin, error) {
 	return handler, nil
 }
 
-// Origin is the base URL. Activation posts to Origin + "/api/v1/...", matching
-// the prefix the embedded dashboard bundle was built with.
+// apiPrefix is where this origin forwards to the backend. The embedded
+// dashboard bundle is built to call `/api/v1/...`, and the proxy is mounted to
+// match; anything that addresses the backend through this origin has to carry
+// it too.
+const apiPrefix = "/api"
+
+// Origin is the base URL the dashboard itself is served from.
 func (handler *dashboardOrigin) Origin() string { return handler.origin }
+
+// ActivationOrigin is the base an activation ticket is posted against.
+//
+// It is Origin plus the API prefix, because internal/activation appends
+// "/v1/dashboard-activations" to whatever it is given. Handing it the bare
+// origin sent the ticket to "/v1/dashboard-activations", which this mux does
+// not route to the proxy - it fell through to the SPA file server, which
+// answered 200 with index.html. The form post therefore "succeeded", set no
+// cookie, and the dashboard loaded with no session and told the member their
+// browser had none. The proxy was covered by a test that spelled the prefix
+// correctly; nothing covered the seam that produces it.
+func (handler *dashboardOrigin) ActivationOrigin() string { return handler.origin + apiPrefix }
 
 // SetBackend points the proxy at the loopback backend the service started.
 func (handler *dashboardOrigin) SetBackend(siteOrigin string) error {
@@ -85,7 +102,7 @@ func (handler *dashboardOrigin) Close() error {
 
 func (handler *dashboardOrigin) routes(assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", http.HandlerFunc(handler.proxy))
+	mux.Handle(apiPrefix+"/v1/", http.HandlerFunc(handler.proxy))
 	mux.Handle("/", spaFileServer(assets))
 	return mux
 }
@@ -129,7 +146,7 @@ func (handler *dashboardOrigin) proxy(writer http.ResponseWriter, request *http.
 		return
 	}
 	upstream := *target
-	upstream.Path = strings.TrimPrefix(request.URL.Path, "/api")
+	upstream.Path = strings.TrimPrefix(request.URL.Path, apiPrefix)
 	upstream.RawQuery = request.URL.RawQuery
 	body := http.MaxBytesReader(writer, request.Body, 2<<20)
 	forwarded, err := http.NewRequestWithContext(request.Context(), request.Method, upstream.String(), body)

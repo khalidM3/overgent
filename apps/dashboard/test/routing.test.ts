@@ -26,9 +26,19 @@ describe("decideRoute", () => {
     expect(decideRoute({ pathname: "/dashboard", search: "?live=1", ...browser }).route).toBe("live");
   });
 
-  it("renders the desktop webview preview with fixtures unless live is asked for", () => {
-    expect(decideRoute({ pathname: "/", search: "", ...webview })).toEqual({ route: "fixtures", banner: "preview-fixtures" });
-    expect(decideRoute({ pathname: "/", search: "?live=1", ...webview })).toEqual({ route: "live", banner: "preview-live" });
+  it("restores the desktop entry unless fixtures or live are explicitly requested", () => {
+    expect(decideRoute({ pathname: "/", search: "", ...webview })).toEqual({ route: "onboarding", banner: "none" });
+    expect(decideRoute({ pathname: "/", search: "?live=1", ...webview, development: true })).toEqual({ route: "live", banner: "preview-live" });
+  });
+
+  it("never labels a shipped build as the development harness", () => {
+    // Opening a Project is a route on the shell's own asset handler, so being
+    // in the webview stopped being evidence of the harness: an installed build
+    // was printing "Overgent Dev · Local live Project data" across the top of a
+    // member's real Project. Only the build flag answers this.
+    expect(decideRoute({ pathname: "/", search: "?live=1", ...webview })).toEqual({ route: "live", banner: "none" });
+    // And an explicit request for the preview is still honoured, in either build.
+    expect(decideRoute({ pathname: "/", search: "?desktop=preview&live=1", ...webview })).toEqual({ route: "live", banner: "preview-live" });
   });
 
   it("routes onboarding and invite links regardless of shell", () => {

@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/khalidM3/overgent/internal/activation"
 	"github.com/khalidM3/overgent/internal/adapterrepair"
 	"github.com/khalidM3/overgent/internal/app"
 	"github.com/khalidM3/overgent/internal/claudesetup"
@@ -89,6 +88,9 @@ type OnboardingState struct {
 	// LocalAvailable reports that this build carries a backend, so "Use on this
 	// Mac" is a real choice rather than a button that fails when pressed.
 	LocalAvailable bool `json:"localAvailable"`
+	// MemberName is the name this Mac has been told the member goes by, used to
+	// seed a new Project rather than to override an existing one.
+	MemberName string `json:"memberName,omitempty"`
 	// Backend is the bundled backend's state, shown beside service health.
 	Backend BackendStatus `json:"backend"`
 }
@@ -115,6 +117,8 @@ type EnrollmentResult struct {
 }
 
 type OnboardingService struct {
+	dashboardMu                       sync.Mutex
+	dashboardConnections              map[string]*dashboardConnection
 	configRoot, apiBaseURL, cliBinary string
 	// localAvailable is whether this build carries a bundled backend.
 	localAvailable bool
@@ -203,6 +207,20 @@ func (service *OnboardingService) ChooseRepository() (string, error) {
 	return canonicalRepository(selected)
 }
 
+// RecheckState answers the "Check again" button.
+//
+// It is State with the cached credential answers dropped first. The cache
+// exists so that every State() does not call out to every backend, but an
+// explicit re-check is the one moment the member is saying they believe the
+// cached answer is wrong - handing it back is the one thing the button must not
+// do. Without this a transient "could not confirm this Mac's access", which is
+// exactly what a backend that is still starting produces, survived every press
+// until the 15-second window happened to lapse.
+func (service *OnboardingService) RecheckState() (OnboardingState, error) {
+	service.forgetCredentialHealth()
+	return service.State()
+}
+
 func (service *OnboardingService) State() (OnboardingState, error) {
 	state := OnboardingState{Available: true, Development: desktopDevelopment, APIBaseURL: service.apiBaseURL, DeviceLabel: defaultDeviceLabel(), Limitation: "Start new Codex or Claude Code sessions in this repository after connecting an adapter. Existing sessions must restart once so the agent can load the Project hooks."}
 	if service.configRoot == "" {
@@ -217,6 +235,7 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 		return state, err
 	}
 	state.LocalAvailable = service.localAvailable
+	state.MemberName = service.rememberedDisplayName()
 	state.Backend = service.backendStatus()
 	if len(cfg.Workspaces) == 0 {
 		state.Adapters = service.adapterStates(nil)
@@ -389,6 +408,13 @@ func (service *OnboardingService) addProject(request EnrollmentRequest, local, j
 	if request.DisplayName, err = boundedDisplayName(request.DisplayName); err != nil {
 		return EnrollmentResult{}, err
 	}
+	// A local Project never asks for a name, because it has no collaborators to
+	// show one to. It still has to attribute the member's own sessions, so
+	// without this it fell through to the device label and a member appeared as
+	// their hostname in every Project after the first.
+	if request.DisplayName == "" {
+		request.DisplayName = service.rememberedDisplayName()
+	}
 	request.ProjectLabel = boundedLabel(request.ProjectLabel, filepath.Base(root))
 	paths, err := config.Resolve(service.configRoot)
 	if err != nil {
@@ -427,7 +453,27 @@ func (service *OnboardingService) addProject(request EnrollmentRequest, local, j
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
+	// This profile now holds a backend it did not a moment ago, and for a local
+	// Project that backend was still starting while the enrollment ran. Any
+	// credential answer cached before this point describes a server that was not
+	// listening yet, and serving it back would report a Project the member just
+	// successfully created as one this Mac cannot reach.
+	service.forgetCredentialHealth()
+	// Recorded only after an enrollment accepted it, and only when the member
+	// supplied one: remembering a substituted device label would make the
+	// fallback permanent rather than fix it.
+	service.rememberDisplayName(request.DisplayName)
 	warnings := append([]string{}, service.configureAdapters(root, request.EnableCodex, request.EnableClaude, request.EnableCursor)...)
+	// A Project on this Mac starts from this Mac's defaults, so intelligence is
+	// configured once rather than re-entered per Project. Only local: applying
+	// them to a shared Project would upload the member's key to a server other
+	// members' sessions spend it from, which is a decision they take on the
+	// Project's own settings screen, in front of the disclosure that says so.
+	if local {
+		if applyErr := service.applyAIDefaults(ctx, result.ProjectID); applyErr != nil {
+			warnings = append(warnings, "Intelligence defaults: "+applyErr.Error())
+		}
+	}
 	if serviceErr := service.ensureService(ctx); serviceErr != nil {
 		warnings = append(warnings, "Background service: "+serviceErr.Error())
 	}
@@ -731,22 +777,10 @@ func (service *OnboardingService) OpenLiveProject(projectID string) (string, err
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	live, err := liveProjectURL(ctx, paths, cfg, projectID)
-	if err != nil {
-		return "", err
+	if _, bound := cfg.BackendForProject(projectID); !bound {
+		return "", errors.New("Project is not enrolled on this Mac")
 	}
-	handoff, err := activation.Start(live.origin, live.ticket)
-	if err != nil {
-		return "", err
-	}
-	go func() {
-		waitContext, stop := context.WithTimeout(context.Background(), 35*time.Second)
-		defer stop()
-		_ = handoff.Wait(waitContext)
-	}()
-	return handoff.URL(), nil
+	return "/?live=1&project=" + projectID, nil
 }
 
 func (service *OnboardingService) configureAdapters(root string, codex, claude, cursor bool) []string {
@@ -819,7 +853,7 @@ func (service *OnboardingService) adapterStates(roots []string) []AdapterState {
 		}
 	}
 	for index, vendor := range []string{"codex", "claude", "cursor"} {
-		states[index].RuntimeVerified = service.agentRuntimeVerified(roots, vendor)
+		states[index].RuntimeVerified = states[index].Configured && service.agentRuntimeVerified(roots, vendor)
 		states[index].RestartRequired = states[index].Configured && !states[index].RuntimeVerified
 		states[index].ReconnectAllowed = states[index].Binding == "other_profile"
 		if states[index].HooksNeedReview && !states[index].RuntimeVerified {

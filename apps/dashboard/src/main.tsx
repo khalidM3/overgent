@@ -11,6 +11,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleDashed,
   CircleDot,
   Code2,
   Command,
@@ -22,6 +23,7 @@ import {
   GitBranch,
   Info,
   LayoutGrid,
+  Loader2,
   Moon,
   MessageSquare,
   Network,
@@ -43,7 +45,9 @@ import { attentionItems, newestEventTime, orderSessions, type AttentionItem, typ
 import { FixtureProjectSource } from "./fixture-source";
 import { emptyFixtureSession, fixtureSession, parseShellState } from "./fixtures";
 import { LiveProjectSource, loadSession, loadSnapshot } from "./live-source";
-import { DesktopOnboarding } from "./desktop-onboarding";
+import { DesktopOnboarding, MacSettings, rememberProject } from "./desktop-onboarding";
+import { DesktopAISettings } from "./desktop-ai-settings";
+import { Screen, ScreenSection } from "./screen";
 import { NewProjectScreen } from "./new-project";
 import { PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
@@ -71,8 +75,8 @@ interface AppProps {
 type Selection = { kind: "session"; id: string } | { kind: "finding"; id: string };
 type View = "workroom" | "history";
 /** Settings, People and Add a Project are screens, not dialogs. */
-type ScreenName = "settings" | "people" | "new-project";
-const screenTitle: Record<ScreenName, string> = { settings: "Settings", people: "People", "new-project": "Add a Project" };
+type ScreenName = "app-settings" | "settings" | "people" | "new-project";
+const screenTitle: Record<ScreenName, string> = { "app-settings": "App settings", settings: "Project settings", people: "People", "new-project": "Add a Project" };
 
 export function App({
   initialState = parseShellState(window.location.search),
@@ -88,6 +92,14 @@ export function App({
   if (shellState === "empty" || initialSession.projects.length === 0) return <EmptyView navigate={navigate} />;
   return <ProjectWorkroom session={initialSession} source={source} offline={shellState === "offline"} nativeApi={nativeApi} navigate={navigate} />;
 }
+
+/**
+ * The app this build's dashboard belongs to. A released bundle told members to
+ * reopen "Overgent Dev.app", which they do not have; the development bundle is
+ * the only one that should name it. Decided the same way `desktopScheme` is,
+ * because it is the same question.
+ */
+const desktopAppName = import.meta.env.DEV ? "Overgent Dev.app" : "Overgent.app";
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true">O</span>{!compact && <span>overgent</span>}</div>;
@@ -110,7 +122,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
  * actually does, and pressing it confirms rather than reveals.
  */
 function ActivationView({ onActivate, stillInactive = false }: { onActivate: () => void; stillInactive?: boolean }) {
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">This browser has no Overgent session yet.</h1><p>A session can only be minted by the Overgent app on this Mac, and the one-time ticket is exchanged server-side — it is never stored in this page, its activity, or browser history.</p><div className="disclosure"><strong>To open the workroom</strong><p>Open the Project from the Overgent app, or run this in your checkout:</p><code>overgent dashboard --project &lt;project-id&gt;</code></div><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Reopen the Project from Overgent Dev.app to mint a new one-time ticket, then check again.</p>}<button className="pill solid" onClick={onActivate}>Check for a session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="activation-title"><span className="state-symbol"><ShieldCheck size={20} /></span><p className="eyebrow">Browser activation</p><h1 id="activation-title">This browser has no Overgent session yet.</h1><p>A session can only be minted by the Overgent app on this Mac, and the one-time ticket is exchanged server-side — it is never stored in this page, its activity, or browser history.</p><div className="disclosure"><strong>To open the workroom</strong><p>Open the Project from the Overgent app, or run this in your checkout:</p><code>overgent dashboard --project &lt;project-id&gt;</code></div><div className="disclosure"><strong>What teammates can see</strong><p>Session presence, action categories, safe repository paths, collisions, coordination decisions, and classifier-passing session messages while sharing is unpaused. Never source, diffs, prompts, transcripts, <code>.env</code> values, credentials, or raw tool output.</p></div>{stillInactive && <p role="alert">This browser still has no active session. Reopen the Project from {desktopAppName} to mint a new one-time ticket, then check again.</p>}<button className="pill solid" onClick={onActivate}>Check for a session</button><p className="microcopy">Sessions are revocable, same-site, and rotated after privilege changes.</p></section></main>;
 }
 
 export function LiveApp() {
@@ -118,6 +130,10 @@ export function LiveApp() {
   const [session, setSession] = useState<DashboardSession | null>(null);
   const [source, setSource] = useState<LiveProjectSource | null>(null);
   const [activationRechecked, setActivationRechecked] = useState(false);
+  // Which Project is being polled. Owned here because polling belongs to the
+  // live source, and set from the workroom because that is where the Project is
+  // chosen.
+  const [polledProjectId, setPolledProjectId] = useState<string | null>(null);
 
   const load = async (retry = false) => {
     setState("loading");
@@ -127,6 +143,7 @@ export function LiveApp() {
       const snapshots = await Promise.all(nextSession.projects.map((project) => loadSnapshot(project.id)));
       setSession(nextSession);
       setSource(new LiveProjectSource(snapshots, setState));
+      setPolledProjectId(nextSession.selectedProjectId);
       setState("ready");
     } catch (error) {
       const status = (error as { status?: number }).status;
@@ -138,18 +155,24 @@ export function LiveApp() {
     }
   };
   useEffect(() => { void load(); }, []);
+  // Polling follows the Project on screen rather than the one the session was
+  // opened with. Pinned to `selectedProjectId`, switching Projects showed a
+  // snapshot frozen at page load: no findings arrived, no session moved, and
+  // the only way to get a live view of the second Project was to reopen it
+  // from the app.
   useEffect(() => {
-    if (!source || !session) return;
-    return source.start(session.selectedProjectId);
-  }, [source, session]);
+    if (!source || !session || !polledProjectId) return;
+    return source.start(polledProjectId);
+  }, [source, session, polledProjectId]);
 
   if (state === "loading") return <LoadingView />;
   if (state === "version_mismatch") return <TerminalState state="version_mismatch" />;
+  if (state === "offline" && !source) return <main className="centered-shell"><Brand /><section className="state-card"><h1>Your Project is unavailable.</h1><p>Observation continues locally. Check the connection and try again.</p><button className="pill solid" onClick={() => void load(true)}>Try again</button>{isDesktopWebview && <button className="pill" onClick={() => window.location.assign("/?desktop=onboarding&settings=1")}>App settings</button>}</section></main>;
   if (state === "activation") return <ActivationView stillInactive={activationRechecked} onActivate={() => void load(true)} />;
   if (state === "unauthorized") return <TerminalState state="unauthorized" />;
   if (!session || session.projects.length === 0) return <EmptyView />;
   if (!source) return <TerminalState state="unauthorized" />;
-  return <ProjectWorkroom session={session} source={source} offline={state === "offline"} nativeApi={nativeOnboarding} navigate={(url) => window.location.assign(url)} />;
+  return <ProjectWorkroom session={session} source={source} offline={state === "offline"} nativeApi={nativeOnboarding} navigate={(url) => window.location.assign(url)} onProjectChange={setPolledProjectId} />;
 }
 
 function LoadingView() {
@@ -255,7 +278,7 @@ function Since({ label, tick }: { label: string | undefined; tick: number }) {
   return <>{since(label, tick)}</>;
 }
 
-function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { session: DashboardSession; source: FixtureProjectSource; offline: boolean; nativeApi: NativeOnboarding; navigate: (url: string) => void }) {
+function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProjectChange }: { session: DashboardSession; source: FixtureProjectSource; offline: boolean; nativeApi: NativeOnboarding; navigate: (url: string) => void; onProjectChange?: (projectId: string) => void }) {
   const [projectId, setProjectId] = useState(session.selectedProjectId);
   /* A trail rather than one value, so opening a session from inside a collision
       can return to the collision that sent you there. Picking something from a
@@ -271,10 +294,21 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   // must not always land in the same place.
   const [screens, setScreens] = useState<ScreenName[]>([]);
   const [projects, setProjects] = useState(session.projects);
+  const [macState, setMacState] = useState<import("./native").OnboardingState | null>(null);
+  const refreshMac = async () => { const next = await nativeApi.state(); setMacState(next); return next; };
+  useEffect(() => { void refreshMac().catch(() => undefined); }, [nativeApi]);
+  const localProject = macState?.projects?.find((project) => project.projectId === projectId);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem("overgent.theme") === "dark"; } catch { return false; } });
   const [view, setView] = useState<View>("workroom");
   const [identity, setIdentity] = useState<{ name: string; source: MemberNameSource }>({ name: session.memberName, source: session.memberNameSource });
+  useEffect(() => {
+    if (!source.live) return;
+    let active = true;
+    void source.getProjectAccess(projectId).then((access) => { const self = access.members.find((member) => member.isSelf); if (active && self) setIdentity({ name: self.name, source: self.nameSource }); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [source, projectId]);
   const [identityPromptDismissed, setIdentityPromptDismissed] = useState(false);
   const [attention, setAttention] = useState<Finding | null>(null);
   const seenFindings = useRef<Set<string> | null>(null);
@@ -321,6 +355,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    try { localStorage.setItem("overgent.theme", dark ? "dark" : "light"); } catch { /* Optional local preference. */ }
     return () => { delete document.documentElement.dataset.theme; };
   }, [dark]);
   useEffect(() => {
@@ -351,7 +386,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
   const previous = screens[screens.length - 2];
   const backLabel = previous ? screenTitle[previous] : view === "history" ? "History" : snapshot.project.name;
 
-  const selectProject = (nextId: string) => { setProjectId(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
+  const selectProject = (nextId: string) => { rememberProject(nextId); if (isDesktopWebview) window.history.replaceState(null, "", `/?live=1&project=${encodeURIComponent(nextId)}`); setProjectId(nextId); onProjectChange?.(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
   // Deleting or leaving a Project must actually leave it. Queuing the request
   // and staying put left the member reading a Project they no longer belong to.
   const removeProject = (removedId: string) => {
@@ -418,9 +453,9 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
         {sidebarCollapsed && <button className="project-item new" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project" title="Add a Project"><span className="project-monogram"><Plus size={11} /></span></button>}
       </div>
 
-      <button className="profile-button" aria-current={screen === "settings" ? "page" : undefined} onClick={() => showScreen("settings")} aria-label="Open settings, devices, and privacy">
+      <button className="profile-button" aria-current={screen === "app-settings" ? "page" : undefined} onClick={() => showScreen("app-settings")} aria-label="Open App settings">
         <MemberChip name={identity.name} size="large" />
-        {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>Settings &amp; privacy</small></span>}
+        {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>App settings</small></span>}
       </button>
     </aside>
 
@@ -430,7 +465,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
           <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} controllable={localPause} />
-          <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />Invite</button>
+          <button className="pill" onClick={() => showScreen("people")} aria-label="Invite people to this Project"><UserPlus size={14} />{localProject?.kind === "local" ? "Sharing" : "Invite"}</button>
           {/* Theme is a preference set once and it lives in Settings. The
               toolbar is for things you act on while reading this Project, and
               settings closes the row rather than interrupting it. */}
@@ -459,7 +494,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
               // says whose sharing stopped. Nobody can pause a teammate.
               ...(snapshot.workspacePaused ? [<div key="paused" className="notice alerting" role="status"><Pause size={15} /><div className="body"><strong>Your sharing is paused in this Project</strong>This device stopped publishing before the state was shown. Teammates keep publishing, and you keep receiving their work.</div>{!localPause && <div className="notice-actions"><span className="microcopy">Resume it from the Overgent app or menu bar.</span></div>}</div>] : []),
               ...(offline ? [<div key="offline" className="notice" role="status"><CircleDot size={15} /><div className="body"><strong>Offline</strong>Showing revision {snapshot.contextRevision} from {snapshot.synchronizedAt}.</div></div>] : []),
-              ...(identity.source === "device" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
+              ...(identity.source === "device" && localProject?.kind !== "local" && !identityPromptDismissed ? [<div key="identity" className="notice" role="status"><UserRound size={15} /><div className="body"><strong>Choose how teammates see you</strong>This Project is still showing your device name, “{identity.name}”. Pick a display name for your live work; the device name stays in Settings under Devices &amp; security.</div><div className="notice-actions"><button className="pill" onClick={() => showScreen("settings")}>Choose a name</button><button className="text-button" onClick={() => setIdentityPromptDismissed(true)}>Later</button></div></div>] : []),
             ]} />
 
             {view === "workroom"
@@ -494,9 +529,13 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate }: { se
       snapshot={snapshot} dark={dark} identity={identity} projectId={projectId} source={source} offline={offline}
       backLabel={backLabel} onBack={goBack} onIdentity={setIdentity} onTheme={() => setDark((value) => !value)}
       onPeople={() => pushScreen("people")} onRemoved={() => removeProject(projectId)}
+      intelligence={macState && nativeApi.aiSettings && nativeApi.putAISettings ? <DesktopAISettings key={projectId} api={{ aiSettings: nativeApi.aiSettings, putAISettings: nativeApi.putAISettings }} projectId={projectId} local={localProject?.kind === "local"} /> : undefined}
+      onAppSettings={() => pushScreen("app-settings")}
+
     />}
-    {screen === "people" && <PeopleScreen projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack} />}
-    {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} />}
+    {screen === "app-settings" && (macState ? <MacSettings api={nativeApi} state={macState} projectId={projectId} onBack={goBack} refresh={refreshMac} dark={dark} onTheme={() => setDark((value) => !value)} /> : <Screen title="App settings" backLabel={backLabel} onBack={goBack}><ScreenSection title="Appearance"><button className="pill" onClick={() => setDark((value) => !value)}>{dark ? "Use light appearance" : "Use dark appearance"}</button></ScreenSection><p className="settings-help">Agent connections are managed in the Overgent desktop app.</p></Screen>)}
+    {screen === "people" && <PeopleScreen local={localProject?.kind === "local"} serverOrigin={localProject?.apiBaseUrl} projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack} />}
+    {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} returnProjectId={projectId} />}
 
     {commandOpen && <CommandPalette projects={projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); showScreen("settings"); }} onClose={() => setCommandOpen(false)} />}
   </div>;
@@ -536,14 +575,19 @@ function PauseControl({ source, projectId, paused, offline, controllable }: { so
   if (!controllable) return null;
   return <>
     <button
+      // Pausing writes to the local service and then re-reads the snapshot, so
+      // it takes a moment. The button only greyed out for that moment, keeping
+      // the same icon and the same word, which read as a control that had done
+      // nothing rather than one that was working.
       className={paused ? "pill alerting" : "pill"}
       disabled={offline || pending}
+      aria-busy={pending || undefined}
       onClick={() => {
         setPending(true);
         setFailed(false);
         void source.setProjectPaused(projectId, !paused).catch(() => setFailed(true)).finally(() => setPending(false));
       }}
-    >{paused ? <Play size={14} /> : <Pause size={14} />}{paused ? "Resume" : "Pause"}</button>
+    >{pending ? <Loader2 size={14} className="spin" /> : paused ? <Play size={14} /> : <Pause size={14} />}{pending ? (paused ? "Resuming…" : "Pausing…") : paused ? "Resume" : "Pause"}</button>
     {failed && <span className="toolbar-note" role="alert">Sharing could not be changed.</span>}
   </>;
 }
@@ -881,6 +925,8 @@ function ScopeStateIcon({ state }: { state: ScopeSnapshot["state"] }) {
   if (state === "complete") return <Check size={12} aria-hidden="true" />;
   if (state === "waiting") return <Pause size={12} aria-hidden="true" />;
   if (state === "verifying") return <ShieldCheck size={12} aria-hidden="true" />;
+  // Between turns is its own thing: not finished, and not blocked on anybody.
+  if (state === "idle") return <CircleDashed size={12} aria-hidden="true" />;
   return <Activity size={12} aria-hidden="true" />;
 }
 
@@ -1966,6 +2012,7 @@ if (root) {
     search: window.location.search,
     desktopShell: isDesktopShell,
     desktopWebview: isDesktopWebview,
+    development: import.meta.env.DEV,
   });
   if (banner !== "none") document.documentElement.dataset.desktopPreview = "true";
   createRoot(root).render(<StrictMode>
