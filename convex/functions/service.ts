@@ -2658,6 +2658,21 @@ async function requireManifest(ctx: MutationCtx, publicId: string, projectId: Id
   return manifest;
 }
 
+/**
+ * The wire shape of a finding.
+ *
+ * `delivery` is the judgment layer's routing verdict (ADR-045): `next_turn`
+ * means this finding should interrupt the workstreams it names, as opposed to
+ * waiting on a dashboard. Clients need it to render "Needs you" the way the
+ * product defines it, so it travels with the finding rather than being
+ * re-derived from severity, which would disagree with the verdict that was
+ * actually recorded.
+ *
+ * It stays optional: rows written before a verdict existed have none, and a
+ * client must read a missing value as unknown routing, never as `silent`.
+ * Reporting "nothing needs you" from an absent verdict would be a false
+ * all-clear, which is the one failure this product cannot afford.
+ */
 function findingContract(finding: Doc<"findings">) {
   return {
     id: finding.publicId,
@@ -2668,6 +2683,7 @@ function findingContract(finding: Doc<"findings">) {
     evidence: finding.evidence,
     reason: finding.reason,
     state: finding.state,
+    delivery: finding.delivery,
     revision: finding.revision,
   };
 }
