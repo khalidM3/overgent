@@ -15,9 +15,11 @@ coordination-eval-report.json
 .convex/
 convex/_generated/
 
-# Build artifacts.
+# Build artifacts. `go build ./cmd/overgent` from the repository root writes the
+# executable here, so the bare name is ignored alongside the output directories.
 /bin/
 /release/dist/
+/overgent
 
 # Local build artifacts from go build ./validation/...
 /coordination
