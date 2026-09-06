@@ -37,3 +37,6 @@ convex/_generated/
 # Staged closed-test distribution (install/dogfood/publish.sh).
 /dist-dogfood/
 /.vercel/
+
+# Transient output from the browser tooling, not part of the project.
+.playwright-cli/

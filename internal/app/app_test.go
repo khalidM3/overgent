@@ -258,6 +258,19 @@ func TestLifecycleIsRevisionedIdempotentAndPreservesFinishEvidence(t *testing.T)
 	}
 }
 
+// codexChatLocator makes a fixture's Codex sessions look like member chats.
+//
+// Production tells a member's Codex chat from one of Codex's own background
+// threads — ambient suggestions and its safety pass, which run hooks in the
+// member's checkout under session ids of their own — by whether Codex recorded
+// a rollout for the session. A fixture records none, so without this every
+// Codex event in a test would be dropped as a background thread. The path need
+// not be readable: what is asserted here is that the session was admitted.
+func codexChatLocator(t *testing.T) func(string) string {
+	rollout := filepath.Join(t.TempDir(), "rollout-fixture.jsonl")
+	return func(string) string { return rollout }
+}
+
 func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -274,7 +287,7 @@ func TestAgentEventMapsNestedCWDAndQueuesOnlyBoundedMetadata(t *testing.T) {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace})}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), codexRolloutLocator: codexChatLocator(t)}
 	response := service.handle(ctx, daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: filepath.Join(root, "src"), AgentWorkstreamID: "wrk_agent_0123456789abcdef0123456789abcdef", AgentSessionAlias: "codex-a1b2c3", AgentEvent: "PreToolUse", AgentStatus: "active", AgentAction: "editing", AgentTool: "apply_patch", AgentPaths: []string{filepath.Join(root, "src", "nav.tsx")}})
 	if !response.OK {
 		t.Fatalf("response=%#v", response)
@@ -342,7 +355,7 @@ func TestProjectSessionContentComesFromTranscriptAndRejectsSecrets(t *testing.T)
 	}
 	sessionID := "wrk_agent_0123456789abcdef0123456789abcdef"
 
-	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sharingTestSender{})}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), newSender: fixtureSender(sharingTestSender{}), codexRolloutLocator: codexChatLocator(t)}
 	base := daemon.Request{Method: "agent_event", AgentVendor: "codex", AgentCWD: root, AgentWorkstreamID: sessionID, AgentSessionAlias: "codex-a1b2c3", AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request", AgentTranscriptPath: transcript}
 	response := service.handle(ctx, base)
 	// The owner still sees their own complete session locally. The dashboard
@@ -927,9 +940,10 @@ func TestCodexSessionResolutionRoutesBeginWorkAndFailsClosedOnCheckoutAmbiguity(
 		t.Fatal(err)
 	}
 	service := &Service{
-		store:     db,
-		cfg:       config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}),
-		newSender: fixtureSender(&lifecycleFixtureSender{}),
+		store:               db,
+		cfg:                 config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}),
+		newSender:           fixtureSender(&lifecycleFixtureSender{}),
+		codexRolloutLocator: codexChatLocator(t),
 		codexThreadLister: func(context.Context, string, int) ([]codexappserver.Thread, error) {
 			t.Fatal("hook-derived service state was sufficient; app-server fallback must not run")
 			return nil, nil
@@ -1340,5 +1354,96 @@ func TestMidTurnInjectionDeliversUrgentFindingsOnly(t *testing.T) {
 	sender.mu.Unlock()
 	if calls != 1 {
 		t.Fatalf("mid-turn fetches=%d, want 1 (throttled)", calls)
+	}
+}
+
+// Codex runs threads of its own inside a member's checkout — ambient suggestion
+// generation and the safety pass that screens it — and each one fires the whole
+// hook lifecycle under a session id of its own: SessionStart, UserPromptSubmit,
+// shell commands, MCP tools, Stop. Publishing them gave a member a session card
+// per background run, with no goal (Codex names no goal for its own threads),
+// no way to recognize it, and no way to end it.
+//
+// Codex records a rollout for every thread a member can actually open and none
+// for these, which is the difference this asserts. A dropped event is reported
+// as not accepted rather than as an error: the hook is passive, and a coding
+// agent is never blocked or slowed by what Overgent decided about it.
+func TestCodexBackgroundThreadsNeverBecomeSessions(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	db, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace := config.Workspace{ID: "wsp_fixture", ProjectID: "prj_fixture", WorkstreamID: "wrk_fixture", MemberID: "mem_fixture", SessionID: "ses_fixture", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	chat := "01a07377-b4ac-7540-9af4-c67fe3de7d2d"
+	background := "01a07378-003e-7073-9dcd-af030fe69546"
+	rollout := filepath.Join(t.TempDir(), "rollout-"+chat+".jsonl")
+	service := &Service{
+		store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}),
+		codexRolloutLocator: func(sessionID string) string {
+			if sessionID == chat {
+				return rollout
+			}
+			return ""
+		},
+	}
+	event := func(vendorSessionID string) daemon.Request {
+		workstream, alias, ok := agentactivity.WorkstreamIDFor("codex", vendorSessionID)
+		if !ok {
+			t.Fatalf("workstream id for %q", vendorSessionID)
+		}
+		return daemon.Request{
+			Method: "agent_event", AgentVendor: "codex", AgentCWD: root,
+			AgentWorkstreamID: workstream, AgentSessionAlias: alias, AgentVendorSessionID: vendorSessionID,
+			AgentEvent: "UserPromptSubmit", AgentStatus: "active", AgentAction: "Working on a new request",
+		}
+	}
+
+	accepted := service.handle(ctx, event(chat))
+	if !accepted.OK || accepted.Data.(map[string]any)["accepted"] != true {
+		t.Fatalf("the member's own Codex chat must be observed: %#v", accepted)
+	}
+	dropped := service.handle(ctx, event(background))
+	if !dropped.OK {
+		t.Fatalf("dropping a background thread must never fail a hook: %#v", dropped)
+	}
+	if dropped.Data.(map[string]any)["accepted"] != false {
+		t.Fatalf("Codex background thread became a session: %#v", dropped)
+	}
+
+	// Nothing about the background thread reached the queue, so it can never
+	// become a workstream, collide with the member's own work, or be counted as
+	// a Codex this device has observed running.
+	queue, err := db.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backgroundWorkstream, _, _ := agentactivity.WorkstreamIDFor("codex", background)
+	backgroundPublished := agentactivity.PublishedWorkstreamID(backgroundWorkstream, workspace.ProjectID, workspace.ID)
+	for _, pending := range queue {
+		if strings.Contains(string(pending.Payload), backgroundPublished) || strings.Contains(string(pending.Payload), background) {
+			t.Fatalf("background thread identity was queued: %s", pending.Payload)
+		}
+	}
+	sessions, err := db.ActiveAgentSessions(ctx, workspace.ID, "codex", root, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range sessions {
+		if session.WorkstreamID == backgroundWorkstream {
+			t.Fatal("background thread was recorded as a resolvable Codex session")
+		}
+	}
+	// The gate is the only thing standing between a member and a Codex that has
+	// changed how it records threads, so it is counted where `doctor` reports it.
+	health := service.handle(ctx, daemon.Request{Method: "doctor"})
+	if health.Data.(map[string]any)["codexBackgroundThreads"].(int64) != 1 {
+		t.Fatalf("dropped background threads must be reportable: %#v", health.Data)
 	}
 }

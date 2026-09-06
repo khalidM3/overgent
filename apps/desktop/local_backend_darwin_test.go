@@ -266,3 +266,52 @@ func TestBackendHealthReadsTheServiceBlock(t *testing.T) {
 		t.Fatal("idleSince was not parsed")
 	}
 }
+
+// The seam between the dashboard origin and internal/activation.
+//
+// activation.Start appends "/v1/dashboard-activations" to the origin it is
+// given, so the origin handed to it has to already carry the API prefix this
+// mux forwards on. It did not: the ticket was posted to "/v1/...", missed the
+// proxy, and was answered by the SPA file server with 200 and index.html - so
+// activation silently set no cookie and the dashboard reported that the browser
+// had no session. The proxy itself was tested with the prefix spelled correctly,
+// which is exactly why nothing caught it.
+func TestActivationOriginReachesTheProxyNotTheAssets(t *testing.T) {
+	var reached string
+	backend := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		reached = request.URL.Path
+		writer.Header().Set("Set-Cookie", "overgent_session=abc; Path=/; HttpOnly; SameSite=Strict")
+		writer.Header().Set("Location", "/?live=1")
+		writer.WriteHeader(http.StatusSeeOther)
+	}))
+	defer backend.Close()
+
+	origin, err := startDashboardOrigin(fstest.MapFS{"index.html": {Data: []byte("<html>dashboard</html>")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer origin.Close()
+	if err = origin.SetBackend(backend.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exactly the concatenation internal/activation performs on the origin it is
+	// handed by activationOriginFor.
+	action := origin.ActivationOrigin() + "/v1/dashboard-activations"
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Post(action, "application/x-www-form-urlencoded", strings.NewReader("ticket=test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusSeeOther {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("activation posted to %s was not forwarded: status=%d body=%q", action, response.StatusCode, body)
+	}
+	if reached != "/v1/dashboard-activations" {
+		t.Fatalf("the backend saw %q, not the activation route", reached)
+	}
+	if !strings.Contains(response.Header.Get("Set-Cookie"), "overgent_session=") {
+		t.Fatal("activation returned no session cookie")
+	}
+}

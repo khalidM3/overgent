@@ -43,7 +43,7 @@ func newContractWatchFixture(t *testing.T) contractWatchFixture {
 	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: "dev_fixture", SessionID: workspace.SessionID, Root: root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace})}
+	service := &Service{store: db, cfg: config.Single(fixtureOrigin, "dev_fixture", []config.Workspace{workspace}), codexRolloutLocator: codexChatLocator(t)}
 	return contractWatchFixture{root: root, db: db, service: service, workspace: workspace}
 }
 

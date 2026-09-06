@@ -5,6 +5,15 @@ different product implementation: Vite serves the same React dashboard that is
 embedded in production builds, local Convex runs the same hosted functions, and
 the foreground Go process runs the same one-service core.
 
+There are two builds and they answer different questions. `pnpm dev` builds
+`Overgent Dev.app` for iterating on code: hot reload, the development Convex on
+loopback, and its own profile at `~/Library/Application Support/Overgent Dev`.
+It carries **no bundled backend**, so "Use on this Mac" is disabled there and
+every Project it can create needs a server. `pnpm local:build` builds
+`Overgent.app`, the artifact a member installs, which carries the backend and is
+the only way to exercise the default local-mode path. Both run the same Go core,
+the same Convex functions, and the same dashboard.
+
 ## Commands
 
 The repository requires Node 22. With NVM, select the checked-in version and
@@ -30,6 +39,7 @@ Node 22 is the supported fix. Then run commands from the repository root:
 | `pnpm dev:service` | Build `bin/overgent` and run the enrolled default-profile Go service in the foreground. |
 | `pnpm desktop:dev` | Start Vite if needed, compile `Overgent Dev.app` once, and keep the native Dock/menu-bar app attached to Vite hot reload. |
 | `pnpm dev:install` | Atomically install or replace `~/Applications/Overgent Dev.app`. Run `pnpm dev:ui` while using the installed app. |
+| `pnpm local:build` | Build `Overgent.app` with the bundled backend, so local mode can be exercised. Fetches the pinned backend and records the deploy payload the first time. |
 | `pnpm dev:agents -- --codex-root A --claude-root B` | Optional advanced setup for two linked worktrees; normal same-checkout session attribution does not require this. |
 
 React/CSS changes hot reload without a native rebuild. Changes to the Wails
@@ -123,14 +133,30 @@ go run ./cmd/overgent backend verify \
   --bundle apps/desktop/build/backend-push.json
 ```
 
-Build and open the app against a throwaway profile, so the exercise never
-touches the profile you use:
+Build the app and open it:
 
 ```bash
-pnpm desktop:build
-OVERGENT_CONFIG_ROOT="$(mktemp -d)/Overgent" \
-  open -n apps/desktop/build/bin/Overgent.app
+pnpm local:build
 ```
+
+```bash
+open -n apps/desktop/build/bin/Overgent.app
+```
+
+`pnpm local:build` runs the whole sequence above and skips the steps whose
+output is already current, so a rebuild after a code change is the app build
+alone. The artifact is the one a release publishes; the release adds the Apple
+identity and notarization and changes nothing else.
+
+The app uses the default profile at `~/Library/Application Support/Overgent`,
+which is what a member's install uses. A production build resolves that path
+through `config.DefaultRoot` alone and does **not** read `OVERGENT_CONFIG_ROOT`
+- and `open` would not pass an environment variable to it in any case - so a
+built app cannot be pointed at a throwaway profile the way the CLI can. That is
+deliberate: the profile a release build uses is not environment-controlled. The
+development stack keeps its own profile (`Overgent Dev`), so the two no longer
+collide; to start the built app over, use `backend reset` and `reset --all`
+below.
 
 Choose **Use on this Mac**, pick a repository, and the dashboard opens on the
 app's own loopback origin. Nothing in that path needs Node, an account, or the

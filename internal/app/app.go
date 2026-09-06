@@ -89,6 +89,16 @@ type Service struct {
 	// existing private, read-only app-server child when hook-derived local
 	// session state cannot identify a thread.
 	codexThreadLister func(context.Context, string, int) ([]codexappserver.Thread, error)
+	// codexRolloutLocator is replaceable only in tests. Production looks the
+	// rollout up under the member's own home directory.
+	codexRolloutLocator func(sessionID string) string
+	// codexBackgroundThreads counts Codex sessions dropped for having no rollout
+	// (see handleAgentEvent). It is reported by `doctor` because this gate is
+	// the one thing standing between the member and a Codex that has changed
+	// how it records threads: if that ever happens, every Codex session would be
+	// dropped, and a count climbing while the session list stays empty says so
+	// where silence would not.
+	codexBackgroundCount atomic.Int64
 	// codexReadRefreshFailed records, per session workstream, whether the last
 	// inferred-read refresh actually answered. Coverage reads it so a device
 	// with a Codex it cannot talk to stops claiming it can infer that session's
@@ -633,7 +643,7 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 		quarantined, _ := s.store.QuarantinedCount(ctx)
 		// Backends are reported as a list because a profile now holds several
 		// (ADR-074): one credential state per backend, not one for the Mac.
-		data := map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "lastPublishError": s.publishError(), "backends": s.credentialStates(), "pid": os.Getpid()}
+		data := map[string]any{"status": "ok", "bootCount": s.boot, "workspaces": len(w), "pausedWorkspaces": paused, "focusedSessions": len(focused), "pending": len(p), "quarantined": quarantined, "scans": s.scans, "scanCycles": s.scanCycles.Load(), "codexBackgroundThreads": s.codexBackgroundCount.Load(), "lastPublishError": s.publishError(), "backends": s.credentialStates(), "pid": os.Getpid()}
 		if s.backend != nil {
 			data["backend"] = s.backend.Status(ctx)
 		}
@@ -1078,6 +1088,19 @@ func (s *Service) handleCollaboration(ctx context.Context, q daemon.Request) dae
 	return daemon.Response{OK: true, Data: map[string]any{"collaboration": snapshot}}
 }
 
+// locateCodexRollout finds the rollout Codex wrote for one of its own sessions,
+// or "" when it wrote none.
+func (s *Service) locateCodexRollout(vendorSessionID string) string {
+	if s.codexRolloutLocator != nil {
+		return s.codexRolloutLocator(vendorSessionID)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return sessiontranscript.LocateCodexRollout(home, vendorSessionID)
+}
+
 func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon.Response {
 	// A vendor may report several workspace roots for one session — Cursor sends
 	// `workspace_roots` as an array for a multi-root workspace — and only this
@@ -1098,6 +1121,26 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 		// Passive observation fails closed. The coding-agent operation is never
 		// blocked or modified because an activity candidate was rejected.
 		return daemon.Response{OK: true, Data: map[string]any{"accepted": false}}
+	}
+	// Codex fires the full hook lifecycle for threads its own app runs in the
+	// background — ambient suggestion generation and its safety pass both open a
+	// thread in the member's checkout, run commands and MCP tools in it, and
+	// report SessionStart, UserPromptSubmit and Stop exactly as a chat does.
+	// Publishing those produced a session card per background run that the member
+	// never opened, could not recognize, and had no way to end.
+	//
+	// A background thread writes no rollout, which is the discriminator used
+	// here: Codex records every thread a member can actually open under
+	// ~/.codex/sessions before its first hook fires, and records nothing for a
+	// thread that exists only inside the app. The lookup is the same one the
+	// transcript needs anyway, so recognizing a background thread costs nothing.
+	codexRollout := ""
+	if event.Vendor == "codex" {
+		codexRollout = s.locateCodexRollout(q.AgentVendorSessionID)
+		if codexRollout == "" {
+			s.codexBackgroundCount.Add(1)
+			return daemon.Response{OK: true, Data: map[string]any{"accepted": false, "reason": "codex background thread"}}
+		}
 	}
 	// The hook hands over the parse-time session handle; what leaves this device
 	// is that handle scoped to the enrollment it is observed under, so a session
@@ -1151,9 +1194,8 @@ func (s *Service) handleAgentEvent(ctx context.Context, q daemon.Request) daemon
 		transcriptPath = ""
 	}
 	if transcriptPath == "" && event.Vendor == "codex" {
-		if home, homeErr := os.UserHomeDir(); homeErr == nil {
-			transcriptPath = sessiontranscript.LocateCodexRollout(home, q.AgentVendorSessionID)
-		}
+		// Already located above, where its absence identified a background thread.
+		transcriptPath = codexRollout
 	}
 	// A vendor that writes no transcript Overgent can read may still have named
 	// this session. Cursor's adapter derives that name from the submitted prompt

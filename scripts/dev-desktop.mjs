@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { devConfigRoot } from "./dev-profile.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -37,7 +38,7 @@ if (build.status !== 0) {
 }
 
 const executable = path.join(root, "apps", "desktop", "build", "bin", "Overgent Dev.app", "Contents", "MacOS", "overgent-desktop-dev");
-const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, FRONTEND_DEVSERVER_URL: devURL, OVERGENT_API_ORIGIN: "http://127.0.0.1:3211", OVERGENT_DASHBOARD_ORIGIN: `${healthURL.origin}/api`, OVERGENT_CLI_BINARY: cli }, stdio: "inherit" });
+const desktop = spawn(executable, [], { cwd: root, env: { ...process.env, FRONTEND_DEVSERVER_URL: devURL, OVERGENT_API_ORIGIN: "http://127.0.0.1:3211", OVERGENT_DASHBOARD_ORIGIN: `${healthURL.origin}/api`, OVERGENT_CLI_BINARY: cli, OVERGENT_CONFIG_ROOT: devConfigRoot() }, stdio: "inherit" });
 const stop = () => {
   desktop.kill("SIGTERM");
   ui?.kill("SIGTERM");

@@ -544,6 +544,15 @@ func readOptional(path string) (string, error) {
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
+	// The temporary file is created beside its destination so the rename below
+	// stays on one filesystem, which means the destination's directory has to
+	// exist first. A repository that has never been opened in Codex has no
+	// .codex directory, and without this the write failed with a bare "no such
+	// file or directory" naming a temporary file the member had never heard of.
+	// One caller already did this; the one that configures an agent did not.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create Codex config directory: %w", err)
+	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".overgent-config-*")
 	if err != nil {
 		return fmt.Errorf("create temporary Codex config: %w", err)

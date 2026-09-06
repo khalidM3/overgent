@@ -231,3 +231,28 @@ func TestRepairAdoptsWithoutConnectingAnythingNew(t *testing.T) {
 		t.Fatal("repair installed hooks for an agent that was never connected")
 	}
 }
+
+// A repository that has never been opened in Codex has no .codex directory, and
+// the binding is written into it before anything creates it. Rebind is the path
+// that hit this: adapter repair runs it over every registered root at launch,
+// and one root without the directory failed the whole pass with a message
+// naming a temporary file the member had never seen.
+func TestRebindCreatesTheProjectCodexDirectory(t *testing.T) {
+	project := t.TempDir()
+	trustedForTest(t)
+	manager := Manager{ProjectRoot: project, ConfigRoot: filepath.Join(t.TempDir(), "state"), Executable: "/usr/local/bin/overgent", CodexHome: t.TempDir()}
+	status, err := manager.Rebind()
+	if err != nil {
+		t.Fatalf("rebind into a project with no .codex directory: %v", err)
+	}
+	if !status.Configured {
+		t.Fatalf("rebind reported an unconfigured binding: %+v", status)
+	}
+	written, err := os.ReadFile(filepath.Join(project, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read the config rebind wrote: %v", err)
+	}
+	if !strings.Contains(string(written), beginMarker) {
+		t.Fatalf("rebind wrote no managed block: %q", written)
+	}
+}
