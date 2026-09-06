@@ -134,6 +134,7 @@ type GetContextItem200JSONResponseBody0 struct {
 // GetContextItem200JSONResponseBody1 defines parameters for GetContextItem.
 type GetContextItem200JSONResponseBody1 struct {
 	ConfidenceBand interface{} `json:"confidenceBand"`
+	Delivery       interface{} `json:"delivery,omitempty"`
 	Evidence       []struct {
 		Contract *struct {
 			ChangedAt             time.Time `json:"changedAt"`
@@ -365,6 +366,7 @@ type GetProjectChanges200JSONResponseBodyItems0 struct {
 // GetProjectChanges200JSONResponseBodyItems1 defines parameters for GetProjectChanges.
 type GetProjectChanges200JSONResponseBodyItems1 struct {
 	ConfidenceBand interface{} `json:"confidenceBand"`
+	Delivery       interface{} `json:"delivery,omitempty"`
 	Evidence       []struct {
 		Contract *struct {
 			ChangedAt             time.Time `json:"changedAt"`

@@ -812,6 +812,8 @@ export interface components {
                 reason: string;
                 /** @enum {unknown} */
                 state: "open" | "acknowledged" | "snoozed" | "resolved" | "dismissed";
+                /** @enum {unknown} */
+                delivery?: "next_turn" | "dashboard" | "silent";
                 revision: number;
                 $defs: {
                     evidence: {
@@ -994,6 +996,8 @@ export interface components {
             reason: string;
             /** @enum {unknown} */
             state: "open" | "acknowledged" | "snoozed" | "resolved" | "dismissed";
+            /** @enum {unknown} */
+            delivery?: "next_turn" | "dashboard" | "silent";
             revision: number;
             $defs: {
                 evidence: {
@@ -1902,6 +1906,8 @@ export interface components {
             reason: string;
             /** @enum {unknown} */
             state: "open" | "acknowledged" | "snoozed" | "resolved" | "dismissed";
+            /** @enum {unknown} */
+            delivery?: "next_turn" | "dashboard" | "silent";
             revision: number;
             $defs: {
                 evidence: {
@@ -3303,6 +3309,8 @@ export interface operations {
                             reason: string;
                             /** @enum {unknown} */
                             state: "open" | "acknowledged" | "snoozed" | "resolved" | "dismissed";
+                            /** @enum {unknown} */
+                            delivery?: "next_turn" | "dashboard" | "silent";
                             revision: number;
                             $defs: {
                                 evidence: {
@@ -4405,6 +4413,8 @@ export interface operations {
                         reason: string;
                         /** @enum {unknown} */
                         state: "open" | "acknowledged" | "snoozed" | "resolved" | "dismissed";
+                        /** @enum {unknown} */
+                        delivery?: "next_turn" | "dashboard" | "silent";
                         revision: number;
                         $defs: {
                             evidence: {
