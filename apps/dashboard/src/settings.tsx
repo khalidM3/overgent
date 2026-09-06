@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ChevronRight, FileCode2, Laptop2, Moon, Plus, ShieldCheck, Sun, UserPlus } from "lucide-react";
+import { isDesktopWebview, nativeOnboarding } from "./native";
 import { Screen, ScreenSection } from "./screen";
 import type { FixtureProjectSource } from "./fixture-source";
 import type { MemberNameSource, ProjectAccess, ProjectSnapshot } from "./model";
@@ -45,7 +46,9 @@ export function memberHue(name: string): number {
  * moves to the next one. Queuing the request and leaving the member inside a
  * Project they no longer belong to is the failure mode this exists to prevent.
  */
-export function SettingsScreen({ snapshot, dark, identity, projectId, source, offline, backLabel, onBack, onIdentity, onTheme, onPeople, onRemoved }: {
+export function SettingsScreen({ snapshot, dark, identity, projectId, source, offline, backLabel, onBack, onIdentity, onTheme, onPeople, onRemoved, intelligence, onAppSettings }: {
+  intelligence?: ReactNode;
+  onAppSettings?: () => void;
   snapshot: ProjectSnapshot;
   dark: boolean;
   identity: { name: string; source: MemberNameSource };
@@ -83,7 +86,7 @@ export function SettingsScreen({ snapshot, dark, identity, projectId, source, of
     <span><strong>{device.label}</strong><small>{device.platform} · {device.status} · {device.lastSeen}</small></span>
   </div>);
 
-  return <Screen title="Settings" sub={snapshot.project.name} backLabel={backLabel} onBack={onBack} lede="How you appear to teammates, how this app looks, which devices can reach this Project, and what leaves your machine.">
+  return <Screen title="Settings" sub={snapshot.project.name} backLabel={backLabel} onBack={onBack} lede="Identity, shared intelligence, access, and data for this Project.">
     <ScreenSection title="Your identity">
       <form className="screen-form" onSubmit={(event) => {
         event.preventDefault();
@@ -103,11 +106,8 @@ export function SettingsScreen({ snapshot, dark, identity, projectId, source, of
       </form>
     </ScreenSection>
 
-    <ScreenSection title="Appearance">
-      <div className="screen-rows">
-        <button className="settings-row" onClick={onTheme}><span className="settings-icon">{dark ? <Moon size={16} /> : <Sun size={16} />}</span><span><strong>Theme</strong><small>{dark ? "Dark" : "Light"}</small></span><ChevronRight size={15} /></button>
-      </div>
-    </ScreenSection>
+    {intelligence && <ScreenSection title="Project intelligence">{intelligence}</ScreenSection>}
+    {onAppSettings && <ScreenSection title="This Mac"><button className="settings-row" onClick={onAppSettings}><span><strong>App settings</strong><small>Appearance and coding-agent connections</small></span><ChevronRight size={15} /></button></ScreenSection>}
 
     <ScreenSection title="People">
       <div className="screen-rows">
@@ -121,7 +121,8 @@ export function SettingsScreen({ snapshot, dark, identity, projectId, source, of
 
     <ScreenSection title="Privacy & data">
       <div className="privacy-card"><ShieldCheck size={17} /><div><strong>Local-first analysis, bounded Project sharing</strong><p>Raw source, diffs, environment values, credentials, and command output never cross the wire. Project members can see classifier-approved coordination facts and session context while sharing is unpaused.</p></div></div>
-      {access && <div className="screen-rows"><a className="settings-row" href={source.exportURL(projectId)} download><span className="settings-icon"><FileCode2 size={16} /></span><span><strong>Export retained {access.role === "owner" ? "Project" : "personal"} data</strong><small>Versioned JSON containing the structured records you are authorized to export.</small></span><ChevronRight size={15} /></a></div>}
+      {access && isDesktopWebview && <button className="settings-row" disabled={adminPending || offline} onClick={() => admin(() => nativeOnboarding.exportProject(projectId))}>Export retained {access.role === "owner" ? "Project" : "personal"} data</button>}
+      {access && !isDesktopWebview && <div className="screen-rows"><a className="settings-row" href={source.exportURL(projectId)} download><span className="settings-icon"><FileCode2 size={16} /></span><span><strong>Export retained {access.role === "owner" ? "Project" : "personal"} data</strong><small>Versioned JSON containing the structured records you are authorized to export.</small></span><ChevronRight size={15} /></a></div>}
     </ScreenSection>
 
     {access?.role === "owner" && <ScreenSection danger title="Delete Project" help="Deletion immediately revokes Project sessions and invites, then removes retained hosted records in bounded batches.">
@@ -147,9 +148,11 @@ export function SettingsScreen({ snapshot, dark, identity, projectId, source, of
  * rather than carrying a second copy, because adding a teammate should never
  * require hunting through Settings.
  */
-export function PeopleScreen({ projectId, projectName, source, offline, backLabel, onBack }: {
+export function PeopleScreen({ projectId, projectName, source, offline, backLabel, onBack, local = false, serverOrigin }: {
   projectId: string;
   projectName: string;
+  local?: boolean;
+  serverOrigin?: string;
   source: FixtureProjectSource;
   offline: boolean;
   backLabel: string;
@@ -165,7 +168,8 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   // hosted deployment, a self-hosted one, or, for a Project that lives on this
   // Mac, the app itself on loopback. Only the first two can be shared, so the
   // last one hands over the bare code instead of a link naming 127.0.0.1.
-  const shareable = window.location.protocol === "https:";
+  const inviteOrigin = serverOrigin ?? window.location.origin;
+  const shareable = inviteOrigin.startsWith("https://") && !local;
   const refresh = () => source.getProjectAccess(projectId).then(setAccess).catch(() => setError("Project access controls could not be loaded."));
   useEffect(() => { void refresh(); }, [projectId]);
   const run = (operation: () => Promise<void>, message: string) => {
@@ -179,10 +183,10 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   const owner = access?.role === "owner";
 
   return <Screen title="People" sub={projectName} backLabel={backLabel} onBack={onBack} lede="Everyone who can see this Project's coordination facts, and the one-use invite links that let someone in.">
-    <ScreenSection title="Invite a teammate" help="An invite is a one-use link that expires in seven days and can be revoked below. Whoever opens it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
+    {local ? <ScreenSection title="Private to this Mac" help="This Project’s coordination and history are stored here. A local invite cannot connect another Mac."><p className="settings-help">For remote collaboration, create a shared Project from Open a repository → Collaborate remotely. Automatic transfer of an existing local Project is not available yet; its history and provider keys stay here.</p></ScreenSection> : <ScreenSection title="Invite a teammate" help="An invite is a one-use link that expires in seven days and can be revoked below. Whoever opens it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
       <div className="screen-actions">
         {owner
-          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteLink(shareable ? `${window.location.origin}/join#${result.code}` : result.code); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create invite link</button>
+          ? <button className="pill solid" disabled={pending || offline} onClick={() => { setPending(true); setError(""); setCopied(false); void source.createInvite(projectId).then((result) => { setInviteLink(shareable ? `${inviteOrigin}/join#${result.code}` : result.code); return refresh(); }).catch(() => setError("A new invite could not be created.")).finally(() => setPending(false)); }}><Plus size={14} />Create invite link</button>
           : <p className="settings-help warning">Only the Project owner can invite people.</p>}
       </div>
       {inviteLink && <div className="invite-code" role="status">
@@ -195,7 +199,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
             : <>Shown once. This Project is served from this Mac, so there is no address a teammate could open — they need a Project on a server both of you can reach.</>}</span>
         </div>
       </div>}
-    </ScreenSection>
+    </ScreenSection>}
 
     <ScreenSection title="Members" count={access?.members.length}>
       <div className="screen-rows">
@@ -209,7 +213,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
       </div>
     </ScreenSection>
 
-    {owner && (access?.invites.length ?? 0) > 0 && <ScreenSection title="Open invites" count={access?.invites.length}>
+    {!local && owner && (access?.invites.length ?? 0) > 0 && <ScreenSection title="Open invites" count={access?.invites.length}>
       <div className="screen-rows">
         {access?.invites.map((invite) => <div className="settings-row" key={invite.id}>
           <span className="settings-icon"><UserPlus size={16} /></span>

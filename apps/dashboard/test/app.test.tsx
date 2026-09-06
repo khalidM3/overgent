@@ -1,9 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
 import { fixtureSession, snapshotForProject } from "../src/fixtures";
-import { App, DesktopPreviewBanner, groupByArea, sessionArea } from "../src/main";
+import { App, DesktopPreviewBanner, LiveApp, groupByArea, sessionArea } from "../src/main";
 import type { NativeOnboarding } from "../src/native";
 import type { Workstream } from "../src/model";
 
@@ -277,10 +277,12 @@ describe("Project Workroom behavior", () => {
     expect(within(settings).getByText("Local-first analysis, bounded Project sharing")).toBeTruthy();
     expect(await within(settings).findByText("Export retained Project data")).toBeTruthy();
     expect(screen.queryByRole("complementary", { name: "Details inspector" })).toBeNull();
-    await user.click(within(settings).getByRole("button", { name: /Theme/ }));
+    await user.click(within(settings).getByRole("button", { name: /App settings/ }));
+    await user.click(screen.getByRole("button", { name: "Use dark appearance" }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     // Back returns to the Project it was opened from.
-    await user.click(within(settings).getByRole("button", { name: "Back to Atlas launch" }));
+    await user.click(screen.getByRole("button", { name: "Back to Project settings" }));
+    await user.click(screen.getByRole("button", { name: "Back to Atlas launch" }));
     expect(screen.getByRole("heading", { name: "Atlas launch" })).toBeTruthy();
   });
 
@@ -300,7 +302,7 @@ describe("Project Workroom behavior", () => {
     await user.click(await within(settings).findByRole("button", { name: /Members & invites/ }));
     // Reached from Settings, back goes to Settings rather than always the workroom.
     const nested = screen.getByRole("main", { name: "People" });
-    await user.click(within(nested).getByRole("button", { name: "Back to Settings" }));
+    await user.click(within(nested).getByRole("button", { name: "Back to Project settings" }));
     expect(screen.getByRole("main", { name: "Settings" })).toBeTruthy();
   });
 
@@ -361,7 +363,7 @@ describe("Project Workroom behavior", () => {
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "Add a new Project" }));
     // Probing. The form used to render here and then vanish under the member.
-    const add = screen.getByRole("main", { name: "Add a Project" });
+    const add = screen.getByRole("main", { name: "Open a repository" });
     expect(within(add).queryByPlaceholderText("Choose a local Git repository")).toBeNull();
     expect(within(add).getByRole("status").textContent).toContain("Checking this Mac");
 
@@ -388,14 +390,16 @@ describe("Project Workroom behavior", () => {
     };
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} navigate={navigate} />);
     await user.click(screen.getByRole("button", { name: "Add a new Project" }));
-    const add = await screen.findByRole("main", { name: "Add a Project" });
+    const add = await screen.findByRole("main", { name: "Open a repository" });
     // With the native bridge reachable the form is the screen. Nothing offers to
     // open the app the member is already looking at.
     expect(within(add).queryByRole("button", { name: /Overgent app/ })).toBeNull();
     await user.click(within(add).getByRole("button", { name: "Choose…" }));
     expect((within(add).getByPlaceholderText("Choose a local Git repository") as HTMLInputElement).value).toBe("/tmp/orbit");
-    await user.click(within(add).getByRole("button", { name: "Create Project" }));
-    expect(await screen.findByRole("heading", { name: "Project created" })).toBeTruthy();
+    await user.click(within(add).getByText("Collaborate remotely"));
+    await user.click(within(add).getByRole("checkbox", { name: "Create a shared Project" }));
+    await user.click(within(add).getByRole("button", { name: "Create shared Project" }));
+    expect(await screen.findByRole("heading", { name: "orbit is ready." })).toBeTruthy();
     expect(screen.getByText("inv_orbit.secret")).toBeTruthy();
     expect(api.createAdditionalProject).toHaveBeenCalledWith(expect.objectContaining({ repositoryRoot: "/tmp/orbit", projectLabel: "orbit", displayName: "Khalid" }));
     await user.click(screen.getByRole("button", { name: "Open Project" }));
@@ -875,5 +879,126 @@ describe("invite join landing", () => {
     render(<JoinLanding fragment="" />);
     expect(screen.getByRole("alert").textContent).toContain("incomplete");
     expect(screen.queryByText(/^overgent join /)).toBeNull();
+  });
+});
+
+describe("switching between Projects", () => {
+  it("moves the whole workroom to the Project picked in the sidebar", async () => {
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={new FixtureProjectSource()} />);
+
+    // The session carries two Projects, and the sidebar offers both.
+    const orchard = screen.getByRole("button", { name: /Orchard mobile/ });
+    expect(screen.getByRole("button", { name: /Atlas launch/ }).getAttribute("aria-current")).toBe("page");
+    expect(orchard.getAttribute("aria-current")).toBeNull();
+    // Atlas's work is on screen and Orchard's is not.
+    expect(screen.queryByText("Reduce checkout to two explicit steps.")).toBeNull();
+
+    await user.click(orchard);
+
+    // Current-ness follows the click, and so does what the workroom is reading.
+    expect(screen.getByRole("button", { name: /Orchard mobile/ }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: /Atlas launch/ }).getAttribute("aria-current")).toBeNull();
+    expect(screen.getAllByText("Reduce checkout to two explicit steps.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Open Codex session for Khalid" })).toBeNull();
+  });
+});
+
+/**
+ * The live dashboard polls one Project at a time, and which one it polls used
+ * to be fixed at page load. Switching Projects therefore left the second one
+ * frozen at whatever it looked like when the tab opened: no new finding, no
+ * session moving, nothing until the member reopened it from the app.
+ */
+describe("live polling follows the Project on screen", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("stops polling the Project it left and starts polling the one it opened", async () => {
+    const session = {
+      memberId: "mem_live", memberName: "Khalid", memberNameSource: "member",
+      projects: [
+        { id: "prj_one", name: "Project One", repositoryLabel: "one", semanticStatus: "enabled", semanticMode: "offline_fallback" },
+        { id: "prj_two", name: "Project Two", repositoryLabel: "two", semanticStatus: "enabled", semanticMode: "offline_fallback" },
+      ],
+      selectedProjectId: "prj_one",
+    };
+    const snapshotFor = (id: string) => ({
+      project: session.projects.find((project) => project.id === id),
+      contextRevision: 1, synchronizedAt: "now", workspacePaused: false,
+      workstreams: [], findings: [], activity: [], devices: [],
+    });
+    const polled: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/dashboard/session")) return json(session);
+      const snapshot = url.match(/\/dashboard\/projects\/([^/?]+)$/);
+      if (snapshot) {
+        polled.push(snapshot[1]!);
+        return json(snapshotFor(snapshot[1]!));
+      }
+      const collaboration = url.match(/\/projects\/([^/?]+)\/collaboration$/);
+      if (collaboration) return json({ projectId: collaboration[1], syncCards: [], resolutions: [], cursor: "time:0" });
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<LiveApp />);
+    await screen.findByRole("button", { name: /Project Two/ });
+
+    // Both Projects were read once at startup; only the selected one polls.
+    polled.length = 0;
+    await advance(2_500);
+    expect(polled).toContain("prj_one");
+    expect(polled).not.toContain("prj_two");
+
+    await user.click(screen.getByRole("button", { name: /Project Two/ }));
+    polled.length = 0;
+    await advance(2_500);
+    expect(polled).toContain("prj_two");
+    expect(polled).not.toContain("prj_one");
+  });
+});
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+async function advance(milliseconds: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+}
+
+/**
+ * Pausing writes to the local service and then re-reads the snapshot, so there
+ * is a real gap between the click and the new state. The control used to spend
+ * that gap greyed out with the same icon and the same word, which reads as a
+ * button that did nothing rather than one that is working.
+ */
+describe("pausing sharing", () => {
+  it("says it is working while the change is in flight", async () => {
+    const source = new FixtureProjectSource();
+    let settle: () => void = () => undefined;
+    vi.spyOn(source, "localControl").mockResolvedValue(true);
+    vi.spyOn(source, "setProjectPaused").mockImplementation(() => new Promise<void>((resolve) => { settle = resolve; }));
+
+    const user = userEvent.setup();
+    render(<App initialState="ready" source={source} />);
+
+    const pause = await screen.findByRole("button", { name: /^Pause$/ });
+    await user.click(pause);
+
+    // The label is the state: greying out alone said nothing.
+    const working = await screen.findByRole("button", { name: /Pausing…/ });
+    expect(working.getAttribute("aria-busy")).toBe("true");
+    expect((working as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => { settle(); });
+    expect(await screen.findByRole("button", { name: /^Pause$|^Resume$/ })).toBeTruthy();
   });
 });

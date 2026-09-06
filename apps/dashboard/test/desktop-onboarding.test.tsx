@@ -1,454 +1,67 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopOnboarding } from "../src/desktop-onboarding";
-import type { NativeOnboarding, OnboardingState, ProjectState } from "../src/native";
+import type { NativeOnboarding, OnboardingState } from "../src/native";
 
-const adapters = [
-  { name: "Codex", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
-  { name: "Claude Code", installed: true, configured: false, fidelity: "MCP intent + Git observation", detail: "Project scoped", binding: "not_configured" as const, currentProfile: "Overgent Shared Dev", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false },
-];
-const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Khalid’s Mac", apiBaseUrl: "http://127.0.0.1:3211", adapters, limitation: "First Project only.", localAvailable: true };
-const localProject: ProjectState = { projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", backendId: "bk_local", kind: "local", apiBaseUrl: "http://127.0.0.1:3211", credential: "ok" };
-const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", backendId: "bk_local", projects: [localProject], adapters: adapters.map((adapter) => ({ ...adapter, configured: true, binding: "current", runtimeVerified: true })) };
-
-const needsReview: OnboardingState = {
-  ...enrolled,
-  adapters: [
-    { ...adapters[0], configured: true, binding: "current" as const, runtimeVerified: false, hooksNeedReview: true,
-      detail: "Connected, but Codex has not trusted the activity hooks yet, so no session activity can be observed. Open Codex → Settings → Hooks and choose Trust all, or run /hooks in the Codex CLI.",
-      reviewGuidance: "Open Codex → Settings → Hooks and choose Trust all, or run /hooks in the Codex CLI." },
-    { ...adapters[1], configured: true, binding: "current" as const, runtimeVerified: true },
-  ],
-};
-
-/**
- * First run is three steps, so a test that wants the connect step has to walk
- * there. The walk is the assertion in one test and setup in the rest.
- */
-async function reachAgentStep(user: ReturnType<typeof userEvent.setup>, mode: "create" | "join" | "local" = "create") {
-  if (mode === "local") {
-    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
-  } else {
-    await user.click(await screen.findByRole("button", { name: "Create or join a team Project" }));
-    if (mode === "join") await user.click(screen.getByRole("button", { name: "I have an invite code" }));
-  }
-  await user.click(screen.getByRole("button", { name: "Choose…" }));
-  if (mode === "join") await user.type(screen.getByLabelText("Invite code"), "inv_test.secret");
-  await user.click(screen.getByRole("button", { name: "Continue" }));
+const adapter = { name: "Codex", installed: true, configured: false, fidelity: "Git", detail: "Detected", binding: "not_configured" as const, currentProfile: "test", runtimeVerified: false, restartRequired: false, reconnectAllowed: false, hooksNeedReview: false };
+const initial: OnboardingState = { available: true, development: true, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "Test Mac", apiBaseUrl: "https://api.overgent.com", adapters: [adapter], limitation: "", localAvailable: true };
+const project = { projectId: "prj_test", repositoryRoot: "/tmp/atlas", repositoryLabel: "atlas", backendId: "bk_local", kind: "local" as const, apiBaseUrl: "http://127.0.0.1:3211", credential: "ok" as const };
+const enrolled: OnboardingState = { ...initial, enrolled: true, projectId: project.projectId, repositoryRoot: project.repositoryRoot, repositoryLabel: "atlas", projects: [project], backendId: project.backendId };
+function mockAPI(state = initial): NativeOnboarding {
+ return { state: vi.fn(async () => state), recheckState: vi.fn(async () => state), chooseRepository: vi.fn(async () => "/tmp/atlas"), createLocalProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "", warnings: [] })), createProject: vi.fn(async () => ({ projectId: "prj_shared", joinCode: "inv_synthetic.secret", warnings: [] })), createAdditionalProject: vi.fn(), joinProject: vi.fn(async () => ({ projectId: "prj_joined", joinCode: "", warnings: [] })), joinAdditionalProject: vi.fn(async () => ({ projectId: "prj_joined", joinCode: "", warnings: [] })), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(async (id) => `/?live=1&project=${id}`), resetEnrollment: vi.fn(async () => initial), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn() };
 }
-
-describe("desktop onboarding", () => {
-  it("tells the member a Codex binding is inert while its hooks await review", async () => {
-    const api = {
-      state: vi.fn(async () => needsReview),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    } as unknown as NativeOnboarding;
-    render(<DesktopOnboarding api={api} />);
-    const connections = await screen.findByLabelText("Agent connections");
-    // An installed-but-untrusted binding must never read as working: that is
-    // the exact failure this state exists to expose.
-    expect(within(connections).getByText(/has not trusted the activity hooks/)).toBeTruthy();
-    expect(within(connections).getByText(/Settings . Hooks/)).toBeTruthy();
-  });
-
-  it("opens on what Overgent is and what it already found on this Mac", async () => {
-    const api = {
-      state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    } as unknown as NativeOnboarding;
-    render(<DesktopOnboarding api={api} />);
-    await screen.findByRole("heading", { name: /Welcome to Overgent/ });
-    // Three lines, and nothing asked. What this Mac already has is said on the
-    // step where it is actionable, next to the checkbox it applies to, rather
-    // than twice.
-    const points = screen.getByRole("list").querySelectorAll("li");
-    expect(points.length).toBe(3);
-    expect(screen.queryByLabelText("Your name")).toBeNull();
-    expect(screen.queryByText(/Step 1 of 3/)).toBeNull();
-    // The first question is where the data goes, and "Use on this Mac" is the
-    // default because it is the answer that shares nothing.
-    expect(screen.getByRole("button", { name: "Use on this Mac" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create or join a team Project" })).toBeTruthy();
-    expect(screen.getByText("Nothing leaves this computer.")).toBeTruthy();
-  });
-
-  it("states plainly when it found no coding agents, without dressing it as a fault", async () => {
-    const api = {
-      state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    } as unknown as NativeOnboarding;
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} />);
-    await reachAgentStep(user);
-    // Finding nothing is an answer, not work converging on the member. It is
-    // said once, on the row it applies to, and it is not styled as a fault.
-    const line = screen.getByText(/Not found . connect anyway and sessions appear once Codex/);
-    expect(line).toBeTruthy();
-    expect(line.closest(".connection-line")).toBeNull();
-    // And it must not be a dead end - the Project can still be created.
-    expect((screen.getByRole("button", { name: "Create and connect" }) as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("puts the sharing boundary on the step that connects agents, one disclosure from exact", async () => {
-    const user = userEvent.setup();
-    const api = {
-      state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    } as unknown as NativeOnboarding;
-    render(<DesktopOnboarding api={api} />);
-    await reachAgentStep(user);
-    // The summary line is what a member reads at the moment of highest
-    // friction. The full boundary must stay reachable and stay exact.
-    expect(screen.getByText(/never your source, diffs, prompts, or credentials/)).toBeTruthy();
-    const disclosure = screen.getByText("Exactly what is and is not shared").closest("details");
-    expect(disclosure).toBeTruthy();
-    expect(within(disclosure as HTMLElement).getByText(/never cross the wire/)).toBeTruthy();
-    // The boundary is stated once, immediately above the button that acts on
-    // it. It used to be stated three times on this screen, which is how a
-    // member learns to skip all three.
-    expect(screen.getAllByText(/never your source, diffs, prompts, or credentials/).length).toBe(1);
-  });
-
-  it("names the field a disabled Continue is waiting on", async () => {
-    const user = userEvent.setup();
-    const api = {
-      state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(async () => ""), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    } as unknown as NativeOnboarding;
-    render(<DesktopOnboarding api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
-    expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
-    // A control that cannot be pressed explains itself or it is a dead end.
-    expect(screen.getByText("Choose a repository to continue.")).toBeTruthy();
-  });
-
-  it("creates a Project, opts both detected agents in, and exposes the one-use invite", async () => {
-    const user = userEvent.setup();
-    let calls = 0;
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => calls++ === 0 ? initial : enrolled),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"),
-      createProject: vi.fn(async () => ({ projectId: "prj_test", joinCode: "inv_test.secret", warnings: null as unknown as string[] })), createLocalProject: vi.fn(),
-      createAdditionalProject: vi.fn(),
-      joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    await reachAgentStep(user);
-    // Detected agents arrive already ticked. Enrolling without connecting one
-    // leaves the Project observing Git alone, which reads as a broken install,
-    // so the detected default is what the member should have to opt out of.
-    expect((screen.getByRole("checkbox", { name: /Codex/ }) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByRole("checkbox", { name: /Claude Code/ }) as HTMLInputElement).checked).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Create and connect" }));
-    // Enrollment ends by saying it worked and offering the one thing worth
-    // doing next, not by handing over a status list.
-    expect(await screen.findByRole("heading", { name: "atlas is connected." })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open Project" })).toBeTruthy();
-    // A Project with one member already does its whole job, so the invite is
-    // an option rather than the next step - but it must still be reachable.
-    expect(screen.queryByText("inv_test.secret")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Invite a teammate" }));
-    expect(screen.getByText("inv_test.secret")).toBeTruthy();
-    expect(api.createProject).toHaveBeenCalledWith(expect.objectContaining({ repositoryRoot: "/tmp/atlas", projectLabel: "atlas", enableCodex: true, enableClaude: true }));
-  });
-
-  it("allows explicit adapter configuration when process-level detection is inconclusive", async () => {
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => ({ ...initial, adapters: initial.adapters.map((adapter) => ({ ...adapter, installed: false })) })),
-      chooseRepository: vi.fn(async () => "/tmp/atlas"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} />);
-    await reachAgentStep(user);
-    const codex = screen.getByRole("checkbox", { name: /Codex/ });
-    const claude = screen.getByRole("checkbox", { name: /Claude Code/ });
-    expect((codex as HTMLInputElement).disabled).toBe(false);
-    expect((claude as HTMLInputElement).disabled).toBe(false);
-    await user.click(codex);
-    await user.click(claude);
-    expect((codex as HTMLInputElement).checked).toBe(true);
-    expect((claude as HTMLInputElement).checked).toBe(true);
-  });
-
-  it("opens the authenticated live Project through a native one-time handoff", async () => {
-    const navigate = vi.fn();
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(),
-      openLiveProject: vi.fn(async () => "http://127.0.0.1:49152/activate/nonce"), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} navigate={navigate} />);
-    await user.click(await screen.findByRole("button", { name: "Open Project" }));
-    expect(navigate).toHaveBeenCalledWith("http://127.0.0.1:49152/activate/nonce");
-  });
-
-  it("explains automatic repo-scoped session observation without requiring worktrees", async () => {
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/atlas-claude"), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(),
-      connectAgentWorktree: vi.fn(async () => enrolled.adapters[1]), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    // Observation is repository-scoped and automatic, so the home screen has no
-    // worktree to assign and never asks about one.
-    expect(await screen.findByLabelText("Agent connections")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Assign .* worktree/ })).toBeNull();
-    expect(api.connectAgentWorktree).not.toHaveBeenCalled();
-    // Home is a place to leave, not a wall. Both exits are ordinary buttons.
-    expect(screen.getByRole("button", { name: "Open Project" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Use on this Mac" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Create team Project" })).toBeTruthy();
-  });
-
-  it("previews and explicitly confirms a safe profile reconnect", async () => {
-    const otherProfile: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, configured: false, binding: "other_profile", previousProfile: "Overgent", runtimeVerified: false, restartRequired: false, reconnectAllowed: true, detail: "Connected to a different Overgent profile." } : adapter) };
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => otherProfile), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(),
-      reconnectAdapter: vi.fn(async () => ({ ...otherProfile.adapters[0], configured: true, binding: "current" as const, reconnectAllowed: false, restartRequired: true })),
-      connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} />);
-    await user.click(await screen.findByRole("button", { name: "Reconnect to this Project" }));
-    const dialog = screen.getByRole("dialog", { name: "Reconnect Codex" });
-    expect(dialog).toBeTruthy();
-    expect(screen.getByText("Overgent")).toBeTruthy();
-    expect(screen.getByText("Overgent Shared Dev")).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Reconnect to this Project" }));
-    expect(api.reconnectAdapter).toHaveBeenCalledWith("/tmp/atlas", "codex");
-  });
-
-  it("keeps a configured adapter pending until a live event verifies it", async () => {
-    const pending: OnboardingState = { ...enrolled, adapters: enrolled.adapters.map((adapter) => adapter.name === "Codex" ? { ...adapter, runtimeVerified: false, restartRequired: true, detail: "Configured for this Project. Restart the agent, then start a new task in this repository to verify the connection." } : adapter) };
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => pending), chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(), configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByText(/Restart the agent, then start a new task/)).toBeTruthy();
-    // The row already says what to do. Raising an attention banner as well
-    // fired after every successful setup, which taught members to ignore the
-    // one case that is genuinely converging on them.
-    expect(screen.queryByText(/needs attention/)).toBeNull();
-  });
-});
-
-describe("first-run identity", () => {
-  it("asks for a member name and keeps the device name as a security detail", async () => {
-    const user = userEvent.setup();
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => initial),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(), resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
-
-    const name = screen.getByLabelText("Your name") as HTMLInputElement;
-    expect(name.value).toBe("");
-    await user.type(name, "Khalid M");
-    expect((screen.getByLabelText("Your name") as HTMLInputElement).value).toBe("Khalid M");
-
-    // The device name is an audit label with a correct default, so first run
-    // no longer asks for it. A field whose answer is already right is a step
-    // the member pays for and nobody reads.
-    expect(screen.queryByLabelText("Device name")).toBeNull();
-    expect(screen.queryByText("Device name & security")).toBeNull();
-  });
-
-  it("offers an in-app reconnect when an owner revoked this Mac", async () => {
-    const user = userEvent.setup();
-    const reset = vi.fn(async () => initial);
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => ({ ...enrolled, credential: "revoked" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: reset, sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByRole("heading", { name: /access was revoked/ })).toBeTruthy();
-    // The member must be told their code is safe before being asked to confirm.
-    expect(screen.getByText(/repositories and code were not touched/)).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Reconnect this Mac" }));
-    expect(screen.getByRole("heading", { name: "Reconnect this Mac?" })).toBeTruthy();
-    await user.click(within(screen.getByRole("group", { name: "Confirm reconnect" })).getByRole("button", { name: "Reconnect this Mac" }));
-    expect(reset).toHaveBeenCalled();
-    // Clearing the dead credential returns the member to first-run enrollment.
-    expect(await screen.findByRole("heading", { name: /Welcome to Overgent/ })).toBeTruthy();
-  });
-
-  it("explains an unknown credential differently from a revoked one", async () => {
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => ({ ...enrolled, credential: "unknown" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByRole("heading", { name: /no longer recognised/ })).toBeTruthy();
-    expect(screen.queryByText(/access was revoked/)).toBeNull();
-  });
-
-  it("never offers to erase an enrollment it could not verify", async () => {
-    const reset = vi.fn();
-    const api: NativeOnboarding = {
-      // Offline, timing out, or a server fault - none of which mean locked out.
-      state: vi.fn(async () => ({ ...enrolled, credential: "uncertain" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: reset, sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByRole("heading", { name: /could not confirm this Mac/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Reconnect this Mac" })).toBeNull();
-    expect(reset).not.toHaveBeenCalled();
-  });
-
-  it("leaves a healthy enrollment alone", async () => {
-    const api: NativeOnboarding = {
-      state: vi.fn(async () => ({ ...enrolled, credential: "ok" as const })),
-      chooseRepository: vi.fn(), createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-      configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-      resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    };
-    render(<DesktopOnboarding api={api} />);
-    expect(await screen.findByRole("heading", { name: "atlas" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Reconnect this Mac" })).toBeNull();
-  });
-});
-
-describe("joining a second Project", () => {
-  const nativeDouble = (overrides: Record<string, unknown>) => ({
-    state: vi.fn(async () => enrolled), chooseRepository: vi.fn(async () => "/tmp/beacon"),
-    createProject: vi.fn(), createLocalProject: vi.fn(), createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-    configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-    resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-    ...overrides,
-  } as unknown as NativeOnboarding);
-
-  it("accepts an invite without minting a second device identity", async () => {
-    const joinAdditionalProject = vi.fn(async () => ({ projectId: "prj_invited", joinCode: "", warnings: [] }));
-    const api = nativeDouble({ joinAdditionalProject });
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-
-    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
-    await user.type(await screen.findByLabelText("Invite code"), "inv_test.secret");
-    await user.click(screen.getByRole("button", { name: "Choose…" }));
-    await user.click(screen.getByRole("button", { name: "Join Project" }));
-
-    expect(await screen.findByRole("heading", { name: "Project joined" })).toBeTruthy();
-    expect(joinAdditionalProject).toHaveBeenCalledWith(expect.objectContaining({ joinCode: "inv_test.secret", repositoryRoot: "/tmp/beacon" }));
-    // joinProject enrolls a new device and is only correct on a Mac that has
-    // none. Calling it here burned the invite and joined nothing.
-    expect(api.joinProject).not.toHaveBeenCalled();
-    expect(api.createAdditionalProject).not.toHaveBeenCalled();
-    // A member who just accepted an invite has not been handed one to pass on.
-    expect(screen.queryByText("One-use invite code")).toBeNull();
-  });
-
-  it("comes back to the home screen instead of stranding the member", async () => {
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={nativeDouble({})} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
-    expect(await screen.findByRole("button", { name: "Open Project" })).toBeTruthy();
-  });
-
-  it("says why the invite was refused rather than failing silently", async () => {
-    const api = nativeDouble({ joinAdditionalProject: vi.fn(async () => { throw new Error("join Project: That invite has expired. Ask for a new one."); }) });
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={api} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Join with invite" }));
-    await user.type(await screen.findByLabelText("Invite code"), "inv_test.secret");
-    await user.click(screen.getByRole("button", { name: "Choose…" }));
-    await user.click(screen.getByRole("button", { name: "Join Project" }));
-    expect(await screen.findByText(/That invite has expired/)).toBeTruthy();
-  });
-});
-
-describe("local mode", () => {
-  const api = () => ({
-    state: vi.fn(async () => initial),
-    chooseRepository: vi.fn(async () => "/tmp/atlas"),
-    createProject: vi.fn(),
-    createLocalProject: vi.fn(async () => ({ projectId: "prj_local", joinCode: "", warnings: [] })),
-    createAdditionalProject: vi.fn(), joinProject: vi.fn(), joinAdditionalProject: vi.fn(),
-    configureAdapters: vi.fn(), reconnectAdapter: vi.fn(), connectAgentWorktree: vi.fn(), openLiveProject: vi.fn(),
-    resetEnrollment: vi.fn(), sessionDetail: vi.fn(), setProjectPaused: vi.fn(), sessionFocus: vi.fn(), setSessionFocus: vi.fn(),
-  }) as unknown as NativeOnboarding;
-
-  it("creates a Project on this Mac without offering an invite or a server", async () => {
-    const user = userEvent.setup();
-    const native = api();
-    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Use on this Mac" }));
-    // Nothing about servers or invites belongs on a path where there is no
-    // remote and no second member.
-    expect(screen.queryByText("Advanced: connect to a different server")).toBeNull();
-    expect(screen.queryByLabelText("Invite code")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Choose…" }));
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByText(/stay in a database on this Mac/)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Create and connect" }));
-    expect(native.createLocalProject).toHaveBeenCalledTimes(1);
-    expect(native.createProject).not.toHaveBeenCalled();
-  });
-
-  it("offers the server field only on the team path and passes what was typed", async () => {
-    const user = userEvent.setup();
-    const native = api();
-    (native as { createProject: unknown }).createProject = vi.fn(async () => ({ projectId: "prj_team", joinCode: "inv_a.b", warnings: [] }));
-    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Create or join a team Project" }));
-    await user.click(screen.getByRole("button", { name: "Choose…" }));
-    await user.type(screen.getByLabelText("Server address"), "https://convex.example.com");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: "Create and connect" }));
-    expect(native.createProject).toHaveBeenCalledWith(expect.objectContaining({ serverOrigin: "https://convex.example.com" }));
-  });
-
-  // A Mac binds each Project to its own backend (ADR-074), so the home screen
-  // names where every Project lives rather than declaring one kind for the
-  // whole Mac - and it offers all three ways to add another, whichever kind
-  // the Projects already there happen to be.
-  it("lists each Project with the backend it lives on", async () => {
-    const native = api();
-    const teamProject: ProjectState = { projectId: "prj_team", repositoryRoot: "/tmp/beacon", repositoryLabel: "beacon", backendId: "bk_team", kind: "team", apiBaseUrl: "https://convex.example.com", credential: "ok" };
-    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, projects: [teamProject, localProject] }));
-    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
-    const list = await screen.findByLabelText("Projects on this Mac");
-    expect(within(list).getByText("beacon")).toBeTruthy();
-    expect(within(list).getByText("https://convex.example.com")).toBeTruthy();
-    expect(within(list).getByText("atlas")).toBeTruthy();
-    expect(within(list).getByText(/On this Mac/)).toBeTruthy();
-    expect(screen.queryByText(/Reset to switch/)).toBeNull();
-    for (const name of ["Use on this Mac", "Create team Project", "Join with invite"]) {
-      expect(screen.getByRole("button", { name })).toBeTruthy();
-    }
-  });
-
-  // A revoked team Project must not erase the local Project beside it, so the
-  // recovery names the backend it is recovering.
-  it("reconnects only the backend the rejected Project lives on", async () => {
-    const native = api();
-    const reset = vi.fn(async () => enrolled);
-    (native as { state: unknown }).state = vi.fn(async () => ({ ...enrolled, backendId: "bk_team", credential: "revoked" as const }));
-    (native as { resetEnrollment: unknown }).resetEnrollment = reset;
-    const user = userEvent.setup();
-    render(<DesktopOnboarding api={native} navigate={() => undefined} />);
-    await user.click(await screen.findByRole("button", { name: "Reconnect this Mac" }));
-    await user.click(within(screen.getByRole("group", { name: "Confirm reconnect" })).getByRole("button", { name: "Reconnect this Mac" }));
-    expect(reset).toHaveBeenCalledWith("bk_team");
-  });
+beforeEach(() => { localStorage.clear(); window.history.replaceState(null, "", "/"); });
+describe("local-first entry", () => {
+ it("opens a repository in one form with detected agents and no identity or provider question", async () => {
+  const api = mockAPI(), navigate = vi.fn(), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={navigate} />);
+  await user.click(await screen.findByRole("button", { name: "Choose…" }));
+  expect(screen.queryByText(/Step \d/)).toBeNull(); expect(screen.queryByLabelText("Your name")).toBeNull(); expect(screen.queryByLabelText("API key")).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Open Project" }));
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith("/?live=1&project=prj_test"));
+  expect(api.createLocalProject).toHaveBeenCalledWith(expect.objectContaining({ repositoryRoot: "/tmp/atlas", projectLabel: "atlas", enableCodex: true, displayName: "" })); expect(api.createProject).not.toHaveBeenCalled();
+ });
+ it("does not substitute remote storage when local support is absent", async () => {
+  const api = mockAPI({ ...initial, localAvailable: false }), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Choose…" })); expect((screen.getByRole("button", { name: "Open Project" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText(/Local coordination is unavailable/)).toBeTruthy(); expect(api.createProject).not.toHaveBeenCalled();
+ });
+ it("resumes an enrolled Project without an Open Projects stop", async () => {
+  const api = mockAPI(enrolled), navigate = vi.fn(); render(<DesktopOnboarding api={api} navigate={navigate} />);
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith("/?live=1&project=prj_test"));
+ });
+ it("restores only a remembered Project enrolled on this Mac", async () => {
+  localStorage.setItem("overgent.last-project", "prj_attacker"); const api = mockAPI(enrolled); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await waitFor(() => expect(api.openLiveProject).toHaveBeenCalledWith("prj_test"));
+ });
+ it("opens an already registered repository without enrolling it twice", async () => {
+  window.history.replaceState(null, "", "/?add=project"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Choose…" })); await user.click(screen.getByRole("button", { name: "Open Project" }));
+  expect(api.createLocalProject).not.toHaveBeenCalled(); expect(api.openLiveProject).toHaveBeenCalledWith("prj_test");
+ });
+ it("joins by invite and reuses the existing enrollment path", async () => {
+  window.history.replaceState(null, "", "/?add=project"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Join with an invite" })); await user.type(screen.getByLabelText("Invite code"), "https://coord.example/join#inv_synthetic.secret"); await user.click(screen.getByRole("button", { name: "Choose…" })); await user.click(screen.getByRole("button", { name: "Join Project" }));
+  expect(api.joinAdditionalProject).toHaveBeenCalledWith(expect.objectContaining({ joinCode: "https://coord.example/join#inv_synthetic.secret" })); expect(api.resetEnrollment).not.toHaveBeenCalled();
+ });
+ it("keeps optional integration defaults local and respects a disabled agent", async () => {
+  localStorage.setItem("overgent.agent.codex", "off"); const api = mockAPI(), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Choose…" })); await user.click(screen.getByRole("button", { name: "Open Project" })); expect(api.createLocalProject).toHaveBeenCalledWith(expect.objectContaining({ enableCodex: false }));
+ });
+ it("never offers credential reset for an uncertain connection", async () => {
+  const api = mockAPI({ ...enrolled, credential: "uncertain", projects: [{ ...project, credential: "uncertain" }] }); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  expect(await screen.findByRole("button", { name: "Check connections" })).toBeTruthy(); expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull(); expect(api.resetEnrollment).not.toHaveBeenCalled();
+ });
+ it("scopes rejected-credential recovery to one server with a concrete confirmation", async () => {
+  const api = mockAPI({ ...enrolled, credential: "revoked", projects: [{ ...project, credential: "revoked" }] }), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Reconnect" })); expect(screen.getByText(/removes only this server/)).toBeTruthy(); await user.click(screen.getByRole("button", { name: "Forget this server’s connection" })); expect(api.resetEnrollment).toHaveBeenCalledWith("bk_local");
+ });
+ it("shows integration trust problems in settings without claiming readiness", async () => {
+  window.history.replaceState(null, "", "/?settings=1"); const api = mockAPI({ ...enrolled, adapters: [{ ...adapter, configured: true, hooksNeedReview: true, detail: "Review hooks in Codex before sessions can be observed." }] }); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  const settings = await screen.findByRole("main", { name: "App settings" }); expect(within(settings).getByText(/Review hooks in Codex/)).toBeTruthy(); expect(within(settings).queryByText("Observed session activity")).toBeNull();
+ });
+ it("returns to the Project that opened Add without trusting a URL destination", async () => {
+  window.history.replaceState(null, "", "/?add=project&from=prj_test"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
+  await user.click(await screen.findByRole("button", { name: "Back to atlas" })); expect(api.openLiveProject).toHaveBeenCalledWith("prj_test");
+ });
 });

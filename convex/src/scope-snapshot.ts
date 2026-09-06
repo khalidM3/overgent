@@ -1,6 +1,6 @@
 import type { SupportedVendor } from "./domain.js";
 
-export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "complete";
+export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "idle" | "complete";
 export type ScopeSnapshotProvenance = "declared" | "observed" | "fallback" | "unavailable";
 export type ScopeSnapshotEvidenceQuality = "high" | "medium" | "low" | "none";
 export type ScopeSnapshotFact =
@@ -138,6 +138,13 @@ function scopeState(input: ScopeSnapshotInput, verification: readonly ScopeVerif
   if (input.workstreamStatus === "done" || input.agentStatus === "done") return "complete";
   if (input.workstreamStatus === "blocked" || input.agentStatus === "waiting" || input.agentStatus === "error" || (input.declared?.waitingOn?.length ?? 0) > 0) return "waiting";
   if (verification.some((item) => item.state === "running")) return "verifying";
+  // `Stop` means the turn is over and the agent is between prompts. Until this
+  // existed, every state that was not complete, waiting or verifying fell
+  // through to "implementing", so a finished turn kept claiming work was in
+  // progress beside a "Turn finished" line until the retention sweep ended the
+  // session ten minutes later. Idle is not complete — the member can prompt the
+  // same session again — and it is not waiting, which means blocked on someone.
+  if (input.workstreamStatus === "idle" || input.agentStatus === "idle") return "idle";
   return "implementing";
 }
 

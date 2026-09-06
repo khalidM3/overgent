@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import os from "node:os";
 import path from "node:path";
+import { devConfigRoot } from "./dev-profile.mjs";
 
 if (process.platform !== "darwin") throw new Error("the full local development stack is currently validated only on macOS");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -11,7 +11,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // server; a Project now carries its own backend (ADR-074), so testing team
 // mode is adding a team Project to this profile with `--api https://…` rather
 // than running a second copy of the stack.
-const configRoot = path.join(os.homedir(), "Library", "Application Support", "Overgent");
+//
+// It is its own profile rather than the one a released build uses; see
+// dev-profile.mjs for why sharing that path made development untestable.
+const configRoot = devConfigRoot();
 const children = new Set();
 const start = (name, command, args, options = {}) => {
   const child = spawn(command, args, { cwd: root, stdio: "inherit", ...options });

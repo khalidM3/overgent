@@ -29,7 +29,7 @@ export interface HarnessCapabilities {
 export type FindingState = "open" | "acknowledged" | "resolved" | "dismissed";
 export type FindingFeedback = "useful" | "not_related" | "already_coordinated" | "missed_severity";
 export type Severity = "critical" | "high" | "medium" | "low";
-export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "complete";
+export type ScopeSnapshotState = "implementing" | "verifying" | "waiting" | "idle" | "complete";
 export type ScopeSnapshotProvenance = "declared" | "observed" | "fallback" | "unavailable";
 export type ScopeSnapshotEvidenceQuality = "high" | "medium" | "low" | "none";
 export type ScopeSnapshotFact =

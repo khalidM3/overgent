@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // The whole point of this file is the branch that only exists inside the
@@ -31,7 +31,7 @@ describe("adding a Project from inside the desktop window", () => {
 
     // And it continues on its own: the member already asked for this screen, so
     // an interstitial with one button is a second ask for the same decision.
-    expect(navigate).toHaveBeenCalledWith("/?desktop=onboarding&add=project");
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/?desktop=onboarding&add=project"));
     // The shell's own origin, never the registered scheme: WKWebView never
     // hands a custom scheme to the system, so an `overgent://` link here is the
     // dead end this replaced.

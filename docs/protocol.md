@@ -168,8 +168,13 @@ Every dashboard workstream may carry a revisioned `ScopeSnapshot`. It is a
 pull-only projection and has no route into a brief, hook response, agent turn,
 or interruption channel. The projection renders exactly six fields: Goal, Now,
 Done, Waiting on, Verification, and Scope, plus one honest state:
-`implementing`, `verifying`, `waiting`, or `complete`. It never invents a
-percentage. A future reported step contract may render a count such as “2 of 5
+`implementing`, `verifying`, `waiting`, `idle`, or `complete`. It never invents
+a percentage. `idle` is the state of a session between turns: `Stop` has
+arrived and the member has not prompted again. It is not `complete`, because the
+same session can be prompted again, and it is not `waiting`, which means blocked
+on a person or a permission. Without it a finished turn kept reporting
+`implementing` beside its own “Turn finished” line until the retention sweep
+ended the session ten minutes later. A future reported step contract may render a count such as “2 of 5
 reported steps”; no such count is inferred from paths, tools, or elapsed time.
 
 Field sources follow strict precedence. Declared facts from

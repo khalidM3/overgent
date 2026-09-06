@@ -1135,7 +1135,7 @@ export interface components {
         "scope-snapshot.schema": {
             revision: number;
             /** @enum {unknown} */
-            state: "implementing" | "verifying" | "waiting" | "complete";
+            state: "implementing" | "verifying" | "waiting" | "idle" | "complete";
             goal: {
                 text: string;
                 /** @enum {unknown} */
@@ -1278,7 +1278,7 @@ export interface components {
             scopeSnapshot?: {
                 revision: number;
                 /** @enum {unknown} */
-                state: "implementing" | "verifying" | "waiting" | "complete";
+                state: "implementing" | "verifying" | "waiting" | "idle" | "complete";
                 goal: {
                     text: string;
                     /** @enum {unknown} */
@@ -1485,7 +1485,7 @@ export interface components {
                 scopeSnapshot?: {
                     revision: number;
                     /** @enum {unknown} */
-                    state: "implementing" | "verifying" | "waiting" | "complete";
+                    state: "implementing" | "verifying" | "waiting" | "idle" | "complete";
                     goal: {
                         text: string;
                         /** @enum {unknown} */
@@ -2840,7 +2840,7 @@ export interface operations {
                             scopeSnapshot?: {
                                 revision: number;
                                 /** @enum {unknown} */
-                                state: "implementing" | "verifying" | "waiting" | "complete";
+                                state: "implementing" | "verifying" | "waiting" | "idle" | "complete";
                                 goal: {
                                     text: string;
                                     /** @enum {unknown} */

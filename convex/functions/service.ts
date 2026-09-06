@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { conceptVector, decideDelivery, deterministicJudgment, evaluateWorkstreams, readVerificationState, relationshipForKind, renderBrief, validateSemanticTags, validateSemanticText, INTELLIGENCE_ENGINE_VERSION, PROJECT_HOOK_MCP_CAPABILITIES, vendorCapabilities, SemanticPolicyError, type IntelligenceFinding, type JudgmentCandidate, type JudgmentSeverity, type JudgmentSignalKind, type JudgmentVerdict, type VerificationState, type WorkstreamRecord } from "@overgent/coordination";
-import { assertCanonicalManifestOrder, canActivateManifestRevision, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, SESSION_STOP_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
+import { assertCanonicalManifestOrder, canActivateManifestRevision, manifestPlaceholder, contractConfidenceBand, findDependencySatisfaction, manifestContentHash, readCoverageOf, readFidelityOf, readFidelityRank, RETENTION_TABLES, scopeKey, sessionHasGoneQuiet, sha256Hex, SESSION_IDLE_TIMEOUT_MS, SESSION_STOP_TIMEOUT_MS, validateSessionMessageText, ValidationError } from "../src/domain";
 import type { ManifestEntry, SupportedVendor } from "../src/domain";
 import { deriveScopeSnapshot } from "../src/scope-snapshot";
 import { findingTitle } from "../src/finding-title";
@@ -306,6 +306,7 @@ export const dashboardSession = internalQuery({
   handler: async (ctx, args) => {
     const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
     const semantic = await projectSemanticStatus(ctx, auth.project._id);
+    const projects = await browserSessionProjects(ctx, auth.device);
     return {
       memberId: auth.member.publicId,
       memberName: auth.member.displayName,
@@ -313,7 +314,18 @@ export const dashboardSession = internalQuery({
       // dashboard must ask the member to choose their own before it is shown as
       // live-work identity.
       memberNameSource: auth.member.displayNameSource ?? "device",
-      projects: [{ id: auth.project.publicId, name: auth.project.label, repositoryLabel: "Project repositories", semanticStatus: semantic.status, semanticMode: semantic.mode }],
+      projects: projects.map((entry) => ({
+        id: entry.project.publicId,
+        name: entry.project.label,
+        repositoryLabel: "Project repositories",
+        // Only the Project being opened has its semantic health read here; the
+        // rest report healthy until their own snapshot is fetched, which the
+        // dashboard does for every Project at startup. Reading it for all of
+        // them would put one query per Project on the path of every poll.
+        ...(entry.project._id === auth.project._id
+          ? { semanticStatus: semantic.status, semanticMode: semantic.mode }
+          : { semanticStatus: "enabled" as const, semanticMode: "offline_fallback" as const }),
+      })),
       selectedProjectId: auth.project.publicId,
     };
   },
@@ -322,8 +334,7 @@ export const dashboardSession = internalQuery({
 export const dashboardSnapshot = internalQuery({
   args: { sessionHash: v.string(), projectPublicId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
-    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
-    if (auth.project.publicId !== args.projectPublicId) fail("forbidden");
+    const auth = await requireBrowserSessionForProject(ctx, args.sessionHash, args.projectPublicId, args.now);
     const workspaces = await ctx.db.query("workspaces").withIndex("by_project", (q) => q.eq("projectId", auth.project._id)).take(101);
     if (workspaces.length > 100) fail("page_too_large");
     // Pausing writes to the paused member's own device and stops that device
@@ -351,6 +362,7 @@ export const dashboardSnapshot = internalQuery({
     let semanticStatus: "enabled" | "degraded" = "enabled";
     let semanticMode: "offline_fallback" | "managed_openai" | "managed_degraded" = "offline_fallback";
     for (const stream of projectWorkstreams) {
+      if (manifestPlaceholder(stream)) continue;
       const workspace = workspaces.find((candidate) => candidate._id === stream.workspaceId);
       if (!workspace) continue;
       const member = memberById.get(workspace.memberId);
@@ -767,10 +779,7 @@ export const contextItem = internalQuery({
 export const recordFindingFeedback = internalMutation({
   args: { sessionHash: v.string(), findingPublicId: v.string(), value: v.string(), feedbackPublicId: v.string(), now: v.number() },
   handler: async (ctx, args) => {
-    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
-    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
-    if (!finding || finding.projectId !== auth.project._id) fail("not_found");
-    const member = auth.member;
+    const { finding, member } = await requireBrowserSessionForFinding(ctx, args.sessionHash, args.findingPublicId, args.now);
     if (!["useful", "not_related", "already_coordinated", "missed_severity"].includes(args.value)) fail("validation_failed");
     const existing = await ctx.db.query("findingFeedback").withIndex("by_finding_member", (q) => q.eq("findingId", finding._id).eq("memberId", member._id)).unique();
     const record = { value: args.value as "useful" | "not_related" | "already_coordinated" | "missed_severity", engineVersion: finding.engineVersion, createdAt: args.now, expiresAt: args.now + DEFAULT_RETENTION_DAYS * DAY };
@@ -804,15 +813,13 @@ export const collaborationSnapshot = internalQuery({
 export const setFindingState = internalMutation({
   args: { sessionHash: v.string(), findingPublicId: v.string(), state: v.string(), now: v.number() },
   handler: async (ctx, args) => {
-    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
     if (!["acknowledged", "dismissed"].includes(args.state)) fail("validation_failed");
-    const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", args.findingPublicId)).unique();
-    if (!finding || finding.projectId !== auth.project._id) fail("not_found");
+    const { finding, project } = await requireBrowserSessionForFinding(ctx, args.sessionHash, args.findingPublicId, args.now);
     if (finding.state !== args.state) {
       await ctx.db.patch(finding._id, { state: args.state, revision: finding.revision + 1, lastSeenAt: args.now });
       // An acknowledged or dismissed collision changes what a brief should say
       // about it, so dependents must re-read rather than keep the open wording.
-      await bumpProjectScopes(ctx, auth.project._id, args.now);
+      await bumpProjectScopes(ctx, project._id, args.now);
     }
     return true;
   },
@@ -1427,6 +1434,9 @@ async function applyProjection(
           : undefined;
         const kept = priorGoals ? priorGoals.slice(-MAX_PRIOR_GOALS) : undefined;
         await ctx.db.patch(current._id, {
+          // A declared intent gives this workstream a goal of its own, so it is
+          // no longer the anonymous row a manifest hung itself on.
+          ...(current.origin === "manifest" ? { origin: undefined } : {}),
           title: String(payload.title), summary, intendedOutcome: summary, revision: current.revision + 1, status: "active", updatedAt: now,
           ...(approachSummary !== undefined ? { approachSummary } : {}),
           ...(components !== undefined ? { components } : {}),
@@ -1685,7 +1695,7 @@ async function applyProjection(
         const workstreamId = await ctx.db.insert("workstreams", {
           publicId: String(payload.workstreamId), projectId: project._id, memberId: member._id, workspaceId: workspace._id,
           scopeKey: workspace.scopeKey, title: "Manifest workstream", summary: "Structural metadata only",
-          status: "active", revision: 1, updatedAt: now,
+          status: "active", revision: 1, origin: "manifest", updatedAt: now,
         });
         workstream = await ctx.db.get(workstreamId);
       }
@@ -2666,6 +2676,91 @@ function severityRank(severity: string): number {
   return ({ low: 1, medium: 2, high: 3, critical: 4 } as Record<string, number>)[severity] ?? 0;
 }
 
+/**
+ * Every Project this browser session may read, newest membership last.
+ *
+ * A browser session is minted against one Project, because a Project's
+ * activation link is what opened it. But the authority the session carries is
+ * the device's, not that Project's: the same Mac enrolls in every Project on
+ * it, and each enrollment is its own `members` row against the same device.
+ * Treating the session's own Project as the boundary meant the dashboard could
+ * only ever be told about one, so the sidebar switcher and the command palette
+ * — both written to switch between many — had nothing to switch between, and a
+ * member with two Projects could reach the second only by re-activating it.
+ *
+ * Membership is re-read per request rather than baked into the session, so a
+ * Project left or removed stops being reachable at once rather than at the
+ * session's eight-hour expiry.
+ */
+async function browserSessionProjects(
+  ctx: QueryCtx | MutationCtx,
+  device: Doc<"devices">,
+): Promise<Array<{ project: Doc<"projects">; member: Doc<"members"> }>> {
+  // Bounded rather than rejected: a member with an implausible number of
+  // Projects should lose the tail of a sidebar, not the whole dashboard.
+  const memberships = (await ctx.db.query("members").withIndex("by_device", (q) => q.eq("deviceId", device._id)).take(200))
+    .filter((member) => member.removedAt === undefined)
+    .sort((left, right) => left.joinedAt - right.joinedAt)
+    .slice(0, 50);
+  const resolved: Array<{ project: Doc<"projects">; member: Doc<"members"> }> = [];
+  for (const member of memberships) {
+    const project = await ctx.db.get(member.projectId);
+    if (project && project.status === "active") resolved.push({ project, member });
+  }
+  return resolved;
+}
+
+/**
+ * Authorize a browser session against one Project by name.
+ *
+ * The session proves which device this browser is; the membership proves that
+ * device may read the Project being asked for. For the Project the session was
+ * minted against this is exactly what `requireBrowserSession` already returned.
+ * For any other Project on the same device it returns that Project's own member
+ * row — which matters, because `members` is per-Project and callers use it for
+ * "mine", so carrying the session's member across would have attributed one
+ * Project's work to an identity from another.
+ */
+/**
+ * Authorize a browser session against the Project a finding actually lives in.
+ *
+ * The dashboard can now be showing any Project this device belongs to, so
+ * acting on a finding cannot be checked against the Project the session was
+ * minted for: acknowledging a collision in the second Project answered
+ * `not_found` for a finding plainly on screen. The finding names its own
+ * Project and membership in that Project is the authority, exactly as it is for
+ * reading it.
+ */
+async function requireBrowserSessionForFinding(
+  ctx: QueryCtx | MutationCtx,
+  sessionHash: string,
+  findingPublicId: string,
+  now: number,
+): Promise<{ finding: Doc<"findings">; project: Doc<"projects">; member: Doc<"members">; device: Doc<"devices"> }> {
+  const auth = await requireBrowserSession(ctx, sessionHash, now);
+  const finding = await ctx.db.query("findings").withIndex("by_public_id", (q) => q.eq("publicId", findingPublicId)).unique();
+  if (!finding) fail("not_found");
+  if (finding!.projectId === auth.project._id) return { finding: finding!, project: auth.project, member: auth.member, device: auth.device };
+  const match = (await browserSessionProjects(ctx, auth.device)).find((entry) => entry.project._id === finding!.projectId);
+  // Not `forbidden`: a finding in a Project this device has no membership in is
+  // one it must not learn the existence of.
+  if (!match) fail("not_found");
+  return { finding: finding!, project: match!.project, member: match!.member, device: auth.device };
+}
+
+async function requireBrowserSessionForProject(
+  ctx: QueryCtx | MutationCtx,
+  sessionHash: string,
+  projectPublicId: string,
+  now: number,
+): Promise<{ project: Doc<"projects">; member: Doc<"members">; device: Doc<"devices"> }> {
+  const auth = await requireBrowserSession(ctx, sessionHash, now);
+  if (auth.project.publicId === projectPublicId) return { project: auth.project, member: auth.member, device: auth.device };
+  const match = (await browserSessionProjects(ctx, auth.device)).find((entry) => entry.project.publicId === projectPublicId);
+  if (!match) fail("forbidden");
+  return { project: match!.project, member: match!.member, device: auth.device };
+}
+
 async function requireBrowserSession(ctx: QueryCtx | MutationCtx, sessionHash: string, now: number) {
   const session = await ctx.db.query("browserSessions").withIndex("by_secret_hash", (q) => q.eq("secretHash", sessionHash)).unique();
   if (!session || session.revokedAt !== undefined || session.expiresAt <= now) fail("unauthorized");
@@ -2766,9 +2861,7 @@ async function requireCollaborationActor(
 ): Promise<{ project: Doc<"projects">; member: Doc<"members">; device: Doc<"devices"> }> {
   if ((args.tokenHash ? 1 : 0) + (args.sessionHash ? 1 : 0) !== 1) fail("unauthorized");
   if (args.sessionHash) {
-    const auth = await requireBrowserSession(ctx, args.sessionHash, args.now);
-    if (auth.project.publicId !== args.projectPublicId) fail("forbidden");
-    return { project: auth.project, member: auth.member, device: auth.device };
+    return requireBrowserSessionForProject(ctx, args.sessionHash, args.projectPublicId, args.now);
   }
   return requireProjectRole(ctx, args.tokenHash!, args.projectPublicId);
 }
