@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ScreenSection } from "./screen";
+import { IntelligenceForm, type IntelligenceWrite } from "./intelligence-form";
 import type { AIDefaults, AIDefaultsWrite } from "./native";
 
 type AIDefaultsAPI = { aiDefaults: () => Promise<AIDefaults>; putAIDefaults: (write: AIDefaultsWrite) => Promise<AIDefaults> };
@@ -23,6 +24,9 @@ const editable = (value: AIDefaults): AIDefaultsWrite => ({
  * uploads it to a server other members' sessions spend it from — a decision
  * that belongs on that Project's own settings screen, next to the sentence
  * that says so.
+ *
+ * The fields themselves are `IntelligenceForm`, shared with that screen. Only
+ * the sentences about destination differ, because only the destination does.
  */
 export function AIDefaultsSettings({ api }: { api: AIDefaultsAPI }) {
   const [defaults, setDefaults] = useState<AIDefaults | null>(null);
@@ -41,7 +45,7 @@ export function AIDefaultsSettings({ api }: { api: AIDefaultsAPI }) {
     return () => { active = false; };
   }, [api.aiDefaults, attempt]);
 
-  const change = (value: AIDefaultsWrite) => { setForm(value); setSaved(false); };
+  const change = (value: IntelligenceWrite) => { setForm(value); setSaved(false); };
   const save = async () => {
     if (!form) return;
     setPending(true); setError(""); setSaved(false);
@@ -60,53 +64,25 @@ export function AIDefaultsSettings({ api }: { api: AIDefaultsAPI }) {
     </ScreenSection>;
   }
 
-  const judgmentOn = form.judgment.provider !== "none";
-  const embeddingsOn = form.embeddings.provider === "openai";
   return <ScreenSection
     title="Defaults for new Projects"
     help="Set intelligence once and every new Project on this Mac starts here. Keys are stored in your login Keychain, never in a file Overgent writes."
   >
-    <p className="settings-help">A Project on this Mac takes these automatically. A shared Project does not: saving a key there uploads it to that Project’s server, so it is offered on the Project’s own settings screen instead of applied for you.</p>
-    <fieldset disabled={pending} className="provider-fields">
-      <div className="provider-settings">
-        <h3>Assess coordination</h3>
-        <label className="field"><span>Judgment provider</span>
-          <select value={form.judgment.provider} onChange={(event) => change({ ...form, judgment: { provider: event.target.value as AIDefaultsWrite["judgment"]["provider"], model: "", removeKey: true } })}>
-            <option value="none">Off · structural evidence only</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="openai-compatible">OpenAI or compatible provider</option>
-          </select>
-        </label>
-        {judgmentOn && <>
-          <label className="field"><span>Judgment model</span><input required value={form.judgment.model} maxLength={120} placeholder="Model ID from your provider" onChange={(event) => change({ ...form, judgment: { ...form.judgment, model: event.target.value } })} /></label>
-          <label className="field"><span>Judgment API key</span><input type="password" autoComplete="new-password" spellCheck={false} value={form.judgment.apiKey ?? ""} placeholder={defaults?.judgment.keyStored && !form.judgment.removeKey ? "Key saved · leave blank to keep" : "Enter an API key"} onChange={(event) => change({ ...form, judgment: { ...form.judgment, apiKey: event.target.value || undefined, removeKey: false } })} /></label>
-          {defaults?.judgment.keyStored && <button className="text-button" onClick={() => change({ ...form, judgment: { ...form.judgment, apiKey: undefined, removeKey: true } })}>{form.judgment.removeKey ? "Key will be removed on save" : "Remove saved judgment key"}</button>}
-          <details className="field-advanced"><summary>Custom endpoint</summary>
-            <label className="field"><span>Judgment server address</span><input value={form.judgment.baseUrl ?? ""} placeholder="Provider default" onChange={(event) => change({ ...form, judgment: { ...form.judgment, baseUrl: event.target.value || undefined, apiKey: undefined, removeKey: true } })} /></label>
-            <p className="field-note">Changing the endpoint removes the saved key. Enter a key for the new destination.</p>
-          </details>
-        </>}
-      </div>
-      <details className="field-advanced provider-settings">
-        <summary>Find related work · {embeddingsOn ? "AI embeddings" : "built-in matching"}</summary>
-        <label className="field"><span>Embedding provider</span>
-          <select value={form.embeddings.provider} onChange={(event) => change({ ...form, embeddings: { provider: event.target.value as AIDefaultsWrite["embeddings"]["provider"], model: event.target.value === "openai" ? "text-embedding-3-large" : "overgent-concepts/v1", dimensions: 1024, removeKey: true } })}>
-            <option value="deterministic">Built-in · no API key</option>
-            <option value="openai">OpenAI or compatible provider</option>
-          </select>
-        </label>
-        {embeddingsOn && <>
-          <label className="field"><span>Embedding model</span><input value={form.embeddings.model} maxLength={120} onChange={(event) => change({ ...form, embeddings: { ...form.embeddings, model: event.target.value } })} /></label>
-          <label className="field"><span>Embedding API key</span><input type="password" autoComplete="new-password" spellCheck={false} value={form.embeddings.apiKey ?? ""} placeholder={defaults?.embeddings.keyStored && !form.embeddings.removeKey ? "Key saved · leave blank to keep" : "Enter an API key"} onChange={(event) => change({ ...form, embeddings: { ...form.embeddings, apiKey: event.target.value || undefined, removeKey: false } })} /></label>
-          {defaults?.embeddings.keyStored && <button className="text-button" onClick={() => change({ ...form, embeddings: { ...form.embeddings, apiKey: undefined, removeKey: true } })}>{form.embeddings.removeKey ? "Key will be removed on save" : "Remove saved embedding key"}</button>}
-          <label className="field"><span>Embedding server address</span><input value={form.embeddings.baseUrl ?? ""} placeholder="Provider default" onChange={(event) => change({ ...form, embeddings: { ...form.embeddings, baseUrl: event.target.value || undefined, apiKey: undefined, removeKey: true } })} /></label>
-          <p className="field-note">Models must support 1024-dimensional embeddings. Changing the endpoint removes the saved key.</p>
-        </>}
-      </details>
-      <p className="field-note">Projects you already have keep the settings they have. These apply to the next one you open.</p>
-      <button className="pill solid" disabled={judgmentOn && !form.judgment.model.trim()} onClick={() => void save()}>{pending ? "Saving…" : "Save defaults"}</button>
-    </fieldset>
-    {saved && <p role="status" className="settings-help">Defaults saved.</p>}
-    {error && <p className="form-error" role="alert">{error}</p>}
+    <p className="settings-help sharp">A Project on this Mac takes these automatically. A shared Project does not: saving a key there uploads it to that Project’s server, so it is offered on the Project’s own settings screen instead of applied for you.</p>
+    <IntelligenceForm
+      value={form}
+      onChange={change}
+      judgmentKey={{ stored: Boolean(defaults?.judgment.keyStored), provider: defaults?.judgment.provider, baseUrl: defaults?.judgment.baseUrl }}
+      embeddingKey={{ stored: Boolean(defaults?.embeddings.keyStored), provider: defaults?.embeddings.provider, baseUrl: defaults?.embeddings.baseUrl }}
+      keyLocation="in this Mac’s Keychain"
+      saveLabel="Save defaults"
+      pending={pending}
+      onSave={() => void save()}
+      footer={<p className="field-note">Projects you already have keep the settings they have. These apply to the next one you open.</p>}
+      status={<>
+        {saved && <p role="status" className="settings-help">Defaults saved.</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+      </>}
+    />
   </ScreenSection>;
 }

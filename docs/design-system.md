@@ -314,7 +314,7 @@ its own height and its own header. This is the shape people recognise.
 ┌──────────────┬────────────────────────────┬──────────────────────┐
 │ side  212px  │ main       minmax(0, 1fr)  │ inspector      436px │
 │              │                            │                      │
-│ nav only     │ toolbar (its own, not      │ its own header + ×   │
+│ Projects     │ toolbar (its own, not      │ its own header + ×   │
 │ same ground  │ spanning the other panels) │ --panel ground       │
 │ as main      │ ────────────────────────── │                      │
 │ + hairline   │ column, max-width 680px    │ scrolls itself       │
@@ -323,6 +323,12 @@ its own height and its own header. This is the shape people recognise.
 
 The inspector is **wider than the sidebar**, because the sidebar is navigation
 and the inspector is where the reading happens.
+
+The sidebar is a `nav[aria-label="Projects"]` holding brand, search, the Project
+list with its add control, and App settings — **and nothing above the list**.
+Both shells share that shape: the entry shell in `desktop-onboarding.tsx` and
+the workroom in `main.tsx` present the same list in the same place, so switching
+between them is not a change of navigation.
 
 A **screen** — Settings, People, Add a Project — takes the main and inspector
 columns together (`.workroom-shell.screen-open`) and keeps the sidebar, so the
@@ -336,6 +342,16 @@ overflow the viewport instead of scrolling internally.
 
 The project header carries identity and freshness only: name, repository,
 `rev N`, and `synced <elapsed> ago`. Nothing else earns a place there.
+
+Directly beneath it, a **view tab row** (`.view-tabs`, `nav[aria-label="Project
+views"]`) chooses between the Project's two views — Workroom and History — so
+the reading order is *which Project*, then *which view of it*. It reuses the
+`.settings-tabs` shape rather than introducing a second way to switch between
+sections of one screen, and marks the open view with `aria-current="page"`.
+Workroom carries the "Needs you" count when there is one; History carries no
+count, because a running total of everything ever caught is not a thing to act
+on. Both used to be root items in the sidebar, above the Project list, which
+put the open Project on screen three ways at once (ADR-078).
 
 ### The main column, in fixed order
 
@@ -366,13 +382,15 @@ The project header carries identity and freshness only: name, repository,
    other people's, and dashboard-verdict findings on yours. Rendered `.quiet`;
    present so nothing is hidden, styled so it never competes.
 
-**History** is a separate screen, not a block in this column, because it
+**History** is the Project's second view, reached from the tab row above the
+column rather than from the sidebar, and it is not a block in this column: it
 answers a different question — what has already been handled, rather than what
-is happening. It is a **case log** (ADR-064): one entry per finding carrying
-its whole lifecycle on a single mono arc line — raised → decided or dismissed
-→ sent to N sessions → considered — under day dividers, newest movement
-first, with a one-row filter (All / Open / Settled / Dismissed) and the raw
-event stream folded at the bottom. Decisions that never had a finding are
+is happening — about the same Project. It names itself once, on its tab, and
+carries no heading of its own beneath it. It is a **case log** (ADR-064): one
+entry per finding carrying its whole lifecycle on a single mono arc line —
+raised → decided or dismissed → sent to N sessions → considered — under day
+dividers, newest movement first, with a one-row filter (All / Open / Settled /
+Dismissed) and the raw event stream folded at the bottom. Decisions that never had a finding are
 cases too. It stops at consideration: Overgent knows a decision was routed and
 whether the agent acknowledged reading it, and does not know whether the agent
 then did the right thing. Wording that implied otherwise would fail the
@@ -563,21 +581,134 @@ Anything less makes the back control lie.
   no fact (rule 2), and the ready mark is earned later by a real session event.
   Detected agents arrive ticked in **both** places a Project is set up; the
   checkbox group is one shared component (`AgentOptions`) for that reason.
-- **`PeopleScreen`** — members and invites. This is the only implementation;
-  Settings links to it rather than carrying a second copy of the same controls.
-  Adding a teammate should never require hunting through Settings.
-- **`SettingsScreen`** — identity, appearance, devices, privacy, export, and
-  destructive Project actions. The destructive section is last, separated by a
-  hairline rather than a tinted panel, and its heading takes `--alert`. Deleting
-  or leaving calls `onRemoved` so the shell drops the Project and moves to the
-  next one. Queuing the request and leaving the member inside a Project they no
-  longer belong to is the failure mode this exists to prevent.
+- **`PeopleSections`** — invite, members, open invites. One implementation with
+  two ways in: the `PeopleScreen` reached from the workroom toolbar, and the
+  People tab of Project settings. Adding a teammate should never require hunting
+  through Settings, and Settings should not be missing the thing it is about;
+  a row that left for another screen satisfied neither.
+- **`SettingsScreen`** — one Project, in four tabs: **Project**, **People**,
+  **Intelligence**, **Data**. It was a single column of seven sections that were
+  not all about the same subject, and the one subject it never covered was the
+  Project itself.
+
+  - **Project** answers what this Project *is* — repository, the folder on this
+    Mac (copyable, because the next thing anyone does with a path is paste it),
+    whether coordination lives on this Mac or on a server, which server, and
+    what you are in it. Then the signpost to App settings, then the destructive
+    section last, separated by a hairline rather than a tinted panel, its
+    heading in `--alert`. Deleting or leaving calls `onRemoved` so the shell
+    drops the Project and moves to the next one; queuing the request and leaving
+    the member inside a Project they no longer belong to is the failure mode
+    that exists to prevent.
+  - **People** carries the shared sections plus devices, because who can reach
+    this Project and what can reach it are the same question.
+  - **Data** carries the privacy statement and the export.
+
+- **Identity is not a Project setting.** The display name used to be the first
+  section of every Project's settings, which asked a question nobody answers
+  differently twice — people are not called one thing in one Project and
+  something else in the next. It lives in App settings under **You**, with the
+  member chip rendered beside the field so the initials and hue are visible
+  before saving rather than discovered later on a session row. The name is still
+  *stored* per Project, because that is where a member row lives, so one save
+  writes it to every Project this device belongs to and says how many that was;
+  a Project that could not be reached is named rather than silently skipped.
 
 **The command palette is the only dialog left**, because it genuinely is modal:
 it is a transient overlay you dismiss. It closes three ways — Escape, a backdrop
 click, and a visible control. Its `esc` label is a real `<button>` for exactly
 that reason; a keycap that looks pressable and is not was a bug, not a
 decoration.
+
+### App settings, and why each section is a row
+
+Every section of App settings was once a single control and a sentence:
+appearance was one button whose label named the *other* state, an agent was a
+checkbox and a button stacked inside the same paragraph, and the local service
+was two lines of prose. Each was accurate, none of them looked like a place,
+and together they read as a form somebody had assembled one control at a time.
+
+They share a shape now, and it is the workroom's: **what the thing is on the
+left, what it is set to or what to do about it on the trailing edge, hairlines
+between.** No section invents its own layout.
+
+- **Appearance is three choices, and each shows what it means.** Light, dark,
+  and following macOS — the third being the state the old boolean could not
+  express, which is why a Mac that switches at sunset used to leave Overgent
+  behind. Each swatch is a literal miniature of that palette, written with the
+  same token values the theme uses; system shows both halves. These are the only
+  fixed colours in the app, because a preview of the other theme cannot be drawn
+  in the current one.
+- **An agent is a row with one action.** Its own vendor mark, its name, what
+  Overgent is actually getting from it, and — on the trailing edge — Connect or
+  Disconnect. Connect takes `--live` and disconnect takes `--alert` as outlined
+  pills (`.pill.affirming`, `.pill.alerting`): the two colours already mean "true
+  right now" and "destructive", so nothing new is introduced and no background is
+  filled. The status line never claims observation a vendor has not shown —
+  hooks awaiting review outrank a runtime claim, because until they run the agent
+  is connected and reporting nothing.
+- **The local service reports facts, not prose.** Status, address, version, data
+  on disk, in a two-column list: the name in sans because a person wrote it, the
+  value in mono where a machine measured it. Running now takes `--live`.
+
+### The intelligence form is the pipeline, in three levels
+
+Two screens configure providers — this Mac's defaults for new Projects, and a
+Project's own settings — and they are one component (`intelligence-form.tsx`)
+with two sets of sentences. The fields can be shared because the two write
+shapes are identical; the sentences cannot, because a key saved on this Mac
+stays on it and a key saved on a shared Project is uploaded to a server other
+members' sessions spend it from (ADR-073, ADR-077).
+
+The first version of this screen named the codebase's internals — "Assess
+coordination", "Judgment provider" — and left the member to work out what any
+of it caught. Nobody arrives here wanting to configure a judgment provider.
+They arrive wanting to know what Overgent notices and what it costs to notice
+more. So the form **is** the detection pipeline, in the order it runs
+(`coordination-intelligence.md` §4):
+
+| Level | What it catches | What it needs |
+|---|---|---|
+| 1 · Overlapping code | Same file, same symbol, a contract that moved under a session that read it | Nothing. Always on |
+| 2 · Related work | Work that overlaps in meaning without overlapping in files | Built-in matching, or an embedding provider |
+| 3 · Judgment | What a candidate means, how certain that is, and whether it interrupts | A model provider |
+
+Level one has no controls and is not a lesser version of the two below it:
+saying plainly that it always runs is what makes the other two optional rather
+than load-bearing. Levels two and three carry one picker each and open into
+fields only once switched on, so a member who wants none of it reads three
+sentences and leaves.
+
+The rest of the rules the form keeps:
+
+- **A provider is a preset, never a new enum value.** The schema has three
+  judgment providers and two embedding providers and is not going to grow: every
+  other vendor is `openai-compatible` with a base URL, and
+  `intelligence-catalog.ts` holds the addresses. The stored value is an
+  **origin** — the client appends `/v1/chat/completions` itself — so a preset
+  holding the documented endpoint would 404 in a way that reads as a bad key.
+  **Only vendors that have actually been run are offered**, because an option in
+  a picker is a claim that it works; the rest sit in a comment in that file with
+  their verified addresses, one line away from being offered.
+- **A model is chosen from a list, and typed when it is not on one.** The list
+  is what each provider's documentation named on `PRESETS_CHECKED`, and the date
+  is on screen. "Other model…" is a first-class choice rather than an escape
+  hatch, and a saved ID the list has never heard of opens the field already typed
+  in rather than being silently dropped.
+- **The endpoint is on screen.** One mono line spells out the full URL the key is
+  about to be spent at — the fact that settles whether the member meant this
+  provider. It is hidden only while a custom address is empty, where printing the
+  fallback would name a destination nobody chose.
+- **A key belongs to one destination.** Changing provider or address drops the
+  saved key, and when it is dropped *because* the destination moved there is no
+  undo — offering to keep it would send a key issued for one host to another. A
+  removal the member asked for keeps its undo, because that failure is a
+  mis-click rather than a leak.
+- **There is no dimensions control.** Embeddings are fixed at 1024 and changing
+  the model migrates every vector already stored, so the form says that instead
+  of offering a number.
+- **A held save says what it is waiting on**, beside itself, per Rule 8: a
+  missing model, a missing address, or an unticked agreement to upload a key.
 
 ### Failure states that the member can act on
 
@@ -655,15 +786,30 @@ not "Create sync card".
 5. **Cross-Project switching in one browser session.** Switching between
    Projects already enrolled on this Mac now works in place: the session lists
    every Project the device belongs to, the sidebar switches between them, and
-   the live poll follows the Project on screen (ADR-076). *Creating* a Project
-   is still a hand-off — the sidebar opens the native Project-creation screen,
-   which reuses the enrolled device plus the one running local service, and
-   opening the newly created Project performs a fresh one-time native
-   activation, which is why "Open Project" still passes through an activation
-   confirmation. The
-   remaining seam is that the hosted workroom cannot reach the local service at
-   all, so adding a Project from it is a hand-off to the desktop shell rather
-   than something that happens in place. The hand-off is now reliable and
+   the live poll follows the Project on screen (ADR-076). The sidebar is now the
+   top level of the interface, with no root items above the list (ADR-078), so
+   that switch is the primary navigation rather than a control below two others.
+
+   What is still one Project at a time is **liveness**. `LiveApp` starts exactly
+   one `LiveProjectSource.start(projectId)`, so every other Project's snapshot is
+   frozen at page load — which is why the collision count on a sidebar row is
+   fresh only for the Project on screen, and why there is no all-Projects view.
+   `timers` is already keyed per Project, so N polls is a small change; the two
+   things that are not are that `onStatus` is a single global setter (one
+   unreachable team backend would report the whole app offline while the visible
+   Project is healthy), and that `scopeKey(projectId, repoFingerprint)` scopes
+   every finding, contract fingerprint and semantic object, so nothing
+   coordinates across Projects and a cross-Project view could only ever list.
+   Both are stated in ADR-078.
+
+   *Creating* a Project is still a hand-off — the sidebar opens the native
+   Project-creation screen, which reuses the enrolled device plus the one
+   running local service, and opening the newly created Project performs a
+   fresh one-time native activation, which is why "Open Project" still passes
+   through an activation confirmation. The remaining seam is that the hosted
+   workroom cannot reach the local service at all, so adding a Project from it
+   is a hand-off to the desktop shell rather than something that happens in
+   place. The hand-off is now reliable and
    correctly worded in both directions (see `NewProjectScreen` above), but it is
    still a hand-off: the window leaves the live Project view to add one, and
    comes back through a fresh activation. Closing that would mean either

@@ -214,7 +214,6 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .nav-item[aria-current="page"] { color: var(--ink); font-weight: 650; }
 .nav-item svg { flex: 0 0 auto; color: var(--ink-3); }
 .nav-item[aria-current="page"] svg { color: var(--ink); }
-.nav-item .nav-count { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--alert); }
 .sidebar-collapsed .nav-item { justify-content: center; padding: 7px 0; }
 
 .project-item {
@@ -250,6 +249,7 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
   background: hsl(var(--member-hue, 0) var(--member-sat) var(--member-bg-l));
 }
 .avatar.small { width: 21px; height: 21px; font-size: 9px; border-radius: 7px; }
+.avatar.large { width: 38px; height: 38px; font-size: 14px; border-radius: 12px; }
 /* With no hue set the chip falls back to the neutral it always was. */
 .avatar:not([style*="--member-hue"]) { color: var(--ink-2); background: none; box-shadow: inset 0 0 0 1px var(--line); }
 
@@ -273,6 +273,11 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .pill.solid { color: var(--onsolid); background: var(--solid); border-color: var(--solid); }
 .pill.solid:hover:not(:disabled) { background: var(--solid); opacity: .86; }
 .pill.alerting { color: var(--alert); border-color: var(--alert); }
+/* The affirming twin of .alerting, for a control that turns something on.
+   --live already means "true right now" in this product, so connecting reads
+   green and disconnecting reads red without a third colour being invented. */
+.pill.affirming { color: var(--live); border-color: var(--live); }
+.pill.affirming:hover:not(:disabled) { background: var(--hover); }
 .pill.alerting:hover:not(:disabled) { background: var(--hover); }
 .text-button { padding: 2px 0; color: var(--ink-3); font-size: 12.5px; font-weight: 600; }
 .text-button:hover:not(:disabled) { color: var(--ink); }
@@ -284,6 +289,16 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .project-head h1 { margin: 0; font-size: 25px; font-weight: 700; letter-spacing: -.03em; }
 .project-sub { margin-top: 7px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 .fidelity-note { margin: 6px 0 0; color: var(--ink-2); font-size: 12.5px; }
+
+/* Which view of the Project named directly above. Same shape as .settings-tabs
+   - sections of one screen switch one way in this interface, not two - but it
+   sits under a page heading rather than at the top of a screen, so it takes
+   the heading's own top spacing instead of a rule of its own. */
+.view-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line); margin: 18px 0 4px; padding-bottom: 13px; }
+.view-tabs .text-button { display: inline-flex; align-items: baseline; gap: 7px; }
+.view-tabs [aria-current="page"] { color: var(--ink); font-weight: 650; text-decoration: underline; text-underline-offset: 16px; }
+.view-tabs .tab-count { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.view-tabs .tab-count.hot { color: var(--alert); }
 .converge-meta { grid-column: 2; margin: 8px 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
 
 .notice {
@@ -894,6 +909,9 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .settings-icon { display: grid; color: var(--ink-3); }
 .settings-help { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 .settings-help.warning { color: var(--alert); }
+/* A consequence the member must actually read - where a key ends up, what a
+   save will do - sits at body contrast rather than at metadata grey. */
+.settings-help.sharp { color: var(--ink-2); font-size: 12.5px; }
 .settings-help.success { color: var(--live); }
 .privacy-card { display: flex; gap: 11px; }
 .privacy-card svg { flex: 0 0 auto; margin-top: 2px; color: var(--ink-3); }
@@ -979,6 +997,107 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .field-advanced > summary { padding: 4px 0; color: var(--ink-3); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .field-advanced > summary:hover { color: var(--ink); }
 .field-advanced[open] > summary { margin-bottom: 10px; }
+
+/* Appearance: three choices that show what they mean.
+
+   The swatch is a literal miniature of each palette - the ground, a hairline,
+   and the ink - written with the same token values the theme itself uses, so a
+   member picks by looking rather than by reading a word. System shows both
+   halves because that is what it does. These are the only place in the app
+   where a colour is fixed rather than inherited, and the reason is that a
+   preview of the other theme cannot be drawn in the current one. */
+.theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 4px; }
+.theme-choice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 12px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.theme-choice:hover { background: var(--hover); }
+.theme-choice[aria-checked="true"] { border-color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--ink-3); }
+.theme-swatch { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; }
+.theme-swatch-light { background: #ffffff; box-shadow: inset 0 0 0 1px #e8e8e5; color: #0e0e0e; }
+.theme-swatch-dark { background: #0a0a0a; box-shadow: inset 0 0 0 1px #232323; color: #f5f5f5; }
+.theme-swatch-system { background: linear-gradient(105deg, #ffffff 0 50%, #0a0a0a 50% 100%); box-shadow: inset 0 0 0 1px var(--line); color: #8a8a88; }
+.theme-name strong { display: block; font-size: 13.5px; font-weight: 600; }
+.theme-name small { display: block; color: var(--ink-3); font-size: 11.5px; }
+.theme-check { color: var(--ink); }
+
+/* Coding agents: mark, what it is, what it is giving us, and the one action -
+   on the trailing edge, where the eye already goes for a chevron. Connect is
+   --live and disconnect is --alert: this product's two colours already mean
+   "true right now" and "destructive", and neither fills a background. */
+.agent-list { display: flex; flex-direction: column; margin-top: 6px; }
+.agent-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); }
+.agent-row:first-child { border-top: 0; }
+.agent-row.quiet { color: var(--ink-3); }
+.agent-row.quiet .agent-mark { opacity: .5; }
+.agent-mark { display: grid; place-items: center; padding-top: 1px; color: var(--ink-2); }
+.agent-text { min-width: 0; }
+.agent-text strong { display: block; font-size: 13.5px; font-weight: 650; }
+.agent-text small { display: block; margin-top: 2px; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+.agent-text small.live { color: var(--live); }
+.agent-row.quiet .agent-text strong { font-weight: 600; color: var(--ink-2); }
+.agent-auto { display: inline-flex; align-items: center; gap: 7px; margin-top: 7px; color: var(--ink-3); font-size: 12px; }
+.agent-auto input { accent-color: var(--solid); }
+.agent-action { display: flex; align-items: center; gap: 8px; }
+
+/* Facts the service reported, as a two-column list: the name in sans because a
+   person wrote it, the value in mono when a machine measured it. */
+.fact-list { display: flex; flex-direction: column; margin-top: 6px; }
+.fact-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.fact-row:first-child { border-top: 0; }
+.fact-name { color: var(--ink-2); font-size: 13px; }
+.fact-value { color: var(--ink); font-size: 13px; text-align: right; }
+.fact-value.mono { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+.fact-value.live { color: var(--live); font-weight: 600; }
+.fact-value.alerting { color: var(--alert); }
+/* A path is the one fact people copy, so the control sits with it rather than
+   in a row of its own - with room to breathe, and free to wrap when the
+   checkout is deep. */
+.fact-value.path { display: inline-flex; align-items: baseline; gap: 12px; flex-wrap: wrap; justify-content: flex-end; word-break: break-all; }
+
+/* How a name will actually appear, beside the field that sets it: the same
+   keycap the workroom draws, so the initials and hue a member is about to get
+   are visible before they save rather than discovered on a session row. */
+.identity-preview { display: flex; align-items: center; gap: 13px; padding: 14px 0; margin-top: 4px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.identity-preview strong { display: block; font-size: 14.5px; font-weight: 650; }
+.identity-preview small { display: block; margin-top: 2px; color: var(--ink-3); font-size: 12px; }
+
+/* The intelligence form, which reads as the detection pipeline rather than as
+   a stack of fields. Each level is a rung: a number in the gutter, a title, the
+   provider it is set to on the trailing edge, and its controls indented under
+   it. Hairlines separate the rungs - no cards, no tinted panels. */
+.levels { list-style: none; margin: 14px 0 0; padding: 0; }
+.level { display: grid; grid-template-columns: var(--row-icon, 22px) minmax(0, 1fr); gap: var(--row-gap, 12px); padding: 16px 0; border-top: 1px solid var(--line); }
+.level:first-child { border-top: 0; padding-top: 4px; }
+.level-mark { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+.level-body { min-width: 0; display: grid; gap: 7px; }
+.level-head { display: flex; align-items: baseline; gap: 12px; }
+.level-head h3 { margin: 0; font-size: 14.5px; font-weight: 650; }
+/* What this level is set to, on the trailing edge: the answer to "what is on"
+   without opening anything. Type carries it - never a badge. */
+.level-state { margin-left: auto; color: var(--ink-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.level-note { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13px; line-height: 1.55; }
+/* A model ID and a key are short strings; a field the full width of the column
+   reads as a text area and makes the level look emptier than it is. */
+.level-controls { display: grid; gap: 5px; margin-top: 4px; max-width: 430px; }
+.level-controls > .field { margin-top: 11px; }
+.level-controls > .field:first-child { margin-top: 0; }
+
+/* Where a key is about to be spent, and what is known about a stored one. A URL
+   is a machine fact, so it is monospace at --ink-3. Deleting a key is
+   destructive, which is the only reason anything on this form takes --alert. */
+.provider-endpoint { margin: 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); word-break: break-all; }
+.provider-endpoint > span { font-family: var(--sans); }
+.key-state { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+.key-state.removing { color: var(--alert); }
+.key-state code { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+/* A quiet action that sits inside a sentence rather than under it. */
+.text-button.inline { display: inline; padding: 0; font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+
+/* A held save says what it is waiting on, beside itself. */
+.provider-save { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.provider-save .field-note { margin: 0; max-width: 42ch; }
+
+.defaults-offer { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 0; }
+.defaults-offer .text-button { align-self: flex-start; color: var(--ink); }
+.defaults-offer .field-note { margin: 0; }
 
 .agent-options { margin: 0; padding: 14px 0; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .agent-options legend { padding: 0 0 8px; font-size: 12.5px; font-weight: 650; }

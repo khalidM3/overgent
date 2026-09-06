@@ -274,11 +274,15 @@ describe("Project Workroom behavior", () => {
     // Settings is a screen, not a modal: it takes over the main and inspector
     // columns and the sidebar stays put.
     const settings = screen.getByRole("main", { name: "Settings" });
+    // The Project's own facts come first; what it does with data is a tab.
+    expect(within(settings).getByText("Coordination lives")).toBeTruthy();
+    await user.click(within(settings).getByRole("button", { name: "Data" }));
     expect(within(settings).getByText("Local-first analysis, bounded Project sharing")).toBeTruthy();
     expect(await within(settings).findByText("Export retained Project data")).toBeTruthy();
     expect(screen.queryByRole("complementary", { name: "Details inspector" })).toBeNull();
+    await user.click(within(settings).getByRole("button", { name: "Project" }));
     await user.click(within(settings).getByRole("button", { name: /App settings/ }));
-    await user.click(screen.getByRole("button", { name: "Use dark appearance" }));
+    await user.click(screen.getByRole("radio", { name: /Dark/ }));
     expect(document.documentElement.dataset.theme).toBe("dark");
     // Back returns to the Project it was opened from.
     await user.click(screen.getByRole("button", { name: "Back to Project settings" }));
@@ -289,21 +293,20 @@ describe("Project Workroom behavior", () => {
   it("reaches members and invites from the workroom, not only from settings", async () => {
     const user = userEvent.setup();
     renderReady();
-    await user.click(screen.getByRole("button", { name: "Invite people to this Project" }));
+    await user.click(screen.getByRole("button", { name: "Open People for this Project" }));
     const people = screen.getByRole("main", { name: "People" });
     expect(await within(people).findByRole("heading", { name: /Members/ })).toBeTruthy();
     expect(within(people).getByRole("button", { name: "Create invite link" })).toBeTruthy();
 
-    // Settings still reaches the same surface rather than carrying a second copy.
+    // Settings carries the same sections rather than a row that leaves for
+    // them: one implementation, two ways in. A member who opens the Project's
+    // settings to add someone should not be sent somewhere else to do it.
     await user.click(within(people).getByRole("button", { name: "Back to Atlas launch" }));
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
     const settings = screen.getByRole("main", { name: "Settings" });
-    expect(within(settings).queryByRole("button", { name: "Create invite link" })).toBeNull();
-    await user.click(await within(settings).findByRole("button", { name: /Members & invites/ }));
-    // Reached from Settings, back goes to Settings rather than always the workroom.
-    const nested = screen.getByRole("main", { name: "People" });
-    await user.click(within(nested).getByRole("button", { name: "Back to Project settings" }));
-    expect(screen.getByRole("main", { name: "Settings" })).toBeTruthy();
+    await user.click(within(settings).getByRole("button", { name: "People" }));
+    expect(await within(settings).findByRole("button", { name: "Create invite link" })).toBeTruthy();
+    expect(within(settings).getByRole("heading", { name: /Members/ })).toBeTruthy();
   });
 
   it("leaves a deleted Project instead of stranding the member inside it", async () => {
@@ -428,24 +431,28 @@ describe("member identity", () => {
     expect(prompt).toBeTruthy();
     // The legacy name is shown as-is; migration is a prompt, never a rewrite.
     expect(within(prompt).getByText(/khalids-macbook-pro\.local/)).toBeTruthy();
-    expect(within(prompt).getByText(/device name stays in Settings/)).toBeTruthy();
+    expect(within(prompt).getByText(/device name stays in Project settings/)).toBeTruthy();
 
     await user.click(within(prompt).getByRole("button", { name: "Choose a name" }));
-    const dialog = screen.getByRole("main", { name: "Settings" });
+    // The field is in App settings now: a person is not called something
+    // different in each Project, so it is asked once and applied everywhere.
+    const dialog = screen.getByRole("main", { name: "App settings" });
     const field = within(dialog).getByLabelText("Display name");
     expect((field as HTMLInputElement).value).toBe("");
     expect((field as HTMLInputElement).placeholder).toBe("khalids-macbook-pro.local");
 
     await user.type(field, "Khalid M");
     await user.click(within(dialog).getByRole("button", { name: "Save name" }));
-    expect(await within(dialog).findByText("Display name updated across this Project.")).toBeTruthy();
+    expect(await within(dialog).findByText(/Display name updated across/)).toBeTruthy();
   });
 
   it("rejects an email address as live-work identity", async () => {
     const user = userEvent.setup();
     render(<App initialState="ready" initialSession={deviceNamedSession} source={new FixtureProjectSource()} />);
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
-    const dialog = screen.getByRole("main", { name: "Settings" });
+    const settings = screen.getByRole("main", { name: "Settings" });
+    await user.click(within(settings).getByRole("button", { name: /App settings/ }));
+    const dialog = await screen.findByRole("main", { name: "App settings" });
     await user.type(within(dialog).getByLabelText("Display name"), "khalid@example.com");
     await user.click(within(dialog).getByRole("button", { name: "Save name" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("email address cannot be your Project identity");
@@ -456,6 +463,7 @@ describe("member identity", () => {
     renderReady();
     await user.click(screen.getByRole("button", { name: "Open Project settings" }));
     const dialog = screen.getByRole("main", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "People" }));
     expect(within(dialog).getByRole("heading", { name: "Devices & security" })).toBeTruthy();
     expect(within(dialog).getByText(/never shown as your live-work identity/)).toBeTruthy();
     expect(screen.queryByText("Choose how teammates see you")).toBeNull();
@@ -586,8 +594,11 @@ describe("agent health and the coordination ledger", () => {
     await user.click(screen.getByRole("button", { name: "History" }));
 
     // One entry per finding, newest movement first, under day dividers. The
-    // three independently ordered lists stored the lifecycle as a puzzle.
-    expect(screen.getByRole("heading", { name: "History" })).toBeTruthy();
+    // three independently ordered lists stored the lifecycle as a puzzle. The
+    // view names itself once, on the tab that opened it, and not again as a
+    // heading directly beneath.
+    expect(screen.getByRole("button", { name: /^History/ }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("heading", { name: "History" })).toBeNull();
     expect(screen.getAllByText("Today").length).toBeGreaterThan(0);
     const collision = screen.getByRole("button", { name: "Open Collision detected" });
     expect(collision.textContent).toContain("collision detected");
@@ -607,6 +618,75 @@ describe("agent health and the coordination ledger", () => {
 
     const inspector = screen.getByLabelText("Details inspector");
     expect(within(inspector).getByText(/Two live agent sessions report the same dashboard session path/)).toBeTruthy();
+  });
+});
+
+describe("the Project is the only top level", () => {
+  const sidebar = () => screen.getByRole("navigation", { name: "Projects" });
+
+  it("lists Projects in the sidebar and nothing above them", () => {
+    renderReady();
+    // Workroom and History used to sit above this list as root items, which
+    // put the open Project on screen three ways at once: as Workroom, as its
+    // History, and as the current row here. Neither was a sibling of the list
+    // - both are views of whichever row is selected - so neither is here.
+    const side = sidebar();
+    expect(within(side).queryByRole("button", { name: "Workroom" })).toBeNull();
+    expect(within(side).queryByRole("button", { name: "History" })).toBeNull();
+    expect(within(side).getByRole("button", { name: /Atlas launch/ }).getAttribute("aria-current")).toBe("page");
+    expect(within(side).getByRole("button", { name: /Orchard mobile/ })).toBeTruthy();
+  });
+
+  it("switches views under the Project's name, which stays on screen", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    const views = screen.getByRole("navigation", { name: "Project views" });
+    expect(screen.getByRole("heading", { name: "Atlas launch" })).toBeTruthy();
+    expect(within(views).getByRole("button", { name: /^Workroom/ }).getAttribute("aria-current")).toBe("page");
+
+    await user.click(within(views).getByRole("button", { name: /^History/ }));
+    // Reading order is Project, then view: History is a different answer about
+    // the same Project, so the Project's own header does not go anywhere.
+    expect(screen.getByRole("heading", { name: "Atlas launch" })).toBeTruthy();
+    expect(screen.getByText(/Everything this Project has caught/)).toBeTruthy();
+    expect(within(views).getByRole("button", { name: /^Workroom/ }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("starts a Project you switch to on its own workroom, not the last Project's view", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    const views = screen.getByRole("navigation", { name: "Project views" });
+    await user.click(within(views).getByRole("button", { name: /^History/ }));
+    await user.click(within(sidebar()).getByRole("button", { name: /Orchard mobile/ }));
+
+    expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Project views" }).querySelector('[aria-current="page"]')!.textContent).toContain("Workroom");
+  });
+
+  it("names the Project, never the view, as the way back out of a screen", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: /^History/ }));
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    // A view is not a place you came from. Back from a screen returned to
+    // "History" whenever that tab happened to be open, naming a view as if it
+    // were one.
+    expect(screen.getByRole("button", { name: "Back to Atlas launch" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Back to History" })).toBeNull();
+  });
+
+  it("names the People button for the screen it opens, in every kind of Project", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    // It read "Sharing" on a local Project and "Invite" on a shared one while
+    // announcing "Invite" to a screen reader either way, and "Sharing" named
+    // the wrong control besides: Pause is what starts and stops sharing.
+    expect(screen.queryByRole("button", { name: /Sharing/ })).toBeNull();
+    const people = screen.getByRole("button", { name: "Open People for this Project" });
+    expect(people.textContent).toContain("People");
+
+    await user.click(people);
+    expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
   });
 });
 
