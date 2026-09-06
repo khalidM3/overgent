@@ -12,6 +12,7 @@
     "dev:service": "node scripts/dev-service.mjs",
     "dev:agents": "node scripts/dev-agents.mjs",
     "dev:install": "node scripts/install-desktop-dev.mjs",
+    "local:build": "node scripts/local-build.mjs",
     "typecheck": "pnpm --recursive typecheck",
     "test": "node --test tests/*.test.cjs && pnpm --recursive test",
     "build": "pnpm --recursive build",
