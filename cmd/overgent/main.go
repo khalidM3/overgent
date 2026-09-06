@@ -14,6 +14,7 @@ import (
 	"github.com/khalidM3/overgent/internal/agentactivity"
 	"github.com/khalidM3/overgent/internal/app"
 	"github.com/khalidM3/overgent/internal/claudesetup"
+	"github.com/khalidM3/overgent/internal/cliui"
 	"github.com/khalidM3/overgent/internal/codexsetup"
 	"github.com/khalidM3/overgent/internal/config"
 	"github.com/khalidM3/overgent/internal/credential"
@@ -58,24 +59,33 @@ type versionInfo struct {
 
 func main() {
 	if e := run(os.Args[1:]); e != nil {
-		fmt.Fprintln(os.Stderr, e)
+		renderCLIError(e, os.Stderr)
 		os.Exit(1)
 	}
 }
 func run(args []string) error {
-	if len(args) == 2 && args[0] == "version" && args[1] == "--json" {
-		identity, _ := executableIdentity()
-		return json.NewEncoder(os.Stdout).Encode(versionInfo{version, commit, buildTime, 1, 1, identity})
-	}
 	fs := flag.NewFlagSet("overgent", flag.ContinueOnError)
 	root := fs.String("config-root", "", "isolated per-user state root")
 	apiBase := fs.String("api", "https://api.overgent.com", "Overgent API origin")
+	noColor := fs.Bool("no-color", false, "never emit ANSI color")
+	noInput := fs.Bool("no-input", false, "never prompt; fail instead of asking")
 	if e := fs.Parse(args); e != nil {
 		return e
 	}
+	setPresentation(*noColor, *noInput)
 	rest := fs.Args()
-	if len(rest) == 0 {
-		return errors.New("usage: overgent [--config-root <dir>] create|join|reset|dashboard|mcp|setup|service|backend|workspace|intent|pause|resume|focus|unfocus|ai|doctor|diagnostics|scan|update")
+	// Help, completion, and version answer from the static command catalogue.
+	// They resolve before configuration so they stay correct on a brand-new,
+	// offline, or partially broken installation (cli-experience.md section 11).
+	if len(rest) > 0 {
+		switch rest[0] {
+		case "help":
+			return runHelp(rest[1:], os.Stdout)
+		case "completion":
+			return runCompletion(rest[1:], os.Stdout)
+		case "version":
+			return runVersion(rest[1:], os.Stdout, os.Stderr)
+		}
 	}
 	customConfigRoot := *root != ""
 	if *root == "" {
@@ -93,13 +103,34 @@ func run(args []string) error {
 		return e
 	}
 	ctx := context.Background()
+	if len(rest) == 0 {
+		return runContextualRoot(ctx, paths, os.Stdout)
+	}
 	switch rest[0] {
+	case "init":
+		return runInit(rest[1:], *root, *apiBase, flagProvided(fs, "api"), os.Stdin, os.Stdout, os.Stderr, run)
+	case "projects":
+		return runProjects(ctx, paths, rest[1:])
+	case "status":
+		for index, arg := range rest[1:] {
+			if arg == "--watch" {
+				watchArgs := append([]string(nil), rest[1:index+1]...)
+				watchArgs = append(watchArgs, rest[index+2:]...)
+				return runWatch(ctx, paths, watchArgs, os.Stdin, os.Stdout, os.Stderr)
+			}
+		}
+		return runStatus(ctx, paths, rest[1:])
+	case "watch":
+		return runWatch(ctx, paths, rest[1:], os.Stdin, os.Stdout, os.Stderr)
+	case "privacy":
+		return runPrivacy(ctx, paths, rest[1:], os.Stdout, os.Stderr)
 	case "create":
 		createFlags := flag.NewFlagSet("create", flag.ContinueOnError)
 		label := createFlags.String("label", "", "Project label")
 		deviceLabel := createFlags.String("device-label", "", "device label shared with Project members")
 		repository := createFlags.String("root", ".", "Git repository root")
 		local := createFlags.Bool("local", false, "create the Project on this Mac's bundled backend; nothing leaves this computer")
+		jsonOutput := createFlags.Bool("json", false, "emit stable JSON")
 		if e = createFlags.Parse(rest[1:]); e != nil {
 			return e
 		}
@@ -139,17 +170,33 @@ func run(args []string) error {
 		if createErr != nil {
 			return createErr
 		}
+		if cliui.IsTerminal(os.Stdout) && !*jsonOutput {
+			mode := "team"
+			if *local {
+				mode = "local"
+			}
+			if _, printErr := fmt.Fprintf(os.Stdout, "Project created · %s\n\nRepository registered. Run `overgent status` to check coordination.\n", mode); printErr != nil {
+				return printErr
+			}
+			if result.JoinCode != "" {
+				_, printErr := fmt.Fprintf(os.Stdout, "Invite: %s\n", result.JoinCode)
+				return printErr
+			}
+			return nil
+		}
 		return json.NewEncoder(os.Stdout).Encode(struct {
-			ProjectID    string `json:"projectId"`
-			DeviceID     string `json:"deviceId"`
-			WorkspaceID  string `json:"workspaceId"`
-			WorkstreamID string `json:"workstreamId"`
-			JoinCode     string `json:"joinCode"`
-		}{result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID, result.JoinCode})
+			SchemaVersion int    `json:"schemaVersion"`
+			ProjectID     string `json:"projectId"`
+			DeviceID      string `json:"deviceId"`
+			WorkspaceID   string `json:"workspaceId"`
+			WorkstreamID  string `json:"workstreamId"`
+			JoinCode      string `json:"joinCode"`
+		}{cliOutputSchemaVersion, result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID, result.JoinCode})
 	case "join":
 		joinFlags := flag.NewFlagSet("join", flag.ContinueOnError)
 		deviceLabel := joinFlags.String("device-label", "", "device label shared with Project members")
 		repository := joinFlags.String("root", ".", "Git repository root")
+		jsonOutput := joinFlags.Bool("json", false, "emit stable JSON")
 		if e = joinFlags.Parse(rest[1:]); e != nil {
 			return e
 		}
@@ -188,12 +235,17 @@ func run(args []string) error {
 		if joinErr != nil {
 			return joinErr
 		}
+		if cliui.IsTerminal(os.Stdout) && !*jsonOutput {
+			_, printErr := fmt.Fprintln(os.Stdout, "Project joined.\n\nRepository registered. Run `overgent status` to check coordination.")
+			return printErr
+		}
 		return json.NewEncoder(os.Stdout).Encode(struct {
-			ProjectID    string `json:"projectId"`
-			DeviceID     string `json:"deviceId"`
-			WorkspaceID  string `json:"workspaceId"`
-			WorkstreamID string `json:"workstreamId"`
-		}{result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID})
+			SchemaVersion int    `json:"schemaVersion"`
+			ProjectID     string `json:"projectId"`
+			DeviceID      string `json:"deviceId"`
+			WorkspaceID   string `json:"workspaceId"`
+			WorkstreamID  string `json:"workstreamId"`
+		}{cliOutputSchemaVersion, result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID})
 	case "reset":
 		// Recovery for a device whose credential a backend no longer accepts -
 		// revoked by an owner, or unknown to the deployment. It is scoped to
@@ -236,18 +288,46 @@ func run(args []string) error {
 			reported = append(reported, resetReport{string(outcome.Status), outcome.BackendID, outcome.APIBaseURL, outcome.DeviceID, outcome.ClearedWorkspaces, outcome.CredentialDeleted})
 		}
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"backends": reported})
-	case "dashboard":
-		dashboardFlags := flag.NewFlagSet("dashboard", flag.ContinueOnError)
-		projectID := dashboardFlags.String("project", "", "Project id")
-		if e = dashboardFlags.Parse(rest[1:]); e != nil {
+	case "open", "dashboard":
+		// One destination command. `dashboard` stays as a compatible alias that
+		// routes here rather than to a second implementation (ADR-080).
+		openFlags := flag.NewFlagSet(rest[0], flag.ContinueOnError)
+		projectID := openFlags.String("project", "", "Project id")
+		// The desktop app embeds the same dashboard build the browser serves, and
+		// it keeps the activation handoff inside its own webview instead of
+		// stranding a tab (ADR-057). So the app is the default destination and
+		// the browser is the fallback; --web forces the browser for SSH, headless
+		// use, or when the app is not the surface a member wants.
+		web := openFlags.Bool("web", false, "open the browser dashboard instead of the app")
+		if e = openFlags.Parse(rest[1:]); e != nil {
 			return e
+		}
+		// `dashboard` opened a browser before `open` existed. Keeping that exact
+		// behavior is what makes the alias compatible rather than merely
+		// accepted: a script that calls it still gets the surface it expects.
+		if rest[0] == "dashboard" {
+			*web = true
 		}
 		cfg, loadErr := config.Load(paths)
 		if loadErr != nil {
 			return loadErr
 		}
 		if *projectID == "" {
-			return errors.New("dashboard requires a project id")
+			selected, selectErr := selectDashboardProject(ctx, cfg, os.Stdin, os.Stdout)
+			if selectErr != nil {
+				return selectErr
+			}
+			*projectID = selected
+		}
+		if !*web {
+			if appErr := activation.OpenApp(ctx, *projectID); appErr == nil {
+				return nil
+			}
+			// The app is not installed or could not be reached. Falling through
+			// to the browser is the recovery, and it is announced rather than
+			// silent: a member who expected the app should know why a tab
+			// opened instead.
+			fmt.Fprintln(os.Stderr, "Overgent app unavailable; opening the browser dashboard instead.")
 		}
 		// The dashboard opens against the backend this Project lives on, not a
 		// profile-wide origin: two Projects on one Mac can be served by two
@@ -640,7 +720,7 @@ func run(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
-	return errors.New("unsupported command")
+	return unknownCommandError(rest[0])
 }
 
 type daemonCaller func(context.Context, string, daemon.Request) (daemon.Response, error)

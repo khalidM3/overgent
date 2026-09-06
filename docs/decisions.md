@@ -1666,3 +1666,97 @@ rows to a list that already exists rather than requiring this to be torn up. If
 it is revisited, per-Project poll status is the prerequisite and the absence of
 cross-Project coordination is the thing the interface has to say out loud.
 Accepted 2026-09-05.
+
+## ADR-079: The CLI is a contextual companion, not a coding-agent shell
+
+The owner directed a complete CLI experience pass on 2026-09-05. The CLI is a
+human-first, Project-aware companion to the workroom with four modes: a glance
+for status, guided one-shot decisions, a line-oriented live stream, and stable
+machine output. It does not become another model loop or a cross-Project
+control room. `overgent` resolves the current registered workspace and answers
+whether anything needs the member; outside a Project it orients and onboards
+without guessing. Interactive prompts run only on a TTY and every answer has a
+flag. Human output is the default on a terminal; `--json`/`--jsonl` are the
+versioned automation contracts.
+
+The terminal inherits the product's information rules: Needs you first, alert
+color only for converging/destructive facts, live color only for current facts,
+quiet-time observations never diagnosed as stalls, canonical elapsed time, and
+visible evidence/fidelity/degradation. Project membership remains the sharing
+consent under ADR-047; enrollment explains the wire boundary, connecting an
+adapter remains explicit, and pause is the immediate sharing control. The CLI
+continues to be a client of the one per-user service and versioned Overgent HTTP
+contracts; it never creates a second observer/queue or mutates Git/agent work.
+
+A full alternate-screen TUI is deferred until watch/headless usage demonstrates
+demand. The canonical behavior and verification contract live in
+`docs/cli-experience.md`. Accepted by the owner 2026-09-05.
+
+## ADR-080: One `open`, the app first, the browser as fallback
+
+The CLI carried two destination commands. `dashboard` minted a signed ticket and
+handed it to whatever browser the member uses; `open` sent a deep link to the
+desktop app. Their help text was interchangeable — "Open a Project dashboard"
+against "Open the current Project dashboard" — so the surface that decided where
+a member landed was the one word they happened to type, with nothing explaining
+the difference.
+
+There is no second product behind the second command. The desktop app embeds a
+`vite build` of `apps/dashboard`, the same React application the browser is
+served, so the choice was never between two interfaces. It was between two
+containers, and the containers are not equal: the app manages the local backend,
+owns member identity and AI settings, handles deep links, and keeps the
+activation handoff inside its own webview. ADR-057 recorded what the browser path
+does instead — a new tab among however many were already open, titled only
+"Activate Overgent", while the app appeared to have done nothing.
+
+`open` becomes the single destination command. It routes to the app, falls back
+to the browser when the app is not installed, and says so on stderr rather than
+opening a tab silently. `--web` forces the browser for members who want that
+surface. It is explicitly *not* a headless mechanism: both destinations shell
+out to `/usr/bin/open`, which requires a GUI session, so neither works over SSH.
+Printing the activation URL instead of opening it is the missing capability, and
+it is not built. `dashboard` remains as an alias that implies `--web`, so
+existing scripts get the surface they already expected; it routes into the same
+dispatch case rather than a second implementation, and a test asserts that.
+
+This supersedes ADR-005's alpha default that the CLI opens hosted React. That
+decision deferred a native surface until demand was demonstrated. The desktop
+app exists, ships, and embeds the dashboard; that is the demonstration. Hosted
+React remains the fallback and the only surface on machines without the app, so
+nothing is removed. Accepted by the owner 2026-09-06.
+
+## ADR-081: The CLI answers "does anything need me" from evidence it can see
+
+ADR-079 requires the terminal to lead with Needs you. It did not: `status`
+printed a hardcoded `unavailable` whose stated reason was that the service
+contract did not expose findings to the CLI. That was not true. Findings already
+reached the CLI through `GET /v1/projects/{id}/changes`, `watch` already read
+them, and `config.Workspace` already carried the workstream identity needed to
+tell which of them converge on the member.
+
+One field was genuinely missing. `findingContract` omitted `delivery`, the
+judgment layer's routing verdict from ADR-045, so a client could see that a
+finding named its workstream but not that judgment had routed it to interrupt
+the turn. `delivery` now travels with the finding as an optional enum. It is not
+re-derived from severity on the client, because that would disagree with the
+verdict actually recorded.
+
+Needs you is evaluated in one place and rendered by both `status` and `watch`;
+two implementations would eventually disagree and the one a member checked would
+be the wrong one. The evaluation is four-valued, and the distinction that
+matters is between `clear` and `partial`. "Nothing needs you" may be printed
+only when every evidence source answered. A finding that names this member's
+workstream but carries no routing verdict — written before judgment existed, or
+never judged — is reported as missing coverage, never treated as silent. A
+finding naming no workstream cannot be shown to converge on anyone and counts as
+Elsewhere rather than becoming work for whoever is looking.
+
+The exposure this adds is small: findings already crossed the wire to the
+dashboard and the CLI already fetched them, and a routing verdict carries no
+source material. The risk worth guarding is the opposite one. For a product
+whose first question is whether anything is about to hit the member, a false
+all-clear is worse than no answer, so degraded judgment, an unconfigured
+provider, and an unreachable backend all read as "could not check everything"
+rather than as quiet. Accepted by the owner 2026-09-06.
+
