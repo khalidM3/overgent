@@ -50,9 +50,15 @@ func main() {
 		URL:              desktopStartURL(),
 		BackgroundColour: application.NewRGB(244, 245, 240),
 		Mac: application.MacWindow{
-			// Keep the native title bar outside the web content. Full-size content
-			// places the traffic lights over the Project sidebar and brand mark.
-			TitleBar:    application.MacTitleBarDefault,
+			// One bar, and it is the app's own. A separate native title bar spent
+			// a strip of every window on a word the sidebar already says, and put
+			// a system-drawn edge between the window frame and an interface whose
+			// whole look is hairlines. Hidden-inset keeps the traffic lights where
+			// macOS puts them and hands the rest of that strip to the page; the
+			// sidebar reserves the top-left corner for them and marks the strip
+			// draggable (`--wails-draggable`, style.css "desktop shell"), so the
+			// window still moves by its top edge.
+			TitleBar:    application.MacTitleBarHiddenInset,
 			TabbingMode: application.MacWindowTabbingModeDisallowed,
 			WebviewPreferences: application.MacWebviewPreferences{
 				// This window navigates to the hosted origin to show a live
@@ -77,6 +83,16 @@ func main() {
 	// back here through the registered scheme and this brings the app forward on
 	// the add-Project screen.
 	app.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
+		if projectID, ok := desktopDeepLinkProject(event.Context().URL()); ok {
+			go func() {
+				if err := openProject(context.Background(), window, desktopConfigRoot(), projectID); err != nil {
+					slog.Warn("open deep-linked Project", "error", err)
+				}
+			}()
+			window.Show()
+			window.Focus()
+			return
+		}
 		target, ok := desktopDeepLinkTarget(event.Context().URL())
 		if !ok {
 			return

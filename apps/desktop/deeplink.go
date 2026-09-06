@@ -5,6 +5,33 @@ import (
 	"strings"
 )
 
+func desktopDeepLinkProject(raw string) (string, bool) {
+	if raw == "" || len(raw) > 2048 {
+		return "", false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(parsed.Scheme, desktopURLScheme()) || !strings.EqualFold(parsed.Host, "project") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false
+	}
+	projectID := strings.Trim(parsed.Path, "/")
+	if !validDeepLinkProjectID(projectID) {
+		return "", false
+	}
+	return projectID, true
+}
+
+func validDeepLinkProjectID(value string) bool {
+	if !strings.HasPrefix(value, "prj_") || len(value) < 5 || len(value) > 84 {
+		return false
+	}
+	for _, char := range value[4:] {
+		if char < 'A' || char > 'Z' && char < 'a' || char > 'z' && char < '0' || char > '9' && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // addProjectURL is the shell's own route for registering a repository. It is
 // reached three ways - the deep link below, the menu bar, and a hosted page in
 // this window navigating to the shell's origin - so it is written once.

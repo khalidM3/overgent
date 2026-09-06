@@ -284,6 +284,22 @@ func openNewestProject(ctx context.Context, window *application.WebviewWindow, c
 		return errors.New("live view requires an enrolled Project")
 	}
 	projectID := cfg.Workspaces[len(cfg.Workspaces)-1].ProjectID
+	return openProjectWithConfig(ctx, window, paths, cfg, projectID)
+}
+
+func openProject(ctx context.Context, window *application.WebviewWindow, configRoot, projectID string) error {
+	paths, err := config.Resolve(configRoot)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	return openProjectWithConfig(ctx, window, paths, cfg, projectID)
+}
+
+func openProjectWithConfig(ctx context.Context, window *application.WebviewWindow, paths config.Paths, cfg config.Config, projectID string) error {
 	url, err := liveProjectURL(ctx, paths, cfg, projectID)
 	if err != nil {
 		return err

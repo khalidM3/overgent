@@ -352,6 +352,31 @@ func (s *Store) ActiveAgentSessions(ctx context.Context, workspaceID, vendor, cw
 	return sessions, rows.Err()
 }
 
+// RecentAgentSessions returns the locally observed, non-finished agent
+// sessions for one workspace. It powers read-only Project status surfaces and
+// never reads transcripts or session content.
+func (s *Store) RecentAgentSessions(ctx context.Context, workspaceID string, activeAfter time.Time) ([]AgentSession, error) {
+	if workspaceID == "" || activeAfter.IsZero() {
+		return nil, errors.New("recent agent session query is invalid")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT workspace_id,vendor,workstream_id,cwd,status,last_observed_at FROM agent_sessions WHERE workspace_id=? AND status<>'done' AND last_observed_at>=? ORDER BY status, vendor, workstream_id`, workspaceID, activeAfter.UTC().UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []AgentSession
+	for rows.Next() {
+		var session AgentSession
+		var observedAt int64
+		if err = rows.Scan(&session.WorkspaceID, &session.Vendor, &session.WorkstreamID, &session.CWD, &session.Status, &observedAt); err != nil {
+			return nil, err
+		}
+		session.ObservedAt = time.UnixMilli(observedAt).UTC()
+		sessions = append(sessions, session)
+	}
+	return sessions, rows.Err()
+}
+
 // ReadSetEntry is one observation of a fingerprintable path by one agent
 // session, carrying the file contract hash current when the session read it.
 type ReadSetEntry struct {
