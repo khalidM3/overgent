@@ -15,10 +15,11 @@ import (
 
 type DesktopAISettingsWrite struct {
 	Judgment struct {
-		Provider string  `json:"provider"`
-		Model    string  `json:"model"`
-		BaseURL  *string `json:"baseUrl,omitempty"`
-		APIKey   *string `json:"apiKey,omitempty"`
+		Provider  string  `json:"provider"`
+		Model     string  `json:"model"`
+		BaseURL   *string `json:"baseUrl,omitempty"`
+		APIKey    *string `json:"apiKey,omitempty"`
+		RemoveKey bool    `json:"removeKey,omitempty"`
 	} `json:"judgment"`
 	Embeddings struct {
 		Provider   string  `json:"provider"`
@@ -26,6 +27,7 @@ type DesktopAISettingsWrite struct {
 		Dimensions int     `json:"dimensions"`
 		BaseURL    *string `json:"baseUrl,omitempty"`
 		APIKey     *string `json:"apiKey,omitempty"`
+		RemoveKey  bool    `json:"removeKey,omitempty"`
 	} `json:"embeddings"`
 }
 
@@ -62,6 +64,20 @@ func (service *OnboardingService) PutAISettings(projectID string, input DesktopA
 	if input.Embeddings.APIKey != nil {
 		var key protocoltypes.PutProjectAISettingsJSONBody_Embeddings_ApiKey
 		if err := key.FromPutProjectAISettingsJSONBodyEmbeddingsApiKey1(*input.Embeddings.APIKey); err != nil {
+			return hosted.AISettings{}, err
+		}
+		write.Embeddings.ApiKey = &key
+	}
+	if input.Judgment.RemoveKey {
+		var key protocoltypes.PutProjectAISettingsJSONBody_Judgment_ApiKey
+		if err := key.FromPutProjectAISettingsJSONBodyJudgmentApiKey0(nil); err != nil {
+			return hosted.AISettings{}, err
+		}
+		write.Judgment.ApiKey = &key
+	}
+	if input.Embeddings.RemoveKey {
+		var key protocoltypes.PutProjectAISettingsJSONBody_Embeddings_ApiKey
+		if err := key.FromPutProjectAISettingsJSONBodyEmbeddingsApiKey0(nil); err != nil {
 			return hosted.AISettings{}, err
 		}
 		write.Embeddings.ApiKey = &key

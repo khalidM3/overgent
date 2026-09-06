@@ -1532,3 +1532,79 @@ The install, uninstall, and macOS download aliases redirect to the latest
 published GitHub Release assets. The protected release environment retains the
 signing and Blob credentials; forks cannot use either. Accepted by the owner
 2026-09-04.
+
+## ADR-076: A browser session is authorized by its device's memberships, not by the one Project that minted it
+
+Narrows the "single Project" half of ADR-024. The ticket stays exactly as
+ADR-024 specifies — Project-scoped, minted from the Keychain-backed device
+credential, POSTed once, never in a URL or storage. What changes is what the
+resulting cookie authorizes: every read and write reauthorizes the hashed
+session, resolves the device it belongs to, and then requires an active
+`members` row for *that device* in the Project being asked for. For the Project
+that minted the session this is identical to what ADR-024 already did.
+
+The reason is that the previous rule made a documented product limitation
+unfixable rather than merely unfinished. The workroom sidebar and the command
+palette are both written to switch between Projects, but `/v1/dashboard/session`
+could only ever return the one Project the cookie was minted for, so a member
+with two Projects on one Mac saw a switcher with a single entry and could reach
+the second only by re-activating it from the app. Membership was always the real
+authority — the same device enrolls in every Project on it, and the desktop app
+can mint a ticket for any of them on demand — so the cookie's Project binding
+was narrowing the interface without narrowing what the holder could obtain.
+
+Each Project's own `members` row is resolved, never the session's, because
+membership is per-Project and callers use it for "mine"; carrying one Project's
+member identity into another would attribute its work to the wrong person.
+Membership is re-read per request rather than baked into the session, so leaving
+or being removed from a Project takes effect immediately rather than at the
+session's eight-hour expiry.
+
+The cost is accepted and stated: a stolen session cookie now reaches every
+Project enrolled on that Mac rather than one. The cookie remains
+Secure/HttpOnly/SameSite=Strict, same-origin, eight-hour, and revocable, and an
+attacker holding it is already inside the origin as that device. Device
+revocation, which invalidates every session for the device, remains the
+containment. `revokeDevice` is deliberately **not** widened: it still requires
+membership in the Project the session was minted for, which fails closed rather
+than open. Accepted 2026-09-05.
+
+## ADR-077: Intelligence has a device-default tier above per-Project settings
+
+Extends ADR-073 without changing it. A Project's AI settings remain the only
+thing that runs, remain stored in that Project's own backend, and remain
+encrypted there with that deployment's secret. This adds one tier above:
+defaults held on the member's Mac, so intelligence is configured once instead of
+re-entered for every Project.
+
+Resolution is unchanged — Project settings, then the deployment's operator keys
+where enabled, then `none`. Defaults never enter that order. They are a starting
+point for a Project's settings, not a fallback the backend consults, so no
+backend gains a new place to look for a key.
+
+Where they apply is the substance of this decision:
+
+- **A Project on this Mac takes them automatically at creation.** Its backend is
+  the loopback server on the member's own machine, so applying a default moves
+  the key from the login Keychain to a database on the same disk. Nothing
+  leaves.
+- **A shared Project does not.** Saving a key to a shared Project uploads it to
+  a server that other members' sessions spend it from, and possibly one the
+  member does not operate. That is a decision they take on that Project's own
+  settings screen, behind the existing explicit approval checkbox, next to the
+  sentence that says what saving does.
+
+The non-secret half of the defaults is a plain file in the profile
+(`ai-defaults.json`). The keys are not: they go to the login Keychain under
+per-profile accounts, so a readable configuration file never carries a provider
+key and a member can revoke one in Keychain Access without this application. The
+file records only that a key was stored; the Keychain decides whether one still
+is, so a key deleted outside Overgent is reported as absent rather than as
+present-but-unusable. Turning a provider off deletes its stored key rather than
+leaving a secret behind for something switched off.
+
+Consequences: `AIDefaults`/`PutAIDefaults` on the desktop bridge; an
+Intelligence tab in App settings; nothing on the enrollment path, because a
+Project configures itself perfectly well with no defaults set and asking for an
+API key during onboarding would gate first run on a decision that can be taken
+later. Accepted 2026-09-05.

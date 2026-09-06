@@ -652,12 +652,15 @@ not "Create sync card".
 4. **Narrow viewports.** The shell has `min-width: 1240px` and scrolls
    horizontally below that. A collapsed-inspector breakpoint exists in CSS
    (`.no-inspector`) but is not yet wired to a control.
-5. **Cross-Project switching in one browser session.** The sidebar opens the
-   native Project-creation screen and reuses the enrolled device plus the one
-   running local service. A hosted browser session remains scoped to the Project
-   that minted it, so opening the newly created Project performs a fresh
-   one-time native activation rather than widening the current cookie — which is
-   why "Open Project" still passes through an activation confirmation. The
+5. **Cross-Project switching in one browser session.** Switching between
+   Projects already enrolled on this Mac now works in place: the session lists
+   every Project the device belongs to, the sidebar switches between them, and
+   the live poll follows the Project on screen (ADR-076). *Creating* a Project
+   is still a hand-off — the sidebar opens the native Project-creation screen,
+   which reuses the enrolled device plus the one running local service, and
+   opening the newly created Project performs a fresh one-time native
+   activation, which is why "Open Project" still passes through an activation
+   confirmation. The
    remaining seam is that the hosted workroom cannot reach the local service at
    all, so adding a Project from it is a hand-off to the desktop shell rather
    than something that happens in place. The hand-off is now reliable and

@@ -87,7 +87,13 @@ func ensureDashboardOrigin(assets fs.FS) *dashboardOrigin {
 // because the proxy's target is only known once the service has started the
 // backend - and on a relaunch nothing else would have done it.
 func activationOriginFor(ctx context.Context, paths config.Paths, backend config.Backend) (string, error) {
-	if backend.Kind != config.KindLocal {
+	// "Local" means loopback, and the bundled backend is not the only thing on
+	// loopback: the development harness runs its own Convex there too. Asking
+	// the service for a bundled backend this profile does not have answered
+	// "this profile has no local backend" and left the development loop unable
+	// to open any Project at all. A loopback backend the app does not manage is
+	// served the same way a remote one is - by whatever serves its dashboard.
+	if backend.Kind != config.KindLocal || !localbackend.Configured(paths.Root) {
 		return desktopTeamActivationOrigin(backend.APIBaseURL), nil
 	}
 	endpoint, err := ensureLocalBackend(ctx, paths)
@@ -101,7 +107,7 @@ func activationOriginFor(ctx context.Context, paths config.Paths, backend config
 	if err = origin.SetBackend(endpoint.SiteOrigin); err != nil {
 		return "", err
 	}
-	return origin.Origin(), nil
+	return origin.ActivationOrigin(), nil
 }
 
 // isLoopbackOrigin asks the same question the service and the CLI ask, through
@@ -146,7 +152,13 @@ func recordBundledBackend(configRoot string) {
 // where it is. The desktop never spawns the backend itself: one process has to
 // own its lifetime, and that process is the service, which outlives the window.
 func ensureLocalBackend(ctx context.Context, paths config.Paths) (localbackend.Endpoint, error) {
-	response, err := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "backend_ensure"})
+	// launchctl kickstart returns once launchd has spawned the process, not once
+	// the service is listening, so a first run raced its own service: the app
+	// installed the LaunchAgent, asked for the backend a few milliseconds later,
+	// found no socket, and told the member the service was not running - which
+	// it was, half a second afterwards. Only a transport failure is retried; a
+	// service that answers with a refusal is answering.
+	response, err := callServiceWhenReady(ctx, paths.Socket, daemon.Request{Method: "backend_ensure"})
 	if err != nil {
 		return localbackend.Endpoint{}, errors.New("the Overgent background service is not running yet")
 	}
@@ -165,6 +177,38 @@ func ensureLocalBackend(ctx context.Context, paths config.Paths) (localbackend.E
 		return localbackend.Endpoint{}, errors.New("the local backend reported no address")
 	}
 	return endpoint, nil
+}
+
+// serviceStartupBudget is how long a just-installed service is given to bind
+// its socket. The service's own start does far less than the backend's, so this
+// is deliberately shorter than the backend health budget it leads into.
+const serviceStartupBudget = 20 * time.Second
+
+// callServiceWhenReady makes one IPC call, waiting for the socket to appear.
+//
+// It retries only when the call could not reach the service at all. A response
+// carrying an error - "this profile has no local backend", say - is a real
+// answer and is returned immediately, because waiting cannot change it.
+func callServiceWhenReady(ctx context.Context, socket string, request daemon.Request) (daemon.Response, error) {
+	deadline := time.Now().Add(serviceStartupBudget)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	var err error
+	for attempt := 0; ; attempt++ {
+		var response daemon.Response
+		if response, err = daemon.Call(ctx, socket, request); err == nil {
+			return response, nil
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return daemon.Response{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return daemon.Response{}, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // BackendStatus is the backend half of the menu's service health.

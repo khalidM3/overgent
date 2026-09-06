@@ -876,6 +876,9 @@ html[data-desktop-preview="true"] #root { height: calc(100% - var(--desktop-prev
 .state-symbol { color: var(--ink-3); }
 .spinner { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--ink-3); border-radius: 50%; }
 @media (prefers-reduced-motion: no-preference) { .spinner { animation: spin .9s linear infinite; } }
+/* An icon that is already a ring, spun in place: used where a control is
+   working and its own label has changed to say so. */
+@media (prefers-reduced-motion: no-preference) { .spin { animation: spin .9s linear infinite; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ──────────────────── command palette (the one dialog) ─────── */
@@ -991,7 +994,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
    monospace because it is an address a member may need to check character by
    character; a self-hosted server and a typo of it read the same in prose. */
 .project-list { display: flex; flex-direction: column; margin: 4px 0 14px; }
-.project-row { display: flex; align-items: flex-start; gap: 11px; padding: 10px 0; border-top: 1px solid var(--line); }
+/* A row is a control: it opens the Project it names. Left-aligned and full
+   width so the list still reads as a list rather than a stack of buttons. */
+.project-row { display: flex; align-items: flex-start; gap: 11px; width: 100%; padding: 10px 8px 10px 0; border: 0; border-top: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 0; }
+.project-row:hover:not(:disabled), .project-row:focus-visible { background: var(--surface-2, rgba(127, 127, 127, 0.08)); }
+.project-row:disabled { cursor: default; opacity: 0.6; }
+.project-open { align-self: center; color: var(--ink-3); font-size: 12px; opacity: 0; }
+.project-row:hover:not(:disabled) .project-open, .project-row:focus-visible .project-open { opacity: 1; }
 .project-row:last-child { border-bottom: 1px solid var(--line); }
 .project-row > span { flex: 1; min-width: 0; }
 .project-row strong { display: block; font-size: 13.5px; font-weight: 600; }
@@ -1068,3 +1077,20 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 /* The group label is the collision when one spans two of its sessions:
    the glyph takes --alert exactly as it would on a row (rule 2). */
 .area-label .area-warn { color: var(--alert); flex: none; }
+
+/* Entry and configuration use the same column and hairlines as the workroom. */
+.entry-shell { min-width: 0; }
+.settings-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line); margin: 0 0 28px; padding-bottom: 14px; }
+.settings-tabs [aria-current="page"] { color: var(--ink); font-weight: 650; text-decoration: underline; text-underline-offset: 17px; }
+.inline-option { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--ink-2); font: 13px var(--sans); }
+.inline-option input { width: auto; }
+.provider-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.agent-disclosure { margin-top: 24px; }
+.provider-settings { margin: 24px 0; }
+.provider-settings h3 { font-size: 14.5px; }
+.entry-shell .project-item { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .entry-shell { grid-template-columns: 150px minmax(0, 1fr); }
+  .entry-shell .screen-column { padding: 24px; }
+  .settings-tabs { flex-wrap: wrap; gap: 16px; }
+}

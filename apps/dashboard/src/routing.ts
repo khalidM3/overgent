@@ -24,6 +24,17 @@ export interface RouteInputs {
   desktopShell: boolean;
   /** This page is served by the desktop shell's own asset handler. */
   desktopWebview: boolean;
+  /**
+   * This bundle was built by the development harness rather than shipped.
+   *
+   * The preview banner labels the harness, and being served by the shell's own
+   * asset handler used to be evidence of that. It stopped being evidence once
+   * opening a Project became a route on that same handler: an installed,
+   * production-tagged build then showed "Overgent Dev · Local live Project
+   * data" across the top of a member's real Project. The build flag is the only
+   * thing that actually answers the question, so it is asked directly.
+   */
+  development?: boolean;
 }
 
 export interface RouteDecision {
@@ -32,13 +43,13 @@ export interface RouteDecision {
   banner: "none" | "preview-live" | "preview-fixtures" | "fixtures";
 }
 
-export function decideRoute({ pathname, search, desktopShell, desktopWebview }: RouteInputs): RouteDecision {
+export function decideRoute({ pathname, search, desktopShell, desktopWebview, development = false }: RouteInputs): RouteDecision {
   const parameters = new URLSearchParams(search);
   const live = parameters.get("live") === "1";
-  const desktopPreview = parameters.get("desktop") === "preview" || desktopWebview;
+  const desktopPreview = parameters.get("desktop") === "preview" || (desktopWebview && development);
   const onboarding = parameters.get("desktop") === "onboarding";
   // Fixtures are a design harness, so they are opt-in and always labelled.
-  const fixtures = parameters.get("fixtures") === "1" || (desktopPreview && !live);
+  const fixtures = parameters.get("fixtures") === "1" || (parameters.get("desktop") === "preview" && !live);
   const normalised = pathname.replace(/\/+$/, "") || "/";
   // The public marketing page belongs to the hosted origin and to a browser.
   // Anything inside the Overgent window, anything asking for a harness, and
@@ -54,7 +65,7 @@ export function decideRoute({ pathname, search, desktopShell, desktopWebview }: 
         : "none";
 
   if (normalised === "/join") return { route: "join", banner };
-  if (onboarding) return { route: "onboarding", banner: "none" };
+  if (onboarding || (desktopWebview && !live && !fixtures)) return { route: "onboarding", banner: "none" };
   if (fixtures) return { route: "fixtures", banner };
   if (landing) return { route: "landing", banner };
   return { route: "live", banner };

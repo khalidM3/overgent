@@ -1,10 +1,19 @@
 import { FixtureProjectSource } from "./fixture-source";
-import { nativeOnboarding } from "./native";
+import { isDesktopWebview, nativeOnboarding } from "./native";
 import type { CollaborationSnapshot, DashboardSession, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionFocus, SessionMessagesSnapshot } from "./model";
 
 const prefix = import.meta.env.VITE_OVERGENT_API_PREFIX ?? "/api/v1";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const objectProjects = new Map<string, string>();
+async function request<T>(path: string, init?: RequestInit, projectId?: string): Promise<T> {
+  if (isDesktopWebview) {
+    const parts = path.split("/");
+    const scope = projectId ?? (parts[1] === "projects" ? parts[2] : parts[1] === "dashboard" && parts[2] === "projects" ? parts[3] : objectProjects.get(parts[2] ?? ""));
+    if (!scope) throw new Error("This operation has no Project context.");
+    const result = await nativeOnboarding.dashboardRequest(scope, init?.method ?? "GET", path, typeof init?.body === "string" ? init.body : "");
+    if (result.status < 200 || result.status >= 300) throw Object.assign(new Error("Project request could not be completed."), { status: result.status });
+    return (result.body ? JSON.parse(result.body) : undefined) as T;
+  }
   const response = await fetch(`${prefix}${path}`, { ...init, credentials: "include", headers: { "content-type": "application/json", ...init?.headers } });
   if (!response.ok) {
     const error = new Error(`dashboard API ${response.status}`) as Error & { status: number };
@@ -19,7 +28,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function loadSession(): Promise<DashboardSession> {
-  return request<DashboardSession>("/dashboard/session");
+  if (!isDesktopWebview) return request<DashboardSession>("/dashboard/session");
+  const state = await nativeOnboarding.state();
+  const projects = state.projects ?? [];
+  if (!projects.length) return { projects: [], selectedProjectId: "", memberId: "", memberName: "You", memberNameSource: "device" };
+  const origins = new Map(projects.map((project) => [project.backendId, project.projectId]));
+  const results = await Promise.allSettled([...origins.values()].map((id) => request<DashboardSession>("/dashboard/session", undefined, id)));
+  const sessions = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  if (!sessions.length) throw new Error("Your Project servers are unavailable. Return to Projects to check connections.");
+  const registered = new Set(projects.map((project) => project.projectId));
+  const summaries = sessions.flatMap((session) => session.projects.filter((project) => registered.has(project.id)));
+  const requested = new URLSearchParams(window.location.search).get("project");
+  const selected = summaries.find((project) => project.id === requested) ?? summaries[0];
+  const session = sessions.find((value) => value.projects.some((project) => project.id === selected?.id)) ?? sessions[0]!;
+  return { ...session, projects: summaries, selectedProjectId: selected?.id ?? "" };
 }
 
 export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot> {
@@ -27,6 +49,7 @@ export async function loadSnapshot(projectId: string): Promise<ProjectSnapshot> 
     request<Omit<ProjectSnapshot, "collaboration">>(`/dashboard/projects/${encodeURIComponent(projectId)}`),
     request<CollaborationSnapshot>(`/projects/${encodeURIComponent(projectId)}/collaboration`),
   ]);
+  for (const object of [...(snapshot.workstreams ?? []), ...(snapshot.findings ?? []), ...(snapshot.devices ?? []), ...(collaboration.syncCards ?? [])]) objectProjects.set(object.id, projectId);
   return { ...snapshot, collaboration };
 }
 

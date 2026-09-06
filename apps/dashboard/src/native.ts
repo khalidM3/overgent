@@ -56,6 +56,12 @@ export interface OnboardingState {
   credential?: "ok" | "revoked" | "unknown" | "uncertain";
   /** This build carries a backend, so "Use on this Mac" is a real choice. */
   localAvailable?: boolean;
+  /**
+   * The name this Mac knows the member by. It seeds a new Project's member row
+   * so identity does not fall back to the device hostname; it never overrides
+   * the name a Project already holds, which is that Project's own to change.
+   */
+  memberName?: string;
   /** The bundled backend's state, shown beside service health. */
   backend?: {
     present: boolean;
@@ -130,8 +136,27 @@ export interface AISettings {
 }
 
 export interface AISettingsWrite {
-  judgment: { provider: AISettings["judgment"]["provider"]; model: string; baseUrl?: string; apiKey?: string };
-  embeddings: { provider: AISettings["embeddings"]["provider"]; model: string; dimensions: 1024; baseUrl?: string; apiKey?: string };
+  judgment: { provider: AISettings["judgment"]["provider"]; model: string; baseUrl?: string; apiKey?: string; removeKey?: boolean };
+  embeddings: { provider: AISettings["embeddings"]["provider"]; model: string; dimensions: 1024; baseUrl?: string; apiKey?: string; removeKey?: boolean };
+}
+
+/**
+ * What new Projects on this Mac start from.
+ *
+ * One tier above AISettings, which stays the only thing that runs: a Project's
+ * settings live in that Project's backend, encrypted there (ADR-073). These are
+ * a preference on this Mac, so intelligence is configured once instead of
+ * re-entered per Project. Keys are held in the login Keychain, never in this
+ * shape and never in a readable file, which is why only `keyStored` crosses.
+ */
+export interface AIDefaults {
+  judgment: { provider: AISettings["judgment"]["provider"]; model: string; baseUrl: string; keyStored: boolean };
+  embeddings: { provider: AISettings["embeddings"]["provider"]; model: string; dimensions: 1024; baseUrl: string; keyStored: boolean };
+}
+
+export interface AIDefaultsWrite {
+  judgment: { provider: AISettings["judgment"]["provider"]; model: string; baseUrl?: string; apiKey?: string; removeKey?: boolean };
+  embeddings: { provider: AISettings["embeddings"]["provider"]; model: string; dimensions: 1024; baseUrl?: string; apiKey?: string; removeKey?: boolean };
 }
 
 interface WailsCall {
@@ -191,14 +216,26 @@ const shellAddProjectRoute = "/?desktop=onboarding&add=project";
  *   the old hand-off screen a dead end: the one place its button was offered
  *   was the one place it could not work.
  * - A real browser: the registered scheme, which is exactly what it is for.
+ *
+ * `returnProjectId` names the Project this window was reading when the member
+ * asked to add another, so the setup screen has somewhere to send them back to.
+ * Adding a Project navigates the whole window away from the workroom, and
+ * without it "Back" could only ever reach the setup screen's own home — which
+ * is how pressing Back inside a Project ended up somewhere the member had never
+ * been. It is carried only on a navigation this window makes to itself, never
+ * on the `overgent://` deep link, which stays a fixed route with nothing from
+ * the URL interpolated into it (see desktopDeepLinkTarget). The receiving side
+ * checks it against the Projects actually enrolled on this Mac before acting on
+ * it, so the worst a crafted value can do is name a Project the member has.
  */
-export function desktopHandoffURL(): string {
-  if (isDesktopWebview) return shellAddProjectRoute;
+export function desktopHandoffURL(returnProjectId = ""): string {
+  const from = returnProjectId ? `&from=${encodeURIComponent(returnProjectId)}` : "";
+  if (isDesktopWebview) return `${shellAddProjectRoute}${from}`;
   if (isDesktopShell) {
     // The shell serves its assets from wails://localhost, and in development
     // proxies the dev server on the same port this page is served from.
     const port = import.meta.env.DEV && window.location.port ? `:${window.location.port}` : "";
-    return `wails://localhost${port}${shellAddProjectRoute}`;
+    return `wails://localhost${port}${shellAddProjectRoute}${from}`;
   }
   return `${desktopScheme}://new-project`;
 }
@@ -215,7 +252,11 @@ async function call<T>(method: string, ...args: unknown[]): Promise<T> {
 }
 
 export const nativeOnboarding = {
+  dashboardRequest: (projectId: string, method: string, path: string, body: string) => call<{ status: number; body: string }>("DashboardRequest", projectId, method, path, body),
   state: () => call<OnboardingState>("State"),
+  // "Check again" means "the cached answer is wrong", so it must not be served
+  // one. State() caches credential health for fifteen seconds; this drops it.
+  recheckState: () => call<OnboardingState>("RecheckState"),
   chooseRepository: () => call<string>("ChooseRepository"),
   createProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateProject", request),
   createLocalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("CreateLocalProject", request),
@@ -225,6 +266,8 @@ export const nativeOnboarding = {
   // flow as joinProject; whether this Mac already has a device identity is a
   // question about the invite's backend, and the flow answers it.
   joinAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinAdditionalProject", request),
+  exportProject: (projectId: string) => call<void>("ExportProject", projectId),
+  disconnectAgent: (vendor: AgentVendor) => call<void>("DisconnectAgent", vendor),
   configureAdapters: (root: string, codex: boolean, claude: boolean, cursor: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude, cursor),
   reconnectAdapter: (root: string, agent: AgentVendor) => call<AdapterState>("ReconnectAdapter", root, agent),
   connectAgentWorktree: (root: string, agent: AgentVendor) => call<AdapterState>("ConnectAgentWorktree", root, agent),
@@ -240,12 +283,20 @@ export const nativeOnboarding = {
   setSessionFocus: (workstreamId: string, minutes: number) => call<NativeSessionFocus>("SetSessionFocus", workstreamId, minutes),
   aiSettings: (projectId: string) => call<AISettings>("AISettings", projectId),
   putAISettings: (projectId: string, write: AISettingsWrite) => call<AISettings>("PutAISettings", projectId, write),
+  aiDefaults: () => call<AIDefaults>("AIDefaults"),
+  putAIDefaults: (write: AIDefaultsWrite) => call<AIDefaults>("PutAIDefaults", write),
 };
 
 // Optional on the interface so older signed desktop shells degrade by omitting
 // the action instead of making the rest of onboarding unusable during update.
-export type NativeOnboarding = Omit<typeof nativeOnboarding, "openOwningSession" | "aiSettings" | "putAISettings"> & {
+export type NativeOnboarding = Omit<typeof nativeOnboarding, "exportProject" | "disconnectAgent" | "dashboardRequest" | "openOwningSession" | "aiSettings" | "putAISettings" | "aiDefaults" | "putAIDefaults" | "recheckState"> & {
+  exportProject?: typeof nativeOnboarding.exportProject;
+  disconnectAgent?: typeof nativeOnboarding.disconnectAgent;
+  dashboardRequest?: typeof nativeOnboarding.dashboardRequest;
   openOwningSession?: typeof nativeOnboarding.openOwningSession;
   aiSettings?: typeof nativeOnboarding.aiSettings;
   putAISettings?: typeof nativeOnboarding.putAISettings;
+  aiDefaults?: typeof nativeOnboarding.aiDefaults;
+  putAIDefaults?: typeof nativeOnboarding.putAIDefaults;
+  recheckState?: typeof nativeOnboarding.recheckState;
 };
