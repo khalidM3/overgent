@@ -1,4 +1,9 @@
-//go:build unix
+//go:build unix && !linux
+
+// BSD ps, which is what darwin has. Linux is excluded deliberately: its ps
+// truncates the command name to fifteen characters, so this file's comparison
+// silently fails for "convex-local-backend". See identity_linux.go, which
+// reads procfs instead.
 
 package localbackend
 
