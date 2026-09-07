@@ -141,10 +141,27 @@ func main() {
 	menu.AddSeparator()
 	menu.Add("Quit Overgent").OnClick(func(*application.Context) { app.Quit() })
 	tray.SetMenu(menu)
-	tray.OnClick(func() {
-		window.Show()
-		window.Focus()
-	})
+	// Both buttons should open the one menu: that is what every other extra on
+	// the bar does, and a plain click is the only thing a trackpad user thinks
+	// to try. A right-click reaches it; a left-click does not, and on Wails
+	// v3.0.0-beta.12 nothing here can make it, because both of the routes the
+	// framework offers assume a status item click arrives as an ordinary mouse
+	// event. On current macOS it does not. Instrumenting the callbacks showed:
+	//
+	//   - Wails guards its NSEvent monitor on `event.window != button.window`,
+	//     which never matches for these clicks, so the callback that would ask
+	//     macOS for native menu tracking is never reached.
+	//   - Its action handler reads `[NSApp currentEvent].type`, which comes
+	//     back 13/14 (AppKitDefined/SystemDefined) rather than 1. The switch in
+	//     processClick tests only leftButtonDown=1 and rightButtonDown=3, so it
+	//     falls through and does nothing at all.
+	//
+	// The handler below is kept because it states the intent and starts working
+	// the moment Wails reports the button correctly. Until then the menu is
+	// reachable by right-click, and every item in it is also reachable from the
+	// window, so nothing is only behind the broken gesture. Revisit on the next
+	// Wails bump; if it is still broken, the fix is our own NSStatusItem.
+	tray.OnClick(func() { tray.OpenMenu() })
 
 	control := controller{service: newDaemonService()}
 	var stateMu sync.RWMutex
