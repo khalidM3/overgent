@@ -24,8 +24,18 @@ func validDeepLinkProjectID(value string) bool {
 	if !strings.HasPrefix(value, "prj_") || len(value) < 5 || len(value) > 84 {
 		return false
 	}
+	// The allowed set is spelled as explicit ranges rather than a chain of
+	// negations. An earlier version wrote the same rule as a single `||` of
+	// four `&&` clauses, and Go's precedence turned the last one into a catch
+	// that rejected every character, so no deep link ever resolved. A rule
+	// this small is worth reading at a glance.
 	for _, char := range value[4:] {
-		if char < 'A' || char > 'Z' && char < 'a' || char > 'z' && char < '0' || char > '9' && char != '_' && char != '-' {
+		switch {
+		case char >= 'A' && char <= 'Z':
+		case char >= 'a' && char <= 'z':
+		case char >= '0' && char <= '9':
+		case char == '_' || char == '-':
+		default:
 			return false
 		}
 	}
