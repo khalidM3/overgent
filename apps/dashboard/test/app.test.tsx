@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureProjectSource } from "../src/fixture-source";
@@ -149,22 +149,20 @@ describe("Project Workroom behavior", () => {
     expect(claudeRow.textContent).not.toContain("earlier goal");
   });
 
-  it("does not silently continue an active Codex session from the labelled inspector action", async () => {
+  it("does not offer non-working handoff controls in session inspectors", async () => {
     const user = userEvent.setup();
-    const openOwningSession = vi.fn(async () => ({ vendor: "codex" as const, opened: false, detail: "Codex could not be started. Copy the exact continuation command instead.", fallbackCommand: "codex continue fixture-id" }));
+    const openOwningSession = vi.fn();
     const api = { openOwningSession } as unknown as NativeOnboarding;
     render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={api} />);
 
     await user.click(screen.getByRole("button", { name: "Open Codex session for Khalid" }));
     const inspector = screen.getByLabelText("Details inspector");
-    await user.click(await within(inspector).findByRole("button", { name: "Continue in Codex" }));
-    expect(within(inspector).getByText(/still reported active/)).toBeTruthy();
-    expect(openOwningSession).not.toHaveBeenCalled();
+    expect(within(inspector).queryByRole("button", { name: /continue.*codex/i })).toBeNull();
+    expect(within(inspector).queryByRole("region", { name: "Open the owning session" })).toBeNull();
 
-    await user.click(within(inspector).getByRole("button", { name: "Continue exact session" }));
-    expect(openOwningSession).toHaveBeenCalledWith(expect.stringMatching(/^wrk_agent_/), expect.stringContaining("Overgent found:"), "vendor");
-    expect(await within(inspector).findByText(/Copy the exact continuation command/)).toBeTruthy();
-    expect(within(inspector).getByRole("button", { name: "Copy command" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open Claude Code session for Mina" }));
+    expect(within(inspector).queryByRole("button", { name: /open.*claude|open.*vs code/i })).toBeNull();
+    expect(openOwningSession).not.toHaveBeenCalled();
   });
 
   it("ends completed sessions in the chronology instead of pinning a finished activity strip", async () => {
@@ -353,14 +351,39 @@ describe("Project Workroom behavior", () => {
     expect(screen.queryByRole("dialog", { name: "Search Projects and commands" })).toBeNull();
   });
 
-  it("restores the Projects sidebar after it is collapsed", async () => {
+  it("fully hides and restores the Projects sidebar", async () => {
     const user = userEvent.setup();
     renderReady();
     await user.click(screen.getByRole("button", { name: "Collapse Projects sidebar" }));
+    expect(screen.queryByRole("navigation", { name: "Projects" })).toBeNull();
+    expect(document.querySelector(".side-placeholder")).toBeTruthy();
     const restore = screen.getByRole("button", { name: "Expand Projects sidebar" });
     expect(restore).toBeTruthy();
     await user.click(restore);
+    expect(screen.getByRole("navigation", { name: "Projects" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Collapse Projects sidebar" })).toBeTruthy();
+  });
+
+  it("toggles the Projects sidebar with Command-B", () => {
+    renderReady();
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    expect(screen.queryByRole("navigation", { name: "Projects" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand Projects sidebar" })).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "B", metaKey: true });
+    expect(screen.getByRole("navigation", { name: "Projects" })).toBeTruthy();
+  });
+
+  it("keeps the sidebar toggle in full-screen toolbars", async () => {
+    const user = userEvent.setup();
+    renderReady();
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    await user.click(screen.getByRole("button", { name: "Collapse Projects sidebar" }));
+
+    expect(screen.queryByRole("navigation", { name: "Projects" })).toBeNull();
+    expect(document.querySelector(".side-placeholder")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Expand Projects sidebar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Back to Atlas launch" })).toBeTruthy();
   });
 
   it("never shows a create form it cannot submit while the native bridge is being probed", async () => {
@@ -646,6 +669,17 @@ describe("the Project is the only top level", () => {
     expect(within(side).queryByRole("button", { name: "History" })).toBeNull();
     expect(within(side).getByRole("button", { name: /Atlas launch/ }).getAttribute("aria-current")).toBe("page");
     expect(within(side).getByRole("button", { name: /Orchard mobile/ })).toBeTruthy();
+  });
+
+  it("uses repository folders instead of generated Project initials", () => {
+    renderReady();
+    const side = sidebar();
+    const selected = within(side).getByRole("button", { name: /Atlas launch/ });
+    const other = within(side).getByRole("button", { name: /Orchard mobile/ });
+
+    expect(selected.querySelector(".lucide-folder-open")).toBeTruthy();
+    expect(other.querySelector(".lucide-folder")).toBeTruthy();
+    expect(side.querySelector(".project-monogram")).toBeNull();
   });
 
   it("switches views under the Project's name, which stays on screen", async () => {

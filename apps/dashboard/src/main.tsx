@@ -16,9 +16,7 @@ import {
   CircleDot,
   Code2,
   Command,
-  Copy,
   Eye,
-  ExternalLink,
   FileCode2,
   FileText,
   GitBranch,
@@ -57,7 +55,7 @@ import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingSt
 
 /** How each connected vendor is named in the interface. */
 const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
-import { desktopHandoffURL, isDesktopShell, isDesktopWebview, nativeOnboarding, type EnrollmentRequest, type NativeOnboarding, type NativeSessionOpenResult } from "./native";
+import { desktopHandoffURL, isDesktopShell, isDesktopWebview, nativeOnboarding, type EnrollmentRequest, type NativeOnboarding } from "./native";
 import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
 import { LandingPage } from "./landing";
@@ -362,12 +360,6 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const effectiveSelection: Selection | null = selection;
   const selectedSession = effectiveSelection?.kind === "session" ? snapshot.workstreams.find((stream) => stream.id === effectiveSelection.id) ?? null : null;
   const selectedCollision = effectiveSelection?.kind === "finding" ? snapshot.findings.find((finding) => finding.id === effectiveSelection.id) ?? null : null;
-  const previousCollision = trail.length > 1 && trail[trail.length - 2]?.kind === "finding"
-    ? snapshot.findings.find((finding) => finding.id === trail[trail.length - 2]!.id) ?? null
-    : null;
-  const selectedSessionFinding = selectedSession
-    ? previousCollision ?? openFindings.find((finding) => finding.workstreamIds.includes(selectedSession.id)) ?? null
-    : null;
   const anyLive = snapshot.workstreams.some((stream) => stream.presence === "online" || stream.agent?.status === "active");
   const tick = useSecondTick(anyLive);
 
@@ -566,7 +558,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
 
       {inspecting && <aside className="inspector" aria-label="Details inspector">
       {selectedSession
-        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} nativeApi={nativeApi} finding={selectedSessionFinding} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
+        ? <SessionInspector key={selectedSession.id} session={selectedSession} source={source} tick={tick} isViewer={selectedSession.memberName === identity.name} localControl={localPause} back={inspectorBack} />
           : selectedCollision
             ? <FindingInspector
                 finding={selectedCollision} sessions={snapshot.workstreams} projectId={projectId} source={source}
@@ -1346,7 +1338,7 @@ function InspectorBackLink({ back }: { back: InspectorBack | null }) {
   return <button className="inspector-back" onClick={back.onBack}><ChevronLeft size={13} aria-hidden="true" />{back.label}</button>;
 }
 
-function SessionInspector({ session, source, nativeApi, finding, tick, isViewer, localControl, back }: { session: Workstream; source: FixtureProjectSource; nativeApi: NativeOnboarding; finding: Finding | null; tick: number; isViewer: boolean; localControl: boolean; back: InspectorBack | null }) {
+function SessionInspector({ session, source, tick, isViewer, localControl, back }: { session: Workstream; source: FixtureProjectSource; tick: number; isViewer: boolean; localControl: boolean; back: InspectorBack | null }) {
   const [shared, setShared] = useState<SessionMessagesSnapshot | null>(null);
   const [own, setOwn] = useState<LocalSessionDetail | null>(null);
   const [messageError, setMessageError] = useState("");
@@ -1437,7 +1429,6 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
         {detailsOpen && <SessionDetailsPanel session={session} mine={mine} subagents={subagents} path={path} onClose={() => setDetailsOpen(false)} />}
       </div>
     </div>
-    {isViewer && localControl && (session.agent?.vendor === "codex" || session.agent?.vendor === "claude") && nativeApi.openOwningSession && <OwningSessionActions session={session} finding={finding} nativeApi={nativeApi} />}
     <div className="inspector-body chat-inspector-body" ref={scrollRef} onScroll={onScroll}>
       {messageError && <p className="form-error" role="alert">{messageError}</p>}
       {feed.length > 0
@@ -1453,51 +1444,6 @@ function SessionInspector({ session, source, nativeApi, finding, tick, isViewer,
       <ChevronRight size={14} aria-hidden="true" />
     </button>}
   </>;
-}
-
-function OwningSessionActions({ session, finding, nativeApi }: { session: Workstream; finding: Finding | null; nativeApi: NativeOnboarding }) {
-  const [pending, setPending] = useState(false);
-  const [confirmCodex, setConfirmCodex] = useState(false);
-  const [result, setResult] = useState<NativeSessionOpenResult | null>(null);
-  const [copied, setCopied] = useState(false);
-  const vendor = session.agent?.vendor;
-  if (vendor !== "codex" && vendor !== "claude") return null;
-  const prompt = finding
-    ? `Overgent found: ${finding.title}\n\n${finding.reason}\n\nReview this coordination finding before continuing.`
-    : `Review the current Overgent coordination context for “${session.agent?.sessionTitle ?? session.title}” before continuing.`;
-
-  const open = (target: "vendor" | "vscode" = "vendor", confirmed = false) => {
-    if (!nativeApi.openOwningSession || !vendor) return;
-    // Continuing an already active Codex task in another process can interleave
-    // history. Make that choice explicit instead of treating "open" as harmless.
-    if (vendor === "codex" && session.agent?.status === "active" && !confirmed) {
-      setConfirmCodex(true);
-      setResult(null);
-      return;
-    }
-    setConfirmCodex(false);
-    setPending(true);
-    setCopied(false);
-    void nativeApi.openOwningSession(session.id, prompt, target)
-      .then(setResult)
-      .catch((error: unknown) => setResult({ vendor, opened: false, detail: error instanceof Error ? error.message : "The owning session could not be opened." }))
-      .finally(() => setPending(false));
-  };
-
-  const copyFallback = () => {
-    if (!result?.fallbackCommand) return;
-    void navigator.clipboard.writeText(result.fallbackCommand).then(() => setCopied(true));
-  };
-
-  return <section className="session-open" aria-label="Open the owning session">
-    <div className="session-open-actions">
-      <button className="pill" disabled={pending} onClick={() => open("vendor")}><ExternalLink size={13} aria-hidden="true" />{vendor === "codex" ? "Continue in Codex" : "Open in Claude Code"}</button>
-      {vendor === "claude" && <button className="text-button" disabled={pending} onClick={() => open("vscode")}>Open in VS Code</button>}
-    </div>
-    {vendor === "claude" && !result && !confirmCodex && <p className="session-open-note">Uses Claude Code's local open handler, which may be unavailable before its first interactive prompt or when an organization disables it. A copyable command is provided if opening fails.</p>}
-    {confirmCodex && <div className="session-open-state" role="alert"><p>This Codex session is still reported active. Continuing it elsewhere can interleave its history.</p><div><button className="pill" onClick={() => open("vendor", true)}>Continue exact session</button><button className="text-button" onClick={() => setConfirmCodex(false)}>Cancel</button></div></div>}
-    {result && <div className={`session-open-state${result.opened ? " opened" : ""}`} role="status"><p>{result.detail}</p>{result.fallbackCommand && <button className="text-button" onClick={copyFallback}><Copy size={12} aria-hidden="true" />{copied ? "Command copied" : "Copy command"}</button>}</div>}
-  </section>;
 }
 
 type TranscriptMessage = { id: string; kind: SessionMessageKind | "tool"; text?: string; tool?: string; at?: string };
