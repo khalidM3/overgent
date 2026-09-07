@@ -12,29 +12,39 @@ jobs:
     strategy:
       matrix:
         go: ["1.26.x", "1.27.x"]
-    # The shipped local service is intentionally macOS-only today, and its
-    # configuration boundary fails closed on other platforms. Exercise both Go
-    # versions on the supported OS instead of turning those tests into skips.
-    runs-on: macos-14
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version: "${{ matrix.go }}", cache: true }
       - run: go test -race ./...
       - run: go vet ./...
-  # Linux and Windows are not yet qualified to run the service, so this job is a
-  # compile gate rather than a behaviour gate: it proves the tree and its tests
-  # still build for every release target, which is what stops a macOS-only
-  # assumption from reaching main unnoticed. `go vet` is what carries it — it
-  # type-checks test files too, so a _test.go reaching for syscall.Kill fails
-  # here. Each subsystem turns on `go test` for these runners as it qualifies
-  # (credentials, service lifecycle, IPC, installers), and this comment goes
-  # away when the last one does.
-  cross:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  # Credential storage is the one subsystem whose tests skip themselves when no
+  # OS store is reachable, so the job above reports green on Linux without
+  # having made a single D-Bus call. That is the failure mode this job exists to
+  # close: give the runner a real Secret Service and require the round trip.
+  linux-credentials:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - run: sudo apt-get update && sudo apt-get install -y gnome-keyring dbus-x11
+      - name: Round-trip a credential through a real keyring
+        run: |
+          dbus-run-session -- bash -c '
+            printf ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            OVERGENT_KEYCHAIN_LIVE=1 go test -v -run TestCredential ./internal/credential/...
+          '
+  # Windows stays a compile gate until the named-pipe IPC lands: with the
+  # daemon stubbed out there is no local service to exercise, so running the
+  # suite here would prove less than it appears to. `go vet` still earns its
+  # place because it type-checks test files, which is what catches a _test.go
+  # reaching for a POSIX-only symbol. Turn on `go test` when the pipe transport
+  # and the scheduled-task lifecycle have both been proven on a real runner.
+  windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
