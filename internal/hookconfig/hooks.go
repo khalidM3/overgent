@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -30,6 +31,11 @@ type handler struct {
 	Command string `json:"command"`
 	Async   bool   `json:"async,omitempty"`
 	Timeout int    `json:"timeout,omitempty"`
+	// Shell pins the interpreter Claude Code runs this command with. It is
+	// written on Windows only, and only for Claude, because Claude Code's
+	// default there is Git Bash when Git for Windows happens to be installed
+	// and PowerShell when it is not. See internal/hookconfig/command.go.
+	Shell string `json:"shell,omitempty"`
 }
 
 type group struct {
@@ -301,25 +307,46 @@ func configuredEvents(command string) []string {
 // `--event` argument each Cursor hook needs, because two of Cursor's events name
 // themselves nowhere in their payload.
 func Command(executable, configRoot, vendor string) (string, error) {
+	return commandForOS(hookOS, executable, configRoot, vendor)
+}
+
+func commandForOS(goos, executable, configRoot, vendor string) (string, error) {
 	if !supportedVendor(vendor) {
 		return "", errors.New("unsupported activity-hook vendor")
 	}
-	executable, err := filepath.Abs(executable)
-	if err != nil {
+	if goos == runtime.GOOS {
+		var err error
+		executable, err = filepath.Abs(executable)
+		if err != nil {
+			return "", err
+		}
+		configRoot, err = filepath.Abs(configRoot)
+		if err != nil {
+			return "", err
+		}
+	} else if !pathIsAbs(executable, goos) || !pathIsAbs(configRoot, goos) {
+		return "", errors.New("hook executable and config root must be absolute")
+	}
+	style := styleFor(goos, vendor)
+	if err := validateArgument(style, executable); err != nil {
 		return "", err
 	}
-	configRoot, err = filepath.Abs(configRoot)
-	if err != nil {
+	if err := validateArgument(style, configRoot); err != nil {
 		return "", err
 	}
-	return strings.Join([]string{shellQuote(executable), "--config-root", shellQuote(configRoot), "agent-hook", "--vendor", vendor}, " "), nil
+	return joinCommand(style, quoteArgument(style, executable), configRootArgument, quoteArgument(style, configRoot), "agent-hook", "--vendor", vendor), nil
 }
 
 func PortableCommand(vendor string) (string, error) {
+	return portableCommandForOS(hookOS, vendor)
+}
+
+func portableCommandForOS(goos, vendor string) (string, error) {
 	if !supportedVendor(vendor) {
 		return "", errors.New("unsupported activity-hook vendor")
 	}
-	return strings.Join([]string{shellQuote("overgent"), "agent-hook", "--vendor", vendor}, " "), nil
+	style := styleFor(goos, vendor)
+	return joinCommand(style, quoteArgument(style, "overgent"), "agent-hook", "--vendor", vendor), nil
 }
 
 func expected(event, command string) group {
@@ -345,11 +372,20 @@ func expected(event, command string) group {
 	if event == "SessionEnd" && commandVendor(command) == "codex" {
 		timeout = codexSessionEndTimeout
 	}
-	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd" && !injectionBoundary, Timeout: timeout}}}
+	// Claude Code's Windows default picks Git Bash when Git for Windows is
+	// installed and PowerShell when it is not, which would make the command
+	// this package must be able to regenerate depend on machine state. Naming
+	// the interpreter removes the choice; PowerShell is the one that ships
+	// with the operating system.
+	shell := ""
+	if hookOS == "windows" && commandVendor(command) == "claude" {
+		shell = "powershell"
+	}
+	return group{Matcher: matcher, Hooks: []handler{{Type: "command", Command: command, Async: event != "SessionEnd" && !injectionBoundary, Timeout: timeout, Shell: shell}}}
 }
 
 func managed(command string) bool {
-	return strings.Contains(command, " agent-hook --vendor ")
+	return strings.Contains(command, vendorMarker)
 }
 
 func supportedVendor(vendor string) bool {
@@ -363,7 +399,7 @@ func supportedVendor(vendor string) bool {
 // though it were a Claude hook.
 func commandVendor(command string) string {
 	for _, vendor := range []string{"codex", "claude"} {
-		if strings.HasSuffix(command, " agent-hook --vendor "+vendor) {
+		if strings.HasSuffix(command, vendorMarker+vendor) {
 			return vendor
 		}
 	}
@@ -374,12 +410,11 @@ func managedForVendor(command, vendor string) bool {
 	if commandVendor(command) != vendor || strings.ContainsAny(command, "\r\n\x00") {
 		return false
 	}
-	prefix := strings.TrimSuffix(command, " agent-hook --vendor "+vendor)
-	return prefix == "'overgent'" || strings.HasPrefix(prefix, "'") && strings.Contains(prefix, "' --config-root '")
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	executable, configRoot, ok := parsePrefix(strings.TrimSuffix(command, vendorMarker+vendor))
+	if !ok {
+		return false
+	}
+	return executable == "overgent" && configRoot == "" || isAbsolutePath(executable) && isAbsolutePath(configRoot)
 }
 
 func read(path string) (map[string]json.RawMessage, map[string]json.RawMessage, error) {
@@ -454,7 +489,7 @@ func write(path string, document, hooks map[string]json.RawMessage) error {
 	if err != nil {
 		return fmt.Errorf("write hook settings: %w", err)
 	}
-	if err := os.Rename(name, path); err != nil {
+	if err := ReplaceFile(name, path); err != nil {
 		return fmt.Errorf("activate hook settings: %w", err)
 	}
 	return nil
@@ -592,32 +627,50 @@ func ParseManagedCommand(command string) (executable, configRoot string, ok bool
 	if strings.ContainsAny(command, "\r\n\x00") {
 		return "", "", false
 	}
-	index := strings.Index(command, " agent-hook --vendor ")
+	index := strings.Index(command, vendorMarker)
 	if index < 0 {
 		return "", "", false
 	}
-	prefix := command[:index]
-	if prefix == "'overgent'" {
+	executable, configRoot, ok = parsePrefix(command[:index])
+	if !ok {
+		return "", "", false
+	}
+	if configRoot == "" {
+		if executable != "overgent" {
+			return "", "", false
+		}
 		return "overgent", "", true
 	}
-	const marker = "' --config-root '"
-	at := strings.Index(prefix, marker)
-	if at < 0 || !strings.HasPrefix(prefix, "'") || !strings.HasSuffix(prefix, "'") {
+	if !isAbsolutePath(executable) || !isAbsolutePath(configRoot) {
 		return "", "", false
 	}
-	executable, executableOK := unquoteShell(prefix[:at+1])
-	configRoot, rootOK := unquoteShell(prefix[at+len(marker)-1:])
-	if !executableOK || !rootOK || !filepath.IsAbs(executable) || !filepath.IsAbs(configRoot) {
-		return "", "", false
-	}
-	return executable, filepath.Clean(configRoot), true
+	return executable, cleanPortablePath(configRoot), true
 }
 
-func unquoteShell(value string) (string, bool) {
-	if len(value) < 2 || !strings.HasPrefix(value, "'") || !strings.HasSuffix(value, "'") {
-		return "", false
+// ParseManagedPrefix splits the executable and profile out of the head of a
+// managed hook command - everything before ` agent-hook --vendor <vendor>`.
+// An empty configRoot means the portable form, which names no profile.
+//
+// internal/cursorsetup needs this because Cursor's commands carry an extra
+// `--event` argument and so cannot be handed to ParseManagedCommand whole. It
+// is exported rather than duplicated so that both vendors accept exactly the
+// same quoting forms; a second copy is how one of them silently stops
+// recognizing its own bindings on a platform nobody re-read it for.
+func ParseManagedPrefix(prefix string) (executable, configRoot string, ok bool) {
+	if strings.ContainsAny(prefix, "\r\n\x00") {
+		return "", "", false
 	}
-	return strings.ReplaceAll(value[1:len(value)-1], `'\''`, "'"), true
+	executable, configRoot, ok = parsePrefix(prefix)
+	if !ok {
+		return "", "", false
+	}
+	if configRoot == "" {
+		return executable, "", executable == "overgent"
+	}
+	if !isAbsolutePath(executable) || !isAbsolutePath(configRoot) {
+		return "", "", false
+	}
+	return executable, cleanPortablePath(configRoot), true
 }
 
 // legacyProfileNames are product names this application used before it was
@@ -650,7 +703,7 @@ func Abandoned(currentConfigRoot, previousProfile, previousExecutable string) bo
 		// A portable binding resolves `overgent` on PATH. It names no profile to
 		// take anything from, and on this Mac that PATH entry is this member's.
 		return true
-	case previous == current:
+	case sameProfile(previous, current):
 		// One profile, two executable paths: an app bundle that was rebuilt or
 		// moved, or a CLI that has since been copied to ~/.local/bin. Reporting
 		// this as another profile is how a member ends up being asked to confirm
@@ -679,6 +732,9 @@ func Abandoned(currentConfigRoot, previousProfile, previousExecutable string) bo
 func cleanProfile(value string) string {
 	if value == "" || value == "portable" {
 		return ""
+	}
+	if windowsAbsolute(value) {
+		return cleanPortablePath(value)
 	}
 	if absolute, err := filepath.Abs(value); err == nil {
 		return filepath.Clean(absolute)

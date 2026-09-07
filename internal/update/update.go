@@ -31,6 +31,11 @@ const (
 	artifactLimit = 250 << 20
 )
 
+var (
+	moveExecutableFile = moveFile
+	syncExecutableDir  = syncDirectory
+)
+
 type Manifest struct {
 	SchemaVersion int              `json:"schemaVersion"`
 	Version       string           `json:"version"`
@@ -163,6 +168,9 @@ func (c Client) Apply(ctx context.Context, manifest Manifest, executable string)
 	if !filepath.IsAbs(executable) {
 		return Result{}, errors.New("current executable path must be absolute")
 	}
+	if err := requireRegularFile(executable, "current executable"); err != nil {
+		return Result{}, err
+	}
 	directory := filepath.Dir(executable)
 	archive, err := os.CreateTemp(directory, ".overgent-update-*.archive")
 	if err != nil {
@@ -186,14 +194,20 @@ func (c Client) Apply(ctx context.Context, manifest Manifest, executable string)
 		return Result{}, fmt.Errorf("secure staged executable: %w", err)
 	}
 	previous := executable + ".previous"
-	_ = os.Remove(previous)
-	if err = os.Rename(executable, previous); err != nil {
-		return Result{}, fmt.Errorf("preserve current executable: %w", err)
+	rollbackBackup, err := preserveExisting(previous)
+	if err != nil {
+		return Result{}, fmt.Errorf("preserve existing rollback executable: %w", err)
 	}
-	if err = os.Rename(staged, executable); err != nil {
-		_ = os.Rename(previous, executable)
-		return Result{}, fmt.Errorf("activate update: %w", err)
+	if err = moveExecutableFile(executable, previous); err != nil {
+		return Result{}, joinRestoreError(fmt.Errorf("preserve current executable: %w", err), restoreExisting(rollbackBackup, previous))
 	}
+	if err = moveExecutableFile(staged, executable); err != nil {
+		return Result{}, restoreFailedActivation(fmt.Errorf("activate update: %w", err), executable, previous, rollbackBackup)
+	}
+	if err = syncExecutableDir(directory); err != nil {
+		return Result{}, restoreFailedActivation(fmt.Errorf("sync activated update: %w", err), executable, previous, rollbackBackup)
+	}
+	removePreserved(rollbackBackup)
 	return Result{Version: manifest.Version, PreviousPath: previous, Updated: true}, nil
 }
 
@@ -201,21 +215,115 @@ func Rollback(executable string) (Result, error) {
 	if !filepath.IsAbs(executable) {
 		return Result{}, errors.New("current executable path must be absolute")
 	}
+	if err := requireRegularFile(executable, "current executable"); err != nil {
+		return Result{}, err
+	}
 	previous := executable + ".previous"
-	if _, err := os.Stat(previous); err != nil {
+	if err := requireRegularFile(previous, "rollback executable"); err != nil {
 		return Result{}, fmt.Errorf("no rollback executable is available: %w", err)
 	}
-	failed := executable + ".failed"
-	_ = os.Remove(failed)
-	if err := os.Rename(executable, failed); err != nil {
+	failed, err := vacantPath(filepath.Dir(executable), ".overgent-failed-*.bin")
+	if err != nil {
+		return Result{}, fmt.Errorf("reserve failed executable path: %w", err)
+	}
+	if err = moveExecutableFile(executable, failed); err != nil {
 		return Result{}, fmt.Errorf("preserve failed update: %w", err)
 	}
-	if err := os.Rename(previous, executable); err != nil {
-		_ = os.Rename(failed, executable)
-		return Result{}, fmt.Errorf("restore previous executable: %w", err)
+	if err = moveExecutableFile(previous, executable); err != nil {
+		return Result{}, joinRestoreError(fmt.Errorf("restore previous executable: %w", err), moveExecutableFile(failed, executable))
 	}
-	_ = os.Remove(failed)
+	if err = syncExecutableDir(filepath.Dir(executable)); err != nil {
+		// The rollback is already active, but retain the failed image so a
+		// caller can recover it if the directory flush did not persist.
+		return Result{}, fmt.Errorf("sync restored executable: %w", err)
+	}
+	_ = os.Remove(failed) // A running Windows image may remain until process exit.
 	return Result{PreviousPath: previous, Updated: true}, nil
+}
+
+func requireRegularFile(path, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", label, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", label)
+	}
+	return nil
+}
+
+func preserveExisting(path string) (string, error) {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	if err := requireRegularFile(path, "existing rollback executable"); err != nil {
+		return "", err
+	}
+	backup, err := vacantPath(filepath.Dir(path), ".overgent-rollback-*.bin")
+	if err != nil {
+		return "", err
+	}
+	if err = moveExecutableFile(path, backup); err != nil {
+		return "", err
+	}
+	return backup, nil
+}
+
+func vacantPath(directory, pattern string) (string, error) {
+	file, err := os.CreateTemp(directory, pattern)
+	if err != nil {
+		return "", err
+	}
+	name := file.Name()
+	if closeErr := file.Close(); closeErr != nil {
+		_ = os.Remove(name)
+		return "", closeErr
+	}
+	if err = os.Remove(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func restoreExisting(backup, destination string) error {
+	if backup == "" {
+		return nil
+	}
+	return moveExecutableFile(backup, destination)
+}
+
+func removePreserved(path string) {
+	if path != "" {
+		_ = os.Remove(path)
+	}
+}
+
+func restoreFailedActivation(primary error, executable, previous, rollbackBackup string) error {
+	failed := ""
+	var preserveFailedErr error
+	if _, err := os.Lstat(executable); err == nil {
+		failed, preserveFailedErr = vacantPath(filepath.Dir(executable), ".overgent-failed-*.bin")
+		if preserveFailedErr == nil {
+			preserveFailedErr = moveExecutableFile(executable, failed)
+		}
+	} else if !os.IsNotExist(err) {
+		preserveFailedErr = err
+	}
+	restoreCurrentErr := moveExecutableFile(previous, executable)
+	var restorePreviousErr error
+	if restoreCurrentErr == nil {
+		restorePreviousErr = restoreExisting(rollbackBackup, previous)
+	}
+	if failed != "" && preserveFailedErr == nil {
+		_ = os.Remove(failed)
+	}
+	return errors.Join(primary, preserveFailedErr, restoreCurrentErr, restorePreviousErr)
+}
+
+func joinRestoreError(primary, restore error) error {
+	return errors.Join(primary, restore)
 }
 
 func (c Client) download(ctx context.Context, asset Asset, destination io.Writer) error {
@@ -269,11 +377,19 @@ func extractExecutable(archivePath, directory, rawURL string) (string, error) {
 				os.Remove(path)
 				return "", err
 			}
-			_, copyErr := io.Copy(staged, io.LimitReader(input, artifactLimit+1))
+			written, copyErr := io.Copy(staged, io.LimitReader(input, artifactLimit+1))
 			_ = input.Close()
 			if copyErr != nil {
 				os.Remove(path)
 				return "", copyErr
+			}
+			if written < 1 || written > artifactLimit {
+				os.Remove(path)
+				return "", errors.New("update executable exceeds limit")
+			}
+			if err = staged.Sync(); err != nil {
+				os.Remove(path)
+				return "", fmt.Errorf("sync staged update executable: %w", err)
 			}
 			return path, nil
 		}
@@ -310,6 +426,10 @@ func extractExecutable(archivePath, directory, rawURL string) (string, error) {
 			if _, err = io.Copy(staged, io.LimitReader(tarReader, header.Size)); err != nil {
 				os.Remove(path)
 				return "", err
+			}
+			if err = staged.Sync(); err != nil {
+				os.Remove(path)
+				return "", fmt.Errorf("sync staged update executable: %w", err)
 			}
 			return path, nil
 		}

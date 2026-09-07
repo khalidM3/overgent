@@ -571,7 +571,7 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("write temporary Codex config: %w", err)
 	}
-	if err = os.Rename(name, path); err != nil {
+	if err = hookconfig.ReplaceFile(name, path); err != nil {
 		return fmt.Errorf("activate Codex config: %w", err)
 	}
 	return nil
