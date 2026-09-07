@@ -409,21 +409,21 @@ func (m *Manager) killStale(pid int, binaryPath string) {
 	if !processMatches(pid, filepath.Base(binaryPath)) {
 		return
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
+	_ = signalPID(pid, syscall.SIGTERM)
 	deadline := m.now().Add(5 * time.Second)
 	for m.now().Before(deadline) {
-		if syscall.Kill(pid, 0) != nil {
+		if !pidAlive(pid) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = signalPID(pid, syscall.SIGKILL)
 }
 
 // processMatches reports whether pid is a live process of this user running a
 // command with this base name.
 func processMatches(pid int, name string) bool {
-	if syscall.Kill(pid, 0) != nil {
+	if !pidAlive(pid) {
 		return false
 	}
 	out, err := exec.Command("/bin/ps", "-o", "uid=,comm=", "-p", fmt.Sprint(pid)).Output()

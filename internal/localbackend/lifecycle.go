@@ -141,7 +141,7 @@ func (m *Manager) spawn(ctx context.Context, state State, secret string) (*exec.
 	// The child gets its own process group so an interrupt aimed at the CLI or
 	// the development harness does not take the backend down with it; shutdown
 	// is an explicit signal, below.
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.SysProcAttr = newProcessGroupAttr()
 	// Cancel is SIGTERM rather than the default SIGKILL, and WaitDelay is the
 	// five seconds after which the process is killed anyway.
 	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
