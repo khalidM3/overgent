@@ -1,4 +1,12 @@
-//go:build darwin
+//go:build unix
+
+// The local IPC transport on every unix: a Unix socket inside the profile
+// directory, and an flock on a sibling file so a second service cannot start.
+//
+// This was tagged darwin only because macOS was the one qualified platform,
+// not because anything here is Apple-specific. flock, Unix sockets, and the
+// 0600-inside-0700 mode that restricts the endpoint to its owner behave the
+// same on Linux, so the tag is what changed rather than the code.
 
 package daemon
 

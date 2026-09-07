@@ -252,7 +252,7 @@ func TestStaleProcessIsCleanedUpOnStart(t *testing.T) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if syscall.Kill(stale, 0) != nil {
+		if !pidAlive(stale) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

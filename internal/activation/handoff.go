@@ -1,5 +1,10 @@
-//go:build darwin
-
+// Package activation moves a single-use dashboard ticket from the CLI to the
+// hosted API through the member's own browser.
+//
+// Everything in this file is platform-independent: the loopback handoff server,
+// the ticket and origin validation, and the wait. Only the act of asking the
+// operating system to open a URL differs per platform, and that is the one
+// thing behind a build tag (openBrowser and openApp).
 package activation
 
 import (
@@ -11,7 +16,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -107,30 +111,38 @@ func (handoff *Handoff) close() {
 	})
 }
 
+// Open serves the handoff page on loopback and asks the operating system to
+// open it in the member's browser, then waits for the page to be fetched.
 func Open(ctx context.Context, apiBaseURL, ticket string) error {
 	handoff, err := Start(apiBaseURL, ticket)
 	if err != nil {
 		return err
 	}
-	if err = exec.CommandContext(ctx, "/usr/bin/open", handoff.URL()).Run(); err != nil {
+	if err = openBrowser(ctx, handoff.URL()); err != nil {
 		handoff.close()
 		return fmt.Errorf("open dashboard activation in browser: %w", err)
 	}
 	return handoff.Wait(ctx)
 }
 
-// OpenApp asks macOS to route a validated Project deep link to the installed
-// Overgent desktop app. The app mints its own one-time dashboard ticket and
-// keeps the live Project inside its webview.
+// OpenApp asks the operating system to route a validated Project deep link to
+// the installed Overgent desktop app. The app mints its own one-time dashboard
+// ticket and keeps the live Project inside its webview.
+//
+// The id is validated here rather than in the per-platform handler so every
+// platform inherits the same check: the value reaches a shell-adjacent OS
+// facility, and only this form may.
 func OpenApp(ctx context.Context, projectID string) error {
 	if !validProjectID(projectID) {
 		return errors.New("Project id is invalid")
 	}
-	deepLink := "overgent://project/" + url.PathEscape(projectID)
-	if err := exec.CommandContext(ctx, "/usr/bin/open", "-b", "com.overgent.app", deepLink).Run(); err != nil {
-		return fmt.Errorf("open Overgent app: %w", err)
-	}
-	return nil
+	return openApp(ctx, projectID)
+}
+
+// deepLink is the URL OpenApp routes. It is built here so every platform's
+// handler agrees on the scheme and on the escaping.
+func deepLink(projectID string) string {
+	return "overgent://project/" + url.PathEscape(projectID)
 }
 
 func validProjectID(value string) bool {

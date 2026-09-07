@@ -22,6 +22,25 @@ jobs:
         with: { go-version: "${{ matrix.go }}", cache: true }
       - run: go test -race ./...
       - run: go vet ./...
+  # Linux and Windows are not yet qualified to run the service, so this job is a
+  # compile gate rather than a behaviour gate: it proves the tree and its tests
+  # still build for every release target, which is what stops a macOS-only
+  # assumption from reaching main unnoticed. `go vet` is what carries it — it
+  # type-checks test files too, so a _test.go reaching for syscall.Kill fails
+  # here. Each subsystem turns on `go test` for these runners as it qualifies
+  # (credentials, service lifecycle, IPC, installers), and this comment goes
+  # away when the last one does.
+  cross:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - run: go build ./...
+      - run: go vet ./...
   typescript:
     runs-on: ubuntu-latest
     steps:
