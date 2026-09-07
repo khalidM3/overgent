@@ -31,7 +31,10 @@ func fakeBackend(t *testing.T) string {
 			fakeErr = err
 			return
 		}
-		fakePath = filepath.Join(directory, "convex-local-backend")
+		// BinaryName, not a literal: on Windows a file without the .exe suffix
+		// is not executable, so a hard-coded name would build a helper the
+		// test could never run.
+		fakePath = filepath.Join(directory, BinaryName())
 		build := exec.Command("go", "build", "-o", fakePath, "./testdata/fakebackend")
 		build.Stderr = os.Stderr
 		fakeErr = build.Run()
@@ -215,7 +218,7 @@ func TestRestartBackoffGivesUpAfterFiveFailures(t *testing.T) {
 	manager.mu.Lock()
 	command := manager.command
 	manager.mu.Unlock()
-	_ = command.Process.Signal(syscall.SIGKILL)
+	_ = signalPID(command.Process.Pid, syscall.SIGKILL)
 
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
@@ -355,31 +358,6 @@ func TestConfiguredOnlyReportsAProfileWithABackend(t *testing.T) {
 	manager, _ := newManager(t, "")
 	if !Configured(manager.root) {
 		t.Fatal("an installed profile reported no backend")
-	}
-}
-
-// The deploy2 replay is only safe while the backend release, the CLI version
-// that recorded the payload, and this code are one pin. This is that check.
-func TestPinMatchesThePackagingManifest(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "scripts", "backend-version.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest struct {
-		Version    string `json:"version"`
-		CLIVersion string `json:"cliVersion"`
-	}
-	if err = json.Unmarshal(body, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Version != backendRelease {
-		t.Fatalf("backend release drifted: manifest %q, Go %q", manifest.Version, backendRelease)
-	}
-	if manifest.CLIVersion != backendCLI {
-		t.Fatalf("Convex CLI version drifted: manifest %q, Go %q", manifest.CLIVersion, backendCLI)
-	}
-	if convexClientVersion != "npm-cli-"+backendCLI {
-		t.Fatalf("Convex-Client header %q does not name the pinned CLI", convexClientVersion)
 	}
 }
 

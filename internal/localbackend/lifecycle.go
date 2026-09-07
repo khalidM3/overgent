@@ -143,8 +143,12 @@ func (m *Manager) spawn(ctx context.Context, state State, secret string) (*exec.
 	// is an explicit signal, below.
 	command.SysProcAttr = newProcessGroupAttr()
 	// Cancel is SIGTERM rather than the default SIGKILL, and WaitDelay is the
-	// five seconds after which the process is killed anyway.
-	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
+	// five seconds after which the process is killed anyway. It goes through
+	// signalPID rather than Process.Signal because os.Process on Windows
+	// accepts only Kill: Signal(SIGTERM) there returns an error without
+	// touching the process, which would turn every cancellation into a
+	// five-second wait for a signal that was never sent.
+	command.Cancel = func() error { return signalPID(command.Process.Pid, syscall.SIGTERM) }
 	command.WaitDelay = 5 * time.Second
 	if err = command.Start(); err != nil {
 		_ = logFile.Close()
@@ -260,7 +264,8 @@ func (m *Manager) terminate(command *exec.Cmd) {
 	if command == nil || command.Process == nil {
 		return
 	}
-	_ = command.Process.Signal(syscall.SIGTERM)
+	// signalPID, not Process.Signal: see the Cancel comment in spawn.
+	_ = signalPID(command.Process.Pid, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() { _, _ = command.Process.Wait(); close(done) }()
 	select {

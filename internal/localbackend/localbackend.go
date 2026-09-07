@@ -2,10 +2,14 @@
 // local-mode Project runs on loopback.
 //
 // The coordination engine lives in Convex functions (ADR-072), so a Project
-// that never leaves the Mac still needs a backend speaking the same /v1
-// contract as Overgent Cloud. This package starts the bundled binary, deploys
-// the release-time function bundle to it, and keeps it alive while the service
-// runs. Everything above the wire is unchanged.
+// that never leaves the member's machine still needs a backend speaking the
+// same /v1 contract as Overgent Cloud. The bundled binary is the Convex
+// release's own build for this platform, so the same supervision works on
+// macOS, Linux, and Windows; only the executable's name differs.
+//
+// This package starts the bundled binary, deploys the release-time function
+// bundle to it, and keeps it alive while the service runs. Everything above
+// the wire is unchanged.
 package localbackend
 
 import (
@@ -40,7 +44,7 @@ const convexClientVersion = "npm-cli-1.45.0"
 const (
 	// healthBudget is the cold-start allowance. Cold start measured 120 ms on a
 	// new database; ten seconds is that number plus room for a cold page cache
-	// and a Mac doing something else at login.
+	// and a machine doing something else at login.
 	defaultHealthBudget   = 10 * time.Second
 	defaultHealthInterval = 100 * time.Millisecond
 	// logCap rotates backend.log rather than letting a crash loop fill the disk.
@@ -197,8 +201,8 @@ func Configured(root string) bool {
 }
 
 // IsLoopbackOrigin reports whether this origin is served by a backend running
-// on this Mac. The rule itself now lives in internal/config, because that is
-// where a Project's backend kind is decided when the binding is written; this
+// on this machine. The rule itself now lives in internal/config, because that
+// is where a Project's backend kind is decided when the binding is written; this
 // stays as the name every existing caller already asks it by.
 func IsLoopbackOrigin(origin string) bool { return config.IsLoopbackOrigin(origin) }
 
@@ -387,7 +391,7 @@ func arguments(state State, instanceSecret, dbPath, storage string) []string {
 		"--instance-name", state.InstanceName,
 		"--instance-secret", instanceSecret,
 		"--local-storage", storage,
-		// The backend is reachable only from this Mac and runs only Overgent's
+		// The backend is reachable only from this machine and runs only Overgent's
 		// own functions, whose outbound requests go to provider origins the
 		// Project owner configured, so no SSRF-screening proxy is configured
 		// (docs/security-privacy.md, "Local").
@@ -421,24 +425,10 @@ func (m *Manager) killStale(pid int, binaryPath string) {
 }
 
 // processMatches reports whether pid is a live process of this user running a
-// command with this base name.
-func processMatches(pid int, name string) bool {
-	if !pidAlive(pid) {
-		return false
-	}
-	out, err := exec.Command("/bin/ps", "-o", "uid=,comm=", "-p", fmt.Sprint(pid)).Output()
-	if err != nil {
-		return false
-	}
-	fields := strings.Fields(strings.TrimSpace(string(out)))
-	if len(fields) < 2 {
-		return false
-	}
-	if fields[0] != fmt.Sprint(os.Getuid()) {
-		return false
-	}
-	return filepath.Base(strings.Join(fields[1:], " ")) == name
-}
+// command with this base name. Asking that question is entirely
+// platform-specific - /bin/ps and a uid on Unix, an openable handle and an
+// image name on Windows - so it lives in identity_unix.go and
+// identity_windows.go.
 
 func bundleRevision(path string) (string, error) {
 	body, err := os.ReadFile(path)
