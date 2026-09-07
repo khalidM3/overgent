@@ -30,6 +30,11 @@ jobs:
   # here. Each subsystem turns on `go test` for these runners as it qualifies
   # (credentials, service lifecycle, IPC, installers), and this comment goes
   # away when the last one does.
+  #
+  # This job covers the root module only. apps/desktop is a separate Go module
+  # and was never compiled here for any platform, which is how it came to
+  # reference undefined symbols off macOS without anything noticing; the
+  # `desktop` job below is what closes that.
   cross:
     strategy:
       matrix:
@@ -41,6 +46,46 @@ jobs:
         with: { go-version: "1.26.x", cache: true }
       - run: go build ./...
       - run: go vet ./...
+  # The desktop shell needs a native webview, so unlike `cross` this cannot be a
+  # cross-compile: Wails binds WebKitGTK on Linux and AppKit on macOS through
+  # CGO, and neither has a toolchain on another runner. Each platform therefore
+  # compiles and tests its own.
+  #
+  # Windows is the exception and is also gated from every runner below, because
+  # Wails' Windows backend is pure Go: `GOOS=windows go vet` type-checks the
+  # whole package, tests included, with CGO off. That is the only Windows check
+  # that can run before this job's own runner does, and it also covers
+  # windows/arm64, which no hosted runner offers.
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run: { working-directory: apps/desktop }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      # WebKitGTK and GTK 3 development headers. Wails v3 links webkit2gtk-4.1;
+      # 4.0 is the older ABI and does not satisfy it.
+      - if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
+      # The production build tag selects different origin and CLI-path code, and
+      # nothing else compiles it. It is cheap here and catches a tag-only break
+      # before a release job hits it.
+      - run: go vet -tags production ./...
+      # Cross-target type-check for Windows, from whichever runner this is.
+      - run: go vet ./...
+        env: { CGO_ENABLED: "0", GOOS: windows }
+      - run: go vet ./...
+        env: { CGO_ENABLED: "0", GOOS: windows, GOARCH: arm64 }
   typescript:
     runs-on: ubuntu-latest
     steps:

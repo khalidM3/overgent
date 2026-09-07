@@ -55,7 +55,7 @@ func registerDeepLinkScheme() error {
 		return err
 	}
 	defer icon.Close()
-	if err = icon.SetStringValue("", windowsProtocolIcon(executable)); err != nil {
+	if err = icon.SetStringValue("", windowsProtocolIcon(executable, stagedIconPath())); err != nil {
 		return err
 	}
 
@@ -65,4 +65,18 @@ func registerDeepLinkScheme() error {
 	}
 	defer command.Close()
 	return command.SetStringValue("", windowsProtocolCommand(executable))
+}
+
+// stagedIconPath is the .ico the packaging step placed beside the application,
+// or "" when this build has none.
+func stagedIconPath() string {
+	resources, err := bundledResourceDirectory()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(resources, "icons", desktopEntryName()+".ico")
+	if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return path
 }

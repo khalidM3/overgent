@@ -29,9 +29,10 @@ func desktopURLScheme() string   { return "overgent-dev" }
 func desktopApplicationID() string { return "com.overgent.app.development" }
 
 // desktopEntryName is the installed application's short, filesystem-safe name:
-// the Linux .desktop basename and GTK program name, and the Windows executable
-// stem. A development build takes its own so it never claims the release
-// build's scheme registration or window grouping.
+// the Linux .desktop basename and GTK program name, the staged icon's filename,
+// and the WebView2 profile directory on Windows. A development build takes its
+// own so it never claims the release build's scheme registration, icon, or
+// window grouping.
 func desktopEntryName() string { return "overgent-dev" }
 
 // desktopAPIBaseURL is the development harness's origin. Unlike production it

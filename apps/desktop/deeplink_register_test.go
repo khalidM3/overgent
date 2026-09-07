@@ -77,7 +77,12 @@ func TestWindowsProtocolCommandQuotesBothHalves(t *testing.T) {
 	if got != want {
 		t.Fatalf("protocol command = %q, want %q", got, want)
 	}
-	if icon := windowsProtocolIcon(`C:\x\y.exe`); icon != `"C:\x\y.exe",0` {
-		t.Fatalf("protocol icon = %q", icon)
+	// A build with a staged icon names the file; one without falls back to the
+	// executable's own resources rather than naming a path that is not there.
+	if icon := windowsProtocolIcon(`C:\x\y.exe`, `C:\x\resources\icons\overgent.ico`); icon != `"C:\x\resources\icons\overgent.ico",0` {
+		t.Fatalf("staged protocol icon = %q", icon)
+	}
+	if icon := windowsProtocolIcon(`C:\x\y.exe`, ""); icon != `"C:\x\y.exe",0` {
+		t.Fatalf("fallback protocol icon = %q", icon)
 	}
 }

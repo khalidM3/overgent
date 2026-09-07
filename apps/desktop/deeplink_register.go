@@ -55,9 +55,17 @@ func windowsProtocolCommand(executable string) string {
 	return `"` + executable + `" "%1"`
 }
 
-// windowsProtocolIcon names the icon the shell shows for the scheme: index 0 of
-// the executable's own icon resources, which is the one the packaging step
-// embeds.
-func windowsProtocolIcon(executable string) string {
+// windowsProtocolIcon names the icon the shell shows for the scheme.
+//
+// The packaging step stages an .ico beside the application rather than
+// embedding one in the executable, which would need a resource-compiled .syso
+// at build time. So the file is named directly when it is there, and the
+// executable's own resources - index 0, where an embedded icon would be - are
+// the fallback. Naming a missing file would show the generic unknown-program
+// icon on every link.
+func windowsProtocolIcon(executable, iconPath string) string {
+	if iconPath != "" {
+		return `"` + iconPath + `",0`
+	}
 	return `"` + executable + `",0`
 }
