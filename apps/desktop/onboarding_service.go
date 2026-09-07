@@ -1,5 +1,3 @@
-//go:build darwin
-
 package main
 
 import (
@@ -9,9 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,7 +23,6 @@ import (
 	"github.com/khalidM3/overgent/internal/hosted"
 	"github.com/khalidM3/overgent/internal/localbackend"
 	"github.com/khalidM3/overgent/internal/onboarding"
-	servicemanager "github.com/khalidM3/overgent/internal/service"
 	"github.com/khalidM3/overgent/internal/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -342,7 +337,7 @@ func (service *OnboardingService) ResetEnrollment(backendID string) (OnboardingS
 	}
 	backend, known := cfg.BackendByID(backendID)
 	if !known {
-		return OnboardingState{}, errors.New("this Mac has no such backend")
+		return OnboardingState{}, errors.New("this device has no such backend")
 	}
 	if _, err := onboarding.New(backend).Reset(ctx, service.configRoot, false); err != nil {
 		return OnboardingState{}, err
@@ -395,7 +390,7 @@ func (service *OnboardingService) JoinAdditionalProject(request EnrollmentReques
 // place, so the four cannot drift apart again.
 func (service *OnboardingService) addProject(request EnrollmentRequest, local, join bool) (EnrollmentResult, error) {
 	if local && !service.localAvailable {
-		return EnrollmentResult{}, errors.New("this build does not carry a backend to run on this Mac")
+		return EnrollmentResult{}, errors.New("this build does not carry a backend to run on this device")
 	}
 	root, err := canonicalRepository(request.RepositoryRoot)
 	if err != nil {
@@ -552,15 +547,16 @@ func (service *OnboardingService) ensureService(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	account, err := user.Current()
+	// The manager is built per platform because the identity a per-user service
+	// is registered under is not the same kind of thing on each: launchd wants a
+	// numeric uid for the GUI domain, systemd --user infers it, and the Windows
+	// scheduler names the account. serviceManagerFor is the one place that
+	// difference is spelled.
+	manager, err := serviceManagerFor(executable, service.configRoot)
 	if err != nil {
-		return fmt.Errorf("resolve current user: %w", err)
+		return err
 	}
-	uid, err := strconv.Atoi(account.Uid)
-	if err != nil || uid <= 0 || !filepath.IsAbs(account.HomeDir) {
-		return errors.New("current user has invalid home or uid")
-	}
-	return (servicemanager.Manager{Executable: executable, ConfigRoot: service.configRoot, Home: account.HomeDir, UID: uid}).Install(ctx)
+	return manager.Install(ctx)
 }
 
 func (service *OnboardingService) ConfigureAdapters(repositoryRoot string, enableCodex, enableClaude, enableCursor bool) ([]AdapterState, error) {
@@ -778,7 +774,7 @@ func (service *OnboardingService) OpenLiveProject(projectID string) (string, err
 		return "", err
 	}
 	if _, bound := cfg.BackendForProject(projectID); !bound {
-		return "", errors.New("Project is not enrolled on this Mac")
+		return "", errors.New("Project is not enrolled on this device")
 	}
 	return "/?live=1&project=" + projectID, nil
 }
@@ -986,55 +982,33 @@ func (service *OnboardingService) resolveCLI() (string, error) {
 	return filepath.Abs(value)
 }
 
+// agentExecutable locates a coding agent's binary.
+//
+// PATH is asked first on every platform, because that is where an agent the
+// member installed themselves will be. Only when PATH has nothing does this
+// fall back to the places each vendor's installer actually writes, and those
+// are entirely platform-shaped - .app bundles on macOS, XDG and package
+// directories on Linux, %LOCALAPPDATA% on Windows - so the list lives in
+// agentInstallCandidates beside the rest of the per-OS surface.
 func agentExecutable(command string) (string, bool) {
 	if value, err := exec.LookPath(command); err == nil && executableFile(value) {
 		return value, true
+	}
+	switch command {
+	case "codex", "claude", "cursor":
+	default:
+		return "", false
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return "", false
 	}
-	var candidates []string
-	switch command {
-	case "codex":
-		candidates = []string{
-			filepath.Join(home, ".local", "bin", "codex"),
-			filepath.Join(home, ".codex", "bin", "codex"),
-			filepath.Join(home, "Applications", "Codex.app", "Contents", "Resources", "codex"),
-			filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
-			"/Applications/Codex.app/Contents/Resources/codex",
-			"/Applications/ChatGPT.app/Contents/Resources/codex",
-		}
-	case "claude":
-		candidates = []string{
-			filepath.Join(home, ".local", "bin", "claude"),
-			filepath.Join(home, ".npm-global", "bin", "claude"),
-		}
-		nvmCandidates, _ := filepath.Glob(filepath.Join(home, ".nvm", "versions", "node", "*", "bin", "claude"))
-		candidates = append(candidates, nvmCandidates...)
-	case "cursor":
-		// Cursor ships an editor rather than a CLI-first tool; its `cursor`
-		// shell command is installed from inside the app and is often absent
-		// even when Cursor is. The app bundle is therefore checked too, so a
-		// working Cursor is not reported as "not detected".
-		candidates = []string{
-			filepath.Join(home, "Applications", "Cursor.app", "Contents", "Resources", "app", "bin", "cursor"),
-			"/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
-		}
-	default:
-		return "", false
-	}
-	for _, candidate := range candidates {
+	for _, candidate := range agentInstallCandidates(command, home) {
 		if executableFile(candidate) {
 			return candidate, true
 		}
 	}
 	return "", false
-}
-
-func executableFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 func canonicalRepository(value string) (string, error) {
@@ -1057,9 +1031,13 @@ func canonicalRepository(value string) (string, error) {
 	return resolved, nil
 }
 
+// defaultDeviceLabel names this machine in the onboarding form. The hostname is
+// the honest answer everywhere; only the fallback for a machine that will not
+// report one is platform-shaped, because "This Mac" on a Linux box is a lie the
+// member then has to correct.
 func defaultDeviceLabel() string {
 	host, _ := os.Hostname()
-	return boundedLabel(host, "This Mac")
+	return boundedLabel(host, defaultDeviceName)
 }
 
 // boundedDisplayName enforces the ADR-035 identity rules before any network

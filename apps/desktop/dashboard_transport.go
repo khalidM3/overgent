@@ -1,5 +1,3 @@
-//go:build darwin
-
 package main
 
 import (
@@ -58,7 +56,7 @@ func (service *OnboardingService) DashboardRequest(projectID, method, path, body
 	}
 	backend, bound := cfg.BackendForProject(projectID)
 	if !bound || backend.DeviceID == "" {
-		return DashboardReply{}, errors.New("Project is not enrolled on this Mac")
+		return DashboardReply{}, errors.New("Project is not enrolled on this device")
 	}
 	// Validate the stored origin too; it is never provided by JavaScript.
 	if _, err := hosted.New(backend.APIBaseURL, ""); err != nil {
@@ -83,7 +81,7 @@ func (service *OnboardingService) DashboardRequest(projectID, method, path, body
 	if connection.cookie == "" || time.Now().After(connection.expires) {
 		token, err := credential.Get(ctx, backend.DeviceID)
 		if err != nil {
-			return DashboardReply{}, errors.New("this Mac’s Project credential is unavailable")
+			return DashboardReply{}, errors.New("this device’s Project credential is unavailable")
 		}
 		api, err := hosted.New(backend.APIBaseURL, token)
 		if err != nil {

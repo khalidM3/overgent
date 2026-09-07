@@ -1,4 +1,4 @@
-//go:build darwin && !production
+//go:build !production
 
 package main
 

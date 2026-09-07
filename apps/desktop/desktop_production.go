@@ -1,4 +1,4 @@
-//go:build darwin && production
+//go:build production
 
 package main
 
@@ -66,17 +66,15 @@ func desktopTeamActivationOrigin(apiBaseURL string) string {
 // update shipped a new app driving an old CLI, and the two disagreed about the
 // wire format, the hook set, and eventually the product's own name.
 func desktopCLIBinary() string {
-	executable, err := os.Executable()
+	bundled, err := bundledCLIPath()
 	if err != nil {
 		return ""
 	}
-	bundled := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "overgent"))
-	home, err := os.UserHomeDir()
+	directory, err := managedCLIDirectory()
 	if err != nil {
 		return bundled
 	}
-	directory := filepath.Join(home, ".local", "bin")
-	installed := filepath.Join(directory, "overgent")
+	installed := filepath.Join(directory, managedCLIName)
 	if sameFileContents(bundled, installed) {
 		return installed
 	}
@@ -87,7 +85,7 @@ func desktopCLIBinary() string {
 	if err != nil {
 		// No bundled binary to install from. An existing installed copy is still
 		// better than a path that does not exist.
-		if info, statErr := os.Stat(installed); statErr == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		if executableFile(installed) {
 			return installed
 		}
 		return bundled
@@ -122,7 +120,7 @@ func sameFileContents(bundled, installed string) bool {
 		return false
 	}
 	installedInfo, err := os.Stat(installed)
-	if err != nil || !installedInfo.Mode().IsRegular() || installedInfo.Mode()&0o111 == 0 {
+	if err != nil || !installedInfo.Mode().IsRegular() || !executableFile(installed) {
 		return false
 	}
 	if bundledInfo.Size() != installedInfo.Size() {

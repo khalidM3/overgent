@@ -1,5 +1,3 @@
-//go:build darwin
-
 package main
 
 import (
@@ -118,7 +116,7 @@ func (service *OnboardingService) OpenOwningSession(workstreamID, prompt, target
 	if target == "vscode" {
 		const vscodeURL = "vscode://anthropic.claude-code/open"
 		if err = opener(vscodeURL); err != nil {
-			return SessionOpenResult{Vendor: "claude", Detail: "VS Code's Claude Code handler is unavailable on this Mac.", FallbackCommand: "open " + shellQuote(vscodeURL)}, nil
+			return SessionOpenResult{Vendor: "claude", Detail: "VS Code's Claude Code handler is unavailable on this device.", FallbackCommand: openURLFallbackCommand(vscodeURL)}, nil
 		}
 		return SessionOpenResult{Vendor: "claude", Opened: true, Detail: "Opened Claude Code in VS Code."}, nil
 	}
@@ -143,12 +141,6 @@ func startDetachedCommand(executable string, arguments []string, cwd string) err
 		return err
 	}
 	return command.Process.Release()
-}
-
-func openURLWithSystemHandler(value string) error {
-	// macOS `open` returns an error when Launch Services has no registered
-	// handler. Waiting for that result is what makes handler absence visible.
-	return exec.Command("open", value).Run()
 }
 
 func resolveOwningSession(home, workstreamID string, workspaces []config.Workspace) (owningSession, error) {
@@ -206,7 +198,7 @@ func resolveOwningSession(home, workstreamID string, workspaces []config.Workspa
 		})
 	}
 	if best.vendor == "" {
-		return owningSession{}, errors.New("the owning vendor session is not available on this Mac")
+		return owningSession{}, errors.New("the owning vendor session is not available on this device")
 	}
 	return best, nil
 }

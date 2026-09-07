@@ -1,5 +1,3 @@
-//go:build darwin
-
 package main
 
 import (
@@ -115,16 +113,19 @@ func activationOriginFor(ctx context.Context, paths config.Paths, backend config
 // local.
 func isLoopbackOrigin(origin string) bool { return localbackend.IsLoopbackOrigin(origin) }
 
-// bundledBackendArtifacts is where a production app bundle carries the backend
+// bundledBackendArtifacts is where an installed application carries the backend
 // binary and the release-time deploy payload.
+//
+// Only the directory differs per platform - bundledResourceDirectory answers
+// that - because the pair is always the same two filenames beside each other,
+// and both have to be present for either to be usable.
 func bundledBackendArtifacts() (string, string, error) {
-	executable, err := os.Executable()
+	directory, err := bundledResourceDirectory()
 	if err != nil {
 		return "", "", err
 	}
-	directory := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "backend"))
-	binary := filepath.Join(directory, "convex-local-backend")
-	bundle := filepath.Join(directory, "backend-push.json")
+	binary := filepath.Join(directory, "backend", bundledBackendName)
+	bundle := filepath.Join(directory, "backend", "backend-push.json")
 	for _, path := range []string{binary, bundle} {
 		info, statErr := os.Stat(path)
 		if statErr != nil || !info.Mode().IsRegular() {

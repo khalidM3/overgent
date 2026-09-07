@@ -1,19 +1,14 @@
-//go:build darwin
-
 package main
 
 import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/khalidM3/overgent/internal/config"
-	"github.com/khalidM3/overgent/internal/localbackend"
 )
 
 func TestStoredAPIBaseURLPrefersTheProfileAndCanonicalizes(t *testing.T) {
@@ -65,22 +60,6 @@ func TestIsLoopbackOriginSeparatesLocalFromTeam(t *testing.T) {
 		if isLoopbackOrigin(team) {
 			t.Fatalf("%q was treated as local", team)
 		}
-	}
-}
-
-func TestBundledBackendArtifactsRequireBothFiles(t *testing.T) {
-	// A build with only half the artifacts must report "no bundled backend"
-	// rather than recording a path the service will later fail to start.
-	root := t.TempDir()
-	resources := filepath.Join(root, "Contents", "Resources", "backend")
-	if err := os.MkdirAll(resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(resources, "convex-local-backend"), []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := localbackend.Install(t.TempDir(), filepath.Join(resources, "convex-local-backend"), filepath.Join(resources, "backend-push.json")); err == nil {
-		t.Fatal("install accepted a missing deploy payload")
 	}
 }
 

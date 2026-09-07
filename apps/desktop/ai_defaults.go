@@ -1,5 +1,3 @@
-//go:build darwin
-
 package main
 
 import (
@@ -218,7 +216,7 @@ func (service *OnboardingService) applyDefaultKey(ctx context.Context, kind stri
 	account := defaultKeyAccount(service.configRoot, kind)
 	if remove {
 		if err := credential.Delete(ctx, account); err != nil {
-			return stored, errors.New("could not remove the saved key from this Mac's Keychain")
+			return stored, errors.New("could not remove the saved key from this device's credential store")
 		}
 		return false, nil
 	}
@@ -236,7 +234,7 @@ func (service *OnboardingService) applyDefaultKey(ctx context.Context, kind stri
 		return stored, errors.New("that API key is longer than any provider issues")
 	}
 	if err := credential.Put(ctx, account, value); err != nil {
-		return stored, errors.New("could not save the key to this Mac's Keychain")
+		return stored, errors.New("could not save the key to this device's credential store")
 	}
 	return true, nil
 }
