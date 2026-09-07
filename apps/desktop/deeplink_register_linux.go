@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,14 +45,15 @@ func registerDeepLinkScheme() error {
 	if err = os.MkdirAll(applications, 0o700); err != nil {
 		return fmt.Errorf("create the desktop entry directory: %w", err)
 	}
-	iconPath, iconErr := installDesktopIcon(dataHome)
-	if iconErr != nil {
-		// A missing icon is a cosmetic fault. Refusing to register the scheme
-		// over it would trade a generic icon for a dead link.
-		iconPath = desktopEntryName()
+	// The entry names a themed icon either way. Installing the file is what
+	// makes the theme able to find one, and failing to is a cosmetic fault:
+	// refusing to register the scheme over it would trade a generic icon for a
+	// dead link.
+	if err = installDesktopIcon(dataHome); err != nil {
+		slog.Debug("install the application icon", "error", err)
 	}
 
-	entry := desktopEntry(executable, iconPath)
+	entry := desktopEntry(executable)
 	path := filepath.Join(applications, desktopEntryName()+".desktop")
 	if err = writeFileAtomically(path, []byte(entry), 0o644); err != nil {
 		return fmt.Errorf("write the desktop entry: %w", err)
@@ -102,29 +104,24 @@ func launchCommandPath() (string, error) {
 }
 
 // installDesktopIcon puts the application icon where the icon theme looks for
-// it, and returns the name a desktop entry should use.
+// it, under the name the desktop entry uses.
 //
 // The hicolor theme is the fallback every icon theme inherits from, so a PNG
-// placed there is found whichever theme the member uses. The name is returned
-// bare rather than as a path because a themed name lets the desktop pick the
-// size it wants; an absolute path pins it to one.
-func installDesktopIcon(dataHome string) (string, error) {
+// placed there is found whichever theme the member uses. The entry names the
+// icon by that bare name rather than by an absolute path, which is what lets
+// the desktop pick the size it wants instead of scaling one.
+func installDesktopIcon(dataHome string) error {
 	resources, err := bundledResourceDirectory()
 	if err != nil {
-		return "", err
+		return err
 	}
-	source := filepath.Join(resources, "icons", desktopEntryName()+".png")
-	body, err := os.ReadFile(source)
+	body, err := os.ReadFile(filepath.Join(resources, "icons", desktopEntryName()+".png"))
 	if err != nil {
-		return "", err
+		return err
 	}
 	directory := filepath.Join(dataHome, "icons", "hicolor", "512x512", "apps")
 	if err = os.MkdirAll(directory, 0o700); err != nil {
-		return "", err
+		return err
 	}
-	destination := filepath.Join(directory, desktopEntryName()+".png")
-	if err = writeFileAtomically(destination, body, 0o644); err != nil {
-		return "", err
-	}
-	return desktopEntryName(), nil
+	return writeFileAtomically(filepath.Join(directory, desktopEntryName()+".png"), body, 0o644)
 }

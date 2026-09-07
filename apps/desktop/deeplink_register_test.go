@@ -11,7 +11,7 @@ import (
 // the MIME type, the %u, and the window-class match - from being lost in a
 // refactor that nobody can run.
 func TestDesktopEntryClaimsTheSchemeAndPassesTheURL(t *testing.T) {
-	entry := desktopEntry("/opt/overgent/overgent-desktop", "overgent")
+	entry := desktopEntry("/opt/overgent/overgent-desktop")
 	for _, required := range []string{
 		"[Desktop Entry]",
 		"Type=Application",
@@ -23,6 +23,7 @@ func TestDesktopEntryClaimsTheSchemeAndPassesTheURL(t *testing.T) {
 		// window is not matched to this entry.
 		"StartupWMClass=" + desktopEntryName(),
 		"Terminal=false",
+		"Icon=" + desktopEntryName(),
 	} {
 		if !strings.Contains(entry, required) {
 			t.Fatalf("desktop entry is missing %q:\n%s", required, entry)
@@ -33,7 +34,7 @@ func TestDesktopEntryClaimsTheSchemeAndPassesTheURL(t *testing.T) {
 // A home directory with a space in it is ordinary, and an unquoted Exec would
 // split it into two arguments and launch nothing.
 func TestDesktopEntryQuotesAnExecutablePathWithSpaces(t *testing.T) {
-	entry := desktopEntry("/home/a b/Applications/Overgent.AppImage", "overgent")
+	entry := desktopEntry("/home/a b/Applications/Overgent.AppImage")
 	if !strings.Contains(entry, `Exec="/home/a b/Applications/Overgent.AppImage" %u`) {
 		t.Fatalf("unquoted Exec:\n%s", entry)
 	}
@@ -50,7 +51,7 @@ func TestDesktopEntryQuotesAnExecutablePathWithSpaces(t *testing.T) {
 // backslash in a value as an escape, so the single backslash the Exec syntax
 // wants has to be written as two.
 func TestDesktopEntryEscapesReservedExecCharacters(t *testing.T) {
-	entry := desktopEntry(`/home/x/$(id)/a"b`+"`c`", "overgent")
+	entry := desktopEntry(`/home/x/$(id)/a"b` + "`c`")
 	execLine := ""
 	for _, line := range strings.Split(entry, "\n") {
 		if strings.HasPrefix(line, "Exec=") {

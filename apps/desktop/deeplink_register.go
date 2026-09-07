@@ -15,7 +15,7 @@ import "strings"
 // equal the GTK program name main_linux.go sets, or the running window is not
 // matched to this entry and appears in the switcher as a second, unnamed
 // application beside its own icon.
-func desktopEntry(executable, icon string) string {
+func desktopEntry(executable string) string {
 	return strings.Join([]string{
 		"[Desktop Entry]",
 		"Type=Application",
@@ -27,7 +27,7 @@ func desktopEntry(executable, icon string) string {
 		// start page instead of the Project it named.
 		"Exec=" + quoteDesktopExec(executable) + " %u",
 		"TryExec=" + executable,
-		"Icon=" + icon,
+		"Icon=" + desktopEntryName(),
 		"Terminal=false",
 		"Categories=Development;Utility;",
 		"MimeType=x-scheme-handler/" + desktopURLScheme() + ";",
