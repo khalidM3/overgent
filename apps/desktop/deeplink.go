@@ -88,3 +88,22 @@ func desktopDeepLinkTarget(raw string) (string, bool) {
 		return "", false
 	}
 }
+
+// deepLinkFromArguments finds the scheme URL a process launch carried.
+//
+// On Linux and Windows the OS starts a new process for a link and passes the
+// URL as an argument; when the app is already running, the single-instance
+// handshake forwards that argument list here rather than to a second parser.
+// Validation stays in the two functions above, which is what keeps one rule for
+// what this application will open regardless of how the link reached it.
+func deepLinkFromArguments(arguments []string) (string, bool) {
+	for _, argument := range arguments {
+		if _, ok := desktopDeepLinkProject(argument); ok {
+			return argument, true
+		}
+		if _, ok := desktopDeepLinkTarget(argument); ok {
+			return argument, true
+		}
+	}
+	return "", false
+}

@@ -87,3 +87,31 @@ func TestDesktopUserAgentNameMatchesDashboardProbe(t *testing.T) {
 		t.Fatalf("user agent name %q must not contain whitespace", desktopUserAgentName)
 	}
 }
+
+// A second launch hands over its whole argument list, and only the URL in it is
+// acted on. argv[0] is always a path, so the loop must not treat a filename
+// that happens to contain the scheme as a link.
+func TestDeepLinkFromArgumentsAcceptsOnlyAValidatedSchemeURL(t *testing.T) {
+	scheme := desktopURLScheme()
+	for _, testCase := range []struct {
+		name  string
+		args  []string
+		want  string
+		found bool
+	}{
+		{name: "no link", args: []string{"/opt/overgent/overgent-desktop"}},
+		{name: "route", args: []string{"overgent-desktop", scheme + "://new-project"}, want: scheme + "://new-project", found: true},
+		{name: "project", args: []string{"overgent-desktop", scheme + "://project/prj_abc123"}, want: scheme + "://project/prj_abc123", found: true},
+		{name: "foreign scheme", args: []string{"overgent-desktop", "file:///etc/passwd"}},
+		{name: "another application's scheme", args: []string{"overgent-desktop", "vscode://anthropic.claude-code/open"}},
+		{name: "unknown route", args: []string{"overgent-desktop", scheme + "://settings"}},
+		{name: "executable path is not a link", args: []string{"/home/x/overgent/overgent-desktop"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, ok := deepLinkFromArguments(testCase.args)
+			if ok != testCase.found || got != testCase.want {
+				t.Fatalf("deepLinkFromArguments(%v) = (%q,%v), want (%q,%v)", testCase.args, got, ok, testCase.want, testCase.found)
+			}
+		})
+	}
+}

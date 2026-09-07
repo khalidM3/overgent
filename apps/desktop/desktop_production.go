@@ -22,6 +22,19 @@ func desktopMenuLabel() string   { return "Overgent beta" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
 func desktopURLScheme() string   { return "overgent" }
 
+// desktopApplicationID is the one reverse-DNS name for this build. It is the
+// macOS CFBundleIdentifier, the Linux .desktop file's basename prefix, the
+// Windows registry key's application name, and the single-instance lock's id,
+// so the four cannot drift apart. scripts/build-desktop.mjs writes the same
+// value into whichever of those a platform needs.
+func desktopApplicationID() string { return "com.overgent.app" }
+
+// desktopEntryName is the installed application's short, filesystem-safe name:
+// the Linux .desktop basename and GTK program name, and the Windows executable
+// stem. A development build takes its own so it never claims the release
+// build's scheme registration or window grouping.
+func desktopEntryName() string { return "overgent" }
+
 // apiBaseURL is the hosted origin a production build talks to by default.
 // Releases keep it; a private build for a closed test overrides it with
 // -X main.apiBaseURL=... so the app does not have to be edited to point at a
