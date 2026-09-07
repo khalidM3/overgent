@@ -3,6 +3,7 @@ import { NewProjectScreen } from "./new-project";
 import { Screen, ScreenSection } from "./screen";
 import { MacSettings } from "./mac-settings";
 import { nativeOnboarding, type NativeOnboarding, type OnboardingState } from "./native";
+import { BrandMark } from "./brand";
 
 const lastProjectKey = "overgent.last-project";
 export function rememberProject(id: string) { try { localStorage.setItem(lastProjectKey, id); } catch { /* Storage is optional. */ } }
@@ -61,6 +62,6 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   return <div className="workroom-shell screen-open entry-shell"><nav className="side" aria-label="Projects"><div className="side-top"><Brand /></div><div className="side-scroll"><button className="nav-item" aria-current={page === "projects" ? "page" : undefined} onClick={() => setPage("projects")}>Projects</button>{projects.map((project) => <button className="project-item" key={project.projectId} disabled={pending} onClick={() => void open(project.projectId)}><span className="project-monogram">{project.repositoryLabel.slice(0, 1).toUpperCase()}</span>{project.repositoryLabel}</button>)}</div><button className="profile-button" onClick={() => setPage("settings")}>App settings</button></nav>{content}</div>;
 }
 
-function Brand() { return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true">O</span><span>overgent</span></div>; }
+function Brand() { return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true"><BrandMark /></span><span>overgent</span></div>; }
 
 export { MacSettings } from "./mac-settings";

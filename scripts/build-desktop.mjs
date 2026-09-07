@@ -13,6 +13,7 @@ const executableName = development ? "overgent-desktop-dev" : "overgent-desktop"
 const executable = path.join(app, "Contents", "MacOS", executableName);
 const resources = path.join(app, "Contents", "Resources");
 const cli = path.join(resources, "overgent");
+const appIcon = path.join(resources, "Overgent.icns");
 
 if (process.platform !== "darwin") {
   throw new Error("desktop preview build is currently supported only on macOS");
@@ -69,6 +70,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>${productName}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>Overgent.icns</string>
   <key>CFBundleShortVersionString</key><string>${development ? "0.1.0-dev" : (process.env.OVERGENT_VERSION ?? "0.1.0-beta").replace(/^v/, "")}</string>
   <key>CFBundleVersion</key><string>${development ? "1" : process.env.OVERGENT_BUILD_NUMBER ?? "1"}</string>
   <!-- Enrollment needs the local service, which only the desktop app can reach.
@@ -88,6 +90,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>
 `;
 await writeFile(path.join(app, "Contents", "Info.plist"), plist, { mode: 0o644 });
+await copyFile(path.join(root, "assets", "brand", "overgent-app-icon.icns"), appIcon);
 
 // A production build carries the Convex backend it runs a local Project on, so
 // a fresh install coordinates with no account, no network, and no Node. The

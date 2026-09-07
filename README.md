@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/overgent-mark.svg" width="112" alt="Overgent logo">
+</p>
+
 # Overgent
 
 Overgent is air traffic control for multiple coding agents working in one repository. It catches overlapping edits, stale contract assumptions, and duplicated work while agents are working—not at merge time. It observes and routes coordination context; it never edits code, merges changes, or steers an agent's model loop, tools, or permissions.

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Check, Copy, Download, GitMerge, Radar, ShieldCheck, Terminal, Waypoints } from "lucide-react";
+import { BrandMark } from "./brand";
 import "./landing.css";
 
 type ReleaseState =
@@ -152,7 +153,7 @@ export function LandingPage() {
 }
 
 function Wordmark() {
-  return <a className="landing-brand" href="/" aria-label="Overgent home"><span aria-hidden="true">O</span><strong>overgent</strong></a>;
+  return <a className="landing-brand" href="/" aria-label="Overgent home"><span aria-hidden="true"><BrandMark /></span><strong>overgent</strong></a>;
 }
 
 function ReleaseStatus({ release }: { release: ReleaseState }) {

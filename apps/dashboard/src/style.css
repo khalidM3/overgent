@@ -209,8 +209,9 @@ html[data-desktop-shell="true"][data-desktop-preview="true"] .side-top { padding
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.02em; }
 .brand-mark {
   width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center;
-  color: var(--onsolid); background: var(--solid); border-radius: 7px; font-size: 12px; font-weight: 700;
+  color: var(--ink);
 }
+.brand-mark svg { width: 24px; height: 24px; }
 
 .icon-button { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; color: var(--ink-3); border-radius: 9px; }
 .icon-button:hover:not(:disabled) { color: var(--ink); background: var(--hover); }

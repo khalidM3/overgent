@@ -3,6 +3,7 @@ import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { BrandMark } from "./brand";
 import {
   Activity,
   AlertTriangle,
@@ -111,7 +112,7 @@ export function App({
 const desktopAppName = import.meta.env.DEV ? "Overgent Dev.app" : "Overgent.app";
 
 function Brand({ compact = false }: { compact?: boolean }) {
-  return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true">O</span>{!compact && <span>overgent</span>}</div>;
+  return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true"><BrandMark /></span>{!compact && <span>overgent</span>}</div>;
 }
 
 // A ticket can only be minted by the local Overgent app, so this page can never

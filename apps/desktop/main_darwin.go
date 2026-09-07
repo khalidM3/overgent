@@ -222,13 +222,21 @@ func main() {
 func menuBarIcon() []byte {
 	canvas := image.NewRGBA(image.Rect(0, 0, 18, 18))
 	ink := color.RGBA{A: 255}
-	draw.Draw(canvas, image.Rect(7, 1, 11, 5), &image.Uniform{C: ink}, image.Point{}, draw.Src)
-	draw.Draw(canvas, image.Rect(8, 5, 10, 12), &image.Uniform{C: ink}, image.Point{}, draw.Src)
-	draw.Draw(canvas, image.Rect(4, 7, 14, 9), &image.Uniform{C: ink}, image.Point{}, draw.Src)
-	for offset := range 4 {
-		canvas.Set(7-offset, 12+offset, ink)
-		canvas.Set(10+offset, 12+offset, ink)
+	bar := func(x, y, width int) {
+		draw.Draw(canvas, image.Rect(x, y, x+width, y+1), &image.Uniform{C: ink}, image.Point{}, draw.Src)
 	}
+	bar(7, 1, 4)
+	bar(4, 3, 10)
+	bar(2, 5, 14)
+	bar(1, 7, 6)
+	bar(11, 7, 6)
+	bar(1, 9, 5)
+	bar(12, 9, 5)
+	bar(1, 11, 6)
+	bar(11, 11, 6)
+	bar(2, 13, 14)
+	bar(4, 15, 10)
+	bar(7, 17, 4)
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, canvas); err != nil {
 		return nil

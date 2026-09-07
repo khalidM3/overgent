@@ -24,7 +24,8 @@
   border-bottom: 1px solid var(--line);
 }
 .landing-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; letter-spacing: -.02em; }
-.landing-brand > span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; color: var(--onsolid); background: var(--solid); font-size: 12px; font-weight: 750; }
+.landing-brand > span { width: 27px; height: 27px; display: grid; place-items: center; color: var(--ink); }
+.landing-brand > span svg { width: 27px; height: 27px; }
 .landing-nav nav { display: flex; align-items: center; gap: 28px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
 .landing-nav nav a:hover { color: var(--ink); }
 .landing-nav-action { display: inline-flex; align-items: center; gap: 6px; color: var(--ink) !important; }

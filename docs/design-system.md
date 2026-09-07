@@ -62,7 +62,15 @@ Filled backgrounds are allowed only for:
 
 - transient hover (`--hover`)
 - a solid primary button (`.pill.solid`)
-- the brand mark and the current project monogram
+- the current project monogram
+
+The Overgent mark is the open **O** formed by horizontal radar lines in
+`assets/brand/overgent-mark.svg`. It keeps the original scan-line concept while
+using exact mirrored geometry that stays legible at favicon size. In product UI
+it has no container: it takes `--ink`, rendering black on a light surface and
+white on a dark one. The freestanding SVG follows the reader's light or dark
+scheme the same way. Do not redraw it as a text `O`, smooth ring, enclosing
+shape, or decorative colour treatment.
 
 Anything openable says so the same way: the whole row or card takes `--hover`
 and reveals a chevron on its trailing edge, and its heading button is stretched
