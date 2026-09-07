@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopOnboarding } from "../src/desktop-onboarding";
@@ -60,6 +60,14 @@ describe("local-first entry", () => {
   window.history.replaceState(null, "", "/?settings=1"); const api = mockAPI({ ...enrolled, adapters: [{ ...adapter, configured: true, hooksNeedReview: true, detail: "Review hooks in Codex before sessions can be observed." }] }); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
   const settings = await screen.findByRole("main", { name: "App settings" }); await userEvent.setup().click(within(settings).getByRole("button", { name: "Agents" }));
   expect(within(settings).getByText(/Review hooks in Codex/)).toBeTruthy(); expect(within(settings).queryByText("Observing session activity")).toBeNull();
+ });
+ it("uses the same folder navigation and Command-B focus mode in the entry shell", async () => {
+  window.history.replaceState(null, "", "/?settings=1"); render(<DesktopOnboarding api={mockAPI(enrolled)} navigate={vi.fn()} />);
+  const side = await screen.findByRole("navigation", { name: "Projects" });
+  expect(within(side).getByRole("button", { name: "atlas" }).querySelector(".lucide-folder")).toBeTruthy();
+  fireEvent.keyDown(window, { key: "b", metaKey: true });
+  expect(screen.queryByRole("navigation", { name: "Projects" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Expand Projects sidebar" })).toBeTruthy();
  });
  it("returns to the Project that opened Add without trusting a URL destination", async () => {
   window.history.replaceState(null, "", "/?add=project&from=prj_test"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);

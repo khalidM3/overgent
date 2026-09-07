@@ -49,7 +49,7 @@ import { DesktopOnboarding, MacSettings, rememberProject } from "./desktop-onboa
 import { AppearanceChoices } from "./mac-settings";
 import { useTheme } from "./theme";
 import { DesktopAISettings } from "./desktop-ai-settings";
-import { Screen, ScreenSection, useEscape } from "./screen";
+import { Screen, ScreenNavigationProvider, ScreenSection, useEscape } from "./screen";
 import { NewProjectScreen } from "./new-project";
 import { IdentitySettings, PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
@@ -62,6 +62,8 @@ import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } fro
 import { VendorMark } from "./vendor-marks";
 import { LandingPage } from "./landing";
 import { decideRoute } from "./routing";
+import { ProjectIcon } from "./project-icon";
+import { SidebarToggle, useSidebarCollapsed } from "./sidebar-toggle";
 import "./style.css";
 
 const defaultSource = new FixtureProjectSource();
@@ -309,7 +311,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   useEffect(() => { void refreshMac().catch(() => undefined); }, [nativeApi]);
   const localProject = macState?.projects?.find((project) => project.projectId === projectId);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, toggleSidebar] = useSidebarCollapsed();
   // Appearance is light, dark, or whatever macOS is set to; `useTheme` owns
   // the resolution and the stamping, so nothing here has to repeat the media
   // query to know which one is showing.
@@ -439,17 +441,18 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const inspecting = Boolean(selectedSession ?? selectedCollision);
   const shellClass = ["workroom-shell", sidebarCollapsed ? "sidebar-collapsed" : "", screen ? "screen-open" : "", !screen && !inspecting ? "no-inspector" : ""].filter(Boolean).join(" ");
 
-  return <div className={shellClass}>
+  const sidebarToggle = <SidebarToggle collapsed={sidebarCollapsed} onToggle={toggleSidebar} />;
+
+  return <ScreenNavigationProvider control={sidebarToggle}><div className={shellClass}>
     {/* Navigation, and named: this panel is the Project list now that nothing
         sits above it, so it says so rather than being an unlabelled region a
         screen reader announces as "complementary". */}
-    <nav className="side" aria-label="Projects">
+    {sidebarCollapsed ? <div className="side-placeholder" aria-hidden="true" /> : <nav className="side" aria-label="Projects">
       <div className="side-top">
-        <Brand compact={sidebarCollapsed} />
-        <button className="icon-button side-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? "Expand Projects sidebar" : "Collapse Projects sidebar"}>{sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}</button>
+        <Brand />
       </div>
 
-      <button className="command-trigger" onClick={() => setCommandOpen(true)} aria-label="Search Projects and commands"><Search size={15} />{!sidebarCollapsed && <><span>Search</span><kbd>⌘K</kbd></>}</button>
+      <button className="command-trigger" onClick={() => setCommandOpen(true)} aria-label="Search Projects and commands"><Search size={15} /><span>Search</span><kbd>⌘K</kbd></button>
 
       {/* The sidebar lists Projects and nothing above them.
           Workroom and History used to sit here as root items, which put the
@@ -472,25 +475,24 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
         {projects.map((project) => {
           const projectSnapshot = source.get(project.id);
           const collisionCount = projectSnapshot.findings.filter((finding) => finding.state === "open").length;
-          return <button key={project.id} className="project-item" aria-current={project.id === projectId ? "page" : undefined} onClick={() => selectProject(project.id)} title={sidebarCollapsed ? project.name : undefined}>
-            <span className="project-monogram">{project.name.slice(0, 1).toUpperCase()}</span>
-            {!sidebarCollapsed && <>{project.name}{collisionCount > 0 && <span className="project-count">{collisionCount}</span>}</>}
+          const selected = project.id === projectId;
+          return <button key={project.id} className="project-item" aria-current={selected ? "page" : undefined} onClick={() => selectProject(project.id)}>
+            <ProjectIcon selected={selected} />
+            {project.name}{collisionCount > 0 && <span className="project-count">{collisionCount}</span>}
           </button>;
         })}
-        {/* Collapsed, the group line is hidden, so the control comes back as a
-            monogram-width row - one control on screen either way. */}
-        {sidebarCollapsed && <button className="project-item new" aria-current={screen === "new-project" ? "page" : undefined} onClick={() => showScreen("new-project")} aria-label="Add a new Project" title="Add a Project"><span className="project-monogram"><Plus size={11} /></span></button>}
       </div>
 
       <button className="profile-button" aria-current={screen === "app-settings" ? "page" : undefined} onClick={() => showScreen("app-settings")} aria-label="Open App settings">
         <MemberChip name={identity.name} size="large" />
-        {!sidebarCollapsed && <span className="who"><strong>{identity.name}</strong><small>App settings</small></span>}
+        <span className="who"><strong>{identity.name}</strong><small>App settings</small></span>
       </button>
-    </nav>
+    </nav>}
 
     {screen === null && <>
       <main className="workroom-main">
         <div className="main-bar">
+          {sidebarToggle}
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
           <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} controllable={localPause} />
@@ -599,7 +601,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
     {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} returnProjectId={projectId} />}
 
     {commandOpen && <CommandPalette projects={projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); showScreen("settings"); }} onClose={() => setCommandOpen(false)} />}
-  </div>;
+  </div></ScreenNavigationProvider>;
 }
 
 /**
@@ -2023,7 +2025,7 @@ function CommandPalette({ projects, selectedProjectId, onSelectProject, onSettin
     };
   }, []);
   const visible = projects.filter((project) => `${project.name} ${project.repositoryLabel}`.toLowerCase().includes(query.toLowerCase()));
-  return <dialog ref={dialogRef} className="command-dialog" aria-label="Search Projects and commands" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="command-search"><Search size={17} /><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Projects and commands…" aria-label="Search Projects and commands" /><button className="dialog-escape" onClick={onClose} aria-label="Close command palette">esc</button></div><div className="command-results"><p>Projects</p>{visible.map((project) => <button key={project.id} onClick={() => onSelectProject(project.id)}><span className="project-monogram">{project.name.slice(0, 1)}</span><span><strong>{project.name}</strong><small>{project.repositoryLabel}</small></span>{project.id === selectedProjectId && <Check size={15} />}</button>)}<p>Commands</p><button onClick={onSettings}><span className="settings-icon"><Settings2 size={15} /></span><span><strong>Open settings</strong><small>Appearance, devices, and privacy</small></span></button></div></dialog>;
+  return <dialog ref={dialogRef} className="command-dialog" aria-label="Search Projects and commands" onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="command-search"><Search size={17} /><input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Projects and commands…" aria-label="Search Projects and commands" /><button className="dialog-escape" onClick={onClose} aria-label="Close command palette">esc</button></div><div className="command-results"><p>Projects</p>{visible.map((project) => <button key={project.id} onClick={() => onSelectProject(project.id)}><ProjectIcon selected={project.id === selectedProjectId} /><span><strong>{project.name}</strong><small>{project.repositoryLabel}</small></span>{project.id === selectedProjectId && <Check size={15} />}</button>)}<p>Commands</p><button onClick={onSettings}><span className="settings-icon"><Settings2 size={15} /></span><span><strong>Open settings</strong><small>Appearance, devices, and privacy</small></span></button></div></dialog>;
 }
 
 function statusCopy(session: Workstream): string {

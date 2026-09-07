@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { NewProjectScreen } from "./new-project";
-import { Screen, ScreenSection } from "./screen";
+import { Screen, ScreenNavigationProvider, ScreenSection } from "./screen";
 import { MacSettings } from "./mac-settings";
 import { nativeOnboarding, type NativeOnboarding, type OnboardingState } from "./native";
 import { BrandMark } from "./brand";
+import { ProjectIcon } from "./project-icon";
+import { SidebarToggle, useSidebarCollapsed } from "./sidebar-toggle";
 
 const lastProjectKey = "overgent.last-project";
 export function rememberProject(id: string) { try { localStorage.setItem(lastProjectKey, id); } catch { /* Storage is optional. */ } }
@@ -19,6 +21,7 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [sidebarCollapsed, toggleSidebar] = useSidebarCollapsed();
   const resumed = useRef(false);
   const refresh = async () => { const next = await api.state(); setState(next); return next; };
   const open = async (id: string) => {
@@ -40,6 +43,8 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
   const returnProject = projects.find((project) => project.projectId === query.get("from"));
   const back = () => { if (returnProject) void open(returnProject.projectId); else setPage("projects"); };
 
+  const sidebarToggle = <SidebarToggle collapsed={sidebarCollapsed} onToggle={toggleSidebar} />;
+
   if (!state) return <main className="onboarding-shell"><header><Brand /></header><section className="onboarding-card"><h1>{error ? "Overgent couldn’t open." : "Opening Overgent…"}</h1>{error && <><p role="alert" className="form-error">{error}</p><button className="pill" onClick={() => void refresh().catch((cause: Error) => setError(cause.message))}>Try again</button></>}</section></main>;
 
   const content = page === "settings"
@@ -59,7 +64,8 @@ export function DesktopOnboarding({ api = nativeOnboarding, navigate = (url) => 
           <div className="screen-actions"><button className="pill solid" onClick={() => { setMode("create"); setPage("add"); }}>Open a repository</button><button className="pill" onClick={() => { setMode("join"); setPage("add"); }}>Join with an invite</button><button className="text-button" onClick={() => void (api.recheckState ?? api.state)().then(setState).catch((cause: Error) => setError(cause.message))}>Check connections</button></div>
         </Screen>;
 
-  return <div className="workroom-shell screen-open entry-shell"><nav className="side" aria-label="Projects"><div className="side-top"><Brand /></div><div className="side-scroll"><button className="nav-item" aria-current={page === "projects" ? "page" : undefined} onClick={() => setPage("projects")}>Projects</button>{projects.map((project) => <button className="project-item" key={project.projectId} disabled={pending} onClick={() => void open(project.projectId)}><span className="project-monogram">{project.repositoryLabel.slice(0, 1).toUpperCase()}</span>{project.repositoryLabel}</button>)}</div><button className="profile-button" onClick={() => setPage("settings")}>App settings</button></nav>{content}</div>;
+  const shellClass = ["workroom-shell", "screen-open", "entry-shell", sidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ");
+  return <ScreenNavigationProvider control={sidebarToggle}><div className={shellClass}>{sidebarCollapsed ? <div className="side-placeholder" aria-hidden="true" /> : <nav className="side" aria-label="Projects"><div className="side-top"><Brand /></div><div className="side-scroll"><button className="nav-item" aria-current={page === "projects" ? "page" : undefined} onClick={() => setPage("projects")}>Projects</button>{projects.map((project) => <button className="project-item" key={project.projectId} disabled={pending} onClick={() => void open(project.projectId)}><ProjectIcon />{project.repositoryLabel}</button>)}</div><button className="profile-button" onClick={() => setPage("settings")}>App settings</button></nav>}{content}</div></ScreenNavigationProvider>;
 }
 
 function Brand() { return <div className="brand" aria-label="Overgent"><span className="brand-mark" aria-hidden="true"><BrandMark /></span><span>overgent</span></div>; }

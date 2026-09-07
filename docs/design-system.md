@@ -2,7 +2,7 @@
 
 Status: canonical UI specification for the dashboard and desktop shell
 Owner: Khalid
-Last updated: 2026-08-28
+Last updated: 2026-09-06
 
 This document is binding for anyone — human or agent — building UI in
 `apps/dashboard` or `apps/desktop`. The implementation lives in
@@ -62,7 +62,6 @@ Filled backgrounds are allowed only for:
 
 - transient hover (`--hover`)
 - a solid primary button (`.pill.solid`)
-- the current project monogram
 
 The Overgent mark is the open **O** formed by horizontal radar lines in
 `assets/brand/overgent-mark.svg`. It keeps the original scan-line concept while
@@ -349,9 +348,18 @@ Both shells share that shape: the entry shell in `desktop-onboarding.tsx` and
 the workroom in `main.tsx` present the same list in the same place, so switching
 between them is not a change of navigation.
 
+Each Project row begins with a repository-folder glyph: closed at rest and open
+for the selected Project. Never synthesize a monogram from the Project's first
+letter; initials collide and a Project already has the stronger repository
+metaphor. The sidebar has no compact icon-rail state. Command-B collapses the
+whole navigation column to zero — brand, search, Projects, settings, ground,
+and hairline — and the leading control in every main or screen toolbar restores
+it. Command-K remains available for Project switching while it is hidden.
+
 A **screen** — Settings, People, Add a Project — takes the main and inspector
-columns together (`.workroom-shell.screen-open`) and keeps the sidebar, so the
-member is never stranded on a surface with no way out except a close button. It
+columns together (`.workroom-shell.screen-open`) and keeps the sidebar's toolbar
+control even when the sidebar itself is hidden, so the member is never stranded
+on a surface with no way out except a close button. It
 reuses the workroom's shape exactly: its own toolbar, its own scroll, one 680px
 column, an `h1` at 25px.
 
@@ -547,8 +555,9 @@ inputs are ones with an observable effect on the affected agents.
 
 **A modal is for a decision that must be finished before returning. Nothing in
 the Project lifecycle is one, so none of them are modals.** Settings, People and
-Add a Project are screens: they replace the main and inspector columns, keep the
-sidebar, and are entered and left like any other place in the app. A modal over a
+Add a Project are screens: they replace the main and inspector columns, retain
+the Project-navigation toggle, and are entered and left like any other place in
+the app. A modal over a
 workroom you can still see, holding a form you might want to leave and come back
 to, was always the wrong container.
 
@@ -851,7 +860,9 @@ not "Create sync card".
    sidebar's top row reserves `--titlebar-inset` so the brand mark starts below
    the traffic lights, and `.side-top`, `.main-bar` and `.screen-bar` are marked
    `--wails-draggable: drag` (controls inside them opt back out) so the window
-   still moves by its top edge. Verified against a desktop build.
+   still moves by its top edge. With the sidebar hidden, the main/screen toolbar
+   reserves the traffic-light width before the Command-B toggle. Verified
+   against a desktop build.
 
 ## 9. Checklist before adding UI
 

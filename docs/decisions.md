@@ -1759,3 +1759,27 @@ all-clear is worse than no answer, so degraded judgment, an unconfigured
 provider, and an unreachable backend all read as "could not check everything"
 rather than as quiet. Accepted by the owner 2026-09-06.
 
+## ADR-082: The sidebar is navigation or it is gone
+
+The collapsed sidebar was a 58px rail of Project initials. It saved less than a
+full collapse, made Projects with the same first letter indistinguishable, and
+left search, Add Project, and App settings as unexplained glyphs. Replacing the
+initials with identical folder glyphs would make that rail cleaner and even less
+useful.
+
+The sidebar now has two deliberate states. Expanded, it is the complete
+top-level Project navigation from ADR-078. Each Project uses a repository-folder
+glyph; the selected Project uses the open-folder variant. Collapsed, the whole
+sidebar is absent: brand, search, Projects, settings, ground, and dividing
+hairline all go together. This is a focus mode, not a second navigation design.
+
+One sidebar control remains in the leading edge of every Workroom, History, and
+full-screen toolbar, so hiding the panel never strands the member. Command-B
+toggles it from anywhere in the shell; Command-K continues to switch Projects
+without reopening it. When the sidebar is hidden in the desktop window, the
+toolbar reserves the macOS traffic-light inset before that control.
+
+The desktop entry shell follows the same rule as the live workroom. This keeps
+the shared navigation shape ADR-078 requires while allowing either shell to
+yield all horizontal space to the surface being read. Accepted by the owner
+2026-09-06.
