@@ -29,10 +29,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"os/user"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -497,11 +495,11 @@ func run(args []string) error {
 		if executableErr != nil {
 			return fmt.Errorf("resolve service executable: %w", executableErr)
 		}
-		home, uid, accountErr := currentAccount()
+		account, accountErr := servicemanager.CurrentAccount()
 		if accountErr != nil {
 			return accountErr
 		}
-		manager := servicemanager.Manager{Executable: executable, ConfigRoot: paths.Root, Home: home, UID: uid}
+		manager := servicemanager.NewManager(executable, paths.Root, account)
 		switch rest[1] {
 		case "install":
 			return manager.Install(ctx)
@@ -902,17 +900,10 @@ func printCall(ctx context.Context, socket string, q daemon.Request) error {
 	return json.NewEncoder(os.Stdout).Encode(r)
 }
 
-func currentAccount() (string, int, error) {
-	account, err := user.Current()
-	if err != nil {
-		return "", 0, fmt.Errorf("resolve current user: %w", err)
-	}
-	uid, err := strconv.Atoi(account.Uid)
-	if err != nil || uid <= 0 || !filepath.IsAbs(account.HomeDir) {
-		return "", 0, errors.New("current user has invalid home or uid")
-	}
-	return account.HomeDir, uid, nil
-}
+// Account identity lives in internal/service behind a build tag, not here.
+// Resolving it here meant parsing user.Current().Uid as an integer, which is a
+// SID string on Windows: every "overgent service" subcommand failed at that
+// parse before it ever reached a Manager. See service.Account.
 
 func executableIdentity() (string, error) {
 	path, err := os.Executable()
@@ -1043,11 +1034,11 @@ func activateUpdatedExecutable(ctx context.Context, executable string, paths con
 }
 
 func restartInstalledService(ctx context.Context, executable string, paths config.Paths) error {
-	home, uid, err := currentAccount()
+	account, err := servicemanager.CurrentAccount()
 	if err != nil {
 		return err
 	}
-	manager := servicemanager.Manager{Executable: executable, ConfigRoot: paths.Root, Home: home, UID: uid}
+	manager := servicemanager.NewManager(executable, paths.Root, account)
 	status, err := manager.Status(ctx)
 	if err != nil || !status.Installed {
 		return nil

@@ -6,8 +6,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -49,22 +47,17 @@ type Status struct {
 // install both claim "com.overgent.service": they overwrite each other's plist
 // and only one can ever be bootstrapped. The default profile keeps the unscoped
 // label so upgrading does not orphan a job that is already installed.
+//
+// The scheme lives in scopedLabel so the systemd and Task Scheduler managers
+// cannot drift from it; the dot separator keeps launchd labels reverse-DNS.
 func (m Manager) label() string {
-	if m.ConfigRoot == "" || sameProfile(m.ConfigRoot, m.defaultConfigRoot()) {
-		return defaultLabel
-	}
-	sum := sha256.Sum256([]byte(filepath.Clean(m.ConfigRoot)))
-	return defaultLabel + "." + hex.EncodeToString(sum[:4])
+	return scopedLabel(defaultLabel, ".", m.ConfigRoot, m.defaultConfigRoot())
 }
 
 // defaultConfigRoot mirrors config.DefaultRoot for this Manager's home, kept
 // local so the service package stays free of a configuration dependency.
 func (m Manager) defaultConfigRoot() string {
 	return filepath.Join(m.Home, "Library", "Application Support", "Overgent")
-}
-
-func sameProfile(left, right string) bool {
-	return filepath.Clean(left) == filepath.Clean(right)
 }
 
 func (m Manager) Install(ctx context.Context) error {
@@ -323,14 +316,6 @@ func (m Manager) launchctl(ctx context.Context, arguments ...string) error {
 	}
 	return nil
 }
-
-type commandError struct {
-	err    error
-	output string
-}
-
-func (e *commandError) Error() string { return strings.TrimSpace(e.output) }
-func (e *commandError) Unwrap() error { return e.err }
 
 // alreadyLoaded reports that launchd refused a bootstrap because a job under
 // this label is already present, which means the desired end state holds.
