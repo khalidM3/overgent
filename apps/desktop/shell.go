@@ -102,6 +102,14 @@ func runShell(platform platformShell) {
 		router.deliver(event.Context().URL())
 	})
 
+	// Claim the scheme before the window opens, so a member who installs and
+	// immediately clicks a link in the hosted dashboard finds it works. It is
+	// best-effort: a shell that will not register a handler is a reason to say
+	// so in the log, not a reason to refuse to start the application.
+	if err := registerDeepLinkScheme(); err != nil {
+		slog.Warn("register the overgent URL scheme", "scheme", desktopURLScheme(), "error", err)
+	}
+
 	tray := app.SystemTray.New()
 	platform.ApplyTrayIcon(tray)
 	menu := app.NewMenu()
