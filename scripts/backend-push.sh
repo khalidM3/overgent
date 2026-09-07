@@ -23,7 +23,10 @@ case "$admin_key" in
 esac
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-repo_root=$(CDPATH= cd -- "$script_dir/../../.." && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+# Fail loudly if this script is moved again: a wrong repo_root would
+# otherwise cd somewhere unrelated and fail with a confusing error.
+[ -d "$repo_root/convex" ] || { echo "cannot locate convex/ from $script_dir" >&2; exit 1; }
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/overgent-backend-push.XXXXXX")
 cleanup() { rm -rf "$scratch"; }
 trap cleanup EXIT HUP INT TERM
