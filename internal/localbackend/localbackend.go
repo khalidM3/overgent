@@ -31,14 +31,14 @@ import (
 
 // convexClientVersion is the npm Convex CLI whose deploy2 request shape the
 // replay below reproduces. The deploy2 endpoints are internal to Convex rather
-// than a promised API (Lane 01 §2), so this constant, the backend release in
+// than a promised API, so this constant, the backend release in
 // scripts/backend-version.json, and the recorded push payload are one pin:
 // changing any of them means regenerating the payload and re-running the
 // release replay check. A test asserts this equals the manifest's cliVersion.
 const convexClientVersion = "npm-cli-1.45.0"
 
 const (
-	// healthBudget is the cold-start allowance. Lane 01 measured 120 ms on a
+	// healthBudget is the cold-start allowance. Cold start measured 120 ms on a
 	// new database; ten seconds is that number plus room for a cold page cache
 	// and a Mac doing something else at login.
 	defaultHealthBudget   = 10 * time.Second
@@ -56,7 +56,7 @@ const (
 const portMovedError = "backend came back on a new port; existing local Projects need overgent backend reset"
 
 // Keychain accounts. The instance secret is per-install and the secrets key is
-// the deployment secret Lane 04 reads from the deployment, never from Go.
+// the deployment secret read from the deployment, never from Go.
 const (
 	instanceAccountPrefix = "overgent.local-backend."
 	secretsKeyAccount     = "overgent.local-backend.secrets-key"
@@ -81,8 +81,8 @@ type Endpoint struct {
 }
 
 // State is <root>/backend/backend.json. It is deliberately a sibling of
-// config.json, not a field inside it, so Lane 06 can reshape config.json
-// without touching backend state (migration README rule 3).
+// config.json, not a field inside it, so config.json can be reshaped
+// without touching backend state.
 type State struct {
 	Version        string `json:"version"`
 	BundleRevision string `json:"bundleRevision"`
@@ -129,9 +129,9 @@ type Manager struct {
 	healthBudget   time.Duration
 	healthInterval time.Duration
 	restartBackoff func(attempt int) time.Duration
-	// idleTimeout stops the backend after this long without activity. Lane 01
-	// measured 56 MB idle RSS, well under the 300 MB threshold in the brief, so
-	// production leaves this at zero: the backend runs while the service runs.
+	// idleTimeout stops the backend after this long without activity. Idle RSS
+	// measured 56 MB, well under the 300 MB threshold, so production leaves
+	// this at zero: the backend runs while the service runs.
 	idleTimeout time.Duration
 
 	mu        sync.Mutex

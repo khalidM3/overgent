@@ -1,8 +1,0 @@
-{
-  "baselineState": "ancestor",
-  "worktreeState": "clean",
-  "entries": [
-    {"path": "local-only.txt", "status": "added"}
-  ],
-  "requiresPushOrFetch": false
-}

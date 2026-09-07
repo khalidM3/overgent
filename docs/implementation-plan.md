@@ -212,8 +212,7 @@ world model (intents, read sets, write sets, contract fingerprints, dependency
 claims), a divergence engine (contract drift, semantic collision/duplication,
 path overlap, dependency readiness), and routing/actuation (LLM-adjudicated
 findings pushed into agent turns via hooks). M-levels below replace the former
-L8/L9 ordering; distribution moves after the loop is proven. Task briefs for
-parallel execution live in `docs/tasks/`.
+L8/L9 ordering; distribution moves after the loop is proven.
 
 ## M1 — Coordination eval harness
 
@@ -336,14 +335,11 @@ the second-session gate. Linux, Windows, and Intel macOS remain unqualified.
 
 ## L9 — Open-source rewire
 
-Deliver the local-first public release defined by migration Lanes 01–06: the
+Deliver the local-first public release: the
 bundled loopback backend, public-repository readiness, local Projects,
 per-Project bring-your-own AI settings, self-hosting and Cloud documentation,
-and per-Project backend binding. The evidence is the bundled-backend result in
-`validation/spikes/bundled-backend/README.md`, the local-mode run in
-`validation/evidence/l9-local-mode.md`, the Lane 04 protocol and backend test
-suite, the self-hosting walkthrough, and
-`validation/evidence/l9-project-backends.md`.
+and per-Project backend binding. The evidence is the protocol and backend test
+suite plus the self-hosting walkthrough.
 
 Exit: a supported Mac can create a local Project with no account or network;
 team Projects can use Cloud or a self-hosted backend; provider keys stay

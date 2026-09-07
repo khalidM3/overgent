@@ -263,8 +263,8 @@ func TestParseInviteCodeRefusesLinksThatCouldMisnameTheServer(t *testing.T) {
 	}
 }
 
-// Joining a friend's team Project from a profile that has only a local one is
-// the common path this lane exists for. The local backend's device identity
+// Joining a team Project from a profile that has only a local one is the
+// common path here. The local backend's device identity
 // must not be reused on a server that has never heard of it, so a backend the
 // profile has not seen mints its own.
 func TestJoinOnNewBackendMintsAnIdentityForAnUnseenServer(t *testing.T) {

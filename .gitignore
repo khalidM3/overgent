@@ -36,7 +36,7 @@ convex/_generated/
 # succeeded.
 /dist-desktop/
 
-# Staged closed-test distribution (install/dogfood/publish.sh).
+# Staged local distribution output.
 /dist-dogfood/
 /.vercel/
 

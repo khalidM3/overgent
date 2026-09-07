@@ -265,7 +265,7 @@ func TestIdleStopIsOffByDefaultAndWorksWhenEnabled(t *testing.T) {
 	if _, err := manager.Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// Lane 01 measured 56 MB idle, far below the 300 MB threshold, so the
+	// Idle RSS measured 56 MB, far below the 300 MB threshold, so the
 	// shipped setting keeps the backend running while the service runs.
 	if manager.idleTimeout != 0 {
 		t.Fatal("idle shutdown must be off by default")

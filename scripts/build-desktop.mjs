@@ -107,7 +107,7 @@ if (!development) {
   if (!haveBinary || !havePayload) {
     // Shipping half the pair produces an app whose "Use on this Mac" fails
     // when pressed, which is worse than a build that says what is missing.
-    throw new Error("bundled backend is missing: run `node scripts/fetch-backend.mjs` and generate apps/desktop/build/backend-push.json (see validation/spikes/bundled-backend/push.sh build)");
+    throw new Error("bundled backend is missing: run `node scripts/fetch-backend.mjs` and generate apps/desktop/build/backend-push.json (see scripts/backend-push.sh build)");
   }
   await mkdir(backendDestination, { recursive: true });
   for (const entry of await readdir(backendSource)) {
@@ -123,7 +123,7 @@ if (!development) {
   const cliSign = spawnSync("codesign", [...signArguments, cli], { stdio: "inherit" });
   if (cliSign.status !== 0) process.exit(cliSign.status ?? 1);
   // The nested backend is signed before the enclosing app, with the JIT
-  // entitlement V8 needs: Lane 01 measured that a hardened-runtime signature
+  // entitlement V8 needs: a hardened-runtime signature
   // without it fails at startup with "Failed to reserve virtual memory for
   // CodeRange". No other entitlement was needed.
   const entitlements = path.join(desktop, "build", "backend-entitlements.plist");

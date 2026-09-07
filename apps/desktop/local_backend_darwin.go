@@ -29,7 +29,7 @@ import (
 // the honest fallback.
 //
 // It is the default offered when a member creates another team Project, which
-// is what makes self-hosting work from a stock build (Lane 05): the origin is
+// is what makes self-hosting work from a stock build: the origin is
 // entered once and every later team Project starts from it. Local backends are
 // skipped - loopback is never a sensible default for a Project meant to have
 // remote members - and the member can still type a different server.

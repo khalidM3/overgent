@@ -17,9 +17,9 @@ import (
 )
 
 // schemaIncompatible is what a member sees when an app update ships functions
-// whose schema the existing rows do not satisfy. Lane 01 §4 established that
-// the backend rejects such a push with the rows and the previous bundle intact,
-// so this is a degraded state, not a data-loss one.
+// whose schema the existing rows do not satisfy. The backend rejects such a
+// push with the rows and the previous bundle intact, so this is a degraded
+// state, not a data-loss one.
 const schemaIncompatible = "update needs data migration"
 
 // ensureDeployedLocked replays the release-time deploy2 sequence when the
@@ -27,9 +27,9 @@ const schemaIncompatible = "update needs data migration"
 // the deployment environment variables.
 //
 // The three requests reproduce what the pinned Convex CLI sends
-// (validation/spikes/bundled-backend/push.sh replay). They are internal Convex
-// endpoints, so the backend release, the CLI version, the recorded payload, and
-// this code move together or not at all.
+// (scripts/backend-push.sh replay). They are internal Convex endpoints, so the
+// backend release, the CLI version, the recorded payload, and this code move
+// together or not at all.
 func (m *Manager) ensureDeployedLocked(ctx context.Context, endpoint Endpoint) error {
 	revision, err := bundleRevision(m.state.BundlePath)
 	if err != nil {
@@ -152,7 +152,7 @@ func waitForSchema(ctx context.Context, origin, adminKey string, started map[str
 		default:
 			// The backend refused the schema against existing rows. It keeps
 			// both the rows and the previous bundle, so the honest report is
-			// that the update did not happen (Lane 01 §4).
+			// that the update did not happen.
 			return errors.New(schemaIncompatible)
 		}
 	}

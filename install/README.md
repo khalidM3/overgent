@@ -25,7 +25,3 @@ Keychain credentials by default. The
 explicit `--purge-local-state` option moves state to Trash rather than deleting
 it irrecoverably; hosted device revocation and Project deletion are separate
 authorized operations.
-
-A legacy, unsupported, unsigned channel kept for reference lives in
-[`legacy-dogfood/`](legacy-dogfood/README.md). It shares none of the trust
-properties described above and must never be advertised as an install.

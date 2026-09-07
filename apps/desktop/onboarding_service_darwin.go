@@ -103,7 +103,7 @@ type EnrollmentRequest struct {
 	JoinCode       string `json:"joinCode"`
 	// ServerOrigin is the "Advanced: connect to a different server" field. Empty
 	// means the build default. Validated with exactly hosted.New's rule so the
-	// desktop and `overgent create --api` accept the same thing (Lane 05).
+	// desktop and `overgent create --api` accept the same thing.
 	ServerOrigin string `json:"serverOrigin"`
 	EnableCodex  bool   `json:"enableCodex"`
 	EnableClaude bool   `json:"enableClaude"`

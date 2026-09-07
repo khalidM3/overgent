@@ -12,7 +12,6 @@ useDefault = true
 description = "Synthetic secret-classifier test fixtures, not real credentials"
 paths = [
   '''convex/scripts/live-l2\.mjs''',
-  '''docs/migration/02-lane-public-readiness\.md''',
   '''internal/agentactivity/cursor_test\.go''',
   '''internal/agentactivity/activity_test\.go''',
   '''internal/codexappserver/threads_test\.go''',

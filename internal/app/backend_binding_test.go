@@ -189,7 +189,7 @@ func TestEventsFromTwoWorkspacesReachTheirOwnBackend(t *testing.T) {
 
 // A 401 is a recoverable state, not a verdict on the events, so the refused
 // workspace's window stays pending. What must not happen is the other
-// backend's queue waiting behind it: before this lane, one unreachable server
+// backend's queue waiting behind it: previously, one unreachable server
 // stopped the whole profile publishing.
 func TestOneRejectingBackendDoesNotStopTheOther(t *testing.T) {
 	ctx := context.Background()

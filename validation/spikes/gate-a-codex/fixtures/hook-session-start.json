@@ -1,8 +1,0 @@
-{
-  "session_id": "thr_redacted",
-  "transcript_path": "/redacted/not-opened.jsonl",
-  "cwd": "/synthetic/stickguy-gate-a",
-  "hook_event_name": "SessionStart",
-  "source": "startup",
-  "permission_mode": "default"
-}

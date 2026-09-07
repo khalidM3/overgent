@@ -120,7 +120,7 @@ ADMIN_KEY="$("$BACKEND" keygen admin-key --instance-name "$INSTANCE" --instance-
   --convex-origin http://127.0.0.1:3220 --convex-site http://127.0.0.1:3221 \
   --instance-name "$INSTANCE" --instance-secret "$SECRET" \
   --local-storage "$WORK/storage" --disable-beacon "$WORK/build.sqlite3" &
-validation/spikes/bundled-backend/push.sh build http://127.0.0.1:3220 "$ADMIN_KEY" "$WORK"
+scripts/backend-push.sh build http://127.0.0.1:3220 "$ADMIN_KEY" "$WORK"
 cp "$WORK/backend-push.json" apps/desktop/build/backend-push.json
 kill %1
 ```

@@ -23,8 +23,6 @@ Read in order:
 19. [`cli-experience.md`](cli-experience.md) — binding terminal UX, command, output, interactivity, privacy, and verification rules.
 20. [`self-hosting.md`](self-hosting.md) — running your own Overgent backend and pointing a stock client at it.
 21. [`hosted-operations.md`](hosted-operations.md) — the public runbook for the owner-operated Overgent Cloud deployment.
-22. [`migration/README.md`](migration/README.md) — historical record of the open-source, local-first rewire.
-23. [`launch-announcement.md`](launch-announcement.md) — owner-editable public launch copy.
 
 Use [`external-references.md`](external-references.md) when implementing third-party contracts; it is informational and lower precedence than Overgent's own contracts.
 

@@ -113,7 +113,7 @@ async function ensurePayload() {
       catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
     }
     if (!healthy) die("the scratch backend did not become healthy within 10s");
-    const push = spawnSync(path.join(root, "validation", "spikes", "bundled-backend", "push.sh"),
+    const push = spawnSync(path.join(root, "scripts", "backend-push.sh"),
       ["build", `http://127.0.0.1:${port}`, adminKey, work], { cwd: root, stdio: "inherit" });
     if (push.status !== 0) die("recording the deploy payload failed");
     await copyFile(path.join(work, "backend-push.json"), payload);

@@ -41,9 +41,9 @@ func (store *ephemeralCredentials) Delete(_ context.Context, account string) err
 // Verify replays a freshly built deploy payload against a fresh backend and
 // reports whether it worked.
 //
-// This is the release gate the bundled-backend spike asked for. The deploy2
-// endpoints are internal Convex detail, so a backend or CLI bump can change the
-// wire shape without any announcement; running the actual Go replay against the
+// This is the release gate for the bundled backend. The deploy2 endpoints are
+// internal Convex detail, so a backend or CLI bump can change the wire shape
+// without any announcement; running the actual Go replay against the
 // actual binary at release time is what keeps a broken pin from reaching a
 // member as an app that starts and then coordinates nothing.
 func Verify(ctx context.Context, binaryPath, bundlePath string) error {

@@ -396,7 +396,7 @@ provider. Accepted by the owner 2026-08-25.
 
 ## ADR-041: Add an isolated HTTPS shared-development profile
 
-Superseded by ADR-074 and retired in Lane 06: a profile now binds each Project
+Superseded by ADR-074: a profile now binds each Project
 to its own backend, so a team Project sits beside a local one on the ordinary
 development profile and `pnpm dev:shared` no longer exists. The record below is
 kept for the reasoning that led here.
@@ -1206,7 +1206,7 @@ reimplementation needing no build toolchain, is the named fallback if
 maintaining a WASI build step proves worse than expected; it was rejected for
 costing 6.73 MB for the same four grammars and being slower on the largest file
 tested. Accepted 2026-08-29 on the evidence in
-`validation/spikes/multilang-contract`.
+a bounded extraction spike.
 
 ## ADR-064: The interface tells the truth about how much the engine already does
 
@@ -1427,8 +1427,7 @@ zero-friction hosted default is the version that fits the owner's constraints
 and forecloses nothing. Release trust (signed, notarized artifacts discovered
 only through `releases.overgent.com`) is unchanged from ADR-066/067.
 
-Consequences: Lane 02 purges the tracked `stickguy` binary and rewrites
-history before the repository is public; the Go module path moves to the
+Consequences: build artifacts stay untracked; the Go module path moves to the
 public organization; `SECURITY.md` gains a real channel (GitHub private
 vulnerability reporting) before visibility flips. Accepted by the owner 2026-09-04; direction confirmed in the migration planning session.
 
@@ -1460,7 +1459,7 @@ default. The development profile has already run this exact loopback shape
 since ADR-031, so the risk is packaging, not architecture.
 
 Consequences: the desktop bundle grows by the backend binary (about 160 MB
-today; Lane 01 measures the real number and idle memory). The bundled
+today). The bundled
 `convex-backend` is licensed under FSL-1.1-Apache-2.0 and is redistributed,
 not modified; `NOTICE` gains a third-party entry. Source builds fetch the
 pinned backend release by checksum. Accepted by the owner 2026-09-04; direction confirmed in the migration planning session.
@@ -1494,7 +1493,7 @@ not Convex. Bring-your-own-key by default makes hosting a few hundred users
 close to free and gives members the tweakability of choosing model and
 provider, including OpenAI-compatible local servers.
 
-Consequences: Lane 04 owns the protocol change; `packages/coordination`
+Consequences: the protocol changes; `packages/coordination`
 providers take model and base URL as parameters instead of constants;
 `intelligence.ts` stops reading `process.env` directly for provider keys. Accepted by the owner 2026-09-04; direction confirmed in the migration planning session.
 
@@ -1514,7 +1513,7 @@ Rationale: without this, "local by default, team opt-in" is really "switch the
 whole app between two profiles", which contradicts ADR-072's per-Project
 framing and makes joining a friend's team Project disruptive.
 
-Consequences: Lane 06; largest refactor of the migration; may ship after the
+Consequences: the largest refactor of the migration; may ship after the
 first public release if the README states the profile-switch limitation. Accepted by the owner 2026-09-04; direction confirmed in the migration planning session.
 
 ## ADR-075: Publish release assets through GitHub Releases; retain Blob only as the update anchor

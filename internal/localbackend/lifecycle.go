@@ -172,8 +172,8 @@ func (m *Manager) waitHealthy(ctx context.Context, port int, instance string) bo
 	return false
 }
 
-// healthy asks two questions the brief keeps separate: is something answering
-// (Lane 01's /version), and is it *this* profile's backend (/instance_name).
+// healthy asks two questions that must stay separate: is something answering
+// (/version), and is it *this* profile's backend (/instance_name).
 // Liveness alone would let a stale process on a recycled port pass as ours.
 func (m *Manager) healthy(ctx context.Context, port int, instance string) bool {
 	if get(ctx, loopbackOrigin(port)+"/version") == "" {
@@ -398,8 +398,8 @@ func (m *Manager) supervise(command *exec.Cmd) {
 	}
 }
 
-// idleStop is the shutdown path the brief makes conditional on Lane 01's idle
-// RSS measurement. The measurement (56 MB) is far below the 300 MB threshold,
+// idleStop is the shutdown path made conditional on the backend's idle RSS.
+// The measured 56 MB is far below the 300 MB threshold,
 // so idleTimeout is zero in production and this never fires; it exists so the
 // decision can be reversed by setting one field rather than by writing the
 // lifecycle again.

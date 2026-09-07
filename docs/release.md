@@ -75,7 +75,7 @@ public and reaches people who do not already have a private support channel.
    public Blob store's immutable `releases/<version>/` path.
 4. Inspect the workflow's notarization and stapler output. Download the draft
    artifacts on a clean Apple Silicon Mac; never validate from the build tree.
-5. Record the commands and results in `validation/evidence/` before publishing
+5. Record the commands and results in the release's own notes before publishing
    the draft.
 6. After the candidate passes the clean-machine and tester gates, run the
    `Promote Release` workflow with the exact version. It copies the already-signed
