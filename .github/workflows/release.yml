@@ -344,11 +344,27 @@ jobs:
           cp install/uninstall.ps1 dist/uninstall.ps1
           chmod 755 dist/install.sh dist/uninstall.sh
           find dist-desktop -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > dist/desktop-checksums.txt
-          gh release upload "$GITHUB_REF_NAME" \
-            dist/update-manifest.json dist/checksums.txt dist/install.sh dist/uninstall.sh dist/install.ps1 dist/uninstall.ps1 \
+          # dist-backend/checksums.txt and dist/checksums.txt are different
+          # files with the same basename, and a release asset is addressed by
+          # name: uploading both meant one silently replaced the other, and
+          # clobbering an asset another upload in the same batch had just
+          # replaced is what produced "HTTP 404" on an asset id. The backend
+          # one gets its own name.
+          mv dist-backend/checksums.txt dist-backend/backend-checksums.txt
+
+          # One file per call. gh uploads a batch concurrently, so a single
+          # failure takes the whole batch with it and says nothing about which
+          # file it was; serially, the log names the file that failed.
+          for asset in \
+            dist/update-manifest.json dist/checksums.txt \
+            dist/install.sh dist/uninstall.sh dist/install.ps1 dist/uninstall.ps1 \
             dist/overgent_*.tar.gz dist/overgent_*.zip \
-            dist-backend/backend-manifest.json dist-backend/checksums.txt dist-backend/overgent_backend_* \
-            dist/desktop-checksums.txt dist-desktop/Overgent_* --clobber
+            dist-backend/backend-manifest.json dist-backend/backend-checksums.txt dist-backend/overgent_backend_* \
+            dist/desktop-checksums.txt dist-desktop/Overgent_*
+          do
+            echo "uploading $asset"
+            gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
+          done
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
