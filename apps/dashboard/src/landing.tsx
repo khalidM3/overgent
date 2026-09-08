@@ -98,15 +98,20 @@ export function LandingPage() {
         {stillOnly
           ? <img src="/media/workroom-collision.png" alt="Two agent sessions reported as changing the same file, with each session's goal and the evidence behind the finding." />
           : <video
-              src="/media/workroom.webm"
-              poster="/media/workroom-collision.png"
+              poster="/media/workroom-poster.png"
               autoPlay
               loop
               muted
               playsInline
               preload="metadata"
-              aria-label="The Overgent workroom: a collision between two live agent sessions is opened, then a contract change that a session had already read."
-            />}
+              aria-label="The Overgent workroom: a collision between two live agent sessions arrives and is opened, then a contract change that a session had already read."
+            >
+              {/* WebM first because it is the smaller file; the H.264 copy is
+                  what Safari reaches for, rather than depending on its WebM
+                  support. */}
+              <source src="/media/workroom.webm" type="video/webm" />
+              <source src="/media/workroom.mp4" type="video/mp4" />
+            </video>}
         <figcaption>Two live sessions on one shared path, then a contract that moved under a session which had already read it — old signature, new signature, and who changed it.</figcaption>
       </figure>
 
