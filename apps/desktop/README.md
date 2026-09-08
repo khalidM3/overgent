@@ -43,6 +43,19 @@ remains pure-Go, does not import Wails, and never will: only this module may.
 Wails links `webkit2gtk-4.1`. The older `4.0` package is a different ABI and
 does not satisfy it.
 
+That pairing is a choice, not the default. Wails v3 builds its Linux backend
+against GTK 4 and `webkitgtk-6.0` unless the `gtk3` build tag is set, so every
+Linux `go build`, `go vet` and `go test` in this module needs `-tags=gtk3` —
+without it the build stops at `pkg-config` looking for `webkitgtk-6.0`, whatever
+headers are installed. `pnpm desktop:build` adds the tag on Linux for you, and
+CI sets it through its job matrix; only a bare `go` command run by hand needs it
+spelled out. Combine it with the production tag as `-tags=production,gtk3`.
+
+The Linux tests also need a running Secret Service: the suite stores an AI
+provider key through the platform credential store, which is D-Bus here, so on a
+headless machine run them under `dbus-run-session` with `gnome-keyring-daemon`
+the way the `desktop` CI job does.
+
 Windows is the one target that can be type-checked from any machine, which is
 worth knowing when changing this package:
 

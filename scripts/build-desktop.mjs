@@ -75,8 +75,20 @@ if (productionAPIOrigin) {
     throw new Error("OVERGENT_PRODUCTION_API_ORIGIN must be a clean HTTPS origin");
   }
 }
+// Wails v3 defaults its Linux backend to GTK 4 and webkitgtk-6.0 and selects
+// GTK 3 with webkit2gtk-4.1 only under the `gtk3` tag. This project targets the
+// GTK 3 pair: it is what CI installs, what apps/desktop/README.md documents, and
+// what the Debian dependency line names, so the tag is not optional here — the
+// default build asks pkg-config for webkitgtk-6.0 and fails outright. The tag
+// applies to development builds too, which is why it is not folded into the
+// production branch below.
+const buildTags = [];
+if (!development) buildTags.push("production");
+if (platform === "linux") buildTags.push("gtk3");
+
 const buildArguments = ["build"];
-if (!development) buildArguments.push("-tags", "production", "-trimpath", "-ldflags", `-w -s${productionAPIOrigin ? ` -X main.apiBaseURL=${productionAPIOrigin}` : ""}`);
+if (buildTags.length) buildArguments.push("-tags", buildTags.join(","));
+if (!development) buildArguments.push("-trimpath", "-ldflags", `-w -s${productionAPIOrigin ? ` -X main.apiBaseURL=${productionAPIOrigin}` : ""}`);
 buildArguments.push("-o", executable, ".");
 
 // Wails needs CGO on macOS and Linux; on Windows its backend is pure Go and

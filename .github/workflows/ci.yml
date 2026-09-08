@@ -69,8 +69,17 @@ jobs:
   desktop:
     strategy:
       fail-fast: false
+      # `tags` is the Linux webview selector, empty everywhere else. Wails v3
+      # defaults to GTK 4 and webkitgtk-6.0 and only picks GTK 3 with
+      # webkit2gtk-4.1 under `gtk3`, which is the pair this project installs,
+      # documents and declares as its Debian dependency. It is spelled as
+      # `-tags=<value>` at every use so an empty value stays one argument
+      # instead of swallowing the ./... behind it.
       matrix:
-        os: [macos-14, ubuntu-latest, windows-latest]
+        include:
+          - { os: macos-14, tags: "", productionTags: "production" }
+          - { os: ubuntu-latest, tags: "gtk3", productionTags: "production,gtk3" }
+          - { os: windows-latest, tags: "", productionTags: "production" }
     runs-on: ${{ matrix.os }}
     defaults:
       run: { working-directory: apps/desktop }
@@ -78,19 +87,30 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version: "1.26.x", cache: true }
-      # WebKitGTK and GTK 3 development headers. Wails v3 links webkit2gtk-4.1;
-      # 4.0 is the older ABI and does not satisfy it.
+      # GTK 3 and WebKitGTK headers for the `gtk3` build, plus a Secret Service
+      # for the tests: the desktop suite stores an AI provider key through the
+      # platform credential store, and on Linux that is D-Bus. Without a keyring
+      # daemon those tests fail on the runner while passing everywhere else.
       - if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libgtk-3-dev libwebkit2gtk-4.1-dev
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./...
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev gnome-keyring dbus-x11
+      - run: go build -tags=${{ matrix.tags }} ./...
+      - run: go vet -tags=${{ matrix.tags }} ./...
+      - if: matrix.os != 'ubuntu-latest'
+        run: go test -tags=${{ matrix.tags }} ./...
+      - if: matrix.os == 'ubuntu-latest'
+        name: Test against a real Secret Service
+        run: |
+          dbus-run-session -- bash -c '
+            printf ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            go test -tags=gtk3 ./...
+          '
       # The production build tag selects different origin and CLI-path code, and
       # nothing else compiles it. It is cheap here and catches a tag-only break
       # before a release job hits it.
-      - run: go vet -tags production ./...
+      - run: go vet -tags=${{ matrix.productionTags }} ./...
       # Cross-target type-check for Windows, from whichever runner this is.
       - run: go vet ./...
         env: { CGO_ENABLED: "0", GOOS: windows }
