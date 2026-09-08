@@ -25,7 +25,7 @@ if (
 
 if (mode === "promote") {
   const source = releaseManifestURL(version, manifestURL);
-  const response = await fetch(source, { redirect: "error" });
+  const response = await fetchFromGitHub(source);
   if (!response.ok) throw new Error(`release manifest returned HTTP ${response.status}`);
   const manifest = Buffer.from(await response.arrayBuffer());
   if (manifest.length === 0 || manifest.length > 1024 * 1024) throw new Error("release manifest size is invalid");
@@ -48,4 +48,33 @@ function releaseManifestURL(releaseVersion, configuredURL) {
   const expected = `https://github.com/khalidM3/overgent/releases/download/${releaseVersion}/update-manifest.json`;
   if (configuredURL !== expected) throw new Error("RELEASE_MANIFEST_URL must be this release's GitHub manifest asset");
   return expected;
+}
+
+// A release asset download never answers directly: github.com issues a 302 to
+// a githubusercontent.com object URL. `redirect: "error"` therefore failed
+// every time it was asked to promote anything, which is why the release channel
+// had never moved off the version it was first seeded with.
+//
+// Following redirects blindly is what that setting was avoiding, so this
+// follows them one at a time and refuses any hop that leaves GitHub. The
+// manifest's Ed25519 signature is what actually authenticates the contents -
+// every installer verifies it before using it - and this keeps the transport
+// from being pointed somewhere else entirely.
+async function fetchFromGitHub(source) {
+  let target = source;
+  for (let hop = 0; hop < 5; hop += 1) {
+    const response = await fetch(target, { redirect: "manual" });
+    if (response.status < 300 || response.status > 399) return response;
+    const location = response.headers.get("location");
+    if (!location) throw new Error(`release manifest redirected with no location from ${target}`);
+    const next = new URL(location, target);
+    if (next.protocol !== "https:" || next.username || next.password) {
+      throw new Error(`release manifest redirected to a non-HTTPS or credentialed URL`);
+    }
+    if (next.hostname !== "github.com" && !next.hostname.endsWith(".githubusercontent.com")) {
+      throw new Error(`release manifest redirected off GitHub to ${next.hostname}`);
+    }
+    target = next.href;
+  }
+  throw new Error("release manifest redirected too many times");
 }
