@@ -16,7 +16,100 @@ permissions:
   id-token: write
 
 jobs:
+  # The function bundle every desktop build embeds, generated once and shared
+  # rather than per platform. It is a Convex deploy payload with nothing
+  # machine-specific in it, and three independently generated copies could
+  # disagree on bundleRevision - the number the app and the backend compare to
+  # decide whether they are the same build.
+  payload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Generate and verify the bundled backend deploy payload
+        run: |
+          set -euo pipefail
+          node scripts/fetch-backend.mjs
+          BACKEND="apps/desktop/build/backend/convex-local-backend"
+          WORK="$RUNNER_TEMP/backend-payload"
+          mkdir -p "$WORK"
+          INSTANCE="overgent-release-$(openssl rand -hex 4)"
+          SECRET="$(openssl rand -hex 32)"
+          ADMIN_KEY="$("$BACKEND" keygen admin-key --instance-name "$INSTANCE" --instance-secret "$SECRET")"
+          "$BACKEND" --interface 127.0.0.1 --port 3210 --site-proxy-port 3211             --convex-origin http://127.0.0.1:3210 --convex-site http://127.0.0.1:3211             --instance-name "$INSTANCE" --instance-secret "$SECRET"             --local-storage "$WORK/storage" --disable-beacon "$WORK/build.sqlite3"             > "$WORK/backend.log" 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill "$BACKEND_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:3210/version >/dev/null 2>&1; then break; fi
+            sleep 0.25
+          done
+          scripts/backend-push.sh build http://127.0.0.1:3210 "$ADMIN_KEY" "$WORK"
+          cp "$WORK/backend-push.json" apps/desktop/build/backend-push.json
+          kill "$BACKEND_PID"
+          wait "$BACKEND_PID" 2>/dev/null || true
+          trap - EXIT
+          go run ./cmd/overgent backend verify --binary "$BACKEND" --bundle apps/desktop/build/backend-push.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-push
+          path: apps/desktop/build/backend-push.json
+          if-no-files-found: error
+
+  # The Linux and Windows desktop applications. Neither can be built on the
+  # release runner: the Linux one needs CGO against the system WebKitGTK, and
+  # the packaging script reads process.platform to choose a layout, so each
+  # platform builds its own.
+  #
+  # These jobs stage a tree and stop. Archiving, signing and checksums happen in
+  # the release job, which is the only job holding credentials, so nothing but
+  # an unsigned staged tree ever crosses a job boundary.
+  desktop-stage:
+    needs: payload
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, platform: linux, staged: overgent }
+          - { os: windows-latest, platform: windows, staged: Overgent }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - uses: actions/setup-node@v6
+        with: { node-version: "22" }
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # build-desktop.mjs adds the gtk3 build tag itself on Linux; these are the
+      # headers that tag then links against.
+      - if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - uses: actions/download-artifact@v4
+        with: { name: backend-push, path: apps/desktop/build }
+      - name: Fetch this platform's bundled backend
+        run: node scripts/fetch-backend.mjs
+      - name: Build the desktop application
+        env:
+          OVERGENT_VERSION: "${{ github.ref_name }}"
+          OVERGENT_COMMIT: "${{ github.sha }}"
+          OVERGENT_UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
+          OVERGENT_BUILD_NUMBER: "${{ github.run_number }}"
+        run: pnpm desktop:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: apps/desktop/build/bin/${{ matrix.staged }}
+          if-no-files-found: error
+
   release:
+    needs: [payload, desktop-stage]
     runs-on: macos-14
     environment: production-release
     steps:
@@ -86,29 +179,19 @@ jobs:
       # shape with no announcement. Replaying the fresh payload against a fresh
       # backend here means a broken pin fails the release instead of reaching a
       # member as an app that starts and then coordinates nothing.
-      - name: Generate and verify the bundled backend deploy payload
+      - uses: actions/download-artifact@v4
+        with: { name: backend-push, path: apps/desktop/build }
+      - uses: actions/download-artifact@v4
+        with: { name: desktop-linux, path: staged-desktop/linux }
+      - uses: actions/download-artifact@v4
+        with: { name: desktop-windows, path: staged-desktop/windows }
+      - name: Take the shared backend payload and this runner's backend
         run: |
           set -euo pipefail
           node scripts/fetch-backend.mjs
-          BACKEND="apps/desktop/build/backend/convex-local-backend"
-          WORK="$RUNNER_TEMP/backend-payload"
-          mkdir -p "$WORK"
-          INSTANCE="overgent-release-$(openssl rand -hex 4)"
-          SECRET="$(openssl rand -hex 32)"
-          ADMIN_KEY="$("$BACKEND" keygen admin-key --instance-name "$INSTANCE" --instance-secret "$SECRET")"
-          "$BACKEND" --interface 127.0.0.1 --port 3210 --site-proxy-port 3211             --convex-origin http://127.0.0.1:3210 --convex-site http://127.0.0.1:3211             --instance-name "$INSTANCE" --instance-secret "$SECRET"             --local-storage "$WORK/storage" --disable-beacon "$WORK/build.sqlite3"             > "$WORK/backend.log" 2>&1 &
-          BACKEND_PID=$!
-          trap 'kill "$BACKEND_PID" 2>/dev/null || true' EXIT
-          for _ in $(seq 1 120); do
-            if curl -fsS http://127.0.0.1:3210/version >/dev/null 2>&1; then break; fi
-            sleep 0.25
-          done
-          scripts/backend-push.sh build http://127.0.0.1:3210 "$ADMIN_KEY" "$WORK"
-          cp "$WORK/backend-push.json" apps/desktop/build/backend-push.json
-          kill "$BACKEND_PID"
-          wait "$BACKEND_PID" 2>/dev/null || true
-          trap - EXIT
-          go run ./cmd/overgent backend verify --binary "$BACKEND" --bundle apps/desktop/build/backend-push.json
+          go run ./cmd/overgent backend verify \
+            --binary apps/desktop/build/backend/convex-local-backend \
+            --bundle apps/desktop/build/backend-push.json
       - name: Build, sign, and notarize macOS desktop beta
         env:
           OVERGENT_VERSION: "${{ github.ref_name }}"
@@ -128,7 +211,11 @@ jobs:
           xcrun stapler staple apps/desktop/build/bin/Overgent.app
           xcrun stapler validate apps/desktop/build/bin/Overgent.app
           mkdir -p dist-desktop
-          ditto -c -k --keepParent apps/desktop/build/bin/Overgent.app "dist-desktop/Overgent_${GITHUB_REF_NAME}_macOS_arm64.zip"
+          # No version in the name on purpose: overgent.com/download/macos
+          # resolves through /releases/latest/download/<exact name>, which
+          # accepts no wildcard, so a versioned name could never be linked to.
+          # The release tag carries the version.
+          ditto -c -k --keepParent apps/desktop/build/bin/Overgent.app "dist-desktop/Overgent_macOS_arm64.zip"
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -177,9 +264,30 @@ jobs:
             }
             sign_windows "$WIN_CLI"
             sign_windows "$RUNNER_TEMP/backend-targets/win32-x64/convex-local-backend.exe"
+            # The Windows desktop tree was staged on its own runner and crossed
+            # the job boundary unsigned, because this is the only job holding
+            # the certificate. Every executable in it is signed, not just the
+            # shell: the CLI and the backend beside it are what it runs.
+            sign_windows staged-desktop/windows/overgent-desktop.exe
+            sign_windows staged-desktop/windows/resources/overgent.exe
+            sign_windows staged-desktop/windows/resources/backend/convex-local-backend.exe
           else
             echo "Windows artifacts are unsigned portability builds; install.ps1 will refuse them unless the member explicitly selects local-only development mode."
           fi
+
+          # Archive the staged Linux and Windows desktop trees. A GitHub
+          # artifact does not carry the executable bit, so it has to be put
+          # back before the tar is written or nothing in it can be started.
+          chmod 755 \
+            staged-desktop/linux/overgent-desktop \
+            staged-desktop/linux/resources/overgent \
+            staged-desktop/linux/resources/backend/convex-local-backend
+          mv staged-desktop/linux "$RUNNER_TEMP/Overgent"
+          COPYFILE_DISABLE=1 tar --no-xattrs -czf "$GITHUB_WORKSPACE/dist-desktop/Overgent_linux_amd64.tar.gz" -C "$RUNNER_TEMP" Overgent
+          rm -rf "$RUNNER_TEMP/Overgent"
+          mv staged-desktop/windows "$RUNNER_TEMP/Overgent"
+          (cd "$RUNNER_TEMP" && zip -X -q -r "$GITHUB_WORKSPACE/dist-desktop/Overgent_windows_amd64.zip" Overgent)
+          rm -rf "$RUNNER_TEMP/Overgent"
 
           WIN_ARCHIVE="$(find dist -maxdepth 1 -type f -name 'overgent_*_windows_amd64.zip' -print -quit)"
           test -n "$WIN_ARCHIVE"
@@ -232,12 +340,12 @@ jobs:
             -e "s|__OVERGENT_UPDATE_PUBLIC_KEY__|$UPDATE_PUBLIC_KEY|g" install/install.ps1 > dist/install.ps1
           cp install/uninstall.ps1 dist/uninstall.ps1
           chmod 755 dist/install.sh dist/uninstall.sh
-          shasum -a 256 dist-desktop/*.zip > dist/desktop-checksums.txt
+          find dist-desktop -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > dist/desktop-checksums.txt
           gh release upload "$GITHUB_REF_NAME" \
             dist/update-manifest.json dist/checksums.txt dist/install.sh dist/uninstall.sh dist/install.ps1 dist/uninstall.ps1 \
             dist/overgent_*.tar.gz dist/overgent_*.zip \
             dist-backend/backend-manifest.json dist-backend/checksums.txt dist-backend/overgent_backend_* \
-            dist/desktop-checksums.txt dist-desktop/*.zip --clobber
+            dist/desktop-checksums.txt dist-desktop/Overgent_* --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"

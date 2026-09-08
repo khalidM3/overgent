@@ -8,11 +8,31 @@ Overgent is air traffic control for multiple coding agents working in one reposi
 
 ## Install
 
+macOS and Linux:
+
 ```bash
 curl -fsSL https://overgent.com/install.sh | sh
 ```
 
-Overgent currently supports Apple Silicon Macs running macOS 12 or later. For other platforms, [build from source](docs/development.md).
+Windows, in PowerShell:
+
+```powershell
+irm https://overgent.com/install.ps1 | iex
+```
+
+The installer verifies the signed release manifest, the archive hash, and the
+executable signature before it changes anything. Desktop applications are at
+[overgent.com](https://overgent.com#download).
+
+| Platform | Status |
+| --- | --- |
+| macOS 12+, Apple silicon | Qualified on real hardware |
+| Linux x86-64 | Builds and passes its tests in CI; not yet run on a Linux desktop by us |
+| Windows 10 1809+, x86-64 | Builds and type-checks in CI; not yet run on a Windows machine by us |
+
+Linux and Windows support is complete but unqualified: the code is there and
+tested, and we have not yet sat in front of either. Please report what breaks.
+For anything else, [build from source](docs/development.md).
 
 ## Local by default
 

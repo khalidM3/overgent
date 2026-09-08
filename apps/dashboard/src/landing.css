@@ -131,11 +131,14 @@
 .landing-platform h3 { margin: 0; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 17px; font-weight: 700; }
 .landing-platform h3 span { color: var(--ink-3); font-size: 12.5px; font-weight: 500; letter-spacing: 0; }
 .landing-platform p { max-width: 560px; margin: 7px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+.landing-platform p.landing-platform-note { max-width: 560px; margin: 6px 0 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
 .landing-platform-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; }
 .landing-platform-state { flex: 0 0 auto; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
 
 .landing-install { display: flex; align-items: center; justify-content: space-between; gap: 40px; margin-top: 40px; }
 .landing-install > p { max-width: 520px; margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; }
+.landing-install-commands { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.landing-install-alt { margin: 4px 0 0; color: var(--ink-3); font-size: 12.5px; }
 .landing-command-wrap { flex: 0 0 auto; }
 .landing-command { display: flex; align-items: center; gap: 10px; padding: 11px 14px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 10px; }
 .landing-command svg { flex: 0 0 auto; }
@@ -170,6 +173,7 @@
   .landing-steps { grid-template-columns: 1fr; gap: 34px; }
   .landing-privacy { grid-template-columns: 1fr; gap: 20px; }
   .landing-install { align-items: flex-start; flex-direction: column; gap: 20px; }
+  .landing-install-commands { align-items: flex-start; }
   .landing-command-wrap small { text-align: left; }
 }
 

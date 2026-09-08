@@ -23,8 +23,28 @@
       "permanent": false
     },
     {
+      "source": "/install.ps1",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/install.ps1",
+      "permanent": false
+    },
+    {
+      "source": "/uninstall.ps1",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/uninstall.ps1",
+      "permanent": false
+    },
+    {
       "source": "/download/macos",
       "destination": "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_macOS_arm64.zip?download=1",
+      "permanent": false
+    },
+    {
+      "source": "/download/linux",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_linux_amd64.tar.gz?download=1",
+      "permanent": false
+    },
+    {
+      "source": "/download/windows",
+      "destination": "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_windows_amd64.zip?download=1",
       "permanent": false
     }
   ],
@@ -50,9 +70,18 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Referrer-Policy", "value": "no-referrer" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" }
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
       ]
     }
   ]
