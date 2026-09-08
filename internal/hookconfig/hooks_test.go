@@ -3,7 +3,9 @@ package hookconfig
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -383,6 +385,121 @@ func TestParseManagedCommandRoundTripsAndFailsClosed(t *testing.T) {
 		if _, _, ok = ParseManagedCommand(invalid); ok {
 			t.Fatalf("accepted a command it does not own: %q", invalid)
 		}
+	}
+}
+
+func TestHookCommandsQuoteEveryPlatformWithoutChangingArguments(t *testing.T) {
+	tests := []struct {
+		name, goos, vendor, executable, root string
+		wantPrefix                           string
+	}{
+		{
+			name: "unix shell metacharacters and quote", goos: "linux", vendor: "claude",
+			executable: "/opt/Overgent $HOME; & (tools)/o'gent", root: "/tmp/state '$(touch nope)' ; & | < >",
+			wantPrefix: "'/opt/Overgent $HOME; & (tools)/o'\\''gent' --config-root '/tmp/state '\\''$(touch nope)'\\'' ; & | < >'",
+		},
+		{
+			name: "PowerShell spaces quote and metacharacters", goos: "windows", vendor: "claude",
+			executable: `C:\Program Files\Overgent & tools\o'gent.exe`, root: `C:\Users\A B\state '$HOME; & ()`,
+			wantPrefix: `& 'C:\Program Files\Overgent & tools\o''gent.exe' --config-root 'C:\Users\A B\state ''$HOME; & ()'`,
+		},
+		{
+			name: "cmd spaces metacharacters and trailing slash", goos: "windows", vendor: "codex",
+			executable: `C:\Program Files\Overgent & tools\overgent.exe`, root: `C:\Users\A B\state &^!()\`,
+			wantPrefix: `"C:\Program Files\Overgent & tools\overgent.exe" --config-root "C:\Users\A B\state &^!()\\"`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command, err := commandForOS(test.goos, test.executable, test.root, test.vendor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(command, test.wantPrefix+" agent-hook --vendor "+test.vendor) {
+				t.Fatalf("command=%q", command)
+			}
+			executable, root, ok := ParseManagedCommand(command)
+			if !ok || executable != test.executable || root != cleanPortablePath(test.root) {
+				t.Fatalf("round trip executable=%q root=%q ok=%v", executable, root, ok)
+			}
+		})
+	}
+}
+
+func TestCodexWindowsRefusesCmdExpansionCharacters(t *testing.T) {
+	for _, path := range []string{`C:\Users\%USERNAME%\overgent.exe`, "C:\\Users\\quote\"name\\overgent.exe"} {
+		if _, err := commandForOS("windows", path, `C:\Overgent`, "codex"); err == nil {
+			t.Fatalf("unsafe cmd path was accepted: %q", path)
+		}
+	}
+	if _, err := commandForOS("linux", "/opt/x agent-hook --vendor impostor", "/tmp/state", "claude"); err == nil {
+		t.Fatal("managed-command delimiter in a path was accepted")
+	}
+}
+
+func TestPortableHookCommandsUseTheVendorShell(t *testing.T) {
+	for _, test := range []struct{ goos, vendor, want string }{
+		{"linux", "codex", "'overgent' agent-hook --vendor codex"},
+		{"windows", "codex", `"overgent" agent-hook --vendor codex`},
+		{"windows", "claude", "& 'overgent' agent-hook --vendor claude"},
+		{"windows", "cursor", "& 'overgent' agent-hook --vendor cursor"},
+	} {
+		got, err := portableCommandForOS(test.goos, test.vendor)
+		if err != nil || got != test.want {
+			t.Fatalf("%s/%s command=%q err=%v", test.goos, test.vendor, got, err)
+		}
+	}
+}
+
+func TestWindowsClaudePinsPowerShell(t *testing.T) {
+	previous := hookOS
+	hookOS = "windows"
+	t.Cleanup(func() { hookOS = previous })
+	command, err := commandForOS("windows", `C:\Overgent\overgent.exe`, `C:\Overgent State`, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := expected("SessionStart", command).Hooks[0]
+	if configured.Shell != "powershell" {
+		t.Fatalf("Claude Windows shell=%q", configured.Shell)
+	}
+}
+
+func TestUnixCommandPassesLiteralArgumentsToTheHook(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires /bin/sh")
+	}
+	directory := filepath.Join(t.TempDir(), "Overgent 'bin' & tools")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(directory, "overgent")
+	output := filepath.Join(t.TempDir(), "arguments")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$OUTPUT\"\n"
+	if err := os.WriteFile(executable, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "must-not-exist")
+	root := filepath.Join(t.TempDir(), "state '$HOME'; touch "+marker+" &")
+	command, err := commandForOS("linux", executable, root, "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Env = append(os.Environ(), "OUTPUT="+output)
+	if combined, runErr := process.CombinedOutput(); runErr != nil {
+		t.Fatalf("run command: %v: %s", runErr, combined)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{"--config-root", root, "agent-hook", "--vendor", "claude", ""}, "\n")
+	if string(data) != want {
+		t.Fatalf("arguments=%q want %q", data, want)
+	}
+	if _, err = os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("shell metacharacters escaped the quoted argument: %v", err)
 	}
 }
 

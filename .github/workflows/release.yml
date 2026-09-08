@@ -4,6 +4,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      windows_signing:
+        description: Sign Windows executables (credentials and signer anchor are required)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -36,6 +42,10 @@ jobs:
           APPLE_APP_PASSWORD: "${{ secrets.APPLE_APP_PASSWORD }}"
           BLOB_READ_WRITE_TOKEN: "${{ secrets.BLOB_READ_WRITE_TOKEN }}"
           RELEASE_BLOB_ORIGIN: "${{ vars.OVERGENT_RELEASE_BLOB_ORIGIN }}"
+          WINDOWS_SIGNING_REQUESTED: "${{ inputs.windows_signing || vars.WINDOWS_SIGNING_REQUIRED == 'true' }}"
+          WINDOWS_CERTIFICATE: "${{ secrets.WINDOWS_CERTIFICATE_PFX }}"
+          WINDOWS_CERTIFICATE_PASSWORD: "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}"
+          WINDOWS_SIGNER_CERT_SHA256: "${{ vars.WINDOWS_SIGNER_CERT_SHA256 }}"
         run: |
           test -n "$UPDATE_PUBLIC_KEY"
           test -n "$UPDATE_PRIVATE_KEY"
@@ -47,6 +57,11 @@ jobs:
           test -n "$APPLE_APP_PASSWORD"
           test -n "$BLOB_READ_WRITE_TOKEN"
           test -n "$RELEASE_BLOB_ORIGIN"
+          if [ "$WINDOWS_SIGNING_REQUESTED" = true ]; then
+            test -n "$WINDOWS_CERTIFICATE" || { echo "Windows signing was requested but WINDOWS_CERTIFICATE_PFX is absent" >&2; exit 1; }
+            test -n "$WINDOWS_CERTIFICATE_PASSWORD" || { echo "Windows signing was requested but WINDOWS_CERTIFICATE_PASSWORD is absent" >&2; exit 1; }
+            test -n "$WINDOWS_SIGNER_CERT_SHA256" || { echo "Windows signing was requested but WINDOWS_SIGNER_CERT_SHA256 is absent" >&2; exit 1; }
+          fi
       - name: Import Apple signing identity
         env:
           CERTIFICATE: "${{ secrets.MACOS_CERTIFICATE_P12 }}"
@@ -105,7 +120,8 @@ jobs:
           APPLE_APP_PASSWORD: "${{ secrets.APPLE_APP_PASSWORD }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
         run: |
-          export OVERGENT_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          OVERGENT_BUILD_TIME="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          export OVERGENT_BUILD_TIME
           pnpm desktop:build
           ditto -c -k --keepParent apps/desktop/build/bin/Overgent.app "$RUNNER_TEMP/Overgent-notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/Overgent-notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
@@ -122,6 +138,76 @@ jobs:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           OVERGENT_UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
           OVERGENT_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
+      - name: Package fetch-on-demand local backends and optional Windows signatures
+        env:
+          WINDOWS_SIGNING_REQUESTED: "${{ inputs.windows_signing || vars.WINDOWS_SIGNING_REQUIRED == 'true' }}"
+          WINDOWS_CERTIFICATE: "${{ secrets.WINDOWS_CERTIFICATE_PFX }}"
+          WINDOWS_CERTIFICATE_PASSWORD: "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}"
+          WINDOWS_SIGNER_CERT_SHA256: "${{ vars.WINDOWS_SIGNER_CERT_SHA256 }}"
+          OVERGENT_CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_DEVELOPER_NAME }} (${{ vars.APPLE_TEAM_ID }})"
+        run: |
+          set -euo pipefail
+          mkdir -p dist-backend "$RUNNER_TEMP/backend-targets"
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 win32-x64; do
+            node scripts/fetch-backend.mjs --platform "$target" --out "$RUNNER_TEMP/backend-targets/$target"
+            cp apps/desktop/build/backend-push.json "$RUNNER_TEMP/backend-targets/$target/backend-push.json"
+          done
+
+          codesign --force --options runtime --timestamp --sign "$OVERGENT_CODESIGN_IDENTITY" "$RUNNER_TEMP/backend-targets/darwin-arm64/convex-local-backend"
+          codesign --force --options runtime --timestamp --sign "$OVERGENT_CODESIGN_IDENTITY" "$RUNNER_TEMP/backend-targets/darwin-x64/convex-local-backend"
+
+          WIN_CLI="$(find dist -type f -name overgent.exe -print -quit)"
+          test -n "$WIN_CLI"
+          if [ "$WINDOWS_SIGNING_REQUESTED" = true ]; then
+            printf '%s' "$WINDOWS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/windows-signing.pfx"
+            WIN_CERT_PASS="$WINDOWS_CERTIFICATE_PASSWORD" openssl pkcs12 -in "$RUNNER_TEMP/windows-signing.pfx" -clcerts -nokeys -passin env:WIN_CERT_PASS -out "$RUNNER_TEMP/windows-signing.pem"
+            OBSERVED_CERT_SHA="$(openssl x509 -in "$RUNNER_TEMP/windows-signing.pem" -outform DER | shasum -a 256 | awk '{print $1}')"
+            test "$OBSERVED_CERT_SHA" = "$(printf '%s' "$WINDOWS_SIGNER_CERT_SHA256" | tr '[:upper:]' '[:lower:]')" || {
+              echo "WINDOWS_SIGNER_CERT_SHA256 does not match WINDOWS_CERTIFICATE_PFX" >&2; exit 1;
+            }
+            brew install osslsigncode
+            sign_windows() {
+              input="$1"
+              output="$input.signed"
+              osslsigncode sign -pkcs12 "$RUNNER_TEMP/windows-signing.pfx" -pass "$WINDOWS_CERTIFICATE_PASSWORD" \
+                -n Overgent -i https://overgent.com -h sha256 -ts http://timestamp.digicert.com \
+                -in "$input" -out "$output"
+              mv "$output" "$input"
+              osslsigncode verify -CAfile "$RUNNER_TEMP/windows-signing.pem" "$input"
+            }
+            sign_windows "$WIN_CLI"
+            sign_windows "$RUNNER_TEMP/backend-targets/win32-x64/convex-local-backend.exe"
+          else
+            echo "Windows artifacts are unsigned portability builds; install.ps1 will refuse them unless the member explicitly selects local-only development mode."
+          fi
+
+          WIN_ARCHIVE="$(find dist -maxdepth 1 -type f -name 'overgent_*_windows_amd64.zip' -print -quit)"
+          test -n "$WIN_ARCHIVE"
+          WIN_ARCHIVE="$GITHUB_WORKSPACE/$WIN_ARCHIVE"
+          WIN_STAGE="$RUNNER_TEMP/windows-cli-archive"
+          mkdir -p "$WIN_STAGE"
+          cp "$WIN_CLI" "$WIN_STAGE/overgent.exe"
+          cp LICENSE NOTICE README.md "$WIN_STAGE/"
+          rm -f "$WIN_ARCHIVE"
+          (cd "$WIN_STAGE" && zip -X -q "$WIN_ARCHIVE" overgent.exe LICENSE NOTICE README.md)
+
+          package_tar() {
+            source="$1"
+            os="$2"
+            arch="$3"
+            COPYFILE_DISABLE=1 tar --no-xattrs -czf "dist-backend/overgent_backend_${GITHUB_REF_NAME}_${os}_${arch}.tar.gz" \
+              -C "$source" convex-local-backend backend-push.json LICENSE.md
+          }
+          package_tar "$RUNNER_TEMP/backend-targets/darwin-arm64" darwin arm64
+          package_tar "$RUNNER_TEMP/backend-targets/darwin-x64" darwin amd64
+          package_tar "$RUNNER_TEMP/backend-targets/linux-x64" linux amd64
+          package_tar "$RUNNER_TEMP/backend-targets/linux-arm64" linux arm64
+          (cd "$RUNNER_TEMP/backend-targets/win32-x64" && zip -X -q \
+            "$GITHUB_WORKSPACE/dist-backend/overgent_backend_${GITHUB_REF_NAME}_windows_amd64.zip" \
+            convex-local-backend.exe backend-push.json LICENSE.md)
+
+          find dist -maxdepth 1 -type f \( -name 'overgent_*.tar.gz' -o -name 'overgent_*.zip' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > dist/checksums.txt
+          find dist-backend -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > dist-backend/checksums.txt
       - name: Create signed updater metadata
         env:
           UPDATE_PRIVATE_KEY: "${{ secrets.OVERGENT_UPDATE_SIGNING_PRIVATE_KEY }}"
@@ -132,23 +218,38 @@ jobs:
             -version "${GITHUB_REF_NAME}" \
             -base-url "https://github.com/khalidM3/overgent/releases/download/${GITHUB_REF_NAME}" \
             -output dist/update-manifest.json
+          OVERGENT_UPDATE_SIGNING_KEY_FILE="$RUNNER_TEMP/update-signing-key" go run ./cmd/release-metadata \
+            -dist dist-backend \
+            -version "${GITHUB_REF_NAME}" \
+            -base-url "https://github.com/khalidM3/overgent/releases/download/${GITHUB_REF_NAME}" \
+            -output dist-backend/backend-manifest.json
       - name: Render release installer
         run: |
           sed -e "s|__OVERGENT_UPDATE_PUBLIC_KEY__|$UPDATE_PUBLIC_KEY|g" -e "s|__OVERGENT_APPLE_TEAM_ID__|$APPLE_TEAM_ID|g" install/install.sh > dist/install.sh
           cp install/uninstall.sh dist/uninstall.sh
+          WINDOWS_ANCHOR="${WINDOWS_SIGNER_CERT_SHA256:-__OVERGENT_WINDOWS_SIGNER_CERT_SHA256__}"
+          sed -e "s|__OVERGENT_WINDOWS_SIGNER_CERT_SHA256__|$WINDOWS_ANCHOR|g" \
+            -e "s|__OVERGENT_UPDATE_PUBLIC_KEY__|$UPDATE_PUBLIC_KEY|g" install/install.ps1 > dist/install.ps1
+          cp install/uninstall.ps1 dist/uninstall.ps1
           chmod 755 dist/install.sh dist/uninstall.sh
           shasum -a 256 dist-desktop/*.zip > dist/desktop-checksums.txt
-          gh release upload "$GITHUB_REF_NAME" dist/update-manifest.json dist/install.sh dist/uninstall.sh dist/desktop-checksums.txt dist-desktop/*.zip --clobber
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/update-manifest.json dist/checksums.txt dist/install.sh dist/uninstall.sh dist/install.ps1 dist/uninstall.ps1 \
+            dist/overgent_*.tar.gz dist/overgent_*.zip \
+            dist-backend/backend-manifest.json dist-backend/checksums.txt dist-backend/overgent_backend_* \
+            dist/desktop-checksums.txt dist-desktop/*.zip --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
           APPLE_TEAM_ID: "${{ vars.APPLE_TEAM_ID }}"
+          WINDOWS_SIGNER_CERT_SHA256: "${{ vars.WINDOWS_SIGNER_CERT_SHA256 }}"
       - uses: sigstore/cosign-installer@v3
       - name: Sign public release metadata with Sigstore
         run: |
           cosign sign-blob --yes --bundle dist/checksums.txt.sigstore.json dist/checksums.txt
           cosign sign-blob --yes --bundle dist/update-manifest.json.sigstore.json dist/update-manifest.json
+          cosign sign-blob --yes --bundle dist-backend/backend-manifest.json.sigstore.json dist-backend/backend-manifest.json
           cosign sign-blob --yes --bundle dist/desktop-checksums.txt.sigstore.json dist/desktop-checksums.txt
-          gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json dist/update-manifest.json.sigstore.json dist/desktop-checksums.txt.sigstore.json --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/checksums.txt.sigstore.json dist/update-manifest.json.sigstore.json dist-backend/backend-manifest.json.sigstore.json dist/desktop-checksums.txt.sigstore.json --clobber
         env:
           GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

@@ -81,7 +81,7 @@ func startBackend(ctx context.Context, repositoryRoot, temporaryRoot string) (*b
 	// The pnpm wrapper spawns the actual convex-local backend. Interrupting
 	// only the wrapper leaks the backend and its port; signal the whole
 	// process group on stop instead.
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.SysProcAttr = newProcessGroupAttr()
 	environmentPath := filepath.Join(repositoryRoot, "convex", ".env.local")
 	process := &backendProcess{command: command, done: make(chan error, 1), logPath: logPath}
 	if err := process.setAsideDeveloperEnvironment(environmentPath); err != nil {
@@ -118,11 +118,11 @@ func (process *backendProcess) stop() {
 	if process == nil || process.command == nil || process.command.Process == nil {
 		return
 	}
-	_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGINT)
+	_ = signalProcessGroup(process.command.Process.Pid, syscall.SIGINT)
 	select {
 	case <-process.done:
 	case <-time.After(5 * time.Second):
-		_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGKILL)
+		_ = signalProcessGroup(process.command.Process.Pid, syscall.SIGKILL)
 		select {
 		case <-process.done:
 		case <-time.After(2 * time.Second):

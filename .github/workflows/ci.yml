@@ -12,16 +12,110 @@ jobs:
     strategy:
       matrix:
         go: ["1.26.x", "1.27.x"]
-    # The shipped local service is intentionally macOS-only today, and its
-    # configuration boundary fails closed on other platforms. Exercise both Go
-    # versions on the supported OS instead of turning those tests into skips.
-    runs-on: macos-14
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version: "${{ matrix.go }}", cache: true }
       - run: go test -race ./...
       - run: go vet ./...
+  # Credential storage is the one subsystem whose tests skip themselves when no
+  # OS store is reachable, so the job above reports green on Linux without
+  # having made a single D-Bus call. That is the failure mode this job exists to
+  # close: give the runner a real Secret Service and require the round trip.
+  linux-credentials:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - run: sudo apt-get update && sudo apt-get install -y gnome-keyring dbus-x11
+      - name: Round-trip a credential through a real keyring
+        run: |
+          dbus-run-session -- bash -c '
+            printf ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            OVERGENT_KEYCHAIN_LIVE=1 go test -v -run TestCredential ./internal/credential/...
+          '
+  # Windows stays a compile gate until the named-pipe IPC lands: with the
+  # daemon stubbed out there is no local service to exercise, so running the
+  # suite here would prove less than it appears to. `go vet` still earns its
+  # place because it type-checks test files, which is what catches a _test.go
+  # reaching for a POSIX-only symbol. Turn on `go test` when the pipe transport
+  # and the scheduled-task lifecycle have both been proven on a real runner.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      - run: go build ./...
+      - run: go vet ./...
+  # apps/desktop is a separate Go module, so none of the jobs above reach it:
+  # they run at the repository root and stop at its go.mod. That is how it came
+  # to reference undefined symbols off macOS without anything noticing, and this
+  # job is what closes it.
+  #
+  # The desktop shell needs a native webview, so unlike the root module this
+  # cannot be a cross-compile: Wails binds WebKitGTK on Linux and AppKit on
+  # macOS through CGO, and neither has a toolchain on another runner. Each
+  # platform therefore compiles and tests its own.
+  #
+  # Windows is the exception and is also gated from every runner below, because
+  # Wails' Windows backend is pure Go: `GOOS=windows go vet` type-checks the
+  # whole package, tests included, with CGO off. That is the only Windows check
+  # that can run before this job's own runner does, and it also covers
+  # windows/arm64, which no hosted runner offers.
+  desktop:
+    strategy:
+      fail-fast: false
+      # `tags` is the Linux webview selector, empty everywhere else. Wails v3
+      # defaults to GTK 4 and webkitgtk-6.0 and only picks GTK 3 with
+      # webkit2gtk-4.1 under `gtk3`, which is the pair this project installs,
+      # documents and declares as its Debian dependency. It is spelled as
+      # `-tags=<value>` at every use so an empty value stays one argument
+      # instead of swallowing the ./... behind it.
+      matrix:
+        include:
+          - { os: macos-14, tags: "", productionTags: "production" }
+          - { os: ubuntu-latest, tags: "gtk3", productionTags: "production,gtk3" }
+          - { os: windows-latest, tags: "", productionTags: "production" }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run: { working-directory: apps/desktop }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.26.x", cache: true }
+      # GTK 3 and WebKitGTK headers for the `gtk3` build, plus a Secret Service
+      # for the tests: the desktop suite stores an AI provider key through the
+      # platform credential store, and on Linux that is D-Bus. Without a keyring
+      # daemon those tests fail on the runner while passing everywhere else.
+      - if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev gnome-keyring dbus-x11
+      - run: go build -tags=${{ matrix.tags }} ./...
+      - run: go vet -tags=${{ matrix.tags }} ./...
+      - if: matrix.os != 'ubuntu-latest'
+        run: go test -tags=${{ matrix.tags }} ./...
+      - if: matrix.os == 'ubuntu-latest'
+        name: Test against a real Secret Service
+        run: |
+          dbus-run-session -- bash -c '
+            printf ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            go test -tags=gtk3 ./...
+          '
+      # The production build tag selects different origin and CLI-path code, and
+      # nothing else compiles it. It is cheap here and catches a tag-only break
+      # before a release job hits it.
+      - run: go vet -tags=${{ matrix.productionTags }} ./...
+      # Cross-target type-check for Windows, from whichever runner this is.
+      - run: go vet ./...
+        env: { CGO_ENABLED: "0", GOOS: windows }
+      - run: go vet ./...
+        env: { CGO_ENABLED: "0", GOOS: windows, GOARCH: arm64 }
   typescript:
     runs-on: ubuntu-latest
     steps:

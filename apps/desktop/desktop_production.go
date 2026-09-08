@@ -1,4 +1,4 @@
-//go:build darwin && production
+//go:build production
 
 package main
 
@@ -21,6 +21,20 @@ func desktopProductName() string { return "Overgent" }
 func desktopMenuLabel() string   { return "Overgent beta" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
 func desktopURLScheme() string   { return "overgent" }
+
+// desktopApplicationID is the one reverse-DNS name for this build. It is the
+// macOS CFBundleIdentifier, the Linux .desktop file's basename prefix, the
+// Windows registry key's application name, and the single-instance lock's id,
+// so the four cannot drift apart. scripts/build-desktop.mjs writes the same
+// value into whichever of those a platform needs.
+func desktopApplicationID() string { return "com.overgent.app" }
+
+// desktopEntryName is the installed application's short, filesystem-safe name:
+// the Linux .desktop basename and GTK program name, the staged icon's filename,
+// and the WebView2 profile directory on Windows. A development build takes its
+// own so it never claims the release build's scheme registration, icon, or
+// window grouping.
+func desktopEntryName() string { return "overgent" }
 
 // apiBaseURL is the hosted origin a production build talks to by default.
 // Releases keep it; a private build for a closed test overrides it with
@@ -66,17 +80,15 @@ func desktopTeamActivationOrigin(apiBaseURL string) string {
 // update shipped a new app driving an old CLI, and the two disagreed about the
 // wire format, the hook set, and eventually the product's own name.
 func desktopCLIBinary() string {
-	executable, err := os.Executable()
+	bundled, err := bundledCLIPath()
 	if err != nil {
 		return ""
 	}
-	bundled := filepath.Clean(filepath.Join(filepath.Dir(executable), "..", "Resources", "overgent"))
-	home, err := os.UserHomeDir()
+	directory, err := managedCLIDirectory()
 	if err != nil {
 		return bundled
 	}
-	directory := filepath.Join(home, ".local", "bin")
-	installed := filepath.Join(directory, "overgent")
+	installed := filepath.Join(directory, managedCLIName)
 	if sameFileContents(bundled, installed) {
 		return installed
 	}
@@ -87,7 +99,7 @@ func desktopCLIBinary() string {
 	if err != nil {
 		// No bundled binary to install from. An existing installed copy is still
 		// better than a path that does not exist.
-		if info, statErr := os.Stat(installed); statErr == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		if executableFile(installed) {
 			return installed
 		}
 		return bundled
@@ -122,7 +134,7 @@ func sameFileContents(bundled, installed string) bool {
 		return false
 	}
 	installedInfo, err := os.Stat(installed)
-	if err != nil || !installedInfo.Mode().IsRegular() || installedInfo.Mode()&0o111 == 0 {
+	if err != nil || !installedInfo.Mode().IsRegular() || !executableFile(installed) {
 		return false
 	}
 	if bundledInfo.Size() != installedInfo.Size() {

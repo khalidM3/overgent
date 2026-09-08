@@ -342,18 +342,14 @@ func managedOwner(command, event string) (profile, executable string, ok bool) {
 		return "", "", false
 	}
 	prefix := strings.TrimSuffix(command, suffix)
-	if prefix == "'overgent'" {
-		return "portable", "overgent", true
-	}
-	// The non-portable form is '<executable>' --config-root '<root>'.
-	const marker = "' --config-root '"
-	index := strings.Index(prefix, marker)
-	if !strings.HasPrefix(prefix, "'") || index < 0 || !strings.HasSuffix(prefix, "'") {
+	binary, root, parsed := hookconfig.ParseManagedPrefix(prefix)
+	if !parsed {
 		return "", "", false
 	}
-	root := prefix[index+len(marker) : len(prefix)-1]
-	binary := prefix[1:index]
-	if root == "" || !filepath.IsAbs(root) || binary == "" || !filepath.IsAbs(binary) {
+	if root == "" && binary == "overgent" {
+		return "portable", "overgent", true
+	}
+	if root == "" || binary == "" {
 		return "", "", false
 	}
 	return root, binary, true
@@ -554,7 +550,7 @@ func write(path string, doc *document) error {
 	if err != nil {
 		return fmt.Errorf("write temporary Cursor hooks configuration: %w", err)
 	}
-	if err = os.Rename(name, path); err != nil {
+	if err = hookconfig.ReplaceFile(name, path); err != nil {
 		return fmt.Errorf("activate Cursor hooks configuration: %w", err)
 	}
 	return nil

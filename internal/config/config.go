@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -70,6 +69,13 @@ type storedConfig struct {
 	Workspaces []Workspace `json:"workspaces,omitempty"`
 }
 
+// Paths are the per-profile locations the service and the CLI agree on.
+//
+// Socket names the local IPC endpoint, and it is not always a filesystem path.
+// On unix it is a Unix socket inside Root; on Windows there is no such thing,
+// so endpointFor returns a named-pipe name instead. Callers pass it to the
+// daemon package and never open it themselves, which is what lets the two
+// forms share one field.
 type Paths struct{ Root, Config, DB, Lock, Socket string }
 
 // IsLoopbackOrigin reports whether this origin is served by a backend running
@@ -270,9 +276,6 @@ func (c Config) RemoveBackend(backendID string) (Config, int) {
 }
 
 func DefaultRoot() (string, error) {
-	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("unsupported platform %s: local service validated only on macOS", runtime.GOOS)
-	}
 	d, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve user config directory: %w", err)
@@ -281,9 +284,6 @@ func DefaultRoot() (string, error) {
 }
 
 func Resolve(root string) (Paths, error) {
-	if runtime.GOOS != "darwin" {
-		return Paths{}, fmt.Errorf("unsupported platform %s: local service validated only on macOS", runtime.GOOS)
-	}
 	if root == "" {
 		return Paths{}, fmt.Errorf("config root is required")
 	}
@@ -291,7 +291,7 @@ func Resolve(root string) (Paths, error) {
 	if err != nil {
 		return Paths{}, fmt.Errorf("resolve config root: %w", err)
 	}
-	return Paths{Root: abs, Config: filepath.Join(abs, "config.json"), DB: filepath.Join(abs, "state.db"), Lock: filepath.Join(abs, "service.lock"), Socket: filepath.Join(abs, "service.sock")}, nil
+	return Paths{Root: abs, Config: filepath.Join(abs, "config.json"), DB: filepath.Join(abs, "state.db"), Lock: filepath.Join(abs, "service.lock"), Socket: endpointFor(abs)}, nil
 }
 
 func Load(paths Paths) (Config, error) {

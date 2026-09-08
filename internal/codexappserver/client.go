@@ -130,26 +130,69 @@ func Locate() (string, error) {
 }
 
 func candidatePaths() []string {
-	if runtime.GOOS != "darwin" {
-		return nil
-	}
-	paths := []string{
-		"/Applications/ChatGPT.app/Contents/Resources/codex",
-		"/opt/homebrew/bin/codex",
-		"/usr/local/bin/codex",
-	}
-	if home, err := os.UserHomeDir(); err == nil {
+	home, _ := os.UserHomeDir()
+	return candidatePathsFor(runtime.GOOS, home, os.Getenv("APPDATA"), os.Getenv("LOCALAPPDATA"))
+}
+
+// candidatePathsFor lists version-independent install locations after PATH.
+// It is pure so every platform's discovery contract is testable without
+// reading a contributor's home directory or requiring a native runner.
+func candidatePathsFor(goos, home, appData, localAppData string) []string {
+	var paths []string
+	switch goos {
+	case "darwin":
 		paths = append(paths,
-			filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
-			filepath.Join(home, ".codex", "bin", "codex"),
+			"/Applications/ChatGPT.app/Contents/Resources/codex",
+			"/opt/homebrew/bin/codex",
+			"/usr/local/bin/codex",
 		)
+		if home != "" {
+			paths = append(paths,
+				filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+				filepath.Join(home, ".local", "bin", "codex"),
+				filepath.Join(home, ".codex", "bin", "codex"),
+			)
+		}
+	case "linux":
+		if home != "" {
+			paths = append(paths,
+				filepath.Join(home, ".local", "bin", "codex"),
+				filepath.Join(home, ".codex", "bin", "codex"),
+			)
+		}
+		paths = append(paths, "/usr/local/bin/codex", "/usr/bin/codex")
+	case "windows":
+		if localAppData != "" {
+			paths = append(paths,
+				joinWindows(localAppData, "Programs", "ChatGPT", "resources", "codex.exe"),
+				joinWindows(localAppData, "Programs", "OpenAI", "ChatGPT", "resources", "codex.exe"),
+				joinWindows(localAppData, "Microsoft", "WindowsApps", "codex.exe"),
+			)
+		}
+		if appData != "" {
+			// npm's shim is normally found through PATH. The package also carries
+			// the native executable at this stable architecture-specific path,
+			// which remains usable from GUI processes with a reduced PATH.
+			paths = append(paths, joinWindows(appData, "npm", "node_modules", "@openai", "codex", "vendor", "x86_64-pc-windows-msvc", "codex", "codex.exe"))
+		}
+		if home != "" {
+			paths = append(paths, joinWindows(home, ".codex", "bin", "codex.exe"))
+		}
 	}
 	return paths
 }
 
+func joinWindows(first string, rest ...string) string {
+	joined := strings.TrimRight(first, `\/`)
+	for _, element := range rest {
+		joined += `\` + strings.Trim(element, `\/`)
+	}
+	return joined
+}
+
 func executableFile(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+	return err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0)
 }
 
 // Options configure a Dial. Executable and CodexHome are resolved when empty.

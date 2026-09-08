@@ -1,4 +1,4 @@
-//go:build darwin && !production
+//go:build !production
 
 package main
 
@@ -20,6 +20,20 @@ func desktopProductName() string { return "Overgent Dev" }
 func desktopMenuLabel() string   { return "Overgent development" }
 func desktopStartURL() string    { return "/?desktop=onboarding" }
 func desktopURLScheme() string   { return "overgent-dev" }
+
+// desktopApplicationID is the one reverse-DNS name for this build. It is the
+// macOS CFBundleIdentifier, the Linux .desktop file's basename prefix, the
+// Windows registry key's application name, and the single-instance lock's id,
+// so the four cannot drift apart. scripts/build-desktop.mjs writes the same
+// value into whichever of those a platform needs.
+func desktopApplicationID() string { return "com.overgent.app.development" }
+
+// desktopEntryName is the installed application's short, filesystem-safe name:
+// the Linux .desktop basename and GTK program name, the staged icon's filename,
+// and the WebView2 profile directory on Windows. A development build takes its
+// own so it never claims the release build's scheme registration, icon, or
+// window grouping.
+func desktopEntryName() string { return "overgent-dev" }
 
 // desktopAPIBaseURL is the development harness's origin. Unlike production it
 // does not prefer the profile's stored origin: `pnpm dev` chooses the origin
