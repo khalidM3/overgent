@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -132,6 +133,10 @@ type OnboardingService struct {
 	// touches files on disk, and State() is polled every two seconds while an
 	// adapter restart is pending.
 	repairOnce sync.Once
+	// restarting is held while a backend restart is in flight. State() is
+	// polled every two seconds and a restart takes several, so without this
+	// every poll in that window would queue another one.
+	restarting atomic.Bool
 }
 
 // credentialTTL keeps State() cheap. The webview polls it every two seconds
@@ -171,6 +176,53 @@ func (service *OnboardingService) credentialHealth(ctx context.Context, backend 
 	service.credentialMu.Unlock()
 	return status
 }
+
+// restartStoppedBackend brings the loopback backend back up when it is down.
+//
+// Nothing else does. The service starts it and keeps it alive, but once it has
+// given up - a failed start, or a stop while the app was closed - no later
+// event asks again, and the shell has no way out of that on its own: a stopped
+// backend answers no credential check, every Project on it reports "uncertain",
+// and the shell reads that as a broken connection and refuses to open any of
+// them. That left the window showing a list of Projects none of which could be
+// opened, on a machine where nothing was actually wrong.
+//
+// It runs in the background because State() is what the webview polls, and a
+// restart takes several seconds; blocking the poll on it would freeze the
+// window instead of healing it. The next poll reports the backend running.
+func (service *OnboardingService) restartStoppedBackend(status BackendStatus) {
+	if !status.Present || status.Running || service.configRoot == "" {
+		return
+	}
+	if !service.restarting.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer service.restarting.Store(false)
+		paths, err := config.Resolve(service.configRoot)
+		if err != nil {
+			return
+		}
+		// Longer than the service's own ten-second health budget, so the
+		// answer is the service's verdict rather than this deadline expiring
+		// first and reporting a timeout on a backend that was still starting.
+		ctx, cancel := context.WithTimeout(context.Background(), backendRestartBudget)
+		defer cancel()
+		if _, err = ensureLocalBackend(ctx, paths); err != nil {
+			slog.Warn("restart the local backend", "error", err)
+			return
+		}
+		// Every credential answer cached while the backend was down says
+		// "uncertain" for want of anything to ask. Drop them so the next poll
+		// asks the backend that is now running, instead of showing a healthy
+		// Project as unreachable until the cache expires.
+		service.forgetCredentialHealth()
+	}()
+}
+
+// backendRestartBudget is how long restartStoppedBackend waits for the service
+// to report the backend up.
+const backendRestartBudget = 30 * time.Second
 
 // forgetCredentialHealth drops the cached answers so the next State() re-checks.
 func (service *OnboardingService) forgetCredentialHealth() {
@@ -232,6 +284,7 @@ func (service *OnboardingService) State() (OnboardingState, error) {
 	state.LocalAvailable = service.localAvailable
 	state.MemberName = service.rememberedDisplayName()
 	state.Backend = service.backendStatus()
+	service.restartStoppedBackend(state.Backend)
 	if len(cfg.Workspaces) == 0 {
 		state.Adapters = service.adapterStates(nil)
 		return state, nil

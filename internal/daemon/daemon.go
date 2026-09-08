@@ -55,6 +55,21 @@ type Response struct {
 }
 type Handler func(context.Context, Request) Response
 
+// defaultCallTimeout bounds a request from a caller that supplied no deadline
+// of its own. Most CLI callers pass a plain context and want to fail rather
+// than hang against a wedged service; a caller that knows its method is slower
+// says so with its own deadline.
+const defaultCallTimeout = 3 * time.Second
+
+// requestReadTimeout bounds how long a connected client may take to send its
+// request, and handlerTimeout bounds the handler and the reply that follows it.
+// handlerTimeout has to exceed the slowest method the service offers, which is
+// "backend_ensure" and its ten-second backend health budget.
+const (
+	requestReadTimeout = 5 * time.Second
+	handlerTimeout     = 60 * time.Second
+)
+
 func Serve(ctx context.Context, socket string, h Handler) error { return serve(ctx, socket, h) }
 func Call(ctx context.Context, socket string, req Request) (Response, error) {
 	c, e := dial(ctx, socket)
@@ -62,9 +77,18 @@ func Call(ctx context.Context, socket string, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("connect service: %w", e)
 	}
 	defer c.Close()
-	deadline := time.Now().Add(3 * time.Second)
-	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
-		deadline = contextDeadline
+	// The caller's deadline governs when it has one, in both directions. This
+	// used to take the minimum of the caller's deadline and three seconds,
+	// which made three seconds a ceiling no caller could raise - and some
+	// methods legitimately take longer than that. "backend_ensure" is the one
+	// that matters: it starts the loopback backend and is allowed a ten-second
+	// health budget by the service, so a client capped at three could never see
+	// it succeed. It reported a timeout while the service went on and brought
+	// the backend up, and the desktop turned that into "the background service
+	// is not running yet" on a service that was running fine.
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(defaultCallTimeout)
 	}
 	_ = c.SetDeadline(deadline)
 	if e = json.NewEncoder(c).Encode(req); e != nil {
@@ -78,11 +102,23 @@ func Call(ctx context.Context, socket string, req Request) (Response, error) {
 }
 func serveConn(ctx context.Context, c net.Conn, h Handler) {
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	// Reading the request is bounded tightly, because that phase is waiting on
+	// the client: one that connects and then says nothing must not hold the
+	// connection open.
+	_ = c.SetReadDeadline(time.Now().Add(requestReadTimeout))
 	var q Request
 	if json.NewDecoder(io.LimitReader(c, 128<<10)).Decode(&q) != nil {
 		return
 	}
+	// Running the handler and writing its answer gets its own, larger budget.
+	// One five-second deadline used to cover both phases, which silently capped
+	// how long any method could take: "backend_ensure" starts the loopback
+	// backend under a ten-second health budget, so its answer could never be
+	// written and the caller saw a closed connection instead of the result of
+	// the work the service had just done. The real bound on a slow method is
+	// the client's own deadline; this only stops a dead peer from pinning the
+	// connection forever.
+	_ = c.SetDeadline(time.Now().Add(handlerTimeout))
 	_ = json.NewEncoder(c).Encode(h(ctx, q))
 }
 
