@@ -181,10 +181,13 @@ jobs:
       # member as an app that starts and then coordinates nothing.
       - uses: actions/download-artifact@v4
         with: { name: backend-push, path: apps/desktop/build }
+      # Outside the working copy on purpose: goreleaser refuses to release from
+      # a dirty tree, and an untracked directory in the repository root is
+      # exactly that.
       - uses: actions/download-artifact@v4
-        with: { name: desktop-linux, path: staged-desktop/linux }
+        with: { name: desktop-linux, path: "${{ runner.temp }}/staged-desktop/linux" }
       - uses: actions/download-artifact@v4
-        with: { name: desktop-windows, path: staged-desktop/windows }
+        with: { name: desktop-windows, path: "${{ runner.temp }}/staged-desktop/windows" }
       - name: Take the shared backend payload and this runner's backend
         run: |
           set -euo pipefail
@@ -268,9 +271,9 @@ jobs:
             # the job boundary unsigned, because this is the only job holding
             # the certificate. Every executable in it is signed, not just the
             # shell: the CLI and the backend beside it are what it runs.
-            sign_windows staged-desktop/windows/overgent-desktop.exe
-            sign_windows staged-desktop/windows/resources/overgent.exe
-            sign_windows staged-desktop/windows/resources/backend/convex-local-backend.exe
+            sign_windows "$RUNNER_TEMP/staged-desktop/windows/overgent-desktop.exe"
+            sign_windows "$RUNNER_TEMP/staged-desktop/windows/resources/overgent.exe"
+            sign_windows "$RUNNER_TEMP/staged-desktop/windows/resources/backend/convex-local-backend.exe"
           else
             echo "Windows artifacts are unsigned portability builds; install.ps1 will refuse them unless the member explicitly selects local-only development mode."
           fi
@@ -279,13 +282,13 @@ jobs:
           # artifact does not carry the executable bit, so it has to be put
           # back before the tar is written or nothing in it can be started.
           chmod 755 \
-            staged-desktop/linux/overgent-desktop \
-            staged-desktop/linux/resources/overgent \
-            staged-desktop/linux/resources/backend/convex-local-backend
-          mv staged-desktop/linux "$RUNNER_TEMP/Overgent"
+            "$RUNNER_TEMP/staged-desktop/linux/overgent-desktop" \
+            "$RUNNER_TEMP/staged-desktop/linux/resources/overgent" \
+            "$RUNNER_TEMP/staged-desktop/linux/resources/backend/convex-local-backend"
+          mv "$RUNNER_TEMP/staged-desktop/linux" "$RUNNER_TEMP/Overgent"
           COPYFILE_DISABLE=1 tar --no-xattrs -czf "$GITHUB_WORKSPACE/dist-desktop/Overgent_linux_amd64.tar.gz" -C "$RUNNER_TEMP" Overgent
           rm -rf "$RUNNER_TEMP/Overgent"
-          mv staged-desktop/windows "$RUNNER_TEMP/Overgent"
+          mv "$RUNNER_TEMP/staged-desktop/windows" "$RUNNER_TEMP/Overgent"
           (cd "$RUNNER_TEMP" && zip -X -q -r "$GITHUB_WORKSPACE/dist-desktop/Overgent_windows_amd64.zip" Overgent)
           rm -rf "$RUNNER_TEMP/Overgent"
 
