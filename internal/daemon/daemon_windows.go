@@ -19,6 +19,18 @@
 //     properties that matter: it refuses rather than waits, and it conflicts
 //     with a second handle even inside the same process.
 //
+//   - Endpoint authenticity. Unix gets this from the same filesystem mode that
+//     gets it access control: a socket inside a 0700 directory cannot be
+//     replaced by another user, so reaching the path is proof of reaching the
+//     owner. A pipe name lives in a namespace any local principal can create
+//     in, and the name is deterministic — config.endpointFor derives it from
+//     the profile root, so an attacker can compute it. Whoever calls
+//     CreateNamedPipe first owns the name, and nothing stops them from
+//     attaching a DACL that welcomes the victim in. The server DACL protects
+//     the server's pipe; it says nothing about the pipe a client actually
+//     reached. So the client has to check for itself, before it says anything:
+//     see verifyPipeOwner.
+//
 // The Windows endpoint name is already resolved by config.endpointFor, which
 // returns a \\.\pipe\overgent-<16 hex> name derived from the profile root. This
 // file consumes that value as-is and never constructs a name of its own.
@@ -27,10 +39,12 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/Microsoft/go-winio"
@@ -142,6 +156,19 @@ func serve(ctx context.Context, name string, h Handler) error {
 }
 
 func dial(ctx context.Context, name string) (net.Conn, error) {
+	return dialVerified(ctx, name, verifyPipeOwner)
+}
+
+// dialVerified connects and then proves the far end belongs to this user before
+// handing the connection back. verify is a parameter only so a test can drive
+// the rejection path: no second principal is needed to assert that a refused
+// connection is closed and that not one byte was written to it.
+//
+// The ordering is the security property, and it is structural rather than
+// asserted anywhere: Call does nothing but dial before it encodes the request,
+// so a connection that never leaves this function never carries a request. A
+// caller cannot skip the check, because dial is the only way into the pipe.
+func dialVerified(ctx context.Context, name string, verify func(net.Conn) error) (net.Conn, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
@@ -151,5 +178,102 @@ func dial(ctx context.Context, name string) (net.Conn, error) {
 	// attempt only and the connection does not retain it, so the deadline Call
 	// sets afterwards is what governs the exchange — the same division of
 	// labour net.Dialer.DialContext has on unix.
-	return winio.DialPipeContext(ctx, name)
+	c, e := winio.DialPipeContext(ctx, name)
+	if e != nil {
+		return nil, e
+	}
+	// Verification reads a descriptor off an already-open kernel handle. It
+	// issues no I/O on the pipe and cannot block, so it needs no deadline of
+	// its own; what it must not do is run after a context the caller has
+	// already given up on, hence the check before rather than a wasted syscall.
+	if e = ctx.Err(); e != nil {
+		c.Close()
+		return nil, e
+	}
+	if e = verify(c); e != nil {
+		c.Close()
+		return nil, fmt.Errorf("dial %s: %w", name, e)
+	}
+	return c, nil
+}
+
+// verifyPipeOwner fails closed unless the connected pipe is owned by the user
+// running this process.
+//
+// The check is deliberately on the handle rather than the name.
+// GetNamedSecurityInfo would answer a question about whatever the name resolves
+// to at the moment it is asked, which is a different pipe from the one already
+// connected if the attacker wins the race in between. GetSecurityInfo takes the
+// kernel handle DialPipeContext returned, so the descriptor read here belongs
+// to exactly the endpoint the request would have gone to.
+//
+// The comparand is the token's user SID and nothing else. It could not be a
+// looser set — a group, say — without giving up the property: the service is
+// registered with RunLevel LeastPrivilege (see internal/service/scheduledtask.go),
+// so it is never elevated and the pipe it creates is always owned by the
+// interactive user's own SID, never by Administrators. An elevated client is
+// still fine, because elevation changes which SIDs a token holds for access
+// checks, not which SID it names as its user.
+//
+// Every failure — an unexpected connection type, a descriptor that will not
+// read, an ownerless pipe, a mismatch — returns an error, and dialVerified
+// closes the connection on any of them. There is no path that shrugs and
+// continues.
+func verifyPipeOwner(c net.Conn) error {
+	// winio's pipe connection exposes its handle through Fd. Asserting on the
+	// method rather than the concrete type keeps this from breaking on winio's
+	// internal type names, and an implementation that stopped exposing a handle
+	// would fail closed here rather than silently skip the check.
+	handled, ok := c.(interface{ Fd() uintptr })
+	if !ok {
+		return fmt.Errorf("verify pipe owner: connection of type %T exposes no handle", c)
+	}
+	h := windows.Handle(handled.Fd())
+	if h == 0 || h == windows.InvalidHandle {
+		return errors.New("verify pipe owner: connection has no open handle")
+	}
+
+	// DialPipeContext opens with GENERIC_READ|GENERIC_WRITE, and the generic
+	// mapping folds STANDARD_RIGHTS_READ — that is, READ_CONTROL — into
+	// GENERIC_READ, which is the right this query needs. SE_FILE_OBJECT is the
+	// object type for a named pipe: pipes live in the file namespace, and it is
+	// the same resource type the platform's own pipe security APIs use.
+	sd, e := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if e != nil {
+		return fmt.Errorf("verify pipe owner: read the pipe security descriptor: %w", e)
+	}
+	owner, _, e := sd.Owner()
+	if e != nil {
+		return fmt.Errorf("verify pipe owner: read the owner SID: %w", e)
+	}
+	// owner points into sd's backing array, so sd has to outlive the comparison
+	// below rather than the call that produced the pointer.
+	defer runtime.KeepAlive(sd)
+	if owner == nil {
+		return errors.New("verify pipe owner: the pipe has no owner SID")
+	}
+	return ownerIsCurrentUser(owner)
+}
+
+// ownerIsCurrentUser is the comparison itself, split out so it can be tested
+// against a foreign SID. Synthesising a pipe owned by another principal needs a
+// second Windows account and cannot be done from inside this process, but the
+// SID equality that decides the outcome can be exercised directly.
+func ownerIsCurrentUser(owner *windows.SID) error {
+	if owner == nil {
+		return errors.New("verify pipe owner: the pipe has no owner SID")
+	}
+	// GetCurrentProcessToken returns a pseudo-handle that must not be closed.
+	user, e := windows.GetCurrentProcessToken().GetTokenUser()
+	if e != nil {
+		return fmt.Errorf("verify pipe owner: read the current user SID: %w", e)
+	}
+	if !owner.Equals(user.User.Sid) {
+		return fmt.Errorf(
+			"verify pipe owner: the pipe is owned by %s, not by this user (%s); "+
+				"another local account may be impersonating the service endpoint",
+			owner, user.User.Sid,
+		)
+	}
+	return nil
 }
