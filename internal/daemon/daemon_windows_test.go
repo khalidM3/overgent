@@ -5,12 +5,14 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unsafe"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/khalidM3/overgent/internal/config"
 	"golang.org/x/sys/windows"
 )
@@ -215,5 +217,159 @@ func TestDialHonoursACancelledContextAgainstALiveListener(t *testing.T) {
 	}
 	if !errors.Is(e, context.Canceled) {
 		t.Fatalf("dial refused with %v, want context.Canceled", e)
+	}
+}
+
+// The pipe this service creates is owned by the user running it, so a client
+// that reached the real endpoint must accept it. This is the half of the owner
+// check that would break every Windows install if it were wrong, and it runs
+// against a live connected handle rather than a synthesised descriptor.
+func TestVerifyPipeOwnerAcceptsThePipeThisUserServes(t *testing.T) {
+	name := endpoint(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = Serve(ctx, name, func(context.Context, Request) Response { return Response{OK: true} })
+	}()
+	if _, e := callWhenListening(t, ctx, name, Request{Method: "health"}); e != nil {
+		t.Fatalf("the listener never came up: %v", e)
+	}
+
+	c, e := dial(ctx, name)
+	if e != nil {
+		t.Fatalf("dial refused a pipe this user owns: %v", e)
+	}
+	defer c.Close()
+	if e = verifyPipeOwner(c); e != nil {
+		t.Fatalf("verifyPipeOwner rejected a pipe this user owns: %v", e)
+	}
+}
+
+// The rejection the whole change exists for. A pipe owned by anyone else must
+// be refused, and refused before the request is written — a client that leaks
+// its Request to an impostor has already lost, whatever it does afterwards.
+//
+// Owning that pipe genuinely requires a second Windows account, so the two
+// halves are asserted separately: the SID comparison against a foreign SID
+// here, and the ordering with a stubbed verifier in
+// TestDialWritesNothingToAPipeItRejects.
+func TestOwnerIsCurrentUserRejectsAForeignSID(t *testing.T) {
+	// Local System: a real, well-known principal that this process is
+	// guaranteed not to be running as when the tests run as a user.
+	foreign, e := windows.StringToSid("S-1-5-18")
+	if e != nil {
+		t.Fatalf("parse the foreign SID: %v", e)
+	}
+	user, e := windows.GetCurrentProcessToken().GetTokenUser()
+	if e != nil {
+		t.Fatalf("read the current user: %v", e)
+	}
+	if user.User.Sid.Equals(foreign) {
+		t.Skip("these tests are running as Local System, which is the SID they use as the foreign one")
+	}
+
+	e = ownerIsCurrentUser(foreign)
+	if e == nil {
+		t.Fatal("ownerIsCurrentUser accepted a pipe owned by Local System")
+	}
+	if !strings.Contains(e.Error(), foreign.String()) {
+		t.Fatalf("the rejection %q does not name the offending owner %s", e, foreign)
+	}
+
+	// The same function must accept this process's own user, or the check
+	// above would be passing for the wrong reason.
+	if e = ownerIsCurrentUser(user.User.Sid); e != nil {
+		t.Fatalf("ownerIsCurrentUser rejected this process's own user: %v", e)
+	}
+	// An unreadable owner is a failure, not a pass.
+	if ownerIsCurrentUser(nil) == nil {
+		t.Fatal("ownerIsCurrentUser accepted a pipe with no owner SID")
+	}
+}
+
+// A connection that cannot be checked is a connection that gets closed. If
+// winio ever stops exposing the kernel handle, this must fail closed rather
+// than quietly skip verification and reopen the hole.
+func TestVerifyPipeOwnerRejectsAConnectionWithNoHandle(t *testing.T) {
+	local, remote := net.Pipe()
+	defer local.Close()
+	defer remote.Close()
+
+	e := verifyPipeOwner(local)
+	if e == nil {
+		t.Fatal("verifyPipeOwner accepted a connection that exposes no handle")
+	}
+	if !strings.Contains(e.Error(), "no handle") {
+		t.Fatalf("the rejection %q does not say the handle was missing", e)
+	}
+}
+
+// The ordering property, stated as a test: when verification fails, the caller
+// gets no connection, the connection it would have got is closed, and the
+// server read nothing. dial is the only door into the pipe and Call writes only
+// after dial returns, so nothing written here means nothing written anywhere.
+func TestDialWritesNothingToAPipeItRejects(t *testing.T) {
+	name := endpoint(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Accept by hand rather than through Serve, so the bytes the server side
+	// saw can be counted instead of inferred from a handler that never ran.
+	sd, e := ownerOnlySecurityDescriptor()
+	if e != nil {
+		t.Fatalf("build the descriptor: %v", e)
+	}
+	ln, e := winio.ListenPipe(name, &winio.PipeConfig{SecurityDescriptor: sd})
+	if e != nil {
+		t.Fatalf("listen on %s: %v", name, e)
+	}
+	defer ln.Close()
+
+	read := make(chan int, 1)
+	go func() {
+		c, e := ln.Accept()
+		if e != nil {
+			return
+		}
+		defer c.Close()
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var buf [64]byte
+		n, _ := c.Read(buf[:])
+		read <- n
+	}()
+
+	refused := errors.New("owner mismatch")
+	var checked net.Conn
+	c, e := dialVerified(ctx, name, func(conn net.Conn) error {
+		checked = conn
+		return refused
+	})
+	if e == nil {
+		c.Close()
+		t.Fatal("dialVerified returned a connection its verifier refused")
+	}
+	if c != nil {
+		t.Fatalf("dialVerified returned a non-nil connection (%T) alongside its error", c)
+	}
+	if !errors.Is(e, refused) {
+		t.Fatalf("dialVerified reported %v, want the verifier's own error", e)
+	}
+	if checked == nil {
+		t.Fatal("dialVerified never ran the verifier")
+	}
+	// The refused connection must be closed, not merely dropped; a live handle
+	// to an attacker's pipe is still a handle to an attacker's pipe.
+	if _, e = checked.Write([]byte("x")); e == nil {
+		t.Fatal("the refused connection was still writable, so dialVerified left it open")
+	}
+
+	select {
+	case n := <-read:
+		if n != 0 {
+			t.Fatalf("the server side read %d bytes from a connection dial refused, want none", n)
+		}
+	case <-time.After(3 * time.Second):
+		// The read deadline expired with nothing to read, which is the same
+		// verdict: no request reached the far end.
 	}
 }
