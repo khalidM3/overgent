@@ -15,6 +15,10 @@ require (
 
 require github.com/andybalholm/brotli v1.2.3
 
+require github.com/godbus/dbus/v5 v5.2.2
+
+require github.com/Microsoft/go-winio v0.6.2
+
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/dprotaso/go-yit v0.0.0-20220510233725-9ba8df137936 // indirect

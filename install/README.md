@@ -1,27 +1,39 @@
-# Installing the beta
+# Release installers
 
-Release automation renders `install.sh` with the release update public key and
-Apple Developer Team ID, then publishes that rendered copy with the other public
-artifacts at the immutable Vercel Blob path for the release.
-The checked-in source is intentionally non-installable: it has no production
-trust anchors.
+Release automation renders the public trust anchors into `install.sh` and
+`install.ps1`. The checked-in templates refuse ordinary network installation:
+only rendered copies attached to a signed release are distribution artifacts.
 
-The macOS installer parses bounded manifest asset metadata, verifies archive
-size and SHA-256, and then verifies the executable's code signature and exact
-expected Apple Team ID before installing into `~/.local/bin`. The installed
-binary independently verifies the manifest's Ed25519 signature on every
-`overgent update`. It then installs the current-user LaunchAgent. No language
-runtime or package manager is required.
+The CLI and local backend are separate downloads. A normal install fetches the
+small CLI archive first, then fetches the platform backend archive from the
+same immutable release directory and records its executable and deploy bundle
+with `overgent backend install`. `--skip-backend` / `-SkipBackend` installs a
+team-Project-only CLI. `--download-only` / `-DownloadOnly` verifies and copies
+everything needed for an offline install; the destination machine supplies the
+copied manifests and archives by path.
 
-The beta is not advertised on Linux or Windows. GoReleaser builds those
-archives to continuously catch portability regressions, but ADR-019 requires
-native credential-store, IPC, service lifecycle, install/update/uninstall, and
-recovery evidence before they become supported downloads.
+Linux verifies the Ed25519 signature over each manifest with OpenSSL, then the
+declared size and SHA-256 of each archive. It also requires a reachable Secret
+Service implementation before writing anything. There is no plaintext or
+encrypted-file credential fallback. macOS verifies size/SHA-256 plus the code
+signature and exact Apple Team ID of both executables. Windows uses OpenSSL to
+verify each Ed25519 manifest, then verifies size/SHA-256 plus Authenticode and
+the exact release-certificate SHA-256 of both executables.
 
-Uninstall first removes recognized managed Codex/Claude bindings through
-`overgent setup remove-all`, then unregisters the LaunchAgent. Unknown binding
-drift is left untouched and reported. Uninstall preserves local state and
-Keychain credentials by default. The
-explicit `--purge-local-state` option moves state to Trash rather than deleting
-it irrecoverably; hosted device revocation and Project deletion are separate
-authorized operations.
+Windows signing may be omitted for development artifacts. The rendered public
+installer then refuses them. The explicit
+`-AllowUnsignedDevelopmentBuild` escape hatch accepts only local copied files;
+it cannot weaken a network install. Setting `windows_signing` or
+`WINDOWS_SIGNING_REQUIRED=true` makes the release workflow fail clearly unless
+the certificate, password, and certificate anchor are configured.
+Windows candidates require PowerShell 7.5 or newer plus OpenSSL on `PATH` for
+strict JSON handling and Ed25519 manifest verification.
+
+Uninstall removes only recognized managed agent bindings, unregisters the
+per-user service, and removes the installed executable. State and credentials
+remain by default. The explicit purge option moves state to Trash/Recycle Bin
+and removes only local-backend credential records; hosted device revocation and
+Project deletion remain separate authorized operations.
+
+See `docs/release.md` for qualification status, artifact names, lifecycle
+commands, offline transfer, trust properties, and release-owner setup.

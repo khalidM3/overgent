@@ -369,3 +369,28 @@ func TestRepairAdoptsWithoutConnectingAnythingNew(t *testing.T) {
 		t.Fatal("repair connected an agent that was never connected")
 	}
 }
+
+func TestPortableSetupUsesPATHAndRoundTrips(t *testing.T) {
+	project := t.TempDir()
+	manager := Manager{ProjectRoot: project, Portable: true}
+	status, err := manager.Setup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Configured || status.Binding != "current" || status.CheckedProfile != "portable" {
+		t.Fatalf("portable setup status=%#v", status)
+	}
+	data, err := os.ReadFile(filepath.Join(project, ".cursor", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "--config-root") || !strings.Contains(string(data), "agent-hook --vendor cursor") {
+		t.Fatalf("portable hook command is %s", data)
+	}
+	if status, err = manager.Status(); err != nil || !status.Configured || status.Binding != "current" {
+		t.Fatalf("portable status=%#v err=%v", status, err)
+	}
+	if status, err = manager.Remove(); err != nil || status.Configured {
+		t.Fatalf("portable removal status=%#v err=%v", status, err)
+	}
+}

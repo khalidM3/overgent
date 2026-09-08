@@ -1,0 +1,10 @@
+FROM debian:bookworm
+
+RUN apt-get update -qq \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      ca-certificates coreutils curl dbus-user-session gnome-keyring openssl python3 systemd tar \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

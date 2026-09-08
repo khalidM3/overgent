@@ -3,5 +3,8 @@
 
 # Default `go build ./...` output in this directory: a 24MB binary named after
 # the package directory. Nothing consumes it; the real bundle is /build/bin/.
+# Windows appends .exe to that name, which this list did not cover, so a build
+# run there was committable — and was committed. Both spellings now.
 /desktop
+/desktop.exe
 /build/iconset/

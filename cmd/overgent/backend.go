@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/khalidM3/overgent/internal/config"
@@ -79,7 +80,10 @@ func runBackend(ctx context.Context, paths config.Paths, args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(map[string]any{"running": false})
 	case "install":
 		installFlags := flag.NewFlagSet("backend install", flag.ContinueOnError)
-		binary := installFlags.String("binary", "", "path to the convex-local-backend executable")
+		// The help names this platform's executable: the archive the release
+		// publishes for Windows contains convex-local-backend.exe, and a
+		// member typing the name they were shown has to find a file.
+		binary := installFlags.String("binary", "", "path to the "+localbackend.BinaryName()+" executable")
 		bundle := installFlags.String("bundle", "", "path to the release-time deploy payload")
 		if err := installFlags.Parse(args[1:]); err != nil {
 			return err
@@ -126,7 +130,7 @@ func runBackend(ctx context.Context, paths config.Paths, args []string) error {
 		// fresh backend, so a broken deploy2 pin fails the release rather than
 		// an install.
 		verifyFlags := flag.NewFlagSet("backend verify", flag.ContinueOnError)
-		binary := verifyFlags.String("binary", "", "path to the convex-local-backend executable")
+		binary := verifyFlags.String("binary", "", "path to the "+localbackend.BinaryName()+" executable")
 		bundle := verifyFlags.String("bundle", "", "path to the release-time deploy payload")
 		if err := verifyFlags.Parse(args[1:]); err != nil {
 			return err
@@ -209,7 +213,13 @@ func backendEnsure(ctx context.Context, paths config.Paths) (localbackend.Endpoi
 
 func newBackendManager(paths config.Paths) (*localbackend.Manager, error) {
 	if !localbackend.Configured(paths.Root) {
-		return nil, errors.New("this profile has no local backend; run overgent backend install --binary <path> --bundle <path>")
+		// A machine the Convex release publishes no backend binary for -
+		// Windows on ARM - cannot be talked through an install, so it is told
+		// the real reason instead of being sent after a file that is not built.
+		if !localbackend.Supported() {
+			return nil, fmt.Errorf("%s/%s has no bundled Convex backend, so local mode is unavailable on this machine; create the Project against a hosted backend with --api", runtime.GOOS, runtime.GOARCH)
+		}
+		return nil, fmt.Errorf("this profile has no local backend; run overgent backend install --binary <path to %s> --bundle <path>", localbackend.BinaryName())
 	}
 	return localbackend.New(paths.Root, localbackend.Keychain{}, slog.Default())
 }

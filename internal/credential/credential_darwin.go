@@ -16,8 +16,8 @@ import (
 )
 
 func put(ctx context.Context, account, secret string) error {
-	if account == "" || secret == "" || strings.ContainsAny(account, "\r\n") {
-		return errors.New("credential account and secret are required")
+	if err := validatePut(account, secret); err != nil {
+		return err
 	}
 	// Apple documents a trailing -w with no value as the secure prompt form.
 	// Supplying stdin keeps the secret out of argv and ordinary error strings.
@@ -57,8 +57,8 @@ func put(ctx context.Context, account, secret string) error {
 }
 
 func get(ctx context.Context, account string) (string, error) {
-	if account == "" || strings.ContainsAny(account, "\r\n") {
-		return "", errors.New("credential account is required")
+	if err := validateAccount(account); err != nil {
+		return "", err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", serviceName, "-a", account, "-w")
 	out, err := cmd.Output()
@@ -73,8 +73,8 @@ func get(ctx context.Context, account string) (string, error) {
 }
 
 func remove(ctx context.Context, account string) error {
-	if account == "" || strings.ContainsAny(account, "\r\n") {
-		return errors.New("credential account is required")
+	if err := validateAccount(account); err != nil {
+		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", serviceName, "-a", account)
 	if err := cmd.Run(); err != nil {

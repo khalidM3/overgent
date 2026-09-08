@@ -191,3 +191,40 @@ func TestHomeResolvesOverrideThenEnvironment(t *testing.T) {
 		t.Fatalf("home=%q err=%v", home, err)
 	}
 }
+
+func TestPortableCandidatePaths(t *testing.T) {
+	tests := []struct {
+		name, goos, home, appData, localAppData string
+		contains                                []string
+	}{
+		{
+			name: "linux", goos: "linux", home: "/home/alice",
+			contains: []string{"/home/alice/.local/bin/codex", "/home/alice/.codex/bin/codex", "/usr/local/bin/codex"},
+		},
+		{
+			name: "windows", goos: "windows", home: `C:\Users\Alice Smith`, appData: `C:\Users\Alice Smith\AppData\Roaming`, localAppData: `C:\Users\Alice Smith\AppData\Local`,
+			contains: []string{
+				`C:\Users\Alice Smith\AppData\Local\Programs\ChatGPT\resources\codex.exe`,
+				`C:\Users\Alice Smith\AppData\Roaming\npm\node_modules\@openai\codex\vendor\x86_64-pc-windows-msvc\codex\codex.exe`,
+				`C:\Users\Alice Smith\.codex\bin\codex.exe`,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			paths := candidatePathsFor(test.goos, test.home, test.appData, test.localAppData)
+			for _, want := range test.contains {
+				found := false
+				for _, got := range paths {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("candidate paths %#v do not contain %q", paths, want)
+				}
+			}
+		})
+	}
+}

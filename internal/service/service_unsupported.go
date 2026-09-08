@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !linux && !windows
 
 package service
 
@@ -11,7 +11,6 @@ var errUnsupported = errors.New("OS service management is not qualified on this 
 
 type Manager struct {
 	Executable, ConfigRoot, Home string
-	UID                          int
 }
 type Status struct {
 	Installed, Running bool

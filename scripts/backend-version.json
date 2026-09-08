@@ -2,6 +2,10 @@
   "version": "precompiled-2026-08-25-7cce8fb",
   "cliVersion": "1.45.0",
   "sha256": {
-    "darwin-arm64": "98831b0f511f6eed70b0b4dfca62015df57877e08017d2b2979b39d62ae7317b"
+    "darwin-arm64": "98831b0f511f6eed70b0b4dfca62015df57877e08017d2b2979b39d62ae7317b",
+    "darwin-x64": "d142472d996f08907cd9fdf61cc154c36edee3039342f45fdd925cefedabea29",
+    "linux-x64": "470250263fcf6c71b931219550c3705d9ab03d79c3b1e1e8364465c2b44eff9f",
+    "linux-arm64": "a0601ec584fe9f514c473af6d57a4c209e4d2d775e4ac1b5d1b90bafd85b7e2f",
+    "win32-x64": "e20e0bb2db04487706014f3270750db213a8ea0f3e5432e6294f0f8be08a9356"
   }
 }

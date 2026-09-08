@@ -382,7 +382,7 @@ func writeJSON(path string, document map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("write temporary Claude MCP config: %w", err)
 	}
-	if err = os.Rename(name, path); err != nil {
+	if err = hookconfig.ReplaceFile(name, path); err != nil {
 		return fmt.Errorf("activate Claude MCP config: %w", err)
 	}
 	return nil

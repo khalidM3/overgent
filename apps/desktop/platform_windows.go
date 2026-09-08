@@ -3,11 +3,8 @@
 package main
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 
 	servicemanager "github.com/khalidM3/overgent/internal/service"
@@ -128,20 +125,22 @@ func webviewUserDataPath() string {
 
 // serviceManagerFor builds the per-user background service manager.
 //
-// INTEGRATOR: lane B's internal/service Windows manager identifies the account
-// with a `User string` field rather than the `UID int` this lane's base has, and
-// refuses to install while it is empty. That field is not set here because
-// setting it would not compile against internal/service as it stands on this
-// branch. After lane B merges, add `manager.User = account.Username` below and
-// drop the guard; until then this fails closed with the message rather than
-// registering a scheduled task under no account at all.
+// Task Scheduler addresses a user by name, not by uid, so the Windows Manager
+// carries a `User string` where the darwin and linux ones carry a `UID int`,
+// and it refuses to install while that name is empty — a task registered under
+// no account is not a task anyone can run.
+//
+// The name comes from servicemanager.CurrentAccount rather than a user.Current
+// call of this file's own, which is what the other two platform files do. The
+// desktop shell and the `overgent service` subcommands install and remove the
+// same scheduled task, so they have to agree on which account owns it down to
+// the trimming: CurrentAccount strips surrounding whitespace off the username
+// before it reaches the task document, and a second copy of that resolution
+// here is a second place for the two to drift apart.
 func serviceManagerFor(executable, configRoot string) (servicemanager.Manager, error) {
-	account, err := user.Current()
+	account, err := servicemanager.CurrentAccount()
 	if err != nil {
-		return servicemanager.Manager{}, fmt.Errorf("resolve current user: %w", err)
+		return servicemanager.Manager{}, err
 	}
-	if account.Username == "" || !filepath.IsAbs(account.HomeDir) {
-		return servicemanager.Manager{}, errors.New("current user has no name or home directory")
-	}
-	return servicemanager.Manager{Executable: executable, ConfigRoot: configRoot, Home: account.HomeDir}, nil
+	return servicemanager.NewManager(executable, configRoot, account), nil
 }
