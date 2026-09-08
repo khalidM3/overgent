@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, Copy, Download, GitMerge, Radar, ShieldCheck, Terminal, Waypoints } from "lucide-react";
+import { Check, Copy, Download, ShieldCheck, Terminal } from "lucide-react";
 import { BrandMark } from "./brand";
 import "./landing.css";
 
@@ -18,12 +18,12 @@ interface ReleaseManifest {
 const DESKTOP_URL = "https://overgent.com/download/macos";
 const INSTALL_COMMAND = "curl -fsSL https://overgent.com/install.sh | sh";
 const WINDOWS_INSTALL_COMMAND = "irm https://overgent.com/install.ps1 | iex";
+const REPOSITORY_URL = "https://github.com/khalidM3/overgent";
 
 interface Platform {
   id: string;
   name: string;
   detail: string;
-  blurb: string;
   desktopURL: string;
   // cliKey indexes the update manifest, whose asset names goreleaser derives
   // from GOOS and GOARCH.
@@ -36,37 +36,14 @@ interface Platform {
 }
 
 const PLATFORMS: Platform[] = [
-  {
-    id: "macos",
-    name: "macOS",
-    detail: "Apple silicon · macOS 12+",
-    blurb: "Desktop app and CLI together, signed and notarized for direct distribution.",
-    desktopURL: "https://overgent.com/download/macos",
-    cliKey: "darwin_arm64",
-    qualified: true,
-  },
-  {
-    id: "linux",
-    name: "Linux",
-    detail: "x86-64 · GTK 3 and WebKitGTK",
-    blurb: "Credentials in the Secret Service, the service on systemd --user, and the same bundled backend.",
-    desktopURL: "https://overgent.com/download/linux",
-    cliKey: "linux_amd64",
-    qualified: false,
-  },
-  {
-    id: "windows",
-    name: "Windows",
-    detail: "x86-64 · Windows 10 1809+",
-    blurb: "Credentials in the Credential Manager, the service on Task Scheduler, IPC over a named pipe.",
-    desktopURL: "https://overgent.com/download/windows",
-    cliKey: "windows_amd64",
-    qualified: false,
-  },
+  { id: "macos", name: "macOS", detail: "Apple silicon · macOS 12+", desktopURL: "https://overgent.com/download/macos", cliKey: "darwin_arm64", qualified: true },
+  { id: "linux", name: "Linux", detail: "x86-64 · GTK 3", desktopURL: "https://overgent.com/download/linux", cliKey: "linux_amd64", qualified: false },
+  { id: "windows", name: "Windows", detail: "x86-64 · Windows 10 1809+", desktopURL: "https://overgent.com/download/windows", cliKey: "windows_amd64", qualified: false },
 ];
 
 export function LandingPage() {
   const [release, setRelease] = useState<ReleaseState>({ status: "loading" });
+  const stillOnly = usePrefersReducedMotion();
 
   useEffect(() => {
     let active = true;
@@ -98,64 +75,40 @@ export function LandingPage() {
     <header className="landing-nav">
       <Wordmark />
       <nav aria-label="Main navigation">
-        <a href="#how-it-works">How it works</a>
-        <a href="#privacy">Privacy</a>
+        <a href={REPOSITORY_URL}>GitHub</a>
         <a href="#download">Download</a>
-        <a className="landing-nav-action" href="/dashboard">Open dashboard <ArrowRight size={14} /></a>
       </nav>
     </header>
 
     <main>
       <section className="landing-hero">
-        <div>
-          <p className="landing-kicker"><span>Open source</span> Coordination for parallel agents</p>
-          <h1>Keep every coding agent working from the same reality.</h1>
-          <p className="landing-lede">Run local by default, invite teammates only when you choose, and bring your own model for semantic coordination.</p>
-          <div className="landing-actions">
-            <a className="landing-primary" href={ready ? DESKTOP_URL : "#download"}><Download size={16} /> {ready ? "Download for macOS" : "Get Overgent"}</a>
-            <a className="landing-secondary" href="/dashboard">Open dashboard <ArrowRight size={15} /></a>
-          </div>
-          <p className="landing-trust"><ShieldCheck size={14} /> Raw source, prompts, diffs, credentials, and command output never cross the wire.</p>
+        <h1>Keep every coding agent working from the same reality.</h1>
+        <p className="landing-lede">Overgent catches conflicting assumptions and overlapping work while your agents are still working, and tells only the session that needs to know.</p>
+        <div className="landing-actions">
+          <a className="landing-primary" href={ready ? DESKTOP_URL : "#download"}><Download size={16} /> {ready ? "Download for macOS" : "Get Overgent"}</a>
+          <a className="landing-secondary" href="#download">Linux and Windows</a>
         </div>
-
-        <div className="landing-radar" aria-label="Example of Overgent coordinating three agent sessions">
-          <div className="landing-radar-head"><span>Project / launch</span><span>Live coordination</span></div>
-          <div className="landing-radar-row"><span className="landing-agent">CO</span><div><strong>Codex</strong><p>Refactoring the session boundary</p></div><code>auth/session.ts</code></div>
-          <div className="landing-radar-finding">
-            <strong>Claude is changing the same contract</strong>
-            <p>Route the updated session shape before either agent builds on a stale assumption.</p>
-          </div>
-          <div className="landing-radar-row"><span className="landing-agent">CL</span><div><strong>Claude Code</strong><p>Updating the browser handshake</p></div><code>auth/session.ts</code></div>
-          <div className="landing-radar-row quiet"><span className="landing-agent">CO</span><div><strong>Codex</strong><p>Writing the migration tests</p></div><code>tests/session_test.go</code></div>
-        </div>
+        <p className="landing-trust"><ShieldCheck size={14} /> Local by default. Raw source, prompts, diffs, credentials, and command output never cross the wire.</p>
       </section>
 
-      <section className="landing-section" id="how-it-works" aria-labelledby="how-heading">
-        <h2 id="how-heading">Air traffic control around the tools you already use.</h2>
-        <p className="landing-section-lede">Overgent coordinates the work. Codex and Claude Code still own their model loops, files, commands, and permissions.</p>
-        <ol className="landing-steps">
-          <li>
-            <span className="landing-step-icon"><Waypoints size={17} /></span>
-            <h3>Connect a project</h3>
-            <p>Point one local service at a repository. Run a single session, or invite the rest of your team.</p>
-          </li>
-          <li>
-            <span className="landing-step-icon"><Radar size={17} /></span>
-            <h3>Work normally</h3>
-            <p>Overgent builds a shared model from safe Git evidence and what each supported agent reports.</p>
-          </li>
-          <li>
-            <span className="landing-step-icon"><GitMerge size={17} /></span>
-            <h3>Correct course early</h3>
-            <p>Collisions, stale contracts, and ready dependencies reach the affected work — not everybody.</p>
-          </li>
-        </ol>
-      </section>
-
-      <section className="landing-section landing-privacy" id="privacy" aria-labelledby="privacy-heading">
-        <h2 id="privacy-heading">Share coordination facts, not the work itself.</h2>
-        <p className="landing-section-lede">The local service can see what is changing, but the wire accepts only derived, structured coordination facts. Raw source, raw diffs, Git objects, prompts, transcripts, tool output, environment values, and credentials stay on your machine. Overgent is open source under Apache-2.0.</p>
-      </section>
+      {/* The product showing itself. These are captures of the real workroom, so
+          the page no longer needs a hand-drawn imitation of it beside the
+          headline, nor a row of icons explaining what the picture already says. */}
+      <figure className="landing-shot">
+        {stillOnly
+          ? <img src="/media/workroom-collision.png" alt="Two agent sessions reported as changing the same file, with each session's goal and the evidence behind the finding." />
+          : <video
+              src="/media/workroom.webm"
+              poster="/media/workroom-collision.png"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+              aria-label="The Overgent workroom: a collision between two live agent sessions is opened, then a contract change that a session had already read."
+            />}
+        <figcaption>Two live sessions on one shared path, then a contract that moved under a session which had already read it — old signature, new signature, and who changed it.</figcaption>
+      </figure>
 
       <section className="landing-section" id="download" aria-labelledby="download-heading">
         <div className="landing-download-head">
@@ -167,7 +120,6 @@ export function LandingPage() {
           {PLATFORMS.map((platform) => <li className="landing-platform" key={platform.id}>
             <div>
               <h3>{platform.name} <span>{platform.detail}</span></h3>
-              <p>{platform.blurb}</p>
               {!platform.qualified && <p className="landing-platform-note">
                 Built and tested in CI, but not yet run on a {platform.name} machine by us. It should work; if it does not, please open an issue.
               </p>}
@@ -196,10 +148,26 @@ export function LandingPage() {
 
     <footer className="landing-footer">
       <Wordmark />
-      <p>Coordination infrastructure for teams building with agents.</p>
-      <a href="/dashboard">Dashboard</a>
+      <p>Open source under Apache-2.0.</p>
+      <a href={REPOSITORY_URL}>GitHub</a>
     </footer>
   </div>;
+}
+
+/**
+ * The hero loop is decorative motion, so a visitor who has asked their system
+ * for less of it gets the still frame instead of an autoplaying video.
+ */
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(query.matches);
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
 }
 
 function Wordmark() {

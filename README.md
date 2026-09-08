@@ -21,6 +21,10 @@
   <a href="docs/self-hosting.md">Self-hosting</a>
 </p>
 
+<p align="center">
+  <img src="apps/dashboard/public/media/workroom-collision.png" width="900" alt="The Overgent workroom: two live agent sessions reported as changing the same file, with each session's goal and the evidence behind the finding.">
+</p>
+
 ## Your agents can disagree without touching the same file
 
 Agent A changes an authentication contract. Agent B, working in another part of
@@ -66,6 +70,14 @@ warning, without taking over the aircraft.
 Every finding carries a plain-language reason, provenance, confidence, and the
 workstreams it affects. Similarity is candidate evidence, never unexplained
 proof. Low-confidence activity stays quiet.
+
+<p align="center">
+  <img src="apps/dashboard/public/media/workroom-contract-drift.png" width="900" alt="A stale-assumption finding: backend/refresh.go changed after a session read it, showing the previous and current signatures of Refresh and the session that changed it.">
+</p>
+
+<p align="center">
+  <em>A stale assumption: the contract moved after this session read it, with the old and new signature and who changed it.</em>
+</p>
 
 ## Built for one developer or a small team
 
