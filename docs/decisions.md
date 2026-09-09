@@ -1783,3 +1783,31 @@ The desktop entry shell follows the same rule as the live workroom. This keeps
 the shared navigation shape ADR-078 requires while allowing either shell to
 yield all horizontal space to the surface being read. Accepted by the owner
 2026-09-06.
+
+## ADR-083: Intelligence depth is a visible three-step capability meter
+
+The owner directed that every Project show its current intelligence depth in
+the workroom toolbar: core detection, embedding retrieval, and model
+judgment. A compact segmented meter remains visible without taking permanent
+content space; opening it explains each layer and links directly to the
+Project's Intelligence settings.
+
+The meter is a capability ladder, not a confidence score or finding severity.
+Level one includes the deterministic Git/contract trigger layer and built-in
+matching that remain available without AI. Level two includes the bundled
+`overgent-concepts/v1` deterministic embedding provider and may be enhanced by
+a configured provider; it does not pretend that the working offline embedding
+path is absent. Level three means model judgment is also present. Active
+segments share one state colour: red at one, amber at two, and green at three.
+Text, rows, and surfaces remain neutral, and the numeric
+`n of 3` label makes colour non-essential. This is the sole three-colour status
+scale permitted by design-system Rule 2; it does not create a severity rainbow.
+
+The readout uses the existing authorized AI-settings operation, which returns
+only effective provider sources and key-presence metadata, never key material.
+Provider failure is reported separately from configured depth so a full bar
+cannot hide degraded processing. The same meter and layer vocabulary lead both
+Project intelligence settings and this Mac's defaults; those screens share one
+form implementation so their provider, model, endpoint, and key behavior cannot
+drift. Native select semantics are retained with a custom closed-control
+presentation. Accepted by the owner 2026-09-08.
