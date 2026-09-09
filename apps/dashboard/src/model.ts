@@ -16,6 +16,15 @@ export type AgentVendor = "codex" | "claude" | "cursor";
 export type Fidelity = "mcp" | "git" | "manual" | "hook" | "hook_unverified";
 export type SemanticStatus = "enabled" | "degraded" | "disabled";
 export type SemanticMode = "offline_fallback" | "managed_openai" | "managed_degraded";
+export interface ProjectIntelligence {
+  /** Structural path, symbol, and contract evidence is always available. */
+  structural: "active";
+  /** The bundled concept provider is real embedding retrieval; a Project key upgrades its range. */
+  embeddings: "built_in" | "provider" | "off";
+  judgment: "active" | "off";
+  /** Provider trouble is separate from configured depth: the bar never hides it. */
+  degraded: boolean;
+}
 export interface HarnessCapabilities {
   observeSession: boolean;
   observeToolActivity: boolean;
@@ -76,6 +85,8 @@ export interface ProjectSummary {
   repositoryLabel: string;
   semanticStatus: SemanticStatus;
   semanticMode: SemanticMode;
+  /** Client-enriched from the existing authorized AI-settings read. */
+  intelligence?: ProjectIntelligence;
 }
 
 export interface Workstream {

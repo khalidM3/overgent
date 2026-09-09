@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+test("intelligence health bar exposes its level and configuration", async ({ page }) => {
+  await page.goto("/?fixtures=1&state=ready");
+
+  const levelTwo = page.getByRole("button", { name: "Intelligence layer 2 of 3" });
+  await expect(levelTwo).toBeVisible();
+  const levelTwoMeter = levelTwo.locator(".intelligence-meter");
+  await expect(levelTwoMeter).toHaveClass(/level-2/);
+  await expect(levelTwoMeter.locator("i.on")).toHaveCount(2);
+  await expect(levelTwoMeter.locator("i.on").first()).toHaveCSS("background-color", "rgb(191, 116, 16)");
+
+  await levelTwo.click();
+  const detail = page.getByLabel("Intelligence layer details");
+  await expect(detail).toContainText("Embedding depth");
+  await expect(detail).toContainText("Model judgment");
+  await detail.getByRole("button", { name: /Improve intelligence/ }).click();
+  await expect(page.getByRole("button", { name: "Intelligence" })).toHaveAttribute("aria-current", "page");
+
+  await page.getByRole("button", { name: "Back to Atlas launch" }).click();
+  await page.getByRole("button", { name: /Orchard mobile/ }).click();
+  await expect(page.getByRole("button", { name: "Intelligence layer 2 of 3" })).toBeVisible();
+});
+
 test("Project Workroom shows people, Codex, Claude, and session drill-down", async ({ page }) => {
   await page.goto("/?fixtures=1&state=ready");
   await expect(page.getByRole("heading", { name: "Atlas launch" })).toBeVisible();

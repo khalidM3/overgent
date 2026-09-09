@@ -193,8 +193,26 @@ describe("Project Workroom behavior", () => {
     await user.click(screen.getByRole("button", { name: /Orchard mobile/ }));
     expect(screen.getByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Collision detected/ })).toBeNull();
-    expect(screen.getByLabelText("Semantic processing status").textContent).toContain("disabled");
+    expect(screen.getByRole("button", { name: "Intelligence layer 2 of 3" })).toBeTruthy();
     expect(screen.getByText("Your sharing is paused in this Project")).toBeTruthy();
+  });
+
+  it("keeps intelligence depth visible and opens its settings at the relevant tab", async () => {
+    const user = userEvent.setup();
+    const { container } = renderReady();
+    const trigger = screen.getByRole("button", { name: "Intelligence layer 2 of 3" });
+    expect(container.querySelectorAll(".intelligence-meter .on")).toHaveLength(2);
+    expect(container.querySelector(".intelligence-meter")?.classList.contains("level-2")).toBe(true);
+    expect(screen.queryByLabelText("Provider-backed intelligence is degraded")).toBeNull();
+
+    await user.click(trigger);
+    const detail = screen.getByLabelText("Intelligence layer details");
+    expect(within(detail).getByText("2 OF 3 ACTIVE")).toBeTruthy();
+    expect(within(detail).getByText("Enhanced")).toBeTruthy();
+    expect(within(detail).getByText("Not set")).toBeTruthy();
+    expect(within(detail).getByText(/Provider-backed processing is unavailable/)).toBeTruthy();
+    await user.click(within(detail).getByRole("button", { name: /Improve intelligence/ }));
+    expect(screen.getByRole("button", { name: "Intelligence" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("applies pause, activity, and collision lifecycle changes immediately", async () => {
@@ -300,7 +318,7 @@ describe("Project Workroom behavior", () => {
   it("reaches members and invites from the workroom, not only from settings", async () => {
     const user = userEvent.setup();
     renderReady();
-    await user.click(screen.getByRole("button", { name: "Open People for this Project" }));
+    await user.click(screen.getByRole("button", { name: "Invite someone to this Project" }));
     const people = screen.getByRole("main", { name: "People" });
     expect(await within(people).findByRole("heading", { name: /Members/ })).toBeTruthy();
     expect(within(people).getByRole("button", { name: "Create invite link" })).toBeTruthy();
@@ -328,6 +346,97 @@ describe("Project Workroom behavior", () => {
     // the member no longer belongs to.
     expect(await screen.findByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Atlas launch" })).toBeNull();
+  });
+
+  // The deletion the server accepted is only half the act: this Mac had
+  // connected the repository to that Project and nothing ever disconnected it,
+  // so the Project stayed in the Mac's list, its repository went on being
+  // watched and publishing, and re-connecting it was refused as already
+  // connected. Quitting and reopening the app was the only thing that cleared
+  // the list. The shell now tells the desktop to forget it here.
+  it("tells this Mac to forget a Project it just deleted", async () => {
+    const user = userEvent.setup();
+    const disconnectProject = vi.fn().mockResolvedValue({ available: true, development: false, enrolled: false, projectId: "", repositoryRoot: "", repositoryLabel: "", deviceLabel: "", apiBaseUrl: "", adapters: [], limitation: "", projects: [] });
+    const nativeApi = { state: vi.fn().mockResolvedValue({ available: true, adapters: [], projects: [] }), disconnectProject } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={nativeApi} />);
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    const settings = screen.getByRole("main", { name: "Settings" });
+    await user.type(await within(settings).findByLabelText("Type Atlas launch to confirm"), "Atlas launch");
+    await user.click(within(settings).getByRole("button", { name: "Delete Project" }));
+    expect(await screen.findByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
+    expect(disconnectProject).toHaveBeenCalledWith(fixtureSession.projects[0]!.id);
+  });
+
+  // A browser tab has no bridge, and an older signed desktop shell has no such
+  // method: neither may turn leaving a deleted Project into an error.
+  it("still leaves a deleted Project when this shell cannot disconnect it", async () => {
+    const user = userEvent.setup();
+    const nativeApi = { state: vi.fn().mockResolvedValue({ available: true, adapters: [], projects: [] }) } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={nativeApi} />);
+    await user.click(screen.getByRole("button", { name: "Open Project settings" }));
+    const settings = screen.getByRole("main", { name: "Settings" });
+    await user.type(await within(settings).findByLabelText("Type Atlas launch to confirm"), "Atlas launch");
+    await user.click(within(settings).getByRole("button", { name: "Delete Project" }));
+    expect(await screen.findByRole("heading", { name: "Orchard mobile" })).toBeTruthy();
+  });
+
+  // A local Project's People screen used to dead-end: it told the member to go
+  // and create a second, shared Project, because moving an existing one was not
+  // possible. Sharing is now the act itself, and the Project keeps its
+  // identifier, its repository, and its agent bindings.
+  it("offers to share a Project that lives only on this Mac", async () => {
+    const user = userEvent.setup();
+    const promoteProject = vi.fn().mockResolvedValue({ projectId: "prj_local", joinCode: "inv_x.y", warnings: [] });
+    const state = { available: true, adapters: [], projects: [{ projectId: fixtureSession.projects[0]!.id, repositoryRoot: "/repo", repositoryLabel: "repo", backendId: "bk_local", kind: "local", apiBaseUrl: "http://127.0.0.1:4321" }] };
+    const nativeApi = { state: vi.fn().mockResolvedValue(state), promoteProject } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={nativeApi} />);
+    await user.click(screen.getByRole("button", { name: "Invite someone to this Project" }));
+    const people = screen.getByRole("main", { name: "People" });
+    const share = await within(people).findByRole("button", { name: "Share this Project" });
+    // The reassurance has to be on screen beside the control, because what a
+    // member weighs here is what they are about to give up.
+    expect(people.textContent).toContain("stays on this Mac");
+    await user.click(share);
+    expect(promoteProject).toHaveBeenCalledWith(fixtureSession.projects[0]!.id);
+  });
+
+  // Only the desktop shell can move a Project - it rewrites this Mac's profile.
+  // A browser tab, or an older signed shell without the method, must describe
+  // the Project honestly rather than offer a control that cannot work.
+  it("does not offer sharing where this shell cannot do it", async () => {
+    const user = userEvent.setup();
+    const state = { available: true, adapters: [], projects: [{ projectId: fixtureSession.projects[0]!.id, repositoryRoot: "/repo", repositoryLabel: "repo", backendId: "bk_local", kind: "local", apiBaseUrl: "http://127.0.0.1:4321" }] };
+    const nativeApi = { state: vi.fn().mockResolvedValue(state) } as unknown as NativeOnboarding;
+    render(<App initialState="ready" source={new FixtureProjectSource()} nativeApi={nativeApi} />);
+    await user.click(screen.getByRole("button", { name: "Invite someone to this Project" }));
+    const people = screen.getByRole("main", { name: "People" });
+    expect(await within(people).findByText(/Overgent desktop app/)).toBeTruthy();
+    expect(within(people).queryByRole("button", { name: "Share this Project" })).toBeNull();
+  });
+
+  // With other people in the Project the control shows them instead of naming
+  // them: faces identify a Project's members faster than any word for them, and
+  // the trailing + says that adding somebody is what the screen behind it does.
+  it("shows the members themselves once there are any", async () => {
+    const user = userEvent.setup();
+    const source = new FixtureProjectSource();
+    const project = fixtureSession.projects[0]!.id;
+    vi.spyOn(source, "getProjectAccess").mockResolvedValue({
+      role: "owner", devices: [], invites: [],
+      members: [
+        { id: "mem_self", name: "Khalid", nameSource: "member", role: "owner", isSelf: true, joinedAt: "2026-01-01T00:00:00Z" },
+        { id: "mem_two", name: "Sam Rivera", nameSource: "member", role: "member", isSelf: false, joinedAt: "2026-01-02T00:00:00Z" },
+      ],
+    });
+    Object.defineProperty(source, "live", { value: true });
+    render(<App initialState="ready" source={source} />);
+    const control = await screen.findByRole("button", { name: /Sam Rivera/ });
+    // The member's initials, not their name spelled out in the toolbar.
+    expect(control.textContent).toContain("SR");
+    expect(control.textContent).not.toContain("People");
+    await user.click(control);
+    expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
+    void project;
   });
 
   it("switches Projects through the command palette", async () => {
@@ -727,8 +836,11 @@ describe("the Project is the only top level", () => {
     // announcing "Invite" to a screen reader either way, and "Sharing" named
     // the wrong control besides: Pause is what starts and stops sharing.
     expect(screen.queryByRole("button", { name: /Sharing/ })).toBeNull();
-    const people = screen.getByRole("button", { name: "Open People for this Project" });
-    expect(people.textContent).toContain("People");
+    // Alone in a Project there is nobody to show and one thing to do, so the
+    // control says so. "People" named the screen rather than the act, and
+    // "Connect" and "Share" are both spoken for elsewhere in the product.
+    const people = screen.getByRole("button", { name: "Invite someone to this Project" });
+    expect(people.textContent).toContain("Invite");
 
     await user.click(people);
     expect(screen.getByRole("heading", { name: "People" })).toBeTruthy();
@@ -997,8 +1109,8 @@ describe("invite join landing", () => {
   it("turns a valid fragment into the join command without transmitting it", async () => {
     const { JoinLanding } = await import("../src/main");
     render(<JoinLanding fragment="inv_49b778cd.sec_ret-42" />);
-    expect(screen.getByRole("heading", { name: /invited to an Overgent Project/i })).toBeTruthy();
-    const command = screen.getByText(/^overgent join /);
+    expect(screen.getByRole("heading", { name: /invited to coordinate on a repository/i })).toBeTruthy();
+    const command = screen.getByText(/^overgent connect /);
     expect(command.textContent).toContain("/join#inv_49b778cd.sec_ret-42");
     expect(screen.getByText(/sends it nowhere/i)).toBeTruthy();
   });
@@ -1007,7 +1119,7 @@ describe("invite join landing", () => {
     const { JoinLanding } = await import("../src/main");
     render(<JoinLanding fragment="" />);
     expect(screen.getByRole("alert").textContent).toContain("incomplete");
-    expect(screen.queryByText(/^overgent join /)).toBeNull();
+    expect(screen.queryByText(/^overgent connect /)).toBeNull();
   });
 });
 

@@ -24,6 +24,7 @@ const atlas = {
   repositoryLabel: "overgent/atlas",
   semanticStatus: "degraded",
   semanticMode: "managed_degraded",
+  intelligence: { structural: "active", embeddings: "provider", judgment: "off", degraded: true },
 } as const;
 
 const orchard = {
@@ -32,6 +33,7 @@ const orchard = {
   repositoryLabel: "overgent/orchard",
   semanticStatus: "disabled",
   semanticMode: "offline_fallback",
+  intelligence: { structural: "active", embeddings: "built_in", judgment: "off", degraded: false },
 } as const;
 
 export const fixtureSession: DashboardSession = {

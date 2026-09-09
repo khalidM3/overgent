@@ -59,7 +59,7 @@ export function AIDefaultsSettings({ api }: { api: AIDefaultsAPI }) {
   if (!form) {
     return <ScreenSection title="Defaults for new Projects">
       {error
-        ? <><p className="form-error" role="alert">These defaults could not be loaded.</p><button className="pill" onClick={() => setAttempt((value) => value + 1)}>Try again</button></>
+        ? <><p className="form-error" role="alert">These defaults could not be loaded.</p><button className="pill solid" onClick={() => setAttempt((value) => value + 1)}>Try again</button></>
         : <p role="status" className="field-note">Loading…</p>}
     </ScreenSection>;
   }

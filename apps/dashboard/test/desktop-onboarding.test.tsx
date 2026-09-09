@@ -41,7 +41,7 @@ describe("local-first entry", () => {
  });
  it("joins by invite and reuses the existing enrollment path", async () => {
   window.history.replaceState(null, "", "/?add=project"); const api = mockAPI(enrolled), user = userEvent.setup(); render(<DesktopOnboarding api={api} navigate={vi.fn()} />);
-  await user.click(await screen.findByRole("button", { name: "Join with an invite" })); await user.type(screen.getByLabelText("Invite code"), "https://coord.example/join#inv_synthetic.secret"); await user.click(screen.getByRole("button", { name: "Choose…" })); await user.click(screen.getByRole("button", { name: "Join Project" }));
+  await user.click(await screen.findByRole("button", { name: "Use an invite" })); await user.type(screen.getByLabelText("Invite code"), "https://coord.example/join#inv_synthetic.secret"); await user.click(screen.getByRole("button", { name: "Choose…" })); await user.click(screen.getByRole("button", { name: "Connect this repository" }));
   expect(api.joinAdditionalProject).toHaveBeenCalledWith(expect.objectContaining({ joinCode: "https://coord.example/join#inv_synthetic.secret" })); expect(api.resetEnrollment).not.toHaveBeenCalled();
  });
  it("keeps optional integration defaults local and respects a disabled agent", async () => {

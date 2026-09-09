@@ -63,6 +63,31 @@ Filled backgrounds are allowed only for:
 - transient hover (`--hover`)
 - a solid primary button (`.pill.solid`)
 
+#### Button weight
+
+There are three weights and they are already in `style.css`; the failure mode is
+not using them. A count of the app in Sep 2026 found 29 outlined pills against
+15 solid ones, with primary and secondary actions wearing the same style — which
+is why the UI read as having no button hierarchy at all rather than as having a
+restrained one.
+
+- **`.pill.solid` — primary.** `--solid` is near-black on a light ground and
+  white on a dark one, with `--onsolid` inverting to match, so this is the one
+  filled control in the app. **One per view**, and it is the thing that view
+  exists to do. A view whose only action is a recovery (`Try again` on an error
+  state) makes that recovery its primary.
+- **`.pill` — secondary.** Outlined. Everything that continues, cancels, opens a
+  place, or picks between equals.
+- **`.text-button` — tertiary.** No border. Dismissing, escaping, and anything
+  that must not compete with the two above.
+
+Colour is orthogonal to weight and never becomes a fill: `.pill.alerting` marks
+a destructive action (`--alert`), `.pill.affirming` a connecting one (`--live`).
+A destructive action must always be `alerting` — `Delete Project` sat outlined
+and unmarked for a release while agent `Disconnect` one screen away was already
+red, which taught the eye that red meant "agents" rather than "this destroys
+something".
+
 The Overgent mark is the open **O** formed by horizontal radar lines in
 `assets/brand/overgent-mark.svg`. It keeps the original scan-line concept while
 using exact mirrored geometry that stays legible at favicon size. In product UI
@@ -85,6 +110,12 @@ recognisable signature of generated UI. Do not add them.
 
 Colour never decorates, never fills a background, and never becomes a badge. It
 marks a fact, in text or in a glyph, and there are two facts worth marking.
+
+ADR-083 adds one narrow exception: the Intelligence layers glyph is a
+three-step capability meter. Its active segments are red at one layer, amber
+at two, and `--live` green at three. The scale is confined to the meter's bars,
+always carries the text `n of 3`, and never colours a sentence, row, surface,
+finding, or severity. No other component inherits this exception.
 
 **`--alert` — this is converging on you, or it is destructive.** The warning
 glyph, the finding's headline sentence, the deterministic evidence row, the count
@@ -705,8 +736,8 @@ more. So the form **is** the detection pipeline, in the order it runs
 
 | Level | What it catches | What it needs |
 |---|---|---|
-| 1 · Overlapping code | Same file, same symbol, a contract that moved under a session that read it | Nothing. Always on |
-| 2 · Related work | Work that overlaps in meaning without overlapping in files | Built-in matching, or an embedding provider |
+| 1 · Core detection | Same file, same symbol, contract drift, and basic related wording | Nothing. Always on |
+| 2 · Embedding depth | Conceptual overlap across different files and wording | An embedding provider |
 | 3 · Judgment | What a candidate means, how certain that is, and whether it interrupts | A model provider |
 
 Level one has no controls and is not a lesser version of the two below it:

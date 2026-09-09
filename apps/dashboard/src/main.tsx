@@ -47,16 +47,17 @@ import { DesktopOnboarding, MacSettings, rememberProject } from "./desktop-onboa
 import { AppearanceChoices } from "./mac-settings";
 import { useTheme } from "./theme";
 import { DesktopAISettings } from "./desktop-ai-settings";
+import { IntelligenceIndicator } from "./intelligence-indicator";
 import { Screen, ScreenNavigationProvider, ScreenSection, useEscape } from "./screen";
 import { NewProjectScreen } from "./new-project";
-import { IdentitySettings, PeopleScreen, SettingsScreen, initialsFor, memberHue } from "./settings";
+import { IdentitySettings, PeopleScreen, SettingsScreen, initialsFor, memberHue, type ProjectTab } from "./settings";
 import { elapsedFromLabel, formatElapsed } from "./elapsed";
-import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectSnapshot, Resolution, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
+import type { AgentVendor, DashboardSession, Finding, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, Resolution, ScopeSnapshot, ScopeSnapshotFact, ScopeSnapshotField, SessionFocus, SessionMessageKind, SessionMessagesSnapshot, ShellState, SyncCard, Workstream } from "./model";
 
 /** How each connected vendor is named in the interface. */
 const VENDOR_LABELS: Readonly<Record<AgentVendor, string>> = { codex: "Codex", claude: "Claude Code", cursor: "Cursor" };
 import { desktopHandoffURL, isDesktopShell, isDesktopWebview, nativeOnboarding, type EnrollmentRequest, type NativeOnboarding } from "./native";
-import { fidelityLabel, semanticMessage, semanticModeMessage, stateMessage } from "./state";
+import { fidelityLabel, stateMessage } from "./state";
 import { VendorMark } from "./vendor-marks";
 import { LandingPage } from "./landing";
 import { decideRoute } from "./routing";
@@ -303,6 +304,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   // it. People is reachable from the toolbar and from inside Settings, and it
   // must not always land in the same place.
   const [screens, setScreens] = useState<ScreenName[]>([]);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<ProjectTab>("project");
   const [projects, setProjects] = useState(session.projects);
   const [macState, setMacState] = useState<import("./native").OnboardingState | null>(null);
   const refreshMac = async () => { const next = await nativeApi.state(); setMacState(next); return next; };
@@ -316,10 +318,15 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const { choice: theme, setChoice: setTheme, dark } = useTheme();
   const [view, setView] = useState<View>("workroom");
   const [identity, setIdentity] = useState<{ name: string; source: MemberNameSource }>({ name: session.memberName, source: session.memberNameSource });
+  // Who is in this Project, kept from the access call the workroom already
+  // makes for the member's own name. The toolbar shows them rather than a word:
+  // faces are the most identifiable thing a toolbar can carry, and "People" was
+  // a label nobody could act on.
+  const [members, setMembers] = useState<ProjectMember[]>([]);
   useEffect(() => {
     if (!source.live) return;
     let active = true;
-    void source.getProjectAccess(projectId).then((access) => { const self = access.members.find((member) => member.isSelf); if (active && self) setIdentity({ name: self.name, source: self.nameSource }); }).catch(() => undefined);
+    void source.getProjectAccess(projectId).then((access) => { const self = access.members.find((member) => member.isSelf); if (!active) return; setMembers(access.members); if (self) setIdentity({ name: self.name, source: self.nameSource }); }).catch(() => undefined);
     return () => { active = false; };
   }, [source, projectId]);
   const [identityPromptDismissed, setIdentityPromptDismissed] = useState(false);
@@ -387,6 +394,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   // returns to the Project. Reached from inside another screen - People from
   // Settings - it stacks, so back returns to where the member actually was.
   const showScreen = (name: ScreenName) => setScreens([name]);
+  const showProjectSettings = (tab: ProjectTab = "project") => { setSettingsInitialTab(tab); showScreen("settings"); };
   const pushScreen = (name: ScreenName) => setScreens((stack) => [...stack, name]);
   const goBack = () => setScreens((stack) => stack.slice(0, -1));
   const previous = screens[screens.length - 2];
@@ -398,7 +406,20 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
   const selectProject = (nextId: string) => { rememberProject(nextId); if (isDesktopWebview) window.history.replaceState(null, "", `/?live=1&project=${encodeURIComponent(nextId)}`); setProjectId(nextId); onProjectChange?.(nextId); setSelection(null); setView("workroom"); setScreens([]); setCommandOpen(false); };
   // Deleting or leaving a Project must actually leave it. Queuing the request
   // and staying put left the member reading a Project they no longer belong to.
+  //
+  // Leaving the screen is only half of it: the deletion happened on the server,
+  // and this Mac had still connected the repository to that Project. Nothing
+  // ever disconnected it, so the Project stayed in this Mac's list, its
+  // repository went on being watched and publishing to a Project that no longer
+  // existed, and connecting that repository to another Project was refused as
+  // already connected. Quitting and reopening the app was the only thing that
+  // cleared the list, and even that left the registration in place. So the
+  // shell is told to forget it here, where "this Project is gone" is known.
+  //
+  // Optional because an older signed desktop shell will not have the method,
+  // and a browser tab has no bridge at all: both still leave the Project.
   const removeProject = (removedId: string) => {
+    void nativeApi.disconnectProject?.(removedId).then(setMacState).catch(() => undefined);
     const remaining = projects.filter((project) => project.id !== removedId);
     setProjects(remaining);
     setScreens([]);
@@ -487,6 +508,7 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
           {sidebarToggle}
           <span className="spacer" />
           {!source.live && <button className="pill" disabled={offline} onClick={() => source.publishSyntheticUpdate(projectId)}><Zap size={14} />Simulate activity</button>}
+          <IntelligenceIndicator projectId={projectId} source={source} onConfigure={() => showProjectSettings("intelligence")} />
           <PauseControl source={source} projectId={projectId} paused={snapshot.workspacePaused} offline={offline} controllable={localPause} />
           {/* Two controls, two jobs, and each named for its own. This button
               used to read "Sharing" on a local Project and "Invite" on a shared
@@ -497,11 +519,11 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
               members, invites, devices, and revocation. It is now named for
               the screen it opens, in every Project, and the conditional that
               made a screen change its name by Project kind is gone. */}
-          <button className="pill" onClick={() => showScreen("people")} aria-label="Open People for this Project"><Users size={14} />People</button>
+          <MembersControl members={members} onOpen={() => showScreen("people")} />
           {/* Theme is a preference set once and it lives in Settings. The
               toolbar is for things you act on while reading this Project, and
               settings closes the row rather than interrupting it. */}
-          <button className="icon-button" onClick={() => showScreen("settings")} aria-label="Open Project settings"><Settings2 size={16} /></button>
+          <button className="icon-button" onClick={() => showProjectSettings()} aria-label="Open Project settings"><Settings2 size={16} /></button>
         </div>
 
         <div className="main-scroll">
@@ -574,8 +596,10 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
     </>}
 
     {screen === "settings" && <SettingsScreen
-      snapshot={snapshot} mac={localProject} projectId={projectId} source={source} offline={offline}
+      key={`${projectId}:${settingsInitialTab}`} snapshot={snapshot} mac={localProject} projectId={projectId} source={source} offline={offline} initialTab={settingsInitialTab}
       backLabel={backLabel} onBack={goBack} onRemoved={() => removeProject(projectId)}
+      promote={nativeApi.promoteProject ? (id: string) => nativeApi.promoteProject!(id) : undefined}
+      onPromoted={() => void refreshMac().catch(() => undefined)}
       intelligence={macState && nativeApi.aiSettings && nativeApi.putAISettings ? <DesktopAISettings key={projectId} api={{ aiSettings: nativeApi.aiSettings, putAISettings: nativeApi.putAISettings, ...(nativeApi.aiDefaults ? { aiDefaults: nativeApi.aiDefaults } : {}) }} projectId={projectId} local={localProject?.kind === "local"} /> : undefined}
       onAppSettings={() => pushScreen("app-settings")}
 
@@ -589,10 +613,12 @@ function ProjectWorkroom({ session, source, offline, nativeApi, navigate, onProj
       <ScreenSection title="Appearance" help="How Overgent looks in this browser."><AppearanceChoices theme={theme} onTheme={setTheme} /></ScreenSection>
       <p className="settings-help">Coding agents and the intelligence new Projects start from are managed in the Overgent desktop app.</p>
     </Screen>)}
-    {screen === "people" && <PeopleScreen local={localProject?.kind === "local"} serverOrigin={localProject?.apiBaseUrl} projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack} />}
+    {screen === "people" && <PeopleScreen local={localProject?.kind === "local"} serverOrigin={localProject?.apiBaseUrl} projectId={projectId} projectName={snapshot.project.name} source={source} offline={offline} backLabel={backLabel} onBack={goBack}
+      promote={nativeApi.promoteProject ? (id: string) => nativeApi.promoteProject!(id) : undefined}
+      onPromoted={() => void refreshMac().catch(() => undefined)} />}
     {screen === "new-project" && <NewProjectScreen api={nativeApi} displayName={identity.source === "member" ? identity.name : ""} navigate={navigate} backLabel={backLabel} onBack={goBack} returnProjectId={projectId} />}
 
-    {commandOpen && <CommandPalette projects={projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); showScreen("settings"); }} onClose={() => setCommandOpen(false)} />}
+    {commandOpen && <CommandPalette projects={projects} selectedProjectId={projectId} onSelectProject={selectProject} onSettings={() => { setCommandOpen(false); showProjectSettings(); }} onClose={() => setCommandOpen(false)} />}
   </div></ScreenNavigationProvider>;
 }
 
@@ -730,7 +756,6 @@ function WorkroomView({ snapshot, mine, mySessions, nearby, needsYou, elsewhere,
     {/* One block answers "is anything about to hit me", and a session of your own
         that has stopped is as much an answer as a collision is. */}
     <div className="block-head lead"><h2>Needs you</h2>{needsYou.length > 0 && <span className="count hot">{needsYou.length}</span>}</div>
-    <SemanticStatus status={snapshot.project.semanticStatus} mode={snapshot.project.semanticMode} />
     {needsYou.length === 0
       ? <p className="block-empty">Nothing is reaching your work right now.</p>
       : needsYou.map((item) => item.kind === "finding"
@@ -1944,18 +1969,6 @@ function plainWords(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-/**
- * Honest fidelity (overgent-v1-spec section 3) requires saying when findings are
- * structural only. Healthy semantic processing is the expected state, so it says
- * nothing; a caveat appears only when one actually applies.
- */
-function SemanticStatus({ status, mode }: { status: ProjectSnapshot["project"]["semanticStatus"]; mode: ProjectSnapshot["project"]["semanticMode"] }) {
-  if (status === "enabled") return null;
-  return <p className="fidelity-note" aria-label="Semantic processing status" title={`${semanticMessage(status)} ${semanticModeMessage(mode)}`}>
-    Structural evidence only — semantic matching is {status}.
-  </p>;
-}
-
 function CommandPalette({ projects, selectedProjectId, onSelectProject, onSettings, onClose }: { projects: DashboardSession["projects"]; selectedProjectId: string; onSelectProject: (id: string) => void; onSettings: () => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1988,6 +2001,43 @@ function activitySourceLabel(fidelity: ProjectSnapshot["activity"][number]["fide
   return fidelity === "structural" ? "structural" : fidelityLabel(fidelity);
 }
 
+/**
+ * Who is in this Project, and the way in to invite somebody else.
+ *
+ * This was a pill saying "People", which named the screen it opened and nothing
+ * a reader could act on. The control now answers the question it is standing in
+ * for, and it has two honest states rather than one vague one: alone in a
+ * Project there is nobody to show and the only thing to do is ask somebody in,
+ * so it says Invite; with members it shows them, because faces identify a
+ * Project's people faster than any word for them does.
+ *
+ * "Connect" and "Share" were the other candidates and both are spoken for -
+ * connecting is what a checkout does to a Project, sharing is what moves a
+ * local Project onto a server - so a third meaning for either would have been
+ * worse than the label being replaced.
+ *
+ * The trailing + is part of the control, not a second one: the whole thing
+ * opens the same screen, and the plus says that adding someone is what happens
+ * there.
+ */
+export function MembersControl({ members, onOpen }: { members: ProjectMember[]; onOpen: () => void }) {
+  // Self last, so a Project's other people are what the eye lands on first, and
+  // capped so a large Project does not push the toolbar around.
+  const others = members.filter((member) => !member.isSelf);
+  const shown = others.slice(0, 3);
+  const overflow = others.length - shown.length;
+  if (others.length === 0) {
+    return <button className="pill" onClick={onOpen} aria-label="Invite someone to this Project"><UserPlus size={14} />Invite</button>;
+  }
+  return <button className="pill member-control" onClick={onOpen} aria-label={`People in this Project: ${others.map((member) => member.name).join(", ")}. Open to invite or manage them.`}>
+    <span className="member-stack" aria-hidden="true">
+      {shown.map((member) => <span key={member.id} className="avatar small" style={{ "--member-hue": memberHue(member.name) } as CSSProperties}>{initialsFor(member.name)}</span>)}
+      {overflow > 0 && <span className="avatar small member-overflow">+{overflow}</span>}
+      <span className="member-add"><Plus size={12} /></span>
+    </span>
+  </button>;
+}
+
 export function DesktopPreviewBanner({ live = false }: { live?: boolean }) {
   return <div className="desktop-preview-banner" role="status"><strong>Overgent Dev</strong><span>{live ? "Local live Project data · menu bar controls available" : "Fixture data · open a live Project from the menu bar"}</span></div>;
 }
@@ -2010,8 +2060,8 @@ export function JoinLanding({ fragment = window.location.hash.slice(1) }: { frag
   if (!valid) {
     return <main className="centered-shell"><Brand /><section className="state-card" role="alert"><span className="state-symbol"><AlertTriangle size={20} /></span><p className="eyebrow">Invite link</p><h1>This invite link is incomplete.</h1><p>The part after <code>#</code> is missing or damaged. Ask whoever invited you to copy the link again from People &rarr; Invite a teammate.</p></section></main>;
   }
-  const command = `overgent join ${window.location.origin}/join#${fragment}`;
-  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="join-title"><span className="state-symbol"><UserPlus size={20} /></span><p className="eyebrow">Project invite</p><h1 id="join-title">You&rsquo;ve been invited to an Overgent Project.</h1><p>Overgent coordinates coding agents working in the same repository. Joining shares session presence and classifier-passing coordination facts &mdash; never source, prompts, or credentials.</p><div className="disclosure"><strong>1. Install Overgent</strong><p>Already installed? Skip ahead. Otherwise run:</p><code>{`curl -fsSL ${window.location.origin}/install.sh | sh`}</code></div><div className="disclosure"><strong>2. Join from your checkout</strong><p>Run this inside the repository this Project coordinates:</p><code>{command}</code></div><button className="pill solid" onClick={() => { void navigator.clipboard?.writeText(command); }}>Copy the command</button><p className="microcopy">This invite is one-use and expires seven days after it was created. The code after # stays in your browser; this page sends it nowhere.</p></section></main>;
+  const command = `overgent connect ${window.location.origin}/join#${fragment}`;
+  return <main className="centered-shell"><Brand /><section className="state-card" aria-labelledby="join-title"><span className="state-symbol"><UserPlus size={20} /></span><p className="eyebrow">Project invite</p><h1 id="join-title">You&rsquo;ve been invited to coordinate on a repository.</h1><p>Overgent coordinates coding agents working in the same repository. You will need your own clone of the repository this Project covers &mdash; the invite makes you a member, and connecting your clone is what starts coordination. It shares session presence and classifier-passing coordination facts &mdash; never source, prompts, or credentials.</p><div className="disclosure"><strong>1. Install Overgent</strong><p>Already installed? Skip ahead. Otherwise run:</p><code>{`curl -fsSL ${window.location.origin}/install.sh | sh`}</code></div><div className="disclosure"><strong>2. Connect your clone</strong><p>Run this inside your checkout of the repository this Project covers:</p><code>{command}</code></div><button className="pill solid" onClick={() => { void navigator.clipboard?.writeText(command); }}>Copy the command</button><p className="microcopy">This invite is one-use and expires seven days after it was created. The code after # stays in your browser; this page sends it nowhere.</p></section></main>;
 }
 
 const root = document.getElementById("root");

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { EMBEDDING_PRESETS, JUDGMENT_PRESETS, PRESETS_CHECKED, endpointFor, presetFor, type ProviderPreset } from "./intelligence-catalog";
 import type { AIDefaultsWrite, AISettingsWrite } from "./native";
 
@@ -15,8 +16,8 @@ import type { AIDefaultsWrite, AISettingsWrite } from "./native";
  * wanting to know what Overgent notices and what it costs to notice more.
  *
  * So the form is the detection pipeline, in the order it actually runs
- * (`coordination-intelligence.md` §4): structural evidence, then related work,
- * then judgment. Level one is stated and has no controls, because it always
+ * (`coordination-intelligence.md` §4): local core evidence, provider-backed
+ * semantic depth, then judgment. Level one is stated and has no controls, because it always
  * runs and configuring it is not a thing anyone can do. Levels two and three
  * carry one picker each and open into fields only once they are switched on,
  * so a member who wants none of it reads three sentences and leaves.
@@ -92,6 +93,7 @@ export function IntelligenceForm({
   const embeddingPreset = pick(EMBEDDING_PRESETS, value.embeddings.provider, value.embeddings.baseUrl, embeddingCustom);
   const judgmentOn = value.judgment.provider !== "none";
   const embeddingsOn = value.embeddings.provider === "openai";
+  const level = 2 + Number(judgmentOn);
 
   const chooseJudgment = (preset: ProviderPreset<IntelligenceWrite["judgment"]["provider"]>) => {
     setJudgmentCustom(Boolean(preset.custom));
@@ -108,21 +110,26 @@ export function IntelligenceForm({
   const blocked = missing ?? hold;
 
   return <fieldset disabled={disabled || pending} className="provider-fields">
+    <div className={`intelligence-form-overview level-${level}`}>
+      <div><strong>Intelligence layers</strong><span>{level} of 3 active</span></div>
+      <span className="intelligence-form-meter" role="img" aria-label={`${level} of 3 intelligence layers active`}>
+        {[1, 2, 3].map((segment) => <i className={segment <= level ? "on" : ""} key={segment} />)}
+      </span>
+      <p>Built-in detection and embedding retrieval are always available. Add model judgment for the fullest conflict analysis.</p>
+    </div>
     <ol className="levels">
       {/* Level one has no controls and is not a lesser version of the two
           below it: it is the part that always runs, and saying so is what
           makes the rest optional rather than load-bearing. */}
-      <Level number={1} title="Overlapping code" state="Always on">
+      <Level number={1} title="Core detection" state="Always on">
         <p className="level-note">
-          Two sessions in the same file or the same symbol, and a contract that changed under a session after it read it.
-          Computed from Git without a model — no provider and no key, and no source code or diffs are ever part of it: only paths, symbol names and hashes.
+          Finds overlapping files and symbols, changed contracts, and basic related wording. It runs without a provider or key, using bounded coordination facts rather than source code or diffs.
         </p>
       </Level>
 
-      <Level number={2} title="Related work" state={embeddingsOn ? embeddingPreset.label : "Built-in"}>
+      <Level number={2} title="Embedding depth" state={embeddingPreset.label}>
         <p className="level-note">
-          Work that overlaps in meaning without overlapping in files — the same capability built twice, a plan that contradicts another.
-          Built-in matching compares text on the machine that stores it. An embedding provider finds looser matches, and reads the summaries to do it.
+          Built-in matching finds related work across different files and wording. Choose a provider to expand its semantic range; it receives bounded coordination summaries, never source or diffs.
         </p>
         <div className="level-controls">
           <Picker label="Embedding provider" presets={EMBEDDING_PRESETS} preset={embeddingPreset} onPick={chooseEmbedding} />
@@ -147,7 +154,7 @@ export function IntelligenceForm({
         </div>
       </Level>
 
-      <Level number={3} title="Judgment" state={judgmentOn ? judgmentPreset.label : "Off"}>
+      <Level number={3} title="Model judgment" state={judgmentOn ? judgmentPreset.label : "Not set"}>
         <p className="level-note">
           A model reads the two summaries and decides what the candidate means: whether it is a real collision, how certain that is, and whether it should interrupt
           you now or wait in the dashboard. It is sent bounded summaries — never source, diffs, or file contents.
@@ -187,7 +194,7 @@ export function IntelligenceForm({
  *  ranking of importance. */
 function Level({ number, title, state, children }: { number: number; title: string; state: string; children: ReactNode }) {
   return <li className="level">
-    <span className="level-mark" aria-hidden="true">{number}</span>
+    <span className="level-mark" aria-hidden="true">L{number}</span>
     <div className="level-body">
       <div className="level-head"><h3>{title}</h3><span className="level-state">{state}</span></div>
       {children}
@@ -203,9 +210,12 @@ function Picker<Provider extends string>({ label, presets, preset, onPick }: {
 }) {
   return <>
     <label className="field"><span>{label}</span>
-      <select value={preset.id} onChange={(event) => onPick(presets.find((entry) => entry.id === event.target.value) ?? presets[0]!)}>
-        {presets.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
-      </select>
+      <span className="select-shell">
+        <select value={preset.id} onChange={(event) => onPick(presets.find((entry) => entry.id === event.target.value) ?? presets[0]!)}>
+          {presets.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+        </select>
+        <ChevronDown size={16} aria-hidden="true" />
+      </span>
     </label>
     {preset.note && <p className="field-note">{preset.note}</p>}
   </>;
@@ -239,14 +249,17 @@ function ModelField({ label, preset, value, onChange }: { label: string; preset:
             onChange={(event) => onChange(event.target.value)} />
         </label>
       : <label className="field"><span>{label}</span>
-          <select value={known ? value.trim() : ""} onChange={(event) => {
-            if (event.target.value === "__other") { setTyping(true); onChange(""); return; }
-            onChange(event.target.value);
-          }}>
-            <option value="" disabled>Choose a model</option>
-            {preset.models.map((model) => <option key={model} value={model}>{model}</option>)}
-            <option value="__other">Other model…</option>
-          </select>
+          <span className="select-shell">
+            <select value={known ? value.trim() : ""} onChange={(event) => {
+              if (event.target.value === "__other") { setTyping(true); onChange(""); return; }
+              onChange(event.target.value);
+            }}>
+              <option value="" disabled>Choose a model</option>
+              {preset.models.map((model) => <option key={model} value={model}>{model}</option>)}
+              <option value="__other">Other model…</option>
+            </select>
+            <ChevronDown size={16} aria-hidden="true" />
+          </span>
         </label>}
     <p className="field-note">
       {preset.models.length > 0
@@ -326,8 +339,8 @@ function incomplete(value: IntelligenceWrite, judgment: ProviderPreset<string>, 
     if (!value.judgment.model.trim()) return "Judgment needs a model before it can be saved.";
   }
   if (value.embeddings.provider === "openai") {
-    if (embeddings.custom && !value.embeddings.baseUrl?.trim()) return "Related work needs the server’s address before it can be saved.";
-    if (!value.embeddings.model.trim()) return "Related work needs an embedding model before it can be saved.";
+    if (embeddings.custom && !value.embeddings.baseUrl?.trim()) return "Embedding depth needs the server’s address before it can be saved.";
+    if (!value.embeddings.model.trim()) return "Embedding depth needs an embedding model before it can be saved.";
   }
   return null;
 }

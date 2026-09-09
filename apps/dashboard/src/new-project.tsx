@@ -129,7 +129,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   };
 
   if (bridge === "probing") {
-    return <Screen title={joining ? "Join a Project" : "Open a repository"} backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Overgent service on your Mac.">
+    return <Screen title={joining ? "Connect to a Project" : "Open a repository"} backLabel={backLabel} onBack={onBack} lede="Checking whether this window can reach the Overgent service on your Mac.">
       <div className="screen-actions" role="status"><span className="spinner" aria-hidden="true" /><span className="settings-help">Checking this Mac…</span></div>
     </Screen>;
   }
@@ -138,7 +138,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
 
   if (created) {
     return <Screen
-      title={joining ? "You’re in." : `${request.projectLabel} is ready.`}
+      title={joining ? "Connected." : `${request.projectLabel} is ready.`}
       sub={request.repositoryRoot}
       backLabel={backLabel}
       onBack={onBack}
@@ -162,20 +162,20 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
   }
 
   return <Screen
-    title={joining ? "Join a Project" : "Open a repository"}
+    title={joining ? "Connect to a Project" : "Open a repository"}
     backLabel={backLabel}
     onBack={onBack}
     lede={joining
-      ? "Paste your invite and choose your checkout. Your code stays on this Mac."
+      ? "An invite makes you a member. Coordination starts once you point Overgent at your own clone of the same repository — that is what the two fields below are. Your code stays on this Mac."
       : "Coordinate the agent sessions in your repository. No account required."}
   >
     {onMode && <nav className="settings-tabs" aria-label="Add Project options">
       <button className="text-button" aria-current={!joining ? "page" : undefined} onClick={() => onMode("create")}>Open a repository</button>
-      <button className="text-button" aria-current={joining ? "page" : undefined} onClick={() => onMode("join")}>Join with an invite</button>
+      <button className="text-button" aria-current={joining ? "page" : undefined} onClick={() => onMode("join")}>Use an invite</button>
     </nav>}
     <form onSubmit={(event) => void submit(event)}>
       <div className="screen-form">
-        {joining && <label><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="Paste an invite link or code" autoComplete="off" /></label>}
+        {joining && <label><span>Invite code</span><input value={request.joinCode} onChange={(event) => setRequest({ ...request, joinCode: event.target.value })} placeholder="Paste the invite link or code you were sent" autoComplete="off" /></label>}
         <label><span>Repository</span><div className="repository-picker"><input readOnly value={request.repositoryRoot} placeholder="Choose a local Git repository" /><button ref={chooseRef} type="button" className="pill" onClick={() => void chooseRepository()}>Choose…</button></div></label>
         {!joining && <details className="field-advanced"><summary>Project name</summary><label><span>Name</span><input value={request.projectLabel} maxLength={120} onChange={(event) => setRequest({ ...request, projectLabel: event.target.value })} placeholder="Repository name" /></label></details>}
         {(joining || !local) && <label><span>Your name</span><input value={request.displayName} maxLength={60} placeholder="How collaborators see you" onChange={(event) => setRequest({ ...request, displayName: event.target.value })} /></label>}
@@ -205,7 +205,7 @@ export function NewProjectScreen({ api, displayName, navigate, backLabel, onBack
         <p className="field-note">Opening connects the selected agents and starts background observation for this repository.</p>
         {local && !canRunLocal && <p className="form-warning" role="status">Local coordination is unavailable in this build. Install a build with local support, or explicitly choose a shared Project above.</p>}
         <div className="screen-actions">
-          <button className="pill solid" disabled={pending || (local && !canRunLocal) || !request.repositoryRoot || (joining ? !request.joinCode.trim() : !request.projectLabel.trim())}>{pending ? (joining ? "Joining…" : "Creating…") : (joining ? "Join Project" : local ? "Open Project" : "Create shared Project")}</button>
+          <button className="pill solid" disabled={pending || (local && !canRunLocal) || !request.repositoryRoot || (joining ? !request.joinCode.trim() : !request.projectLabel.trim())}>{pending ? (joining ? "Connecting…" : "Creating…") : (joining ? "Connect this repository" : local ? "Open Project" : "Create shared Project")}</button>
           <button className="pill" type="button" onClick={onBack}>Cancel</button>
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}

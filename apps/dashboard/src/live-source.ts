@@ -1,6 +1,7 @@
 import { FixtureProjectSource } from "./fixture-source";
 import { isDesktopWebview, nativeOnboarding } from "./native";
-import type { CollaborationSnapshot, DashboardSession, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, SessionFocus, SessionMessagesSnapshot } from "./model";
+import type { CollaborationSnapshot, DashboardSession, FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectIntelligence, ProjectMember, ProjectSnapshot, SessionFocus, SessionMessagesSnapshot } from "./model";
+import type { AISettings } from "./native";
 
 const prefix = import.meta.env.VITE_OVERGENT_API_PREFIX ?? "/api/v1";
 
@@ -61,6 +62,17 @@ export class LiveProjectSource extends FixtureProjectSource {
   constructor(initial: ProjectSnapshot[], onStatus: (status: "ready" | "offline" | "unauthorized" | "version_mismatch") => void = () => undefined) {
     super(initial);
     this.onStatus = onStatus;
+  }
+
+  override async getProjectIntelligence(projectId: string): Promise<ProjectIntelligence> {
+    // AI settings have a dedicated native method. Sending this through the
+    // generic dashboard bridge is rejected by design because that bridge does
+    // not carry credential-administration routes. The browser uses the same
+    // redacted, cookie-authorized GET directly.
+    const settings = isDesktopWebview
+      ? await nativeOnboarding.aiSettings(projectId)
+      : await request<AISettings>(`/projects/${encodeURIComponent(projectId)}/ai-settings`, undefined, projectId);
+    return intelligenceFromSettings(settings, this.get(projectId).project.semanticStatus === "degraded");
   }
 
   start(projectId: string): () => void {
@@ -210,4 +222,13 @@ export class LiveProjectSource extends FixtureProjectSource {
   override async getSessionMessages(workstreamId: string): Promise<SessionMessagesSnapshot> {
     return request<SessionMessagesSnapshot>(`/workstreams/${encodeURIComponent(workstreamId)}/session-sharing`);
   }
+}
+
+export function intelligenceFromSettings(settings: AISettings, degraded = false): ProjectIntelligence {
+  return {
+    structural: "active",
+    embeddings: settings.effective.embeddings === "deterministic" ? "built_in" : "provider",
+    judgment: settings.effective.judgment === "none" ? "off" : "active",
+    degraded,
+  };
 }

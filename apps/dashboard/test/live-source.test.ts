@@ -1,9 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LiveProjectSource, loadSession } from "../src/live-source";
+import { LiveProjectSource, intelligenceFromSettings, loadSession } from "../src/live-source";
+import type { AISettings } from "../src/native";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("live dashboard transport", () => {
+  it("derives intelligence depth from effective providers without exposing keys", () => {
+    const settings: AISettings = {
+      judgment: { provider: "anthropic", model: "claude", baseUrl: null, keyConfigured: true, keyHint: "1234" },
+      embeddings: { provider: "openai", model: "embed", dimensions: 1024, baseUrl: null, keyConfigured: true, keyHint: "5678" },
+      effective: { judgment: "operator", embeddings: "project" }, revision: 1, updatedAt: "2026-09-08T00:00:00Z",
+    };
+    expect(intelligenceFromSettings(settings, true)).toEqual({ structural: "active", embeddings: "provider", judgment: "active", degraded: true });
+  });
+
+  it("counts the deterministic concept provider as built-in embedding depth", () => {
+    const settings: AISettings = {
+      judgment: { provider: "none", model: "none", baseUrl: null, keyConfigured: false, keyHint: null },
+      embeddings: { provider: "deterministic", model: "overgent-concepts/v1", dimensions: 1024, baseUrl: null, keyConfigured: false, keyHint: null },
+      effective: { judgment: "none", embeddings: "deterministic" }, revision: 1, updatedAt: "2026-09-08T00:00:00Z",
+    };
+    expect(intelligenceFromSettings(settings)).toEqual({ structural: "active", embeddings: "built_in", judgment: "off", degraded: false });
+  });
+
   it("loads the authorized session with the HTTP-only cookie boundary", async () => {
     const session = { memberName: "Synthetic member", projects: [], selectedProjectId: "" };
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify(session), { status: 200, headers: { "content-type": "application/json" } }));

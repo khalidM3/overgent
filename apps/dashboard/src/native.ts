@@ -267,6 +267,16 @@ export const nativeOnboarding = {
   // question about the invite's backend, and the flow answers it.
   joinAdditionalProject: (request: EnrollmentRequest) => call<EnrollmentResult>("JoinAdditionalProject", request),
   exportProject: (projectId: string) => call<void>("ExportProject", projectId),
+  // Forgetting a Project on this Mac: its repositories stop being watched and
+  // stop publishing, and they are free to be connected somewhere else. It
+  // changes nothing on the server, so it is safe to call after a deletion the
+  // server has already accepted, and it is the local half of that deletion.
+  disconnectProject: (projectId: string) => call<OnboardingState>("DisconnectProject", projectId),
+  // Moving a local Project onto a shared server so somebody else can be in it.
+  // The Project keeps its identifier, its repository, and its agent bindings;
+  // its coordination history stays on this Mac. The returned join code is the
+  // invite the member promoted it in order to send.
+  promoteProject: (projectId: string, serverOrigin = "", displayName = "") => call<EnrollmentResult>("PromoteProject", projectId, serverOrigin, displayName),
   disconnectAgent: (vendor: AgentVendor) => call<void>("DisconnectAgent", vendor),
   configureAdapters: (root: string, codex: boolean, claude: boolean, cursor: boolean) => call<AdapterState[]>("ConfigureAdapters", root, codex, claude, cursor),
   reconnectAdapter: (root: string, agent: AgentVendor) => call<AdapterState>("ReconnectAdapter", root, agent),
@@ -289,8 +299,10 @@ export const nativeOnboarding = {
 
 // Optional on the interface so older signed desktop shells degrade by omitting
 // the action instead of making the rest of onboarding unusable during update.
-export type NativeOnboarding = Omit<typeof nativeOnboarding, "exportProject" | "disconnectAgent" | "dashboardRequest" | "openOwningSession" | "aiSettings" | "putAISettings" | "aiDefaults" | "putAIDefaults" | "recheckState"> & {
+export type NativeOnboarding = Omit<typeof nativeOnboarding, "exportProject" | "disconnectProject" | "promoteProject" | "disconnectAgent" | "dashboardRequest" | "openOwningSession" | "aiSettings" | "putAISettings" | "aiDefaults" | "putAIDefaults" | "recheckState"> & {
   exportProject?: typeof nativeOnboarding.exportProject;
+  disconnectProject?: typeof nativeOnboarding.disconnectProject;
+  promoteProject?: typeof nativeOnboarding.promoteProject;
   disconnectAgent?: typeof nativeOnboarding.disconnectAgent;
   dashboardRequest?: typeof nativeOnboarding.dashboardRequest;
   openOwningSession?: typeof nativeOnboarding.openOwningSession;

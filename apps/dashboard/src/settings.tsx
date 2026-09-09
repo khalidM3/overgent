@@ -38,7 +38,7 @@ export function memberHue(name: string): number {
 }
 
 const projectTabs = ["project", "people", "intelligence", "data"] as const;
-type ProjectTab = typeof projectTabs[number];
+export type ProjectTab = typeof projectTabs[number];
 const projectTabLabel: Record<ProjectTab, string> = { project: "Project", people: "People", intelligence: "Intelligence", data: "Data" };
 
 /**
@@ -61,8 +61,9 @@ const projectTabLabel: Record<ProjectTab, string> = { project: "Project", people
  * and moves to the next one rather than leaving the member inside a Project
  * they no longer belong to.
  */
-export function SettingsScreen({ snapshot, mac, projectId, source, offline, backLabel, onBack, onRemoved, intelligence, onAppSettings }: {
+export function SettingsScreen({ snapshot, mac, projectId, source, offline, backLabel, onBack, onRemoved, intelligence, onAppSettings, promote, onPromoted, initialTab = "project" }: {
   intelligence?: ReactNode;
+  initialTab?: ProjectTab;
   onAppSettings?: () => void;
   snapshot: ProjectSnapshot;
   /** What this Mac knows about the Project: where its checkout is, and which
@@ -74,8 +75,11 @@ export function SettingsScreen({ snapshot, mac, projectId, source, offline, back
   backLabel: string;
   onBack: () => void;
   onRemoved: () => void;
+  /** Move a Project that lives on this Mac onto a shared server. */
+  promote?: (projectId: string) => Promise<unknown>;
+  onPromoted?: () => void;
 }) {
-  const [tab, setTab] = useState<ProjectTab>("project");
+  const [tab, setTab] = useState<ProjectTab>(initialTab);
   const [access, setAccess] = useState<ProjectAccess | null>(null);
   const [adminError, setAdminError] = useState("");
   const [adminPending, setAdminPending] = useState(false);
@@ -139,14 +143,14 @@ export function SettingsScreen({ snapshot, mac, projectId, source, offline, back
       {access?.role === "owner" && <ScreenSection danger title="Delete Project" help="Deletion immediately revokes Project sessions and invites, then removes retained hosted records in bounded batches.">
         <div className="screen-form">
           <label><span>Type {snapshot.project.name} to confirm</span><input value={deleteDraft} onChange={(event) => setDeleteDraft(event.target.value)} /></label>
-          <button className="pill" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteProject(projectId).then(() => { setDeletionQueued(true); onRemoved(); }).catch(() => setAdminError("Project deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Delete Project"}</button>
+          <button className="pill alerting" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteProject(projectId).then(() => { setDeletionQueued(true); onRemoved(); }).catch(() => setAdminError("Project deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Delete Project"}</button>
         </div>
       </ScreenSection>}
 
       {access?.role === "member" && <ScreenSection danger title="Leave and delete my data" help="This immediately removes your Project access and schedules deletion of your retained work records.">
         <div className="screen-form">
           <label><span>Type {snapshot.project.name} to confirm</span><input value={deleteDraft} onChange={(event) => setDeleteDraft(event.target.value)} /></label>
-          <button className="pill" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteOwnProjectData(projectId).then(() => { setDeletionQueued(true); onRemoved(); }).catch(() => setAdminError("Your data deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Leave and delete my data"}</button>
+          <button className="pill alerting" disabled={adminPending || offline || deleteDraft !== snapshot.project.name || deletionQueued} onClick={() => { setAdminPending(true); setAdminError(""); void source.deleteOwnProjectData(projectId).then(() => { setDeletionQueued(true); onRemoved(); }).catch(() => setAdminError("Your data deletion could not be started.")).finally(() => setAdminPending(false)); }}>{deletionQueued ? "Deletion queued" : "Leave and delete my data"}</button>
         </div>
       </ScreenSection>}
     </>}
@@ -155,7 +159,7 @@ export function SettingsScreen({ snapshot, mac, projectId, source, offline, back
         component. Reaching members from the toolbar and from Settings was
         always meant to reach one implementation. */}
     {tab === "people" && <>
-      <PeopleSections projectId={projectId} source={source} offline={offline} local={local} serverOrigin={mac && !local ? mac.apiBaseUrl : undefined} access={access} onChanged={refreshAccess} onError={setAdminError} />
+      <PeopleSections projectId={projectId} source={source} offline={offline} local={local} serverOrigin={mac && !local ? mac.apiBaseUrl : undefined} access={access} onChanged={refreshAccess} onError={setAdminError} promote={promote} onPromoted={onPromoted} />
       <ScreenSection title="Devices & security" help="Device names identify hardware for revocation and audit only; they are never shown as your live-work identity. Revoking a device immediately ends its Project access.">
         <div className="screen-rows">{devices}</div>
       </ScreenSection>
@@ -252,7 +256,7 @@ export function IdentitySettings({ identity, projects, source, offline, onIdenti
  *
  * The caller owns the access snapshot, because it usually already has one.
  */
-export function PeopleSections({ projectId, source, offline, local = false, serverOrigin, access, onChanged, onError }: {
+export function PeopleSections({ projectId, source, offline, local = false, serverOrigin, access, onChanged, onError, promote, onPromoted }: {
   projectId: string;
   source: FixtureProjectSource;
   offline: boolean;
@@ -261,10 +265,21 @@ export function PeopleSections({ projectId, source, offline, local = false, serv
   access: ProjectAccess | null;
   onChanged: () => Promise<unknown> | void;
   onError: (message: string) => void;
+  /**
+   * Move this Project onto a shared server so somebody else can be in it.
+   *
+   * Optional because only the desktop shell can do it - it rewrites this Mac's
+   * profile - and because an older signed shell will not have the method. Where
+   * it is absent the Project stays honestly described as private rather than
+   * offering a control that cannot work.
+   */
+  promote?: (projectId: string) => Promise<unknown>;
+  onPromoted?: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
   // A link is only useful if its origin is one a teammate can open. The
   // dashboard is served from the origin that serves this Project's /v1 - the
   // hosted deployment, a self-hosted one, or, for a Project that lives on this
@@ -284,7 +299,27 @@ export function PeopleSections({ projectId, source, offline, local = false, serv
 
   return <>
     {local
-      ? <ScreenSection title="Private to this Mac" help="This Project’s coordination and history are stored here. A local invite cannot connect another Mac."><p className="settings-help">For remote collaboration, create a shared Project from Open a repository → Collaborate remotely. Automatic transfer of an existing local Project is not available yet; its history and provider keys stay here.</p></ScreenSection>
+      ? <ScreenSection title="Private to this Mac" help="This Project’s coordination lives here, and an invite to it names an address only this Mac can open. Sharing it moves the Project to a server you and your collaborators can both reach.">
+          {/* This used to be a paragraph telling the member to go and create a
+              second Project, because moving an existing one was not possible.
+              It is now the one thing they came here to do. The Project keeps
+              its identifier, its repository, and its agent bindings; only the
+              server underneath it changes. */}
+          {promote && owner
+            ? <><p className="settings-help">Your repository, your agent connections, and this Project’s name all stay exactly as they are. What was recorded while the Project was private stays on this Mac — collaborators see coordination from the point you share onward.</p>
+              <div className="screen-actions">
+                <button className="pill solid" disabled={sharing || offline} onClick={() => {
+                  setSharing(true);
+                  void promote(projectId)
+                    .then(() => onPromoted?.())
+                    .catch((error: Error) => onError(error?.message || "This Project could not be shared."))
+                    .finally(() => setSharing(false));
+                }}>{sharing ? "Sharing…" : "Share this Project"}</button>
+              </div></>
+            : <p className="settings-help">{owner
+                ? "Sharing an existing Project is done from the Overgent desktop app."
+                : "Only the Project owner can share this Project."}</p>}
+        </ScreenSection>
       : <ScreenSection title="Invite a teammate" help="An invite is a one-use link that expires in seven days and can be revoked below. Whoever opens it becomes a member and can see classifier-passing coordination facts while sharing is unpaused.">
           <div className="screen-actions">
             {owner
@@ -332,7 +367,7 @@ export function PeopleSections({ projectId, source, offline, local = false, serv
  * Adding a teammate should never require hunting through Settings, which is
  * why this entry point exists at all.
  */
-export function PeopleScreen({ projectId, projectName, source, offline, backLabel, onBack, local = false, serverOrigin }: {
+export function PeopleScreen({ projectId, projectName, source, offline, backLabel, onBack, local = false, serverOrigin, promote, onPromoted }: {
   projectId: string;
   projectName: string;
   local?: boolean;
@@ -341,6 +376,9 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   offline: boolean;
   backLabel: string;
   onBack: () => void;
+  /** Move a Project that lives on this Mac onto a shared server. */
+  promote?: (projectId: string) => Promise<unknown>;
+  onPromoted?: () => void;
 }) {
   const [access, setAccess] = useState<ProjectAccess | null>(null);
   const [error, setError] = useState("");
@@ -348,7 +386,7 @@ export function PeopleScreen({ projectId, projectName, source, offline, backLabe
   useEffect(() => { void refresh(); }, [projectId]);
 
   return <Screen title="People" sub={projectName} backLabel={backLabel} onBack={onBack} lede="Everyone who can see this Project's coordination facts, and the one-use invite links that let someone in.">
-    <PeopleSections projectId={projectId} source={source} offline={offline} local={local} serverOrigin={serverOrigin} access={access} onChanged={refresh} onError={setError} />
+    <PeopleSections projectId={projectId} source={source} offline={offline} local={local} serverOrigin={serverOrigin} access={access} onChanged={refresh} onError={setError} promote={promote} onPromoted={onPromoted} />
     {error && <p className="form-error" role="alert">{error}</p>}
   </Screen>;
 }

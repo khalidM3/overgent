@@ -176,7 +176,7 @@ function AgentRow({ adapter, pending, canDisconnect, connectable, onConnect, onD
     <span className="agent-action">
       {connectNow && <button className="pill affirming" disabled={pending} onClick={() => onConnect(vendor)}>Connect</button>}
       {adapter.configured && canDisconnect && <button className="pill alerting" disabled={pending} onClick={() => onDisconnect(vendor)}>Disconnect</button>}
-      {adapter.reconnectAllowed && <button className="pill" disabled={pending} onClick={() => onReconnect(vendor)}>Reconnect</button>}
+      {adapter.reconnectAllowed && <button className="pill affirming" disabled={pending} onClick={() => onReconnect(vendor)}>Reconnect</button>}
     </span>
   </div>;
 }

@@ -56,6 +56,9 @@
   --ink-3:   #98988f;
   --alert:   #c43d14;
   --live:    #1c6b40;
+  --intelligence-low:  #b9342f;
+  --intelligence-mid:  #bf7410;
+  --intelligence-full: var(--live);
   --solid:   #0e0e0e;
   --onsolid: #ffffff;
 
@@ -101,6 +104,9 @@
     --ink-3:   #6c6c69;
     --alert:   #ff7a4d;
     --live:    #5fcf93;
+    --intelligence-low:  #ff7068;
+    --intelligence-mid:  #eda43a;
+    --intelligence-full: var(--live);
     --solid:   #ffffff;
     --onsolid: #0a0a0a;
     --claude-mark: #d98668;
@@ -121,6 +127,9 @@
   --ink-3:   #6c6c69;
   --alert:   #ff7a4d;
   --live:    #5fcf93;
+  --intelligence-low:  #ff7068;
+  --intelligence-mid:  #eda43a;
+  --intelligence-full: var(--live);
   --solid:   #ffffff;
   --onsolid: #0a0a0a;
   --claude-mark: #d98668;
@@ -272,6 +281,23 @@ html[data-desktop-shell="true"][data-desktop-preview="true"] .side-top { padding
   background: hsl(var(--member-hue, 0) var(--member-sat) var(--member-bg-l));
 }
 .avatar.small { width: 21px; height: 21px; font-size: 9px; border-radius: 7px; }
+
+/* The toolbar's members control. The stack overlaps so it reads as one object
+   rather than a row of separate marks, and each keycap carries a ring in the
+   page ground so the overlap stays legible instead of muddying into a blob.
+   The trailing + is the same size and shape as a keycap, outlined rather than
+   filled, because it is the empty seat rather than a person. */
+.member-control { padding: 4px 8px 4px 6px; gap: 0; }
+.member-stack { display: inline-flex; align-items: center; }
+.member-stack > * { margin-left: -6px; box-shadow: 0 0 0 2px var(--bg); }
+.member-stack > :first-child { margin-left: 0; }
+.avatar.small.member-overflow { color: var(--ink-2); background: var(--hover); font-size: 9px; }
+.member-add {
+  width: 21px; height: 21px; flex: 0 0 auto; display: grid; place-items: center;
+  border-radius: 7px; color: var(--ink-3);
+  box-shadow: 0 0 0 2px var(--bg), inset 0 0 0 1px var(--line);
+}
+.member-control:hover:not(:disabled) .member-add { color: var(--ink); }
 .avatar.large { width: 38px; height: 38px; font-size: 14px; border-radius: 12px; }
 /* With no hue set the chip falls back to the neutral it always was. */
 .avatar:not([style*="--member-hue"]) { color: var(--ink-2); background: none; box-shadow: inset 0 0 0 1px var(--line); }
@@ -285,6 +311,54 @@ html[data-desktop-shell="true"][data-desktop-preview="true"] .side-top { padding
 .workroom-main { grid-column: 2; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
 .main-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 12px 22px; }
 .main-bar .spacer { flex: 1; }
+
+/* Intelligence depth is the one deliberate three-colour scale in the product.
+   It lives only in this compact capability glyph: red means only the offline
+   core, amber means embedding retrieval is present, and green means all
+   three layers are available. Text and surfaces stay neutral, so these colours
+   cannot be mistaken for finding severity or identity (ADR-083). */
+.intelligence-control { position: relative; flex: 0 0 auto; }
+.intelligence-trigger {
+  position: relative; min-width: 154px; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px;
+  padding: 6px 4px 7px; border: 0; border-radius: 7px;
+  text-align: left;
+}
+.intelligence-trigger:hover, .intelligence-trigger[aria-expanded="true"] { color: var(--ink); }
+.intelligence-trigger-head { display: contents; }
+.intelligence-trigger-head strong { font-size: 12px; font-weight: 680; line-height: 1.1; }
+.intelligence-trigger-head > span { color: var(--ink-3); font-size: 10.5px; font-weight: 650; line-height: 1.1; text-align: right; white-space: nowrap; }
+.intelligence-meter { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: 100%; }
+.intelligence-meter i { height: 6px; border-radius: 3px; background: var(--line); }
+.intelligence-meter.level-1 i.on { background: var(--intelligence-low); }
+.intelligence-meter.level-2 i.on { background: var(--intelligence-mid); }
+.intelligence-meter.level-3 i.on { background: var(--intelligence-full); }
+.intelligence-meter-loading { grid-column: 1 / -1; display: block; width: 100%; height: 6px; overflow: hidden; border-radius: 3px; background: var(--line); }
+.intelligence-meter-loading i { display: block; width: 42%; height: 100%; border-radius: inherit; background: var(--ink-3); animation: intelligence-loading 1.05s ease-in-out infinite; }
+@keyframes intelligence-loading {
+  0% { transform: translateX(-105%); opacity: .45; }
+  50% { opacity: .8; }
+  100% { transform: translateX(340%); opacity: .45; }
+}
+@media (prefers-reduced-motion: reduce) { .intelligence-meter-loading i { animation: none; width: 100%; opacity: .55; } }
+.intelligence-popover {
+  position: absolute; z-index: 30; top: calc(100% + 7px); right: 0; width: 370px;
+  padding: 6px 15px 13px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel); box-shadow: 0 16px 45px rgb(0 0 0 / .14);
+}
+.intelligence-popover > header { display: flex; align-items: baseline; gap: 12px; padding: 10px 0 8px; }
+.intelligence-popover > header strong { font-size: 14.5px; }
+.intelligence-popover > header span { margin-left: auto; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+.intelligence-degraded { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 0; border-top: 1px solid var(--line); color: var(--alert); font-size: 12px; line-height: 1.45; }
+.intelligence-degraded svg { flex: 0 0 auto; margin-top: 2px; }
+.intelligence-layer { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.intelligence-layer-number { padding-top: 2px; color: var(--ink-3); font-family: var(--mono); font-size: 9.5px; font-weight: 650; letter-spacing: .04em; }
+.intelligence-layer strong { display: block; font-size: 13px; font-weight: 650; }
+.intelligence-layer small { display: block; margin-top: 3px; color: var(--ink-2); font-size: 11.5px; line-height: 1.42; }
+.intelligence-layer-state { color: var(--ink-2); font-size: 11.5px; font-weight: 620; white-space: nowrap; }
+.intelligence-layer-state.active { color: var(--live); }
+.intelligence-configure { width: 100%; padding: 8px 0 1px; color: var(--ink); font-size: 12.5px; font-weight: 650; text-align: left; }
+.intelligence-configure:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
@@ -1083,26 +1157,44 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .identity-preview strong { display: block; font-size: 14.5px; font-weight: 650; }
 .identity-preview small { display: block; margin-top: 2px; color: var(--ink-3); font-size: 12px; }
 
-/* The intelligence form, which reads as the detection pipeline rather than as
-   a stack of fields. Each level is a rung: a number in the gutter, a title, the
-   provider it is set to on the trailing edge, and its controls indented under
-   it. Hairlines separate the rungs - no cards, no tinted panels. */
-.levels { list-style: none; margin: 14px 0 0; padding: 0; }
-.level { display: grid; grid-template-columns: var(--row-icon, 22px) minmax(0, 1fr); gap: var(--row-gap, 12px); padding: 16px 0; border-top: 1px solid var(--line); }
-.level:first-child { border-top: 0; padding-top: 4px; }
-.level-mark { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
-.level-body { min-width: 0; display: grid; gap: 7px; }
-.level-head { display: flex; align-items: baseline; gap: 12px; }
-.level-head h3 { margin: 0; font-size: 14.5px; font-weight: 650; }
+/* The shared Project/defaults form starts with the same capability readout as
+   the toolbar, then opens each layer into its controls. It stays a sequence of
+   hairlines and space rather than turning settings into stacked cards. */
+.intelligence-form-overview { display: grid; gap: 10px; max-width: 560px; padding: 4px 0 22px; }
+.intelligence-form-overview > div { display: flex; align-items: baseline; gap: 12px; }
+.intelligence-form-overview strong { font-size: 15px; font-weight: 680; }
+.intelligence-form-overview > div span { margin-left: auto; color: var(--ink-3); font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; }
+.intelligence-form-overview p { max-width: 58ch; margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+.intelligence-form-meter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.intelligence-form-meter i { height: 8px; border-radius: 4px; background: var(--line); }
+.intelligence-form-overview.level-1 .intelligence-form-meter i.on { background: var(--intelligence-low); }
+.intelligence-form-overview.level-2 .intelligence-form-meter i.on { background: var(--intelligence-mid); }
+.intelligence-form-overview.level-3 .intelligence-form-meter i.on { background: var(--intelligence-full); }
+.levels { list-style: none; margin: 0; padding: 0; max-width: 640px; }
+.level { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; padding: 24px 0 26px; border-top: 1px solid var(--line); }
+.level-mark { padding-top: 3px; color: var(--ink-3); font-family: var(--mono); font-size: 10px; font-weight: 650; letter-spacing: .05em; }
+.level-body { min-width: 0; display: grid; gap: 9px; }
+.level-head { display: flex; align-items: baseline; gap: 16px; }
+.level-head h3 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: -.015em; }
 /* What this level is set to, on the trailing edge: the answer to "what is on"
    without opening anything. Type carries it - never a badge. */
-.level-state { margin-left: auto; color: var(--ink-2); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
-.level-note { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13px; line-height: 1.55; }
-/* A model ID and a key are short strings; a field the full width of the column
-   reads as a text area and makes the level look emptier than it is. */
-.level-controls { display: grid; gap: 5px; margin-top: 4px; max-width: 430px; }
-.level-controls > .field { margin-top: 11px; }
+.level-state { margin-left: auto; color: var(--ink-2); font-size: 12px; font-weight: 620; white-space: nowrap; }
+.level-note { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
+.level-controls { display: grid; gap: 8px; margin-top: 8px; max-width: 520px; }
+.level-controls > .field { margin-top: 14px; }
 .level-controls > .field:first-child { margin-top: 0; }
+
+/* Native selects keep keyboard and platform menu behavior, while the closed
+   control has a deliberate shape, spacing, and one consistent chevron. */
+.field { gap: 8px; }
+.field > span:first-child { font-size: 12px; font-weight: 650; }
+.field input, .field select { min-height: 44px; padding: 10px 13px; border-radius: 10px; background: var(--panel); font-size: 13.5px; }
+.select-shell { position: relative; display: block; }
+.select-shell select { width: 100%; appearance: none; padding-right: 40px; cursor: pointer; }
+.select-shell > svg { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
+.select-shell:focus-within { outline: 2px solid var(--ink-3); outline-offset: 2px; border-radius: 10px; }
+.select-shell select:focus { outline: none; }
+.select-shell:focus-within > svg { color: var(--ink); }
 
 /* Where a key is about to be spent, and what is known about a stored one. A URL
    is a machine fact, so it is monospace at --ink-3. Deleting a key is
@@ -1116,7 +1208,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .text-button.inline { display: inline; padding: 0; font-size: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 
 /* A held save says what it is waiting on, beside itself. */
-.provider-save { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.provider-save { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
 .provider-save .field-note { margin: 0; max-width: 42ch; }
 
 .defaults-offer { display: flex; flex-direction: column; gap: 2px; margin: 12px 0 0; }

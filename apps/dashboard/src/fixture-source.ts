@@ -1,5 +1,5 @@
 import { snapshotForProject } from "./fixtures";
-import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectMember, ProjectSnapshot, Resolution, SessionFocus, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
+import type { FindingFeedback, FindingState, LocalSessionDetail, MemberNameSource, ProjectAccess, ProjectIntelligence, ProjectMember, ProjectSnapshot, Resolution, SessionFocus, SessionMessagesSnapshot, SyncCard, SyncComment } from "./model";
 
 export class FixtureProjectSource {
   readonly live: boolean = false;
@@ -56,6 +56,10 @@ export class FixtureProjectSource {
    */
   async localControl(): Promise<boolean> {
     return true;
+  }
+
+  async getProjectIntelligence(projectId: string): Promise<ProjectIntelligence> {
+    return this.get(projectId).project.intelligence ?? { structural: "active", embeddings: "built_in", judgment: "off", degraded: false };
   }
 
   async setProjectPaused(projectId: string, paused: boolean): Promise<void> {

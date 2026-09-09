@@ -64,7 +64,7 @@ export function DesktopAISettings({ api, projectId, local = false }: { api: AISe
     catch { setError("The settings could not be saved. Check your connection and Project owner access, then try again."); }
     finally { setPending(false); }
   };
-  if (!form) return <section aria-label="Intelligence"><h2>Intelligence</h2>{error ? <><p className="form-error" role="alert">Provider settings could not be loaded.</p><button className="pill" onClick={() => setAttempt((value) => value + 1)}>Try again</button></> : <p role="status" className="field-note">Loading provider settings…</p>}</section>;
+  if (!form) return <section aria-label="Intelligence"><h2>Intelligence</h2>{error ? <><p className="form-error" role="alert">Provider settings could not be loaded.</p><button className="pill solid" onClick={() => setAttempt((value) => value + 1)}>Try again</button></> : <p role="status" className="field-note">Loading provider settings…</p>}</section>;
 
   const sendsKey = Boolean(form.judgment.apiKey || form.embeddings.apiKey);
   const fromDefaults = settings && defaults ? applyDefaults(form, settings, defaults) : null;

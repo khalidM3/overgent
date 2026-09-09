@@ -147,9 +147,17 @@ describe("choosing a provider", () => {
     render(<AIDefaultsSettings api={defaultsBridge()} />);
     // Level one is what makes the other two optional rather than load-bearing,
     // so it is stated first and says it needs nothing.
-    const level = await screen.findByRole("heading", { name: "Overlapping code" });
+    const level = await screen.findByRole("heading", { name: "Core detection" });
     expect(level.parentElement?.textContent).toMatch(/Always on/);
-    expect(screen.getByText(/no source code or diffs are ever part of it/)).toBeTruthy();
+    expect(screen.getByText(/runs without a provider or key/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: "2 of 3 intelligence layers active" })).toBeTruthy();
+  });
+
+  it("updates the meter when model judgment is selected", async () => {
+    const user = userEvent.setup();
+    render(<AIDefaultsSettings api={defaultsBridge()} />);
+    await user.selectOptions(await screen.findByLabelText("Model provider"), "anthropic");
+    expect(screen.getByRole("img", { name: "3 of 3 intelligence layers active" })).toBeTruthy();
   });
 });
 
