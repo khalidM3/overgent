@@ -511,7 +511,11 @@ func TestAbandonedRecognizesLeftoversAndProtectsLiveProfiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(live, "config.json"), []byte(`{"version":1,"deviceId":"dev_live"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(t.TempDir(), "overgent")
+	binaryName := "overgent"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binary := filepath.Join(t.TempDir(), binaryName)
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

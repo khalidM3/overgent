@@ -749,7 +749,18 @@ func directoryExists(path string) bool {
 
 func executableExists(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".exe", ".cmd", ".bat", ".com":
+			return true
+		default:
+			return false
+		}
+	}
+	return info.Mode()&0o111 != 0
 }
 
 // profileHasDevice reports whether an Overgent profile directory holds an
