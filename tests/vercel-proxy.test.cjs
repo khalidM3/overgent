@@ -107,3 +107,17 @@ test("public installer and desktop aliases redirect to the latest published GitH
   assert.equal(redirects["/uninstall.sh"], "https://github.com/khalidM3/overgent/releases/latest/download/uninstall.sh");
   assert.equal(redirects["/download/macos"], "https://github.com/khalidM3/overgent/releases/latest/download/Overgent_macOS_arm64.zip?download=1");
 });
+
+// An invite travels as `https://<host>/join#<code>`, and a link is followed by
+// a browser that has never loaded this origin - so the very first request is a
+// hard navigation to a path that exists only inside the single-page bundle.
+// Without a rewrite Vercel looks for a static `/join` file, finds none, and
+// answers its own 404 page: every invite anyone sent dead-ended there.
+test("every client-side route the bundle serves is rewritten to the single-page entry", () => {
+  const rewrites = Object.fromEntries(vercelConfig.rewrites.map((rewrite) => [rewrite.source, rewrite.destination]));
+  // Both spellings of the invite path, because ParseInviteCode accepts both
+  // and a member who retypes a link is as entitled to reach the page.
+  for (const route of ["/join", "/join/", "/dashboard", "/dashboard/:path*"]) {
+    assert.equal(rewrites[route], "/index.html", `${route} must be served by the single-page entry`);
+  }
+});

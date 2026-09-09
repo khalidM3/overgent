@@ -58,6 +58,14 @@
       "destination": "/api/v1/[...]"
     },
     {
+      "source": "/join",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/join/",
+      "destination": "/index.html"
+    },
+    {
       "source": "/dashboard/:path*",
       "destination": "/index.html"
     },
