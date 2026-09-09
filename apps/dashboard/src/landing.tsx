@@ -82,8 +82,8 @@ export function LandingPage() {
 
     <main>
       <section className="landing-hero">
-        <h1>Keep every coding agent working from the same reality.</h1>
-        <p className="landing-lede">Overgent catches conflicting assumptions and overlapping work while your agents are still working, and tells only the session that needs to know.</p>
+        <h1>Run more coding agents in parallel—without coordinating them by hand.</h1>
+        <p className="landing-lede">Overgent catches overlapping work, changed contracts, and stale assumptions across Codex, Claude Code, and your team—then warns the right agent before the mistake spreads.</p>
         <div className="landing-actions">
           <a className="landing-primary" href={ready ? DESKTOP_URL : "#download"}><Download size={16} /> {ready ? "Download for macOS" : "Get Overgent"}</a>
           <a className="landing-secondary" href="#download">Linux and Windows</a>
@@ -114,6 +114,24 @@ export function LandingPage() {
             </video>}
         <figcaption>Two live sessions on one shared path, then a contract that moved under a session which had already read it — old signature, new signature, and who changed it.</figcaption>
       </figure>
+
+      <section className="landing-section landing-explainer" aria-labelledby="explainer-heading">
+        <h2 id="explainer-heading">Parallel work, without the cleanup.</h2>
+        <div className="landing-features">
+          <article>
+            <h3>See what’s in flight</h3>
+            <p>Follow what every agent session is trying to do across Codex, Claude Code, worktrees, teammates, and machines.</p>
+          </article>
+          <article>
+            <h3>Catch divergence early</h3>
+            <p>Detect overlapping implementations, direct collisions, changed contracts, stale assumptions, and shared dependencies while work is still underway.</p>
+          </article>
+          <article>
+            <h3>Tell the right agent</h3>
+            <p>Route a focused, evidence-backed correction only to the sessions affected. Everyone else keeps working.</p>
+          </article>
+        </div>
+      </section>
 
       <section className="landing-section" id="download" aria-labelledby="download-heading">
         <div className="landing-download-head">

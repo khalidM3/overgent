@@ -3,10 +3,10 @@
    and colour marks a fact rather than decorating. No filled cards, no shaded
    section backgrounds, and no accent rails down the side of a row.
 
-   The page is deliberately short: a headline, two captures of the real
-   workroom, and the downloads. It previously carried a hand-built imitation of
-   the product beside the headline and a row of icon-led steps explaining it;
-   the real captures say both things without the scaffolding. */
+   The page is deliberately short: a headline, a capture of the real workroom,
+   one explanation of the coordination loop, and the downloads. It previously
+   carried a hand-built imitation of the product beside the headline; the real
+   capture now supplies that proof without decorative scaffolding. */
 
 .landing {
   --gutter: min(1180px, calc(100% - 48px));
@@ -94,7 +94,19 @@
   padding: 76px 0 0;
   border-top: 1px solid var(--line);
 }
-.landing-download-head h2 { max-width: 720px; margin: 0; font-size: clamp(28px, 3vw, 36px); line-height: 1.12; font-weight: 700; }
+.landing-section h2 { max-width: 720px; margin: 0; font-size: clamp(28px, 3vw, 36px); line-height: 1.12; font-weight: 700; }
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.landing-features article { min-width: 0; padding: 24px 28px 28px 0; }
+.landing-features article + article { padding-left: 28px; border-left: 1px solid var(--line); }
+.landing-features h3 { margin: 0; font-size: 17px; font-weight: 700; }
+.landing-features p { max-width: 340px; margin: 10px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.6; }
 
 /* ────────────────────────── downloads ──────────────────────── */
 
@@ -153,6 +165,10 @@
 
 @media (max-width: 980px) {
   .landing-hero { padding: 64px 0 48px; }
+  .landing-features { grid-template-columns: 1fr; }
+  .landing-features article { padding: 22px 0; }
+  .landing-features article + article { padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
+  .landing-features p { max-width: 620px; }
   .landing-install { align-items: flex-start; flex-direction: column; gap: 20px; }
   .landing-install-commands { align-items: flex-start; }
   .landing-command-wrap small { text-align: left; }
