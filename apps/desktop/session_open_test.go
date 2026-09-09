@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -32,13 +34,25 @@ func sessionOpenFixture(t *testing.T, vendor, vendorSessionID string) (*Onboardi
 	if err = os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	var line string
+	var recordEntry map[string]any
 	if vendor == "codex" {
-		line = `{"type":"session_meta","payload":{"id":"` + vendorSessionID + `","session_id":"` + vendorSessionID + `","cwd":"` + repository + `"}}` + "\n"
+		recordEntry = map[string]any{
+			"type": "session_meta",
+			"payload": map[string]string{
+				"id": vendorSessionID, "session_id": vendorSessionID, "cwd": repository,
+			},
+		}
 	} else {
-		line = `{"type":"user","sessionId":"` + vendorSessionID + `","cwd":"` + repository + `","message":{"role":"user","content":"fixture"}}` + "\n"
+		recordEntry = map[string]any{
+			"type": "user", "sessionId": vendorSessionID, "cwd": repository,
+			"message": map[string]string{"role": "user", "content": "fixture"},
+		}
 	}
-	if err = os.WriteFile(record, []byte(line), 0o600); err != nil {
+	line, err := json.Marshal(recordEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(record, append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	workstreamID, _, ok := agentactivity.WorkstreamIDFor(vendor, vendorSessionID)
@@ -81,7 +95,11 @@ func TestOpenCodexSessionUsesExactContinueArgumentArray(t *testing.T) {
 	const vendorSessionID = "019f54c4-fd53-7d71-a61b-9b552fc3f730"
 	service, workstreamID, repository := sessionOpenFixture(t, "codex", vendorSessionID)
 	bin := t.TempDir()
-	codex := filepath.Join(bin, "codex")
+	executableName := "codex"
+	if runtime.GOOS == "windows" {
+		executableName += ".cmd"
+	}
+	codex := filepath.Join(bin, executableName)
 	if err := os.WriteFile(codex, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}

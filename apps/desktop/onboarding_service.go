@@ -1159,7 +1159,7 @@ func (service *OnboardingService) resolveCLI() (string, error) {
 	if service.cliBinary != "" {
 		absolute, err := filepath.Abs(service.cliBinary)
 		if err == nil {
-			if info, statErr := os.Stat(absolute); statErr == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			if executableFile(absolute) {
 				return absolute, nil
 			}
 		}

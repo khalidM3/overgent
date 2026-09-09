@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -81,7 +83,16 @@ func Open(path string) (*Store, error) {
 	// writing during a held transaction gets SQLITE_BUSY immediately with no
 	// timeout. Waiting briefly is the correct behavior for a queue whose writes
 	// are short: the alternative is a failed enqueue and a lost observation.
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_pragma=busy_timeout(5000)"}).String()
+	// SQLite URI filenames use forward slashes on every platform. Passing a
+	// native Windows path through net/url escapes each backslash as %5C, which
+	// SQLite does not interpret as a directory separator and therefore cannot
+	// open. filepath.ToSlash keeps Unix paths unchanged and produces the URI
+	// shape SQLite documents for Windows drive paths.
+	uriPath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(uriPath, "/") {
+		uriPath = "/" + uriPath
+	}
+	dsn := (&url.URL{Scheme: "file", Path: uriPath, RawQuery: "_pragma=busy_timeout(5000)"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
