@@ -1,5 +1,211 @@
 # Overgent release
 
+## Release operator runbook
+
+This section is the canonical end-to-end procedure for publishing the
+owner-operated Overgent Cloud service and a downloadable Overgent release. It
+separates four deployment paths that share a repository but are not one
+operation:
+
+| Change | Production trigger | Automated by the release tag? |
+|---|---|---|
+| Dashboard, Vercel API proxy, redirects, or `vercel.json` | Push or merge to `main`; the linked Vercel Git integration deploys the commit | No |
+| Hosted Convex functions, schema, or crons | An operator explicitly runs `convex deploy` against the production deployment | No |
+| CLI, desktop applications, installers, and bundled local backend | Push a `v*` Git tag; `.github/workflows/release.yml` builds an immutable draft GitHub Release | Yes |
+| Public release/update channel | Run `.github/workflows/promote-release.yml` for a qualified draft version | No; promotion is a separate protected action |
+
+The tagged application contains a deploy payload generated from that tag's
+`convex/functions/` for its bundled loopback backend. That does **not** update
+the hosted Convex deployment behind `api.overgent.com`. Conversely, deploying
+hosted Convex does not create an application release.
+
+Production deployment names, account identifiers, and credentials are private
+operator configuration under `public-repository-boundary.md`; never substitute
+their real values into this file or commit them anywhere in this repository.
+
+### 1. Prepare one release commit
+
+Start from the repository root on `main`, install the frozen dependencies, and
+run the required gates:
+
+```bash
+git switch main
+git pull --ff-only origin main
+git status --short
+corepack enable
+pnpm install --frozen-lockfile
+go test ./...
+go vet ./...
+pnpm protocol:generate
+git diff --exit-code
+pnpm protocol:check
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Do not continue with unexpected working-tree changes or a failed gate. The
+normal pull-request/`main` CI adds race, multi-version, native desktop, CodeQL,
+and platform checks; it must also be green for the commit being released.
+
+Deploy each production surface from this same commit. Hosted contract changes
+must remain compatible with clients already installed in the field; follow
+`protocol.md` section 1.
+
+### 2. Deploy hosted Convex when it changed
+
+This is required when the release commit changes the hosted implementation in
+`convex/`, including functions, schema, indexes, or crons. It is not required
+for a dashboard-only or client-only change.
+
+The development command deliberately writes an anonymous loopback target to
+`convex/.env.local`. Do not replace that local-development configuration with a
+production target. Instead, authenticate once and override the target for this
+one command:
+
+```bash
+pnpm --dir convex exec convex login
+CONVEX_DEPLOYMENT=prod:<production-deployment> \
+  pnpm --dir convex exec convex deploy --dry-run --typecheck enable
+```
+
+The dry run must identify the expected Project and `[Production]` deployment,
+pass schema validation, and list any index deletion. Stop and investigate an
+unexpected target, destructive schema/index change, or type-check failure.
+
+Run the production push only after reviewing that output:
+
+```bash
+CONVEX_DEPLOYMENT=prod:<production-deployment> \
+  pnpm --dir convex exec convex deploy --typecheck enable
+```
+
+Use `pnpm --dir convex exec ...`, not `npx convex ...` from the repository
+root: Convex is installed in the `convex/` workspace. The explicit
+`CONVEX_DEPLOYMENT` override is also what makes the command work while ordinary
+development remains pointed at the anonymous local backend.
+
+After deployment, confirm the required production variable names without
+printing their values:
+
+```bash
+CONVEX_DEPLOYMENT=prod:<production-deployment> \
+  pnpm --dir convex exec convex env list --names-only
+```
+
+`OVERGENT_SECRETS_KEY` must remain present and stable. Do not rotate it as part
+of a routine deploy: existing encrypted per-Project provider keys depend on it.
+Overgent Cloud intentionally leaves operator AI-provider keys unset.
+
+Smoke-test the public proxy. An unauthenticated protected route should reach
+Convex and answer `401`, not return a Vercel `502`:
+
+```bash
+curl -i https://api.overgent.com/v1/device/bootstrap
+```
+
+### 3. Verify the automatic Vercel deployment
+
+The owner-operated Vercel project is connected directly to this GitHub
+repository. Pushes to `main` produce production deployments; other branches
+produce previews. `vercel.json` supplies the dashboard build, output directory,
+proxy functions, redirects, rewrites, and security headers. Neither
+`.github/workflows/release.yml` nor `.github/workflows/promote-release.yml`
+deploys Vercel.
+
+After the release commit reaches `main`, verify that Vercel reports a `READY`
+production deployment for that commit in the Vercel dashboard or with the
+already-linked checkout:
+
+```bash
+npx --yes vercel@latest ls --limit 10
+```
+
+Confirm `api.overgent.com` serves the expected dashboard and that the API smoke
+test above reaches Convex. If the Git integration is unavailable, an authorized
+operator may use this manual fallback from the repository root:
+
+```bash
+npx --yes vercel@latest deploy --prod
+```
+
+The fallback is not a normal release step and must deploy the same reviewed
+commit. Vercel production holds `CONVEX_SITE_URL` and
+`OVERGENT_RELEASE_MANIFEST_URL`; their values stay in Vercel, not Git.
+
+### 4. Build the draft application release
+
+Choose a new `v`-prefixed semantic version after the commit is on `main`, then
+create and push an annotated tag:
+
+```bash
+git tag -a v0.1.2 -m "v0.1.2"
+git push origin v0.1.2
+```
+
+Replace `v0.1.2` with the new version. Do not manually create a release first.
+The tag push triggers `.github/workflows/release.yml`, which builds, signs,
+notarizes, packages, attests, and uploads the artifacts to a **draft** GitHub
+Release. The protected `production-release` environment may require approval.
+
+In GitHub, open **Actions → Release** and require the tag's run to complete.
+Then open the draft under **Releases** and verify that the expected CLI,
+desktop, backend, installer, manifest, checksum, SBOM, and Sigstore assets are
+present. A green build creates a candidate; it does not qualify or publish it.
+
+### 5. Qualify, then promote
+
+Run the native clean-machine and two-person gates in this document before
+promotion. Promotion is deliberately separate so a successful build cannot
+publish an unqualified candidate.
+
+The normal operator path is GitHub's interface:
+
+1. Open **Actions → Promote Release**.
+2. Choose **Run workflow**.
+3. Enter the exact draft tag, such as `v0.1.2`.
+4. Approve the protected `production-release` environment when required.
+
+The equivalent GitHub CLI command is:
+
+```bash
+gh workflow run promote-release.yml -f version=v0.1.2
+```
+
+The promotion workflow publishes the draft GitHub Release and copies only its
+verified signed `update-manifest.json` to the stable Vercel Blob location. It
+does not rebuild artifacts, deploy Vercel, or deploy hosted Convex.
+
+Verify that the release is public and the stable channel names the promoted
+version:
+
+```bash
+gh release view v0.1.2
+curl -fsSL https://releases.overgent.com/current/update-manifest.json
+```
+
+Finally exercise the public installer on a clean qualified machine:
+
+```bash
+curl -fsSL https://releases.overgent.com/install.sh | sh
+overgent service status
+```
+
+### 6. Routine decision guide
+
+- A change only under the dashboard, `api/`, or `vercel.json`: merge to `main`
+  and verify the automatic Vercel production deployment. Do not deploy Convex
+  or cut an app release unless that change is also intended for a new app.
+- A hosted backend change under `convex/`: merge to `main`, allow Vercel to
+  deploy the same commit, and explicitly deploy hosted Convex. Cut/promote an
+  app release when installed clients or the bundled local backend also need the
+  change.
+- A Go, desktop, installer, updater, or bundled-backend change: complete any
+  necessary Vercel/hosted-Convex deployment first, push the version tag, qualify
+  the draft, then run Promote Release.
+- Promotion changes only the public artifact/update channel. Never treat it as
+  a general production deployment hook.
+
 ## Qualification status
 
 Apple Silicon macOS 12 or newer is the only public supported platform. Its CLI,

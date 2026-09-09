@@ -30,10 +30,17 @@ repository.
 | Variable | Meaning |
 |---|---|
 | `CONVEX_SITE_URL` | The Convex production deployment's HTTP Actions origin. `api/v1/[...].js` proxies every `/v1/*` request there. |
+| `OVERGENT_RELEASE_MANIFEST_URL` | The public Vercel Blob URL ending in `/current/update-manifest.json`. `api/releases/current-manifest.js` fetches this stable channel object; release promotion replaces its contents. |
 | `OVERGENT_SECRETS_KEY` | Encrypts per-Project AI provider keys at rest (ADR-073). Stable for the life of the deployment; rotating it invalidates every stored key. |
 | `OVERGENT_OPERATOR_KEYS_ENABLED` | Unset on Cloud by policy (ADR-073): Overgent Cloud ships with no operator key, so every Project brings its own AI provider key, or runs with semantic features degraded. |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Operator-level AI provider keys. Not set on Cloud, per the policy above; documented here because a self-hoster may choose to set them on their own deployment. |
 | `BLOB_READ_WRITE_TOKEN` | Write credential for the public release Blob store used by the release-publishing workflow only; unrelated to the `/v1` API surface. |
+
+`CONVEX_SITE_URL` and `OVERGENT_RELEASE_MANIFEST_URL` are Vercel production
+variables. The remaining Convex variables are configured on the Convex
+deployment, except `BLOB_READ_WRITE_TOKEN`, which is a secret of the protected
+GitHub release environment. See `release.md` for the complete deployment and
+promotion procedure.
 
 ## 3. Data handling
 
