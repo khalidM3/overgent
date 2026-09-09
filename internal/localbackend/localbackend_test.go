@@ -96,7 +96,7 @@ func newManager(t *testing.T, payload string) (*Manager, *memoryCredentials) {
 	if err = manager.SetArtifacts(fakeBackend(t), bundle); err != nil {
 		t.Fatal(err)
 	}
-	manager.healthBudget = 8 * time.Second
+	manager.baseHealthBudget = 8 * time.Second
 	manager.healthInterval = 20 * time.Millisecond
 	t.Cleanup(func() { _ = manager.Stop(context.Background()) })
 	return manager, credentials
@@ -193,7 +193,7 @@ func TestIncompatibleSchemaKeepsServingAndSaysSo(t *testing.T) {
 
 func TestHealthTimeoutFailsRatherThanHanging(t *testing.T) {
 	manager, _ := newManager(t, "")
-	manager.healthBudget = 300 * time.Millisecond
+	manager.baseHealthBudget = 300 * time.Millisecond
 	t.Setenv("FAKE_BACKEND_MODE", "silent")
 	started := time.Now()
 	if _, err := manager.Ensure(context.Background()); err == nil {
@@ -208,7 +208,7 @@ func TestHealthTimeoutFailsRatherThanHanging(t *testing.T) {
 func TestRestartBackoffGivesUpAfterFiveFailures(t *testing.T) {
 	manager, _ := newManager(t, "")
 	manager.restartBackoff = func(int) time.Duration { return time.Millisecond }
-	manager.healthBudget = 200 * time.Millisecond
+	manager.baseHealthBudget = 200 * time.Millisecond
 	if _, err := manager.Ensure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -469,5 +469,51 @@ func TestStopDoesNotResurrectAResetFromAnotherManager(t *testing.T) {
 	}
 	if state.BinaryPath == "" {
 		t.Fatal("the artifact paths were lost")
+	}
+}
+
+// A flat health budget was an outage waiting for the database to grow. Cold
+// start on a 104 MiB profile measured 10.9 s against a budget of 10 s, so
+// waitHealthy killed a backend that was starting normally, and killed it again
+// on every retry until the supervisor gave up - leaving the app reporting the
+// Project unavailable with nothing actually wrong.
+func TestHealthBudgetGrowsWithTheDatabaseItHasToBootstrap(t *testing.T) {
+	directory := t.TempDir()
+	manager := &Manager{dbPath: filepath.Join(directory, "state.sqlite3"), baseHealthBudget: defaultHealthBudget}
+
+	// No database yet: a fresh profile waits the floor and nothing more.
+	if budget := manager.healthBudget(); budget != defaultHealthBudget {
+		t.Fatalf("empty profile budget = %s, want %s", budget, defaultHealthBudget)
+	}
+
+	// The size that broke it. The budget has to clear the 10.9 s this took.
+	write(t, manager.dbPath, 104<<20)
+	budget := manager.healthBudget()
+	if budget <= 11*time.Second {
+		t.Fatalf("budget = %s, which would still kill the start that measured 10.9s", budget)
+	}
+	if budget != defaultHealthBudget+104*healthBudgetPerMiB {
+		t.Fatalf("budget = %s, want floor plus 104 MiB of allowance", budget)
+	}
+
+	// However large it gets, a wedged backend still has to fail rather than
+	// hang the app: the allowance is bounded.
+	write(t, manager.dbPath, 8<<30)
+	if budget = manager.healthBudget(); budget != maxHealthBudget {
+		t.Fatalf("budget = %s, want it capped at %s", budget, maxHealthBudget)
+	}
+}
+
+// write makes a sparse file of the given size, so a multi-gigabyte case costs
+// no disk and no time.
+func write(t *testing.T, path string, size int64) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err = file.Truncate(size); err != nil {
+		t.Fatal(err)
 	}
 }

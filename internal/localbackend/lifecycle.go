@@ -123,7 +123,7 @@ func (m *Manager) startLocked(ctx context.Context) (Endpoint, error) {
 			}
 			return endpointFor(state), nil
 		}
-		lastErr = fmt.Errorf("local backend did not become healthy within %s", m.healthBudget)
+		lastErr = fmt.Errorf("local backend did not become healthy within %s", m.healthBudget())
 		m.terminate(command)
 	}
 	return Endpoint{}, lastErr
@@ -163,7 +163,7 @@ func endpointFor(state State) Endpoint {
 }
 
 func (m *Manager) waitHealthy(ctx context.Context, port int, instance string) bool {
-	deadline := m.now().Add(m.healthBudget)
+	deadline := m.now().Add(m.healthBudget())
 	for m.now().Before(deadline) {
 		if ctx.Err() != nil {
 			return false

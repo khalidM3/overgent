@@ -42,9 +42,18 @@ import (
 const convexClientVersion = "npm-cli-1.45.0"
 
 const (
-	// healthBudget is the cold-start allowance. Cold start measured 120 ms on a
-	// new database; ten seconds is that number plus room for a cold page cache
-	// and a machine doing something else at login.
+	// defaultHealthBudget is the cold-start allowance for an empty database.
+	// Cold start measured 120 ms on a new one; ten seconds is that number plus
+	// room for a cold page cache and a machine doing something else at login.
+	//
+	// It is a floor, not the whole budget - see healthBudget below. A flat ten
+	// seconds was an outage waiting for the database to grow: the backend logs
+	// "Bootstrapping indexes" and then reads them, which is work proportional
+	// to the data, and a profile with a 109 MiB database took longer than that
+	// to answer. waitHealthy then killed a backend that was starting perfectly
+	// normally, and killed it again on every retry - each attempt starting
+	// colder than the last - until the supervisor gave up and left the app
+	// showing "Your Project is unavailable" with nothing actually wrong.
 	defaultHealthBudget   = 10 * time.Second
 	defaultHealthInterval = 100 * time.Millisecond
 	// logCap rotates backend.log rather than letting a crash loop fill the disk.
@@ -54,6 +63,41 @@ const (
 	restartWindow = 5 * time.Minute
 	restartLimit  = 5
 )
+
+// healthBudgetPerMiB is how much longer the backend is given for every MiB of
+// database it has to bootstrap indexes over.
+//
+// Measured against a 104 MiB profile: "Starting a Convex backend" to "Loaded
+// indexes into memory" took 10.9 s, against a flat budget of 10 s. That is how
+// close to the edge the old number was, and why this failed as an outage rather
+// than as a slow start - the profile crossed the line and every attempt after
+// it was killed mid-bootstrap.
+//
+// 105 ms per MiB is the measured rate. The value below is a little over twice
+// that, because the measurement was taken on an otherwise idle machine and this
+// budget has to hold at login on a busy one with a cold page cache.
+const healthBudgetPerMiB = 250 * time.Millisecond
+
+// maxHealthBudget bounds the wait however large the database gets, so a backend
+// that is genuinely wedged still fails and reports why instead of hanging the
+// app indefinitely.
+const maxHealthBudget = 4 * time.Minute
+
+// healthBudget is how long this profile's backend may take to answer.
+//
+// Sized from the database rather than fixed, because the thing being waited for
+// is proportional to it. A test that shortens healthBudget still gets a short
+// budget: its database is empty, so the allowance is zero.
+func (m *Manager) healthBudget() time.Duration {
+	budget := m.baseHealthBudget
+	if info, err := os.Stat(m.dbPath); err == nil && info.Size() > 0 {
+		budget += time.Duration(info.Size()>>20) * healthBudgetPerMiB
+	}
+	if budget > maxHealthBudget {
+		return maxHealthBudget
+	}
+	return budget
+}
 
 // portMovedError is what a member is told when the backend could not reclaim
 // the port its Projects name. It is a standing condition, not a transient one.
@@ -129,10 +173,10 @@ type Manager struct {
 
 	// Test seams. Production keeps the defaults; unit tests shorten the health
 	// budget and the backoff so a supervision test is not a wall-clock test.
-	now            func() time.Time
-	healthBudget   time.Duration
-	healthInterval time.Duration
-	restartBackoff func(attempt int) time.Duration
+	now              func() time.Time
+	baseHealthBudget time.Duration
+	healthInterval   time.Duration
+	restartBackoff   func(attempt int) time.Duration
 	// idleTimeout stops the backend after this long without activity. Idle RSS
 	// measured 56 MB, well under the 300 MB threshold, so production leaves
 	// this at zero: the backend runs while the service runs.
@@ -169,18 +213,18 @@ func New(root string, creds CredentialStore, logger *slog.Logger) (*Manager, err
 	}
 	directory := filepath.Join(absolute, "backend")
 	manager := &Manager{
-		root:           absolute,
-		directory:      directory,
-		statePath:      filepath.Join(directory, "backend.json"),
-		dbPath:         filepath.Join(directory, "state.sqlite3"),
-		storage:        filepath.Join(directory, "storage"),
-		logPath:        filepath.Join(directory, "backend.log"),
-		creds:          creds,
-		logger:         logger,
-		now:            time.Now,
-		healthBudget:   defaultHealthBudget,
-		healthInterval: defaultHealthInterval,
-		restartBackoff: exponentialBackoff,
+		root:             absolute,
+		directory:        directory,
+		statePath:        filepath.Join(directory, "backend.json"),
+		dbPath:           filepath.Join(directory, "state.sqlite3"),
+		storage:          filepath.Join(directory, "storage"),
+		logPath:          filepath.Join(directory, "backend.log"),
+		creds:            creds,
+		logger:           logger,
+		now:              time.Now,
+		baseHealthBudget: defaultHealthBudget,
+		healthInterval:   defaultHealthInterval,
+		restartBackoff:   exponentialBackoff,
 	}
 	state, err := manager.load()
 	if err != nil {
