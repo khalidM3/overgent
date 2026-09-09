@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/khalidM3/overgent/internal/app"
 	"github.com/khalidM3/overgent/internal/cliui"
 	"github.com/khalidM3/overgent/internal/config"
 	"github.com/khalidM3/overgent/internal/credential"
@@ -143,6 +144,9 @@ func runProjects(ctx context.Context, paths config.Paths, args []string) error {
 }
 
 func runProjectsWithCLI(ctx context.Context, paths config.Paths, args []string, cli statusCLI) error {
+	if len(args) > 0 && args[0] == "disconnect" {
+		return runProjectsDisconnect(ctx, paths, args[1:], cli)
+	}
 	flags := flag.NewFlagSet("projects", flag.ContinueOnError)
 	flags.SetOutput(cli.stderr)
 	jsonOutput := flags.Bool("json", false, "emit stable JSON")
@@ -448,4 +452,86 @@ func syncFromHealth(data any, backend config.Backend, backendCount int) statusSy
 		}
 	}
 	return statusSync{State: "degraded", Reason: "backend health is unavailable"}
+}
+
+// runProjectsDisconnect releases one Project's repositories from this device.
+//
+// It is the counterpart to `overgent init`, and until now there was none: a
+// Project could be connected and never disconnected, so a Project deleted on
+// the server stayed registered here forever - still watched, still publishing
+// to a Project that no longer existed, and still holding its repository against
+// any future connection. `overgent reset` was the only escape and it is far too
+// blunt: it forgets an entire backend, taking every other Project on it.
+//
+// Nothing on the server is touched. This is "stop coordinating this repository
+// from this device", which is a decision about this device; deleting the
+// Project for everyone is a different act, taken from the Project's own
+// settings.
+func runProjectsDisconnect(ctx context.Context, paths config.Paths, args []string, cli statusCLI) error {
+	flags := flag.NewFlagSet("projects disconnect", flag.ContinueOnError)
+	flags.SetOutput(cli.stderr)
+	projectID := flags.String("project", "", "the Project to disconnect; defaults to the one this directory belongs to")
+	jsonOutput := flags.Bool("json", false, "emit stable JSON")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("projects disconnect accepts no positional arguments")
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return err
+	}
+	selected := strings.TrimSpace(*projectID)
+	if selected == "" {
+		workspace, selectErr := selectStatusWorkspace(cfg, "", cli.getwd)
+		if selectErr != nil {
+			return selectErr
+		}
+		selected = workspace.ProjectID
+	}
+
+	// The running service is asked first so observation stops now: it owns the
+	// watcher and the publish queue, and a configuration edit behind its back
+	// would leave both running until the next restart. A stopped service means
+	// there is nothing to stop, and the profile is edited directly.
+	var roots []string
+	response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "remove_project_workspaces", ProjectID: selected})
+	if callErr == nil {
+		if !response.OK {
+			return errors.New(response.Error)
+		}
+		if data, ok := response.Data.(map[string]any); ok {
+			if values, listed := data["roots"].([]any); listed {
+				for _, value := range values {
+					if root, isString := value.(string); isString {
+						roots = append(roots, root)
+					}
+				}
+			}
+		}
+	} else {
+		cleared, deregisterErr := app.Deregister(ctx, paths.Root, selected)
+		if deregisterErr != nil {
+			return deregisterErr
+		}
+		for _, workspace := range cleared {
+			roots = append(roots, workspace.Root)
+		}
+	}
+	sort.Strings(roots)
+	if *jsonOutput {
+		return json.NewEncoder(cli.stdout).Encode(struct {
+			SchemaVersion int      `json:"schemaVersion"`
+			ProjectID     string   `json:"projectId"`
+			Disconnected  []string `json:"disconnected"`
+		}{cliOutputSchemaVersion, selected, roots})
+	}
+	terminal := cli.terminal()
+	_, _ = fmt.Fprintf(cli.stdout, "%s is no longer connected to this device.\n", terminal.Style(cliui.StyleBold, selected))
+	for _, root := range roots {
+		_, _ = fmt.Fprintf(cli.stdout, "  %s\n", terminal.Style(cliui.StyleMuted, root))
+	}
+	_, _ = fmt.Fprintln(cli.stdout, "\nAgent bindings in those repositories are left in place; remove them with `overgent setup <agent> remove`.")
+	return nil
 }

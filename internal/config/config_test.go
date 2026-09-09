@@ -198,3 +198,86 @@ func TestRemoveBackendTakesOnlyItsOwnProjects(t *testing.T) {
 		t.Fatalf("projects = %+v", next.Projects)
 	}
 }
+
+// Removing a Project must leave the backend it lived on standing. Two Projects
+// on one loopback backend is the ordinary shape of a profile after ADR-074, and
+// taking the backend down with the first of them would strand the second.
+func TestRemoveProjectKeepsTheBackendAndItsOtherProjects(t *testing.T) {
+	cfg := Single("http://127.0.0.1:43103", "dev_local", []Workspace{
+		{ID: "wsp_first", ProjectID: "prj_first", Root: filepath.Join("/tmp", "first")},
+		{ID: "wsp_second", ProjectID: "prj_second", Root: filepath.Join("/tmp", "second")},
+	})
+	next, cleared := cfg.RemoveProject("prj_first")
+	if len(cleared) != 1 || cleared[0].ID != "wsp_first" {
+		t.Fatalf("cleared = %+v", cleared)
+	}
+	if len(next.Backends) != 1 {
+		t.Fatalf("the backend was taken down with the Project: %+v", next.Backends)
+	}
+	if len(next.Projects) != 1 || next.Projects[0].ID != "prj_second" {
+		t.Fatalf("projects = %+v", next.Projects)
+	}
+	if len(next.Workspaces) != 1 || next.Workspaces[0].ID != "wsp_second" {
+		t.Fatalf("workspaces = %+v", next.Workspaces)
+	}
+}
+
+// The root a disconnected Project held is what makes it re-connectable: the
+// enrollment guard refuses a repository that any workspace still names, and a
+// deleted Project used to keep naming it forever.
+func TestRemoveProjectReleasesTheRepositoryRoot(t *testing.T) {
+	root := filepath.Join("/tmp", "checkout")
+	cfg := Single("http://127.0.0.1:43103", "dev_local", []Workspace{{ID: "wsp_only", ProjectID: "prj_only", Root: root}})
+	next, _ := cfg.RemoveProject("prj_only")
+	for _, workspace := range next.Workspaces {
+		if workspace.Root == root {
+			t.Fatalf("root %s is still connected after the Project holding it was removed", root)
+		}
+	}
+	if _, cleared := next.RemoveProject("prj_only"); len(cleared) != 0 {
+		t.Fatal("removing an already-removed Project must clear nothing")
+	}
+}
+
+// Promoting a local Project is a change of address: the Project and its
+// repositories stay exactly as they are, and only the backend under them
+// changes. The backend it leaves stays up for whatever else is on it.
+func TestRebindProjectMovesOneProjectAndLeavesTheRestAlone(t *testing.T) {
+	cfg := Single("http://127.0.0.1:43103", "dev_local", []Workspace{
+		{ID: "wsp_moving", ProjectID: "prj_moving", Root: filepath.Join("/tmp", "moving")},
+		{ID: "wsp_staying", ProjectID: "prj_staying", Root: filepath.Join("/tmp", "staying")},
+	})
+	cfg, cloud, err := cfg.UpsertBackend("https://api.overgent.com", "dev_cloud")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := cfg.RebindProject("prj_moving", cloud.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, bound := next.BackendForProject("prj_moving")
+	if !bound || moved.ID != cloud.ID || moved.Kind != KindTeam {
+		t.Fatalf("the Project did not move: %+v", moved)
+	}
+	stayed, bound := next.BackendForProject("prj_staying")
+	if !bound || stayed.Kind != KindLocal {
+		t.Fatalf("the Project beside it moved too: %+v", stayed)
+	}
+	if len(next.Backends) != 2 {
+		t.Fatalf("the backend it left was taken down: %+v", next.Backends)
+	}
+	// The repositories are untouched, which is what makes this cheap: no
+	// re-enrollment, no new fingerprint, no agent bindings to rewrite.
+	if held := next.WorkspacesForProject("prj_moving"); len(held) != 1 || held[0].ID != "wsp_moving" {
+		t.Fatalf("workspaces = %+v", held)
+	}
+	if _, err = next.RebindProject("prj_moving", cloud.ID); err == nil {
+		t.Fatal("moving a Project to the backend it already lives on must be refused")
+	}
+	if _, err = next.RebindProject("prj_absent", cloud.ID); err == nil {
+		t.Fatal("moving a Project this device does not hold must be refused")
+	}
+	if _, err = next.RebindProject("prj_moving", "bk_nonexistent"); err == nil {
+		t.Fatal("moving a Project to an unknown backend must be refused")
+	}
+}

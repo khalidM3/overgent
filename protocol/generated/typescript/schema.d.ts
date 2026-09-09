@@ -517,6 +517,8 @@ export interface components {
             /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
             displayName?: string;
             appVersion?: string;
+            /** @description Reuse an existing Project identifier instead of being issued a new one, so a Project can move between deployments without changing identity. Only the generated form is accepted, and an identifier already in use on this server is refused with project_id_unavailable. */
+            projectId?: string;
         };
         Project: {
             id: string;
@@ -2382,6 +2384,8 @@ export interface operations {
                     /** @description Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one. */
                     displayName?: string;
                     appVersion?: string;
+                    /** @description Reuse an existing Project identifier instead of being issued a new one, so a Project can move between deployments without changing identity. Only the generated form is accepted, and an identifier already in use on this server is refused with project_id_unavailable. */
+                    projectId?: string;
                 };
             };
         };

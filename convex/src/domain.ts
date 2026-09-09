@@ -647,6 +647,23 @@ export function randomHex(byteCount: number): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+// The canonical shape publicId() emits: the prefix, then 16 random bytes as
+// hex. It is stricter than expectId on purpose, because it guards the one route
+// where an identifier is supplied by a caller rather than minted here.
+//
+// Two things follow from requiring exactly this shape. A caller cannot claim a
+// readable name, so no identifier is ever guessable or memorable enough to be
+// worth squatting; and a caller can realistically only present an identifier it
+// was already given, which is what makes "reuse the id you already have"
+// distinguishable from "invent one".
+const GENERATED_ID = /^[a-z]{2,8}_[0-9a-f]{32}$/;
+
+export function expectGeneratedId(value: unknown, prefix: string): string {
+  const id = expectString(value, 3, 128);
+  if (!GENERATED_ID.test(id) || !id.startsWith(`${prefix}_`)) throw new ValidationError("validation_failed");
+  return id;
+}
+
 export function publicId(prefix: string): string {
   return `${prefix}_${randomHex(16)}`;
 }

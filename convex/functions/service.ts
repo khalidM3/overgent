@@ -69,6 +69,15 @@ export const createProject = internalMutation({
       device = await ctx.db.get(id);
     }
     if (!device) fail("internal_error");
+    // The identifier may have been supplied by the caller (a Project moving
+    // between deployments keeps its own), and every lookup of a Project reads
+    // by_public_id with .unique(). A second row under an existing identifier
+    // would therefore not create an ambiguity to be resolved later - it would
+    // make .unique() throw, and the Project that was already here would stop
+    // resolving at all. So this is refused before the insert, not deduplicated
+    // after it.
+    const taken = await ctx.db.query("projects").withIndex("by_public_id", (q) => q.eq("publicId", args.projectPublicId)).unique();
+    if (taken) fail("project_id_unavailable");
     const projectId = await ctx.db.insert("projects", {
       publicId: args.projectPublicId,
       label: args.label,

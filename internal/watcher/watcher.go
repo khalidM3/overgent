@@ -70,6 +70,48 @@ func (w *Watcher) Add(root string, ignore Ignorer) error {
 	return w.addTree(root, prune)
 }
 
+// WatchList reports the directories currently under watch. It exists for
+// assertions about what a disconnect released, and for diagnostics; nothing in
+// the service reads it to make a decision.
+func (w *Watcher) WatchList() []string { return w.w.WatchList() }
+
+// Remove stops watching root and everything under it.
+//
+// The Watcher only ever grew before this, because nothing could take a
+// repository back: a workspace disconnected while the service was running kept
+// a descriptor open on every directory in it - and kept waking the scanner on
+// edits to a repository Overgent no longer coordinates - until the service was
+// restarted. It returns how many directories it released, which is what the
+// disconnect path reports.
+//
+// Paths are taken from the backend's own watch list rather than by walking the
+// tree again: a directory deleted since it was added still holds its
+// descriptor, and a fresh walk would not find it to release it.
+func (w *Watcher) Remove(root string) int {
+	prefix := root + string(filepath.Separator)
+	w.mu.Lock()
+	delete(w.roots, root)
+	w.mu.Unlock()
+	released := 0
+	for _, watched := range w.w.WatchList() {
+		if watched != root && !strings.HasPrefix(watched, prefix) {
+			continue
+		}
+		// A path the backend has already dropped (its directory was deleted)
+		// answers an error here and was never counted against the budget.
+		if err := w.w.Remove(watched); err != nil {
+			continue
+		}
+		released++
+	}
+	w.mu.Lock()
+	if w.watched -= released; w.watched < 0 {
+		w.watched = 0
+	}
+	w.mu.Unlock()
+	return released
+}
+
 func (w *Watcher) addTree(dir string, prune func(string) bool) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, e error) error {
 		if e != nil {

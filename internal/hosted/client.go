@@ -129,6 +129,18 @@ type APIError struct {
 	Message string
 }
 
+// ErrProjectIDUnavailable reports that the identifier a caller asked to reuse is
+// already in use on that server. It is a sentinel because it is the one API
+// failure a promotion has to tell apart from every other: it means either "this
+// move already got this far" or "that identifier belongs to somebody else", and
+// only the caller's own bootstrap can say which.
+var ErrProjectIDUnavailable = errors.New("that Project identifier is already in use on this server")
+
+// Is lets errors.Is reach the sentinels above through the wrapped API error.
+func (e *APIError) Is(target error) bool {
+	return target == ErrProjectIDUnavailable && e.Code == "project_id_unavailable"
+}
+
 // Error prefers the service's sentence over the code.
 //
 // This error reaches a member unchanged - the desktop shows it under the invite
@@ -159,16 +171,35 @@ func New(rawBase, token string) (*Client, error) {
 	return &Client{base: base, token: token, http: &http.Client{Timeout: 15 * time.Second}}, nil
 }
 
-// CreateProject sends displayName only when the member chose one; omitting it
-// keeps the device label as a seed the member is later asked to replace.
-func (c *Client) CreateProject(ctx context.Context, label, deviceLabel, displayName, appVersion string) (Project, error) {
+// NewProject is what a Project is created from. It is a struct rather than a
+// run of string arguments because the fields are all strings and three of the
+// five are optional, which is exactly the shape a positional call gets wrong
+// silently.
+type NewProject struct {
+	Label, DeviceLabel string
+	// DisplayName is sent only when the member chose one; omitting it keeps the
+	// device label as a seed the member is later asked to replace.
+	DisplayName, AppVersion string
+	// ID reuses an identifier this caller already holds instead of being issued
+	// a new one. It is how a Project moves between deployments without changing
+	// identity: the identifier is salted into every repository fingerprint and
+	// stamped on every queued event envelope, so a Project that arrives on a new
+	// server under a new identifier cannot be recognised as the same Project by
+	// any of the evidence the device already holds. Empty means "issue one".
+	ID string
+}
+
+func (c *Client) CreateProject(ctx context.Context, project NewProject) (Project, error) {
 	var out struct{ ID, Label string }
-	body := protocoltypes.CreateProjectJSONBody{Label: label, DeviceLabel: deviceLabel}
-	if appVersion != "" {
-		body.AppVersion = &appVersion
+	body := protocoltypes.CreateProjectJSONBody{Label: project.Label, DeviceLabel: project.DeviceLabel}
+	if project.AppVersion != "" {
+		body.AppVersion = &project.AppVersion
 	}
-	if displayName != "" {
-		body.DisplayName = &displayName
+	if project.DisplayName != "" {
+		body.DisplayName = &project.DisplayName
+	}
+	if project.ID != "" {
+		body.ProjectId = &project.ID
 	}
 	err := c.request(ctx, http.MethodPost, "/v1/projects", body, &out, http.StatusCreated)
 	return Project(out), err

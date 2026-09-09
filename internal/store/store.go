@@ -689,6 +689,90 @@ func (s *Store) UpsertWorkspace(ctx context.Context, w Workspace) error {
 	return tx.Commit()
 }
 
+// RebindWorkspace points one registered repository at a different backend and
+// makes it introduce itself there.
+//
+// A workspace is known to a backend only because a "workspace.registered" event
+// reached it, and that event is sent once - `registration_enqueued` is the flag
+// that remembers it was. A repository moving to a new backend has therefore
+// never been seen by it, and every event other than the registration is refused
+// with workspace_not_registered until one arrives. So the flag is cleared here,
+// and the caller's next UpsertWorkspace queues a fresh registration.
+//
+// The queue is emptied rather than carried over. Unsent events are addressed to
+// a backend this repository is leaving, and sent ones are history the new
+// backend has no way to place: the Project's coordination record starts from
+// the state the next scan reports. Dropping the cursor with them is what lets
+// the sequence be acknowledged from scratch by a backend that has never seen
+// this device.
+func (s *Store) RebindWorkspace(ctx context.Context, workspaceID, deviceID, backendID string) error {
+	if workspaceID == "" || deviceID == "" || backendID == "" {
+		return errors.New("workspace, device, and backend are all required to rebind")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE workspaces SET device_id=?,backend_id=?,registration_enqueued=0 WHERE id=?`, deviceID, backendID, workspaceID)
+	if err != nil {
+		return err
+	}
+	if affected, affectedErr := result.RowsAffected(); affectedErr == nil && affected == 0 {
+		return errors.New("workspace not found")
+	}
+	for _, statement := range []string{
+		`DELETE FROM event_queue WHERE workspace_id=?`,
+		`DELETE FROM cursors WHERE workspace_id=?`,
+	} {
+		if _, err = tx.ExecContext(ctx, statement, workspaceID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteWorkspace forgets one registered repository and everything recorded
+// against it.
+//
+// Every table below is keyed by workspace id, and leaving any of them behind is
+// what "I deleted the Project and it came back" is made of: a stale row in
+// `workspaces` republishes the repository on the next boot, and stale rows in
+// `event_queue` keep trying to publish to a Project that no longer exists. The
+// queue is dropped rather than drained on purpose - the destination is gone, so
+// there is nothing those events could still be delivered to.
+//
+// Rows keyed by session rather than workspace (injection_deliveries,
+// session_focus) are left alone: a session key is not resolvable to a workspace
+// here, and both tables are short-lived local state that expires on its own.
+func (s *Store) DeleteWorkspace(ctx context.Context, workspaceID string) error {
+	if workspaceID == "" {
+		return errors.New("workspace id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`DELETE FROM workstreams WHERE workspace_id=?`,
+		`DELETE FROM manifests WHERE workspace_id=?`,
+		`DELETE FROM event_queue WHERE workspace_id=?`,
+		`DELETE FROM cursors WHERE workspace_id=?`,
+		`DELETE FROM idempotency_keys WHERE workspace_id=?`,
+		`DELETE FROM agent_observations WHERE workspace_id=?`,
+		`DELETE FROM agent_sessions WHERE workspace_id=?`,
+		`DELETE FROM contract_fingerprints WHERE workspace_id=?`,
+		`DELETE FROM session_read_sets WHERE workspace_id=?`,
+		`DELETE FROM workspaces WHERE id=?`,
+	} {
+		if _, err = tx.ExecContext(ctx, statement, workspaceID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func registrationEventID(projectID, deviceID, workspaceID string) string {
 	sum := sha256.Sum256([]byte("overgent.workspace-registration.v1\x00" + projectID + "\x00" + deviceID + "\x00" + workspaceID))
 	return fmt.Sprintf("evt_registration_%x", sum[:16])

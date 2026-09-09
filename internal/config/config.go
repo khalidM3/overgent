@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -241,6 +242,84 @@ func (c Config) BindProject(projectID, backendID string) Config {
 	}
 	c.Projects = append(projects, Project{ID: projectID, BackendID: backendID})
 	return c
+}
+
+// RebindProject moves one Project to a different backend, keeping the Project
+// and the repositories registered to it exactly as they are.
+//
+// This is what promoting a local Project to a shared one is made of. It is a
+// change of address rather than a migration, and only because the Project keeps
+// its identifier: that identifier is salted into every repository fingerprint
+// and stamped on every event envelope, so a Project that changed identity on
+// the way would not be recognisable as the same Project by any of the evidence
+// the device already holds.
+//
+// The backend it is leaving is deliberately left standing. It is shared with
+// every other Project on this profile, and the loopback backend serves all of
+// them.
+func (c Config) RebindProject(projectID, backendID string) (Config, error) {
+	if projectID == "" || backendID == "" {
+		return c, errors.New("a Project and the backend to move it to are both required")
+	}
+	if _, known := c.BackendByID(backendID); !known {
+		return c, errors.New("this device has no such backend")
+	}
+	projects := append([]Project(nil), c.Projects...)
+	for index, project := range projects {
+		if project.ID != projectID {
+			continue
+		}
+		if project.BackendID == backendID {
+			return c, errors.New("this Project already lives on that backend")
+		}
+		projects[index].BackendID = backendID
+		c.Projects = projects
+		return c, nil
+	}
+	return c, errors.New("this Project is not registered on this device")
+}
+
+// WorkspacesForProject lists the repositories registered to one Project.
+func (c Config) WorkspacesForProject(projectID string) []Workspace {
+	var out []Workspace
+	for _, workspace := range c.Workspaces {
+		if workspace.ProjectID == projectID {
+			out = append(out, workspace)
+		}
+	}
+	return out
+}
+
+// RemoveProject forgets one Project and every repository registered to it.
+//
+// The backend it lived on stays. A profile holds several Projects on one
+// backend after ADR-074, and the loopback backend is shared by all of them, so
+// tearing it down here would strand the Projects beside this one - which is
+// exactly the difference between this and RemoveBackend.
+//
+// The cleared workspaces are returned rather than counted: the caller has to
+// stop watching those roots and drop their stored rows, and it cannot ask the
+// configuration for them once they are gone.
+func (c Config) RemoveProject(projectID string) (Config, []Workspace) {
+	if projectID == "" {
+		return c, nil
+	}
+	var projects []Project
+	for _, project := range c.Projects {
+		if project.ID != projectID {
+			projects = append(projects, project)
+		}
+	}
+	var workspaces, cleared []Workspace
+	for _, workspace := range c.Workspaces {
+		if workspace.ProjectID == projectID {
+			cleared = append(cleared, workspace)
+			continue
+		}
+		workspaces = append(workspaces, workspace)
+	}
+	c.Projects, c.Workspaces = projects, workspaces
+	return c, cleared
 }
 
 // RemoveBackend forgets one backend, the Projects on it, and the repositories

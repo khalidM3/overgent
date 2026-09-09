@@ -301,6 +301,9 @@ type CreateProjectJSONBody struct {
 	// DisplayName Member-chosen live-work identity. Omitted means the device label seeds it and the member is asked to choose one.
 	DisplayName *string `json:"displayName,omitempty"`
 	Label       string  `json:"label"`
+
+	// ProjectId Reuse an existing Project identifier instead of being issued a new one, so a Project can move between deployments without changing identity. Only the generated form is accepted, and an identifier already in use on this server is refused with project_id_unavailable.
+	ProjectId *string `json:"projectId,omitempty"`
 }
 
 // PutProjectAISettingsJSONBody defines parameters for PutProjectAISettings.

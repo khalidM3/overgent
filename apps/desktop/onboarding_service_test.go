@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -222,5 +223,59 @@ func TestLaunchRepairAdoptsALeftoverProfileWithoutAsking(t *testing.T) {
 	}
 	if codex.ReconnectAllowed {
 		t.Fatalf("a leftover was still presented as a decision: %#v", codex)
+	}
+}
+
+// Deleting a Project on the server left this Mac still connected to it: the
+// window listed it, its repository went on being watched and publishing, and
+// re-connecting that repository was refused as already connected. The window
+// only stopped listing it after a quit and relaunch, and the registration
+// survived even that. This is the call that closes it, on the path a member
+// with no running service actually takes.
+func TestDisconnectProjectForgetsOneProjectAndFreesItsRepository(t *testing.T) {
+	isolateCodex(t)
+	root := t.TempDir()
+	gone, kept := t.TempDir(), t.TempDir()
+	gone, _ = filepath.EvalSymlinks(gone)
+	kept, _ = filepath.EvalSymlinks(kept)
+	paths, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Single("http://127.0.0.1:3211", "dev_test", []config.Workspace{
+		{ID: "wsp_gone", ProjectID: "prj_gone", WorkstreamID: "wrk_gone", Root: gone},
+		{ID: "wsp_kept", ProjectID: "prj_kept", WorkstreamID: "wrk_kept", Root: kept},
+	})
+	if err = config.Save(paths, cfg); err != nil {
+		t.Fatal(err)
+	}
+	service := &OnboardingService{configRoot: root, apiBaseURL: "http://127.0.0.1:3211"}
+
+	// No service is running here, so this is the stopped-service fallback: the
+	// profile is edited directly rather than through IPC.
+	state, err := service.DisconnectProject("prj_gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range state.Projects {
+		if project.ProjectID == "prj_gone" {
+			t.Fatal("the disconnected Project is still in this Mac's list")
+		}
+	}
+	if len(state.Projects) != 1 || state.Projects[0].ProjectID != "prj_kept" {
+		t.Fatalf("projects = %+v", state.Projects)
+	}
+
+	// The repository being free again is the point: this is the state that made
+	// "this repository is already connected to a Project" name a Project the
+	// member had just deleted.
+	if _, err = service.addProject(EnrollmentRequest{RepositoryRoot: gone, JoinCode: "inv_abc.secret"}, false, true); err != nil && strings.Contains(err.Error(), "already connected") {
+		t.Fatalf("the disconnected repository is still held: %v", err)
+	}
+	if _, err = service.addProject(EnrollmentRequest{RepositoryRoot: kept, JoinCode: "inv_abc.secret"}, false, true); err == nil || !strings.Contains(err.Error(), "already connected") {
+		t.Fatalf("a repository still connected to a Project must be refused: %v", err)
+	}
+	if _, err = service.DisconnectProject("prj_gone"); err == nil {
+		t.Fatal("disconnecting a Project this Mac no longer holds must be refused")
 	}
 }

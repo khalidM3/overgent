@@ -762,6 +762,22 @@ func (s *Service) handle(ctx context.Context, q daemon.Request) daemon.Response 
 			return daemon.Response{Error: err.Error()}
 		}
 		return daemon.Response{OK: true, Data: workspace}
+	case "rebind_project_backend":
+		moved, err := s.rebindProject(ctx, q.ProjectID, q.APIBaseURL, q.DeviceID)
+		if err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"projectId": q.ProjectID, "workspaces": len(moved)}}
+	case "remove_project_workspaces":
+		cleared, err := s.removeProjectWorkspaces(ctx, q.ProjectID)
+		if err != nil {
+			return daemon.Response{Error: err.Error()}
+		}
+		roots := make([]string, 0, len(cleared))
+		for _, workspace := range cleared {
+			roots = append(roots, workspace.Root)
+		}
+		return daemon.Response{OK: true, Data: map[string]any{"projectId": q.ProjectID, "workspaces": len(cleared), "roots": roots}}
 	default:
 		return daemon.Response{Error: "unsupported method"}
 	}
@@ -1406,6 +1422,53 @@ func (s *Service) addWorkspace(ctx context.Context, q daemon.Request, requireExi
 	return workspace, nil
 }
 
+// removeProjectWorkspaces forgets one Project on this device: its repositories
+// stop being watched, their recorded state is dropped, and the configuration no
+// longer lists them.
+//
+// It exists because deleting a Project on the server used to leave every local
+// trace of it in place. The dashboard stopped showing it, so the deletion
+// looked complete, and then the repository was still registered: the service
+// kept watching it, its queued events kept trying to publish to a Project that
+// no longer existed, and enrolling that same repository again was refused with
+// "this repository is already connected to a Project" - naming a Project the
+// member had just deleted. Quitting the app was the only way out, because a
+// restart is the one moment this state was re-read from a server that had
+// forgotten the Project.
+//
+// The backend is deliberately left standing: it is shared with every other
+// Project on this profile (ADR-074), and a local backend serves all of them.
+//
+// The order matters. Configuration is saved first so the disconnect survives a
+// crash halfway through; watching and stored rows are then released
+// best-effort, because a failure there costs a stale watch until the next
+// restart and must not leave the Project half-registered.
+func (s *Service) removeProjectWorkspaces(ctx context.Context, projectID string) ([]config.Workspace, error) {
+	if !regexp.MustCompile(`^prj_[a-z0-9_]{1,80}$`).MatchString(projectID) {
+		return nil, errors.New("invalid Project ID")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.config()
+	next, cleared := current.RemoveProject(projectID)
+	if len(cleared) == 0 && len(next.Projects) == len(current.Projects) {
+		return nil, errors.New("this Project is not registered on this device")
+	}
+	if err := config.Save(s.paths, next); err != nil {
+		return nil, err
+	}
+	s.setConfig(next)
+	for _, workspace := range cleared {
+		if s.watch != nil {
+			s.watch.Remove(workspace.Root)
+		}
+		if err := s.store.DeleteWorkspace(ctx, workspace.ID); err != nil {
+			slog.Warn("drop the stored state of a disconnected workspace", "workspace", workspace.ID, "error", err)
+		}
+	}
+	return cleared, nil
+}
+
 type lifecycleResult struct {
 	// WorkstreamID is the published identity this call was attributed to, so an
 	// MCP client reports the same identity the hosted service and dashboard use.
@@ -1717,6 +1780,134 @@ func validateIntent(q daemon.Request) error {
 	}
 	return nil
 }
+
+// rebindProject moves one Project to a different backend while the service is
+// running, so the repositories it holds keep being observed across the move.
+//
+// The order is deliberate. Configuration is saved first, because it is what the
+// next launch reads and a crash after this point must not leave the Project
+// pointing at the backend it has left. Each workspace is then cleared of the
+// old backend's publish state and re-upserted, which is what queues the
+// "workspace.registered" event that introduces it to the new backend - nothing
+// else this repository sends will be accepted until that one lands.
+func (s *Service) rebindProject(ctx context.Context, projectID, apiBaseURL, deviceID string) ([]config.Workspace, error) {
+	if !regexp.MustCompile(`^prj_[a-z0-9_]{1,80}$`).MatchString(projectID) {
+		return nil, errors.New("invalid Project ID")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next, backend, err := s.config().UpsertBackend(apiBaseURL, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if next, err = next.RebindProject(projectID, backend.ID); err != nil {
+		return nil, err
+	}
+	moved := next.WorkspacesForProject(projectID)
+	if err = config.Save(s.paths, next); err != nil {
+		return nil, err
+	}
+	s.setConfig(next)
+	for _, workspace := range moved {
+		if err = s.store.RebindWorkspace(ctx, workspace.ID, backend.DeviceID, backend.ID); err != nil {
+			return nil, err
+		}
+		if err = s.store.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: backend.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint, BackendID: backend.ID}); err != nil {
+			return nil, err
+		}
+	}
+	// A Project that has just moved onto the loopback backend needs it running
+	// before the registration it has queued can be delivered. Moving away from
+	// it leaves it up for whatever else is still on it.
+	s.ensureBackend(ctx)
+	return moved, nil
+}
+
+// RebindProject is the stopped-service half of the same move.
+func RebindProject(ctx context.Context, root, projectID, apiBaseURL, deviceID string) ([]config.Workspace, error) {
+	paths, err := config.Resolve(root)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := daemon.Acquire(paths.Lock)
+	if err != nil {
+		return nil, fmt.Errorf("move Project: %w", err)
+	}
+	defer lock.Close()
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return nil, err
+	}
+	next, backend, err := cfg.UpsertBackend(apiBaseURL, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	if next, err = next.RebindProject(projectID, backend.ID); err != nil {
+		return nil, err
+	}
+	moved := next.WorkspacesForProject(projectID)
+	if err = config.Save(paths, next); err != nil {
+		return nil, err
+	}
+	sdb, err := store.Open(paths.DB)
+	if err != nil {
+		return moved, fmt.Errorf("Project moved, but its publish state could not be reset: %w", err)
+	}
+	defer sdb.Close()
+	for _, workspace := range moved {
+		if err = sdb.RebindWorkspace(ctx, workspace.ID, backend.DeviceID, backend.ID); err != nil {
+			return moved, fmt.Errorf("Project moved, but its publish state could not be reset: %w", err)
+		}
+		if err = sdb.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: backend.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint, BackendID: backend.ID}); err != nil {
+			return moved, fmt.Errorf("Project moved, but its registration could not be queued: %w", err)
+		}
+	}
+	return moved, nil
+}
+
+// Deregister forgets a Project on a profile whose service is not running.
+//
+// It is the stopped-service half of the "remove_project_workspaces" IPC call,
+// and it has to do the store's half too: the flush and heartbeat loops read
+// their work from the store rather than from the configuration, so a row left
+// behind here would go on publishing a repository to a Project that no longer
+// exists the next time the service came up.
+func Deregister(ctx context.Context, root, projectID string) ([]config.Workspace, error) {
+	paths, err := config.Resolve(root)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := daemon.Acquire(paths.Lock)
+	if err != nil {
+		return nil, fmt.Errorf("disconnect Project: %w", err)
+	}
+	defer lock.Close()
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return nil, err
+	}
+	next, cleared := cfg.RemoveProject(projectID)
+	if len(cleared) == 0 && len(next.Projects) == len(cfg.Projects) {
+		return nil, errors.New("this Project is not registered on this device")
+	}
+	if err = config.Save(paths, next); err != nil {
+		return nil, err
+	}
+	sdb, err := store.Open(paths.DB)
+	if err != nil {
+		// The configuration is already saved, so the Project is disconnected.
+		// Say what was left behind rather than reporting a failed disconnect.
+		return cleared, fmt.Errorf("Project disconnected, but its recorded state could not be dropped: %w", err)
+	}
+	defer sdb.Close()
+	for _, workspace := range cleared {
+		if err = sdb.DeleteWorkspace(ctx, workspace.ID); err != nil {
+			return cleared, fmt.Errorf("Project disconnected, but its recorded state could not be dropped: %w", err)
+		}
+	}
+	return cleared, nil
+}
+
 func Register(ctx context.Context, root, apiBaseURL, deviceID string, w config.Workspace) error {
 	if apiBaseURL == "" {
 		return fmt.Errorf("hosted API base URL is required")

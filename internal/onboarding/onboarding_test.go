@@ -27,7 +27,7 @@ type additionalProjectAPI struct {
 	joinErr        error
 }
 
-func (api *additionalProjectAPI) CreateProject(context.Context, string, string, string, string) (hosted.Project, error) {
+func (api *additionalProjectAPI) CreateProject(context.Context, hosted.NewProject) (hosted.Project, error) {
 	return api.project, nil
 }
 func (*additionalProjectAPI) CreateInvite(context.Context, string, int, int) (hosted.Invite, error) {
@@ -340,3 +340,149 @@ func (c *recordingCreds) Put(_ context.Context, account, _ string) error {
 }
 func (c *recordingCreds) Get(context.Context, string) (string, error) { return c.token, nil }
 func (c *recordingCreds) Delete(context.Context, string) error        { return nil }
+
+// promotionAPI is a destination server for a Project being moved onto it.
+// createErr is what the create call answers, so the tests can drive the one
+// case that actually needs care: the identifier already being taken.
+type promotionAPI struct {
+	deviceID  string
+	owned     []hosted.Project
+	createErr error
+	created   hosted.NewProject
+	invited   string
+}
+
+func (api *promotionAPI) CreateProject(_ context.Context, project hosted.NewProject) (hosted.Project, error) {
+	api.created = project
+	if api.createErr != nil {
+		return hosted.Project{}, api.createErr
+	}
+	return hosted.Project{ID: project.ID, Label: project.Label}, nil
+}
+func (api *promotionAPI) CreateInvite(_ context.Context, projectID string, _, _ int) (hosted.Invite, error) {
+	api.invited = projectID
+	return hosted.Invite{ID: "inv_fixture", Secret: "fixture-secret"}, nil
+}
+func (*promotionAPI) Enroll(context.Context, string, string, string, string, string) (hosted.Enrollment, error) {
+	return hosted.Enrollment{}, errors.New("a promotion never enrolls")
+}
+func (*promotionAPI) JoinProject(context.Context, string, string, string, string, string) (hosted.Membership, error) {
+	return hosted.Membership{}, errors.New("a promotion never joins")
+}
+func (api *promotionAPI) Bootstrap(context.Context) (hosted.Bootstrap, error) {
+	return hosted.Bootstrap{DeviceID: api.deviceID, Projects: api.owned}, nil
+}
+func (*promotionAPI) CreateDashboardTicket(context.Context, string) (hosted.DashboardTicket, error) {
+	return hosted.DashboardTicket{Ticket: "dashboard-ticket-fixture"}, nil
+}
+func (*promotionAPI) RevokeDevice(context.Context, string) error { return nil }
+
+// mapCreds behaves like the real credential store: an account that was never
+// written answers empty. recordingCreds returns the same token for every
+// account, which would hide the in-flight credential lookup entirely.
+type mapCreds struct {
+	values  map[string]string
+	deleted []string
+}
+
+func newMapCreds() *mapCreds { return &mapCreds{values: map[string]string{}} }
+func (c *mapCreds) Put(_ context.Context, account, secret string) error {
+	c.values[account] = secret
+	return nil
+}
+func (c *mapCreds) Get(_ context.Context, account string) (string, error) {
+	return c.values[account], nil
+}
+func (c *mapCreds) Delete(_ context.Context, account string) error {
+	c.deleted = append(c.deleted, account)
+	delete(c.values, account)
+	return nil
+}
+
+const promotedProject = "prj_0123456789abcdef0123456789abcdef"
+
+func promotionService(api *promotionAPI, creds CredentialStore, rebind func(context.Context, string, string, string, string) error) Service {
+	return Service{
+		// A profile with only local Projects has never used this server, so the
+		// backend it targets carries no device identity yet.
+		Backend: config.Backend{ID: config.BackendID("https://api.overgent.com"), APIBaseURL: "https://api.overgent.com", Kind: config.KindTeam},
+		Client:  func(string) (API, error) { return api, nil },
+		Creds:   creds,
+		Rebind:  rebind,
+	}
+}
+
+// The move a local Project makes when it is shared. It keeps its identifier -
+// that is the whole mechanism - and the credential is written before the
+// Project is created, so a crash in between leaves something to recover with.
+func TestPromoteReusesTheProjectIdentifierAndStoresTheCredentialFirst(t *testing.T) {
+	api := &promotionAPI{deviceID: "dev_promoted", owned: []hosted.Project{{ID: promotedProject}}}
+	creds := newMapCreds()
+	var reboundProject, reboundOrigin, reboundDevice string
+	service := promotionService(api, creds, func(_ context.Context, _, projectID, apiBaseURL, deviceID string) error {
+		reboundProject, reboundOrigin, reboundDevice = projectID, apiBaseURL, deviceID
+		return nil
+	})
+	result, err := service.Promote(context.Background(), Options{ConfigRoot: t.TempDir(), ProjectLabel: "Atlas", DeviceLabel: "This Mac"}, promotedProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.created.ID != promotedProject {
+		t.Fatalf("the Project was re-created under a different identifier: %q", api.created.ID)
+	}
+	if reboundProject != promotedProject || reboundOrigin != "https://api.overgent.com" || reboundDevice != "dev_promoted" {
+		t.Fatalf("rebind(%q, %q, %q)", reboundProject, reboundOrigin, reboundDevice)
+	}
+	if result.ProjectID != promotedProject || result.JoinCode != "inv_fixture.fixture-secret" {
+		t.Fatalf("result = %+v", result)
+	}
+	// Held under the device it belongs to, and no longer under the name it was
+	// parked at while that device had no name.
+	if creds.values["dev_promoted"] == "" {
+		t.Fatal("the device credential was not stored")
+	}
+	if _, held := creds.values[pendingPromotionAccount(promotedProject)]; held {
+		t.Fatal("the in-flight credential outlived the move it was insurance for")
+	}
+}
+
+// The failure the whole design is for: the Project was created on the
+// destination and then something went wrong before the profile was repointed.
+// Running the move again must recognise its own earlier attempt and finish it,
+// rather than reporting an identifier clash with itself - which would strand
+// the Project permanently, because the identifier can never be reused.
+func TestPromoteResumesItsOwnInterruptedAttempt(t *testing.T) {
+	api := &promotionAPI{deviceID: "dev_promoted", owned: []hosted.Project{{ID: promotedProject}}, createErr: hosted.ErrProjectIDUnavailable}
+	creds := newMapCreds()
+	if err := creds.Put(context.Background(), pendingPromotionAccount(promotedProject), "credential-from-the-first-attempt"); err != nil {
+		t.Fatal(err)
+	}
+	var used string
+	service := promotionService(api, creds, func(context.Context, string, string, string, string) error { return nil })
+	service.Client = func(token string) (API, error) { used = token; return api, nil }
+	if _, err := service.Promote(context.Background(), Options{ConfigRoot: t.TempDir(), DeviceLabel: "This Mac"}, promotedProject); err != nil {
+		t.Fatalf("an interrupted move must resume: %v", err)
+	}
+	if used != "credential-from-the-first-attempt" {
+		t.Fatalf("the retry minted a new credential (%q) instead of reusing the parked one", used)
+	}
+}
+
+// The same clash, but the identifier belongs to somebody else's Project on that
+// server. Nothing local may move: this device does not own what it would be
+// pointing at.
+func TestPromoteStopsWhenTheIdentifierBelongsToSomebodyElse(t *testing.T) {
+	api := &promotionAPI{deviceID: "dev_promoted", owned: nil, createErr: hosted.ErrProjectIDUnavailable}
+	rebound := false
+	service := promotionService(api, newMapCreds(), func(context.Context, string, string, string, string) error {
+		rebound = true
+		return nil
+	})
+	_, err := service.Promote(context.Background(), Options{ConfigRoot: t.TempDir(), DeviceLabel: "This Mac"}, promotedProject)
+	if err == nil {
+		t.Fatal("a Project identifier owned by somebody else must stop the move")
+	}
+	if rebound {
+		t.Fatal("this device was pointed at a Project it does not own")
+	}
+}

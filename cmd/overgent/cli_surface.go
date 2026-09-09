@@ -90,12 +90,15 @@ var cliCommands = []cliCommand{
 		flagRepoRoot,
 		flagJSON,
 	}},
-	{Name: "join", Category: "Projects", Summary: "Join a Project from an invite", Usage: "overgent [global flags] join [--root PATH] [--json] INVITE", Flags: []cliFlag{
+	{Name: "connect", Category: "Projects", Summary: "Connect this checkout to a Project you were invited to", Usage: "overgent [global flags] connect [--root PATH] [--json] INVITE\n  overgent [global flags] join [--root PATH] [--json] INVITE", Flags: []cliFlag{
 		flagDevice,
 		flagRepoRoot,
 		flagJSON,
 	}},
-	{Name: "projects", Category: "Projects", Summary: "List Projects registered on this device", Usage: "overgent [global flags] projects [--json]", Flags: []cliFlag{flagJSON}},
+	{Name: "projects", Category: "Projects", Summary: "List Projects registered on this device, or disconnect one from it", Usage: "overgent [global flags] projects [--json]\n  overgent [global flags] projects disconnect [--project ID] [--json]", Subcommands: []string{"disconnect"}, Flags: []cliFlag{
+		{"--project", "Project to disconnect (default: the one this directory belongs to)"},
+		flagJSON,
+	}},
 	{Name: "workspace", Category: "Projects", Summary: "List or register local checkouts", Usage: "overgent [global flags] workspace list\n  overgent [global flags] workspace add [flags]", Subcommands: []string{"list", "add"}, Flags: []cliFlag{
 		{"--id", "Workspace id to register"},
 		{"--project", "Project id this checkout belongs to"},

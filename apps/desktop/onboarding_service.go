@@ -472,9 +472,15 @@ func (service *OnboardingService) addProject(request EnrollmentRequest, local, j
 	if err != nil {
 		return EnrollmentResult{}, err
 	}
+	// One repository coordinates one Project, so a second connection has to be
+	// refused - but the refusal used to name neither the repository nor the
+	// Project holding it, which made it unreadable in the case it was actually
+	// hit: a member accepting an invite in a checkout they had already connected
+	// to a Project of their own, sometimes one they had since deleted. Naming
+	// both, and the way out, is the difference between a dead end and a step.
 	for _, workspace := range cfg.Workspaces {
 		if workspace.Root == root {
-			return EnrollmentResult{}, errors.New("this repository is already connected to a Project")
+			return EnrollmentResult{}, fmt.Errorf("%s is already connected to Project %s. Disconnect it from that Project first, or choose a different repository", filepath.Base(root), workspace.ProjectID)
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -570,6 +576,137 @@ func (service *OnboardingService) resolveOrigin(ctx context.Context, paths confi
 //
 // The backend origin and device identity travel with the call because the
 // Project may be the first one this profile has on that server.
+// PromoteProject moves a local Project onto a shared server, so it can be
+// worked on with somebody else.
+//
+// This is what "local first" costs, and it is deliberately the only moment it
+// is paid: a Project is private to this Mac until the member wants a second
+// person in it, and then it moves rather than being recreated. It keeps its
+// identifier, its repositories, and its agent bindings; the coordination record
+// does not travel, because the new server learns the current state from the
+// next scan.
+//
+// The returned join code is the point of the exercise - the member promoted
+// this Project in order to hand somebody an invite - so it is minted here
+// rather than making them go and find the People screen afterwards.
+func (service *OnboardingService) PromoteProject(projectID, serverOrigin, displayName string) (EnrollmentResult, error) {
+	if service.configRoot == "" {
+		return EnrollmentResult{}, errors.New("local Overgent configuration is unavailable")
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	projectID = strings.TrimSpace(projectID)
+	current, bound := cfg.BackendForProject(projectID)
+	if !bound {
+		return EnrollmentResult{}, errors.New("this Project is not registered on this Mac")
+	}
+	if current.Kind != config.KindLocal {
+		return EnrollmentResult{}, errors.New("this Project is already on a shared server")
+	}
+	held := cfg.WorkspacesForProject(projectID)
+	if len(held) == 0 {
+		return EnrollmentResult{}, errors.New("this Project has no repository on this Mac")
+	}
+	origin := strings.TrimSpace(serverOrigin)
+	if origin == "" {
+		origin = service.apiBaseURL
+	}
+	if displayName, err = boundedDisplayName(displayName); err != nil {
+		return EnrollmentResult{}, err
+	}
+	if displayName == "" {
+		displayName = service.rememberedDisplayName()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	flow := onboarding.New(cfg.BackendTarget(origin))
+	flow.Rebind = service.hotRebind(paths)
+	result, err := flow.Promote(ctx, onboarding.Options{
+		ConfigRoot: service.configRoot, ProjectLabel: boundedLabel("", filepath.Base(held[0].Root)),
+		DeviceLabel: boundedLabel("", defaultDeviceLabel()), DisplayName: displayName,
+		AppVersion: "overgent/desktop-beta",
+	}, projectID)
+	if err != nil {
+		return EnrollmentResult{}, err
+	}
+	// The profile now names a server it did not a moment ago, and every cached
+	// answer about this Project describes the backend it has left.
+	service.forgetCredentialHealth()
+	service.rememberDisplayName(displayName)
+	var warnings []string
+	if serviceErr := service.ensureService(ctx); serviceErr != nil {
+		warnings = append(warnings, "Background service: "+serviceErr.Error())
+	}
+	return EnrollmentResult{ProjectID: result.ProjectID, JoinCode: result.JoinCode, Warnings: warnings}, nil
+}
+
+// hotRebind moves a Project through the running service, so its repositories
+// keep being observed across the move and the new backend is introduced to them
+// immediately rather than at the next launch.
+func (service *OnboardingService) hotRebind(paths config.Paths) func(context.Context, string, string, string, string) error {
+	return func(rebindContext context.Context, configRoot, projectID, apiBaseURL, deviceID string) error {
+		response, callErr := daemon.Call(rebindContext, paths.Socket, daemon.Request{
+			Method: "rebind_project_backend", ProjectID: projectID, APIBaseURL: apiBaseURL, DeviceID: deviceID,
+		})
+		if callErr == nil {
+			if !response.OK {
+				return errors.New(response.Error)
+			}
+			return nil
+		}
+		_, err := app.RebindProject(rebindContext, configRoot, projectID, apiBaseURL, deviceID)
+		return err
+	}
+}
+
+// DisconnectProject forgets one Project on this Mac and returns the state the
+// window should render next.
+//
+// It is what the dashboard calls once a Project has been deleted on the server,
+// or once this member has left one. Without it the deletion only ever landed on
+// the server: the repository stayed registered here, so the Project was still
+// in this Mac's list, its repository was still watched and still publishing,
+// and connecting that repository to another Project was refused as already
+// connected. Quitting and reopening the app was the only thing that cleared the
+// screen, and even that left the registration behind.
+//
+// Disconnecting a Project that the server still has is a legitimate call too -
+// it is "stop coordinating this repository from this Mac" - so this deliberately
+// does not ask the server for permission. It removes nothing on the server and
+// no other member is affected.
+//
+// The running service is asked first so live observation stops now rather than
+// at the next launch; a stopped service falls back to editing the profile
+// directly, exactly as enrollment does.
+func (service *OnboardingService) DisconnectProject(projectID string) (OnboardingState, error) {
+	if service.configRoot == "" {
+		return OnboardingState{}, errors.New("local Overgent configuration is unavailable")
+	}
+	paths, err := config.Resolve(service.configRoot)
+	if err != nil {
+		return OnboardingState{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	response, callErr := daemon.Call(ctx, paths.Socket, daemon.Request{Method: "remove_project_workspaces", ProjectID: strings.TrimSpace(projectID)})
+	if callErr == nil {
+		if !response.OK {
+			return OnboardingState{}, errors.New(response.Error)
+		}
+		return service.State()
+	}
+	if _, err = app.Deregister(ctx, service.configRoot, strings.TrimSpace(projectID)); err != nil {
+		return OnboardingState{}, err
+	}
+	return service.State()
+}
+
 func (service *OnboardingService) hotRegister(paths config.Paths) func(context.Context, string, string, string, config.Workspace) error {
 	return func(registerContext context.Context, configRoot, apiBaseURL, deviceID string, workspace config.Workspace) error {
 		response, callErr := daemon.Call(registerContext, paths.Socket, daemon.Request{

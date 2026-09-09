@@ -11,7 +11,7 @@ import (
 
 type resetAPI struct{ bootstrapErr error }
 
-func (a *resetAPI) CreateProject(context.Context, string, string, string, string) (hosted.Project, error) {
+func (a *resetAPI) CreateProject(context.Context, hosted.NewProject) (hosted.Project, error) {
 	return hosted.Project{}, errors.New("unused")
 }
 func (a *resetAPI) CreateInvite(context.Context, string, int, int) (hosted.Invite, error) {

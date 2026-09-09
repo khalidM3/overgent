@@ -8,6 +8,8 @@ import {
   readFidelityOf,
   readFidelityRank,
   ValidationError,
+  expectGeneratedId,
+  publicId,
   assertCanonicalManifestOrder,
   canActivateManifestRevision,
   RETENTION_TABLES,
@@ -517,5 +519,43 @@ describe("manifestPlaceholder", () => {
     // And nothing about an ordinary workstream resembles the placeholder.
     expect(manifestPlaceholder({ title: "Rotate the browser session", intendedOutcome: "Rotate it" })).toBe(false);
     expect(manifestPlaceholder({ title: "Rotate the browser session" })).toBe(false);
+  });
+});
+
+// The one identifier a caller supplies rather than receives, so it is the one
+// place a bad or borrowed value can reach the database. Every Project lookup
+// reads by_public_id with .unique(), which throws on more than one match, so a
+// second row under an existing identifier would not create an ambiguity - it
+// would stop the Project that was already there from resolving at all.
+//
+// Requiring exactly the generated shape is what keeps that from being worth
+// attempting: there is nothing readable to squat, and an identifier long enough
+// to be unguessable is one a caller can only present if it was already given.
+describe("expectGeneratedId", () => {
+  it("accepts the shape publicId emits, for the prefix asked for", () => {
+    const id = publicId("prj");
+    expect(expectGeneratedId(id, "prj")).toBe(id);
+  });
+
+  it("refuses a readable name, a foreign prefix, and anything that is not the generated shape", () => {
+    for (const [value, prefix] of [
+      ["prj_acme", "prj"],
+      ["prj_ACME0123456789abcdef0123456789ab", "prj"],
+      ["prj_0123456789abcdef0123456789abcde", "prj"],
+      ["prj_0123456789abcdef0123456789abcdef0", "prj"],
+      ["prj_0123456789abcdef0123456789abcdeg", "prj"],
+      [publicId("mem"), "prj"],
+      ["", "prj"],
+      [undefined, "prj"],
+      [42, "prj"],
+    ] as const) {
+      expect(() => expectGeneratedId(value, prefix)).toThrow(ValidationError);
+    }
+  });
+
+  // A prefix is not a substring match: "prj" must not accept an identifier
+  // whose prefix merely starts with it.
+  it("refuses a prefix that only shares an opening", () => {
+    expect(() => expectGeneratedId(publicId("prjx"), "prj")).toThrow(ValidationError);
   });
 });

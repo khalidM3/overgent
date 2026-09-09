@@ -495,3 +495,114 @@ CREATE TABLE workspaces(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,workstream_
 		t.Fatalf("an unspecified backend erased the binding: %q", backendID)
 	}
 }
+
+// The flush and heartbeat loops read their work from this store rather than
+// from the configuration, so a row surviving a disconnect is not cosmetic: it
+// goes on publishing a repository to a Project that no longer exists. This
+// asserts the workspace and its queued work are gone, and that the Project
+// beside it is untouched.
+func TestDeleteWorkspaceRemovesEveryRowKeyedToIt(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, workspace := range []Workspace{
+		{ID: "wsp_gone", ProjectID: "prj_gone", WorkstreamID: "wrk_gone", MemberID: "mem_one", DeviceID: "dev_one", SessionID: "ses_gone", Root: "/gone", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"},
+		{ID: "wsp_kept", ProjectID: "prj_kept", WorkstreamID: "wrk_kept", MemberID: "mem_one", DeviceID: "dev_one", SessionID: "ses_kept", Root: "/kept", Baseline: strings.Repeat("b", 40), Fingerprint: "opaque"},
+	} {
+		if err = s.UpsertWorkspace(ctx, workspace); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = s.EnqueueEvent(ctx, "wsp_gone", "evt_gone", "manual", "workstream.intent_reported", map[string]any{"workstreamId": "wrk_gone"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RecordAgentObservation(ctx, "wsp_gone", "codex", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DeleteWorkspace(ctx, "wsp_gone"); err != nil {
+		t.Fatal(err)
+	}
+	workspaces, err := s.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 1 || workspaces[0].ID != "wsp_kept" {
+		t.Fatalf("workspaces = %+v", workspaces)
+	}
+	for _, table := range []string{"workstreams", "event_queue", "cursors", "agent_observations", "contract_fingerprints", "session_read_sets", "manifests", "idempotency_keys", "agent_sessions"} {
+		var remaining int
+		if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE workspace_id=?`, "wsp_gone").Scan(&remaining); err != nil {
+			t.Fatalf("%s: %v", table, err)
+		}
+		if remaining != 0 {
+			t.Fatalf("%s still holds %d row(s) for a disconnected workspace", table, remaining)
+		}
+	}
+	var kept int
+	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM workstreams WHERE workspace_id=?`, "wsp_kept").Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept == 0 {
+		t.Fatal("the workspace beside it lost its workstream")
+	}
+	if err = s.DeleteWorkspace(ctx, ""); err == nil {
+		t.Fatal("an empty workspace id must be refused rather than clearing everything")
+	}
+}
+
+// A repository that moves to a new backend has never been seen by it. Only a
+// "workspace.registered" event introduces it, that event is sent once, and
+// registration_enqueued is the flag that remembers it was - so a move that left
+// the flag set would leave the repository publishing events the new backend
+// refuses with workspace_not_registered, forever.
+func TestRebindWorkspaceMakesTheRepositoryIntroduceItselfToTheNewBackend(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	original := Workspace{ID: "wsp_moving", ProjectID: "prj_moving", WorkstreamID: "wrk_moving", MemberID: "mem_one", DeviceID: "dev_local", SessionID: "ses_moving", Root: "/moving", Baseline: strings.Repeat("a", 40), Fingerprint: "opaque", BackendID: "bk_local"}
+	if err = s.UpsertWorkspace(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	// The registration the local backend already received, plus work queued for
+	// it that the new backend has no way to place.
+	if err = s.EnqueueEvent(ctx, "wsp_moving", "evt_local", "manual", "workstream.intent_reported", map[string]any{"workstreamId": "wrk_moving"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Pending(ctx)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("pending=%d err=%v", len(before), err)
+	}
+
+	if err = s.RebindWorkspace(ctx, "wsp_moving", "dev_cloud", "bk_cloud"); err != nil {
+		t.Fatal(err)
+	}
+	moved := original
+	moved.DeviceID, moved.BackendID = "dev_cloud", "bk_cloud"
+	if err = s.UpsertWorkspace(ctx, moved); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := s.Pending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Kind != "workspace.registered" {
+		t.Fatalf("the queue must hold exactly the introduction to the new backend: %+v", pending)
+	}
+	stored, err := s.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 || stored[0].BackendID != "bk_cloud" || stored[0].DeviceID != "dev_cloud" {
+		t.Fatalf("workspace = %+v", stored)
+	}
+	if err = s.RebindWorkspace(ctx, "wsp_absent", "dev_cloud", "bk_cloud"); err == nil {
+		t.Fatal("rebinding a workspace that is not registered must be refused")
+	}
+}

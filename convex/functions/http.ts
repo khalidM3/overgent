@@ -6,6 +6,7 @@ import {
   LIMITS,
   ValidationError,
   expectExactKeys,
+  expectGeneratedId,
   expectId,
   expectInteger,
   expectObject,
@@ -30,13 +31,23 @@ http.route({ path: "/v1/projects", method: "POST", handler: httpAction(async (ct
   if (token.length < 64) throw new HttpFailure("unauthorized", 401);
   await consumeEdgeRate(ctx, requestRateKey(request, "projects.create"), "projects.create", 5);
   const body = expectObject(await readJson(request));
-  expectExactKeys(body, ["label", "deviceLabel"], ["displayName", "appVersion"]);
+  expectExactKeys(body, ["label", "deviceLabel"], ["displayName", "appVersion", "projectId"]);
   const label = expectString(body.label, 1, 120);
   const deviceLabel = expectString(body.deviceLabel, 1, 120);
   const displayName = body.displayName === undefined ? undefined : expectString(body.displayName, 2, 60);
+  // A caller may name the Project it is creating, which is what lets a Project
+  // move between deployments without changing identity. The identifier is
+  // salted into every repository fingerprint and stamped on every event
+  // envelope this device has ever queued, so a Project that arrives here under
+  // a new one is not the same Project as far as any of that evidence is
+  // concerned: its history would have to be rewritten to be replayed. Keeping
+  // the identifier is what makes moving one a change of address rather than a
+  // migration. Only the generated shape is accepted, and the mutation refuses
+  // an identifier already in use.
+  const requestedId = body.projectId === undefined ? undefined : expectGeneratedId(body.projectId, "prj");
   const project = await ctx.runMutation(internal.service.createProject, {
     tokenHash: sha256Hex(token),
-    projectPublicId: publicId("prj"),
+    projectPublicId: requestedId ?? publicId("prj"),
     memberPublicId: publicId("mem"),
     devicePublicId: publicId("dev"),
     label,
@@ -771,6 +782,7 @@ function errorMessage(code: string): string {
     invite_revoked: "That invite was revoked. Ask for a new one.",
     invite_expired: "That invite has expired. Ask for a new one.",
     invite_consumed: "That invite has already been used. Ask for a new one.",
+    project_id_unavailable: "A Project with that identifier already exists on this server.",
     internal_error: "The service could not complete the request.",
   } as Record<string, string>)[code] ?? "The request could not be completed.";
 }

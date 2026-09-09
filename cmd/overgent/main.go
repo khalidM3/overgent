@@ -190,7 +190,11 @@ func run(args []string) error {
 			WorkstreamID  string `json:"workstreamId"`
 			JoinCode      string `json:"joinCode"`
 		}{cliOutputSchemaVersion, result.ProjectID, result.DeviceID, result.WorkspaceID, result.WorkstreamID, result.JoinCode})
-	case "join":
+	// "connect" is what this actually does: it links a checkout on this machine
+	// to a Project that already exists. "join" is kept because it is in every
+	// invite already sent and in every version of the docs, and breaking those
+	// to rename a verb would be a poor trade.
+	case "connect", "join":
 		joinFlags := flag.NewFlagSet("join", flag.ContinueOnError)
 		deviceLabel := joinFlags.String("device-label", "", "device label shared with Project members")
 		repository := joinFlags.String("root", ".", "Git repository root")
@@ -1079,9 +1083,12 @@ func repositoryAvailable(cfg config.Config, repository string) error {
 	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
 		root = resolved
 	}
+	// Named rather than bare, for the same reason the desktop's copy is: the
+	// member hitting this is holding an invite, and "already connected" without
+	// a Project to look up is not something they can act on.
 	for _, workspace := range cfg.Workspaces {
 		if workspace.Root == root {
-			return errors.New("this repository is already connected to a Project")
+			return fmt.Errorf("%s is already connected to Project %s; run `overgent projects disconnect --project %s` to release it, or choose a different repository", filepath.Base(root), workspace.ProjectID, workspace.ProjectID)
 		}
 	}
 	return nil

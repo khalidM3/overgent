@@ -24,6 +24,13 @@ func TestClientUsesVersionedContractAndBearer(t *testing.T) {
 		if _, present := body["displayName"]; present {
 			t.Fatalf("unchosen display name must not be sent: %#v", body)
 		}
+		// An ordinary creation asks the server to issue an identifier. Sending
+		// an empty one would be a request to name the Project "", which the
+		// server refuses - so absence, not emptiness, is what must go on the
+		// wire.
+		if _, present := body["projectId"]; present {
+			t.Fatalf("an ordinary creation must not name its own identifier: %#v", body)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"prj_fixture","label":"Fixture"}`))
@@ -33,7 +40,7 @@ func TestClientUsesVersionedContractAndBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := client.CreateProject(context.Background(), "Fixture", "Device", "", "overgent/test")
+	project, err := client.CreateProject(context.Background(), NewProject{Label: "Fixture", DeviceLabel: "Device", AppVersion: "overgent/test"})
 	if err != nil || project.ID != "prj_fixture" {
 		t.Fatalf("project=%#v err=%v", project, err)
 	}
@@ -152,7 +159,7 @@ func TestClientSendsChosenDisplayNameSeparatelyFromDeviceLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.CreateProject(context.Background(), "Fixture", "Khalid's MacBook", "Khalid M", "overgent/test"); err != nil {
+	if _, err := client.CreateProject(context.Background(), NewProject{Label: "Fixture", DeviceLabel: "Khalid's MacBook", DisplayName: "Khalid M", AppVersion: "overgent/test"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -209,5 +216,34 @@ func TestAPIErrorFallsBackAndBoundsTheServiceSentence(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "hosted API invite_invalid (409)") {
 			t.Fatalf("%s: expected the coded fallback, got %v", name, err)
 		}
+	}
+}
+
+// A Project keeps its identifier when it is re-created on a second backend,
+// because that identifier is salted into every repository fingerprint and
+// stamped on every event envelope the device has already queued. Sending it is
+// what makes moving a Project a change of address rather than a migration.
+func TestCreateProjectCarriesAReusedIdentifierWhenOneIsHeld(t *testing.T) {
+	var observed map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&observed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"prj_0123456789abcdef0123456789abcdef","label":"Fixture"}`))
+	}))
+	defer server.Close()
+	client, err := New(server.URL, "fixture-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := client.CreateProject(context.Background(), NewProject{Label: "Fixture", DeviceLabel: "Device", AppVersion: "overgent/test", ID: "prj_0123456789abcdef0123456789abcdef"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed["projectId"] != "prj_0123456789abcdef0123456789abcdef" {
+		t.Fatalf("the held identifier was not sent: %#v", observed)
+	}
+	if project.ID != "prj_0123456789abcdef0123456789abcdef" {
+		t.Fatalf("the server answered with a different Project: %#v", project)
 	}
 }

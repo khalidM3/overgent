@@ -96,3 +96,50 @@ func TestWatchBudgetStopsRegistrationInsteadOfExhaustingDescriptors(t *testing.T
 		t.Fatalf("watched %d directories under a budget of 2", got)
 	}
 }
+
+// The Watcher only ever grew before Remove existed, so a repository
+// disconnected while the service was running kept a descriptor on every
+// directory in it — and kept waking the scanner on edits to a repository
+// Overgent no longer coordinates — until the service was restarted. Releasing
+// one root must leave the root beside it whole, and must return the budget it
+// was holding so a later Add can use it.
+func TestRemoveReleasesOneRootAndReturnsItsBudget(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	for _, dir := range []string{filepath.Join(first, "src"), filepath.Join(second, "src")} {
+		if e := os.Mkdir(dir, 0o700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	w, e := New(time.Hour, func(context.Context, bool) {})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer w.w.Close()
+	if e = w.Add(first, nil); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.Add(second, nil); e != nil {
+		t.Fatal(e)
+	}
+	watched := w.watched
+	if released := w.Remove(first); released != 2 {
+		t.Fatalf("released %d directories, want the root and its one child", released)
+	}
+	if w.watched != watched-2 {
+		t.Fatalf("watched budget = %d, want %d", w.watched, watched-2)
+	}
+	for _, path := range w.w.WatchList() {
+		if path == first || filepath.Dir(path) == first {
+			t.Fatalf("%s is still watched after its root was removed", path)
+		}
+	}
+	if len(w.w.WatchList()) != 2 {
+		t.Fatalf("the root beside it lost watches: %v", w.w.WatchList())
+	}
+	if w.ignorerFor(filepath.Join(first, "src")) != nil {
+		t.Fatal("a removed root still claims paths under it")
+	}
+	if released := w.Remove(first); released != 0 {
+		t.Fatalf("removing an already-removed root released %d", released)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/khalidM3/overgent/internal/hosted"
 	"github.com/khalidM3/overgent/internal/sessiontranscript"
 	"github.com/khalidM3/overgent/internal/store"
+	"github.com/khalidM3/overgent/internal/watcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1446,4 +1447,163 @@ func TestCodexBackgroundThreadsNeverBecomeSessions(t *testing.T) {
 	if health.Data.(map[string]any)["codexBackgroundThreads"].(int64) != 1 {
 		t.Fatalf("dropped background threads must be reportable: %#v", health.Data)
 	}
+}
+
+// A Project deleted on the server used to leave every local trace of it in
+// place: the repository stayed registered, the service kept watching it, and
+// the queued events kept trying to publish to a Project that no longer existed.
+// This is the whole disconnect, driven the way the running service drives it -
+// configuration, watcher, and store together - with a second Project on the
+// same backend present to prove the backend and its neighbour survive.
+func TestRemoveProjectWorkspacesForgetsOneProjectAndLeavesItsNeighbour(t *testing.T) {
+	ctx := context.Background()
+	state := t.TempDir()
+	// Registration canonicalises the root through EvalSymlinks, and a macOS
+	// temp directory is a symlink, so the comparisons below have to use the
+	// same canonical form the profile stores.
+	gone, kept := canonical(t, makeRepo(t)), canonical(t, makeRepo(t))
+	for _, workspace := range []struct {
+		config.Workspace
+		root string
+	}{
+		{config.Workspace{ID: "wsp_gone", ProjectID: "prj_gone", WorkstreamID: "wrk_gone", MemberID: "mem_one", SessionID: "ses_gone"}, gone},
+		{config.Workspace{ID: "wsp_kept", ProjectID: "prj_kept", WorkstreamID: "wrk_kept", MemberID: "mem_one", SessionID: "ses_kept"}, kept},
+	} {
+		entry := workspace.Workspace
+		entry.Root = workspace.root
+		if err := Register(ctx, state, "http://127.0.0.1:43103", "dev_local", entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := config.Resolve(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, workspace := range cfg.Workspaces {
+		backend, _ := cfg.BackendForWorkspace(workspace)
+		if err = db.UpsertWorkspace(ctx, store.Workspace{ID: workspace.ID, ProjectID: workspace.ProjectID, WorkstreamID: workspace.WorkstreamID, MemberID: workspace.MemberID, DeviceID: backend.DeviceID, SessionID: workspace.SessionID, Root: workspace.Root, Baseline: workspace.Baseline, Fingerprint: workspace.Fingerprint, BackendID: backend.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	watch, err := watcher.New(time.Hour, func(context.Context, bool) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{gone, kept} {
+		if err = watch.Add(root, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := &Service{paths: paths, store: db, cfg: cfg, watch: watch}
+
+	if _, err = service.removeProjectWorkspaces(ctx, "prj_missing"); err == nil {
+		t.Fatal("disconnecting a Project this device does not hold must be refused")
+	}
+	cleared, err := service.removeProjectWorkspaces(ctx, "prj_gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cleared) != 1 || cleared[0].Root != gone {
+		t.Fatalf("cleared = %+v", cleared)
+	}
+
+	// Saved, not just held in memory: the disconnect has to survive the restart
+	// that used to be the only way to get this far.
+	saved, err := config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Workspaces) != 1 || saved.Workspaces[0].ID != "wsp_kept" {
+		t.Fatalf("saved workspaces = %+v", saved.Workspaces)
+	}
+	if len(saved.Backends) != 1 {
+		t.Fatalf("the shared backend was taken down with the Project: %+v", saved.Backends)
+	}
+	workspaces, err := db.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 1 || workspaces[0].ID != "wsp_kept" {
+		t.Fatalf("stored workspaces = %+v", workspaces)
+	}
+	for _, watched := range watch.WatchList() {
+		if watched == gone || strings.HasPrefix(watched, gone+string(filepath.Separator)) {
+			t.Fatalf("%s is still watched after its Project was disconnected", watched)
+		}
+	}
+	if len(watch.WatchList()) == 0 {
+		t.Fatal("the Project beside it stopped being watched too")
+	}
+}
+
+// The stopped-service half of the same act. It has to reach the store as well
+// as the configuration, because the publish loops read their work from the
+// store: a row left here would resume publishing on the next launch.
+func TestDeregisterClearsTheStoreAsWellAsTheProfile(t *testing.T) {
+	ctx := context.Background()
+	state := t.TempDir()
+	root := canonical(t, makeRepo(t))
+	if err := Register(ctx, state, "http://127.0.0.1:43103", "dev_local", config.Workspace{ID: "wsp_only", ProjectID: "prj_only", WorkstreamID: "wrk_only", MemberID: "mem_one", SessionID: "ses_only", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := config.Resolve(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(paths.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.UpsertWorkspace(ctx, store.Workspace{ID: "wsp_only", ProjectID: "prj_only", WorkstreamID: "wrk_only", MemberID: "mem_one", DeviceID: "dev_local", SessionID: "ses_only", Root: root, Baseline: strings.Repeat("a", 40), Fingerprint: "opaque"}); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	cleared, err := Deregister(ctx, state, "prj_only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cleared) != 1 || cleared[0].Root != root {
+		t.Fatalf("cleared = %+v", cleared)
+	}
+	saved, err := config.Load(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Workspaces) != 0 || len(saved.Projects) != 0 {
+		t.Fatalf("profile still holds the Project: %+v", saved)
+	}
+	reopened, err := store.Open(paths.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	workspaces, err := reopened.Workspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("stored workspaces = %+v", workspaces)
+	}
+	if _, err = Deregister(ctx, state, "prj_only"); err == nil {
+		t.Fatal("disconnecting a Project twice must be refused rather than silently succeeding")
+	}
+}
+
+func canonical(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
