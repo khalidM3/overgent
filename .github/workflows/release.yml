@@ -91,7 +91,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libgtk-3-dev libwebkit2gtk-4.1-dev
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: backend-push, path: apps/desktop/build }
       - name: Fetch this platform's bundled backend
         run: node scripts/fetch-backend.mjs
@@ -179,14 +179,14 @@ jobs:
       # shape with no announcement. Replaying the fresh payload against a fresh
       # backend here means a broken pin fails the release instead of reaching a
       # member as an app that starts and then coordinates nothing.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: backend-push, path: apps/desktop/build }
       # Outside the working copy on purpose: goreleaser refuses to release from
       # a dirty tree, and an untracked directory in the repository root is
       # exactly that.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: desktop-linux, path: "${{ runner.temp }}/staged-desktop/linux" }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: desktop-windows, path: "${{ runner.temp }}/staged-desktop/windows" }
       - name: Take the shared backend payload and this runner's backend
         run: |
