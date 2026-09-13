@@ -54,7 +54,7 @@ jobs:
           wait "$BACKEND_PID" 2>/dev/null || true
           trap - EXIT
           go run ./cmd/overgent backend verify --binary "$BACKEND" --bundle apps/desktop/build/backend-push.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: backend-push
           path: apps/desktop/build/backend-push.json
@@ -102,7 +102,7 @@ jobs:
           OVERGENT_UPDATE_PUBLIC_KEY: "${{ vars.OVERGENT_UPDATE_PUBLIC_KEY }}"
           OVERGENT_BUILD_NUMBER: "${{ github.run_number }}"
         run: pnpm desktop:build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
           path: apps/desktop/build/bin/${{ matrix.staged }}
