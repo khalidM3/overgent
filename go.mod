@@ -13,7 +13,7 @@ require (
 	modernc.org/sqlite v1.46.1
 )
 
-require github.com/andybalholm/brotli v1.2.3
+require github.com/andybalholm/brotli v1.2.6
 
 require github.com/godbus/dbus/v5 v5.2.2
 
