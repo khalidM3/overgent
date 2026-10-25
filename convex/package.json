@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@overgent/coordination": "workspace:*",
-    "convex": "1.45.0"
+    "convex": "1.47.0"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
